@@ -23,13 +23,16 @@ import { Paula } from './paula';
  *   - Vibrato/tremolo waveform select (E4x/E7x): sine, ramp, square
  *     (PT2.3D quirk: value 3 also = square. PT bug: ramp tremolo uses
  *     vibratoPos for the half check — preserved.)
+ *   - Invert-loop / FunkRepeat (EFy): bit-inverts loop-region bytes in place
+ *     at the funk-table rate. Note: destructive modification of sample data,
+ *     matching pt2-clone — re-parse the module for clean playback.
  *   - Hard-panned LRRL with mid/side stereo separation (default 20% per pt2-clone)
  *   - Pattern break / position jump / pattern loop (E6x) / pattern delay (EEx)
  *   - Song-end detection via (order, row) revisit set
  *   - CIA-timer-based tick scheduling with fractional accumulation
  *
  * Not implemented:
- *   - 8xy panning, EFx invert loop
+ *   - 8xy panning (intentional: PT2.3D ignores it; tested by 06-panning)
  */
 
 /** PT sine table — 32 entries, positive half. Sign comes from phase bit 5. */
@@ -76,6 +79,12 @@ interface ChannelState {
   /** Glissando flag (E3x). When true, tone portamento writes the snapped
    *  semitone period to Paula; basePeriod itself stays smooth. */
   glissando: boolean;
+  /** Invert-loop / funkrepeat (EFy): high-nibble of pt2-clone's n_glissfunk. */
+  funkSpeed: number;
+  funkOffset: number;
+  /** Byte index into the active sample's data; the next byte to be inverted
+   *  by updateFunk. Initialized at note trigger to the loop start. */
+  wavestartBytes: number;
   volumeSlide: number;     // packed Axx parameter
   arpHi: number;
   arpLo: number;
@@ -145,8 +154,16 @@ function newChannel(): ChannelState {
     pendingStop: false,
     waveControl: 0,
     glissando: false,
+    funkSpeed: 0,
+    funkOffset: 0,
+    wavestartBytes: 0,
   };
 }
+
+/** EFy speed → funkOffset increment. Speed 0 disables; 1..15 ramp up. */
+const FUNK_TABLE: readonly number[] = [
+  0, 5, 6, 7, 8, 10, 11, 13, 16, 19, 22, 26, 32, 43, 64, 128,
+];
 
 export class Replayer {
   private readonly song: Song;
@@ -275,9 +292,40 @@ export class Replayer {
       if (this.state.ended) return;
       this.processRow();
     } else {
+      // pt2-clone runs updateFunk at the top of chkefx2 for every channel,
+      // unconditionally, at every non-tick-0 tick. It's not gated on the
+      // current row's cmd — once funkSpeed is set on a voice, EFy keeps
+      // ticking until cleared.
+      for (let ci = 0; ci < CHANNELS; ci++) this.updateFunk(ci);
       this.runContinuousEffects();
     }
     this.syncPaula();
+  }
+
+  /**
+   * Mirrors pt2-clone updateFunk. Increments funkOffset by FUNK_TABLE[speed];
+   * each time it overflows 128, advances wavestart (with wrap inside the
+   * loop region) and bit-inverts that sample byte in place.
+   */
+  private updateFunk(ci: number): void {
+    const ch = this.channels[ci]!;
+    if (ch.funkSpeed === 0 || ch.sampleNum === 0) return;
+    ch.funkOffset += FUNK_TABLE[ch.funkSpeed]!;
+    if (ch.funkOffset < 128) return;
+    ch.funkOffset = 0;
+
+    const sample = this.song.samples[ch.sampleNum - 1];
+    if (!sample || sample.data.byteLength === 0) return;
+    const loopStartBytes = sample.loopStartWords * 2;
+    const loopLengthBytes = sample.loopLengthWords * 2;
+    const loopEndBytes = loopStartBytes + loopLengthBytes;
+
+    let w = ch.wavestartBytes + 1;
+    if (w >= loopEndBytes) w = loopStartBytes;
+    if (w < sample.data.byteLength) {
+      sample.data[w] = ~sample.data[w]!;
+    }
+    ch.wavestartBytes = w;
   }
 
   /**
@@ -441,6 +489,9 @@ export class Replayer {
           ch.pendingTrigger = true;
           ch.pendingStartOffsetBytes = 0;
           ch.playing = true;
+          // Reset funk wavestart to the loop start (or sample start if no loop).
+          const sample = this.song.samples[ch.sampleNum - 1];
+          ch.wavestartBytes = sample ? sample.loopStartWords * 2 : 0;
         }
         // Reset vibrato/tremolo position unless the retain bit is set in the
         // matching nibble of waveControl (vibrato: bit 2; tremolo: bit 6).
@@ -568,6 +619,14 @@ export class Replayer {
         // Bit 6 (retain on note) handled in note-trigger code.
         ch.waveControl = ((y & 0x0f) << 4) | (ch.waveControl & 0x0f);
         break;
+      case ExtendedEffect.InvertLoop:
+        // EFy: set funk speed and tick the funk once at tick 0 if active.
+        // pt2-clone packs this into n_glissfunk's high nibble; we keep a
+        // dedicated field. funkIt() at tick 0 calls updateFunk once when
+        // speed > 0; subsequent ticks call updateFunk unconditionally.
+        ch.funkSpeed = y & 0x0f;
+        if (ch.funkSpeed > 0) this.updateFunk(ci);
+        break;
       case ExtendedEffect.FineSlideUp:
         ch.basePeriod = clampPeriod(ch.basePeriod - y);
         ch.period = ch.basePeriod;
@@ -640,6 +699,8 @@ export class Replayer {
           ch.pendingTrigger = true;
           ch.pendingStartOffsetBytes = 0;
           ch.playing = true;
+          const sample = this.song.samples[ch.sampleNum - 1];
+          ch.wavestartBytes = sample ? sample.loopStartWords * 2 : 0;
           if ((ch.waveControl & 0x04) === 0) ch.vibratoPos = 0;
           if ((ch.waveControl & 0x40) === 0) ch.tremoloPos = 0;
         }
