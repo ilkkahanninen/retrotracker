@@ -19,6 +19,7 @@ import { Paula } from './paula';
  * Implemented:
  *   - All standard effects 0xx..Fxx and most Exy
  *   - Amiga LED filter (E0x): pt2-clone convention E00 = on, E01 = off
+ *   - Glissando control (E3x): tone-porta snaps period to PERIOD_TABLE entries
  *   - Vibrato/tremolo waveform select (E4x/E7x): sine, ramp, square
  *     (PT2.3D quirk: value 3 also = square. PT bug: ramp tremolo uses
  *     vibratoPos for the half check — preserved.)
@@ -28,7 +29,7 @@ import { Paula } from './paula';
  *   - CIA-timer-based tick scheduling with fractional accumulation
  *
  * Not implemented:
- *   - Glissando (E3x), 8xy panning, EFx invert loop
+ *   - 8xy panning, EFx invert loop
  */
 
 /** PT sine table — 32 entries, positive half. Sign comes from phase bit 5. */
@@ -72,6 +73,9 @@ interface ChannelState {
    *  high nibble = E7x (tremolo). Bits 0..1 select waveform (sine / ramp /
    *  square; pt2-clone quirk: value 3 also = square). Bit 2 = retain on note. */
   waveControl: number;
+  /** Glissando flag (E3x). When true, tone portamento writes the snapped
+   *  semitone period to Paula; basePeriod itself stays smooth. */
+  glissando: boolean;
   volumeSlide: number;     // packed Axx parameter
   arpHi: number;
   arpLo: number;
@@ -140,6 +144,7 @@ function newChannel(): ChannelState {
     pendingStartOffsetBytes: 0,
     pendingStop: false,
     waveControl: 0,
+    glissando: false,
   };
 }
 
@@ -548,6 +553,10 @@ export class Replayer {
         // E00 turns the LED filter ON, E01 turns it OFF.
         this.paula.setLEDFilter((y & 1) === 0);
         break;
+      case ExtendedEffect.Glissando:
+        // pt2-clone: low nibble of n_glissfunk. Nonzero = on.
+        ch.glissando = (y & 0x0f) !== 0;
+        break;
       case ExtendedEffect.VibratoWaveform:
         // pt2-clone: n_wavecontrol low nibble = y. Bits 0..1 select waveform
         // (0=sine, 1=ramp, 2=square, 3=also-square per PT2.3D quirk).
@@ -722,7 +731,25 @@ export class Replayer {
     } else if (ch.basePeriod > ch.portToTarget) {
       ch.basePeriod = Math.max(ch.portToTarget, ch.basePeriod - ch.portToSpeed);
     }
-    ch.period = ch.basePeriod;
+    if (ch.glissando) {
+      // Snap the period written to Paula to the largest table entry that's
+      // still <= basePeriod. basePeriod itself stays smooth so the next
+      // slide step continues from the un-quantized position. Periods in
+      // PERIOD_TABLE are sorted descending; the first entry that satisfies
+      // basePeriod >= entry is the answer (mirrors pt2-clone search at
+      // pt2_replayer.c:698-715).
+      const table = PERIOD_TABLE[ch.finetune];
+      let i = 0;
+      if (table) {
+        while (i < 36 && ch.basePeriod < table[i]!) i++;
+        if (i >= 36) i = 35;
+        ch.period = table[i]!;
+      } else {
+        ch.period = ch.basePeriod;
+      }
+    } else {
+      ch.period = ch.basePeriod;
+    }
   }
 
   private tickVibrato(ch: ChannelState): void {
