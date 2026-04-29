@@ -12,6 +12,11 @@ export interface ReplayerOptions {
   initialSpeed?: number;
   /** Initial BPM. MOD default is 125. */
   initialTempo?: number;
+  /**
+   * Stereo separation 0..100. 100 = full Amiga hard-pan (LRRL); 0 = mono.
+   * pt2-clone defaults to 20, which is what the accuracy test bed uses.
+   */
+  stereoSeparation?: number;
 }
 
 export interface RenderOptions extends ReplayerOptions {

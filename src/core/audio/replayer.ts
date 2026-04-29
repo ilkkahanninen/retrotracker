@@ -3,28 +3,27 @@ import { CHANNELS, ROWS_PER_PATTERN } from '../mod/types';
 import {
   Effect,
   ExtendedEffect,
-  PAULA_CLOCK_NTSC,
-  PAULA_CLOCK_PAL,
   PERIOD_TABLE,
 } from '../mod/format';
 import type { ReplayerOptions } from './types';
+import { Paula } from './paula';
 
 /**
  * ProTracker M.K. replayer.
  *
  * Reference behavior: 8bitbubsy/pt2-clone. Pure (no DOM/AudioContext), so the
  * same code drives the offline accuracy test bed and the live AudioWorklet.
+ * Mixing is delegated to [Paula] (BLEP synthesis, RC + LED filters, 2× FIR
+ * downsample); this file owns tracker logic and the Paula sync.
  *
  * Implemented:
- *   - All standard effects 0xx..Fxx and most Exy (filter / glissando /
- *     waveform / invert-loop are no-ops; sine vibrato/tremolo only)
- *   - Linear-interpolated resampler (BLEP is on the roadmap for accuracy)
- *   - Hard-panned LRRL stereo (canonical Amiga channel layout)
+ *   - All standard effects 0xx..Fxx and most Exy
+ *   - Hard-panned LRRL with mid/side stereo separation (default 20% per pt2-clone)
  *   - Pattern break / position jump / pattern loop (E6x) / pattern delay (EEx)
  *   - Song-end detection via (order, row) revisit set
+ *   - CIA-timer-based tick scheduling with fractional accumulation
  *
  * Not implemented:
- *   - BLEP-resampled output (linear interp is audibly close but not bit-exact)
  *   - Amiga LED filter (E0x), glissando (E3x), non-sine vibrato (E4x/E7x)
  *   - 8xy panning, EFx invert loop
  */
@@ -42,8 +41,7 @@ const PT_AMIGA_LIMITS = { min: 113, max: 856 } as const;
 interface ChannelState {
   // Active sample
   sampleNum: number;       // 1..31; 0 = none assigned yet
-  samplePos: number;       // float byte position in sample.data
-  playing: boolean;
+  playing: boolean;        // tracker-side notion of "voice should be live"
 
   // Pitch
   period: number;          // current effective period (after vibrato)
@@ -77,6 +75,14 @@ interface ChannelState {
   // Pattern loop (per-channel)
   loopRow: number;
   loopCount: number;
+
+  // Paula DMA marshalling
+  /** Set when the tracker wants to trigger DMA on the next sync. */
+  pendingTrigger: boolean;
+  /** Sample-data byte offset at which to start DMA on next trigger (9xy). */
+  pendingStartOffsetBytes: number;
+  /** Set when the tracker wants to halt DMA on the next sync. */
+  pendingStop: boolean;
 }
 
 interface SongState {
@@ -95,7 +101,6 @@ interface SongState {
 function newChannel(): ChannelState {
   return {
     sampleNum: 0,
-    samplePos: 0,
     playing: false,
     period: 0,
     basePeriod: 0,
@@ -122,15 +127,23 @@ function newChannel(): ChannelState {
     pendingNote: null,
     loopRow: 0,
     loopCount: 0,
+    pendingTrigger: false,
+    pendingStartOffsetBytes: 0,
+    pendingStop: false,
   };
 }
 
 export class Replayer {
   private readonly song: Song;
   private readonly sampleRate: number;
-  private readonly paulaClock: number;
   private readonly channels: ChannelState[] = [];
   private readonly state: SongState;
+  private readonly paula: Paula;
+  /** Mid/side panning side coefficient: (sep% / 100) * 0.5. */
+  private readonly sideFactor: number;
+  /** Scratch buffers for Paula's double-precision output. */
+  private scratchL: Float64Array = new Float64Array(0);
+  private scratchR: Float64Array = new Float64Array(0);
 
   /** Output samples remaining until the next tick boundary. */
   private samplesUntilTick = 0;
@@ -138,7 +151,9 @@ export class Replayer {
   constructor(song: Song, opts: ReplayerOptions) {
     this.song = song;
     this.sampleRate = opts.sampleRate;
-    this.paulaClock = (opts.clock ?? 'PAL') === 'PAL' ? PAULA_CLOCK_PAL : PAULA_CLOCK_NTSC;
+    this.paula = new Paula(opts.sampleRate, 'A1200');
+    const sep = Math.max(0, Math.min(100, opts.stereoSeparation ?? 20));
+    this.sideFactor = (sep / 100) * 0.5;
     for (let i = 0; i < CHANNELS; i++) this.channels.push(newChannel());
 
     this.state = {
@@ -155,6 +170,7 @@ export class Replayer {
     };
     this.samplesUntilTick = this.samplesPerTick();
     this.processRow();
+    this.syncPaula();
   }
 
   process(left: Float32Array, right: Float32Array, frames: number, offset = 0): void {
@@ -198,9 +214,26 @@ export class Replayer {
 
   // --- scheduling ---------------------------------------------------------
 
+  /**
+   * Fractional samples-per-tick accumulator. pt2-clone uses CIA-timer-based
+   * tick scheduling: at BPM B, ticks fire at `CIA_PAL_CLK / (floor(1773447/B) + 1)` Hz.
+   * That's not exactly `B * 0.4` Hz (49.998 vs 50 at BPM 125), so we track the
+   * fractional remainder and add an extra frame periodically.
+   */
+  private tickFracAccum = 0;
+  private static readonly CIA_PAL_CLK = 709379.0; // AMIGA_PAL_CCK_HZ / 5
+
   private samplesPerTick(): number {
-    // Standard formula: tick_rate (Hz) = 0.4 * BPM, samples = sampleRate / tick_rate
-    return Math.max(1, Math.floor(this.sampleRate / (this.state.tempo * 0.4)));
+    const ciaPeriod = Math.floor(1773447 / this.state.tempo);
+    const tickHz = Replayer.CIA_PAL_CLK / (ciaPeriod + 1);
+    const exact = this.sampleRate / tickHz;
+    let n = Math.floor(exact);
+    this.tickFracAccum += exact - n;
+    if (this.tickFracAccum >= 1) {
+      n++;
+      this.tickFracAccum -= 1;
+    }
+    return Math.max(1, n);
   }
 
   private advanceTick(): void {
@@ -214,6 +247,7 @@ export class Replayer {
         // on the original tick0; subsequent repeats just continue effects.
         // Continue effects on each tick of the delay.
         this.runContinuousEffects();
+        this.syncPaula();
         return;
       }
 
@@ -222,6 +256,44 @@ export class Replayer {
       this.processRow();
     } else {
       this.runContinuousEffects();
+    }
+    this.syncPaula();
+  }
+
+  /**
+   * Push tracker channel state to Paula. Called at every tick boundary,
+   * after row/effect processing has settled. Triggers DMA for any channel
+   * that requested it; otherwise just updates period/volume on live voices.
+   */
+  private syncPaula(): void {
+    for (let ci = 0; ci < CHANNELS; ci++) {
+      const ch = this.channels[ci]!;
+      if (ch.pendingStop) {
+        this.paula.stopDMA(ci);
+        ch.pendingStop = false;
+        ch.pendingTrigger = false;
+      }
+      if (ch.pendingTrigger) {
+        const sample = ch.sampleNum > 0 ? this.song.samples[ch.sampleNum - 1] : undefined;
+        if (sample && sample.data.byteLength > 0) {
+          this.paula.setSample(
+            ci,
+            sample.data,
+            ch.pendingStartOffsetBytes,
+            sample.lengthWords,
+            sample.loopStartWords * 2,
+            sample.loopLengthWords,
+          );
+          this.paula.setVolume(ci, ch.effectiveVolume || ch.volume);
+          this.paula.setPeriod(ci, ch.period);
+          this.paula.startDMA(ci);
+        }
+        ch.pendingTrigger = false;
+        ch.pendingStartOffsetBytes = 0;
+      } else if (ch.playing) {
+        this.paula.setPeriod(ci, ch.period);
+        this.paula.setVolume(ci, ch.effectiveVolume || ch.volume);
+      }
     }
   }
 
@@ -333,7 +405,8 @@ export class Replayer {
         ch.period = targetPeriod;
         if (noteIndex >= 0) ch.noteIndex = noteIndex;
         if (ch.sampleNum > 0) {
-          ch.samplePos = 0;
+          ch.pendingTrigger = true;
+          ch.pendingStartOffsetBytes = 0;
           ch.playing = true;
         }
         // Reset vibrato/tremolo phase unless the waveform-retain bit is set
@@ -392,12 +465,14 @@ export class Replayer {
         if (p > 0) ch.sampleOffset = p;
         const offset = ch.sampleOffset * 256;
         const sample = ch.sampleNum > 0 ? this.song.samples[ch.sampleNum - 1] : undefined;
-        if (sample && note.period > 0) {
+        if (sample && note.period > 0 && ch.pendingTrigger) {
           if (offset < sample.data.byteLength) {
-            ch.samplePos = offset;
+            ch.pendingStartOffsetBytes = offset;
           } else if (sample.loopLengthWords > 1) {
-            ch.samplePos = sample.loopStartWords * 2;
+            ch.pendingStartOffsetBytes = sample.loopStartWords * 2;
           } else {
+            ch.pendingTrigger = false;
+            ch.pendingStop = true;
             ch.playing = false;
           }
         }
@@ -509,7 +584,8 @@ export class Replayer {
           ch.basePeriod = period;
           ch.period = period;
           if (idx >= 0) ch.noteIndex = idx;
-          ch.samplePos = 0;
+          ch.pendingTrigger = true;
+          ch.pendingStartOffsetBytes = 0;
           ch.playing = true;
           ch.vibratoPos = 0;
           ch.tremoloPos = 0;
@@ -569,9 +645,10 @@ export class Replayer {
         const x = (p >> 4) & 0x0f;
         const y = p & 0x0f;
         if (x === ExtendedEffect.Retrigger && y > 0) {
-          if (this.state.tickInRow % y === 0) {
-            ch.samplePos = 0;
-            ch.playing = ch.sampleNum > 0;
+          if (this.state.tickInRow % y === 0 && ch.sampleNum > 0) {
+            ch.pendingTrigger = true;
+            ch.pendingStartOffsetBytes = 0;
+            ch.playing = true;
           }
         }
         break;
@@ -623,61 +700,29 @@ export class Replayer {
   // --- mixing -------------------------------------------------------------
 
   /**
-   * Mix `frames` output samples for the current channel state. Linear
-   * interpolation; hard-pan LRRL. Volume scaled to keep two-channel sum in
-   * [-1, 1] under typical content.
+   * Push the current tracker channel state to Paula and emit `frames`
+   * output-rate stereo samples. Paula handles BLEP synthesis, RC + LED
+   * filters, and 2× FIR downsampling internally; we apply mid/side stereo
+   * separation and the final NORM_FACTOR/PAULA_VOICES = 0.5 scaling here.
    */
   private mixChunk(left: Float32Array, right: Float32Array, offset: number, frames: number): void {
-    for (let i = 0; i < frames; i++) {
-      left[offset + i] = 0;
-      right[offset + i] = 0;
+    if (this.scratchL.length < frames) {
+      this.scratchL = new Float64Array(frames);
+      this.scratchR = new Float64Array(frames);
     }
+    const sL = this.scratchL;
+    const sR = this.scratchR;
+    this.paula.generate(sL, sR, frames, 0);
 
-    for (let ci = 0; ci < CHANNELS; ci++) {
-      const ch = this.channels[ci]!;
-      if (!ch.playing || ch.sampleNum === 0 || ch.period === 0) continue;
-      const sample = this.song.samples[ch.sampleNum - 1];
-      if (!sample || sample.data.byteLength === 0) continue;
-
-      // Paula playback rate in Hz.
-      const paulaRate = this.paulaClock / (ch.period * 2);
-      const step = paulaRate / this.sampleRate;
-      const vol = (ch.effectiveVolume || ch.volume) / 64;
-      const isLeft = ci === 0 || ci === 3;
-      const out = isLeft ? left : right;
-
-      const data = sample.data;
-      const length = data.byteLength;
-      const loopStart = sample.loopStartWords * 2;
-      const loopLength = sample.loopLengthWords * 2;
-      const looped = loopLength > 2;
-      const loopEnd = loopStart + loopLength;
-
-      let pos = ch.samplePos;
-      for (let i = 0; i < frames; i++) {
-        if (looped) {
-          while (pos >= loopEnd) pos -= loopLength;
-        } else if (pos >= length) {
-          ch.playing = false;
-          break;
-        }
-        const i0 = pos | 0;
-        const frac = pos - i0;
-        const s0 = data[i0]!;
-        const s1 = i0 + 1 < length ? data[i0 + 1]! : (looped ? data[loopStart]! : 0);
-        const sampleValue = (s0 + (s1 - s0) * frac) / 128; // [-1, 1)
-        const idx = offset + i;
-        out[idx] = out[idx]! + sampleValue * vol;
-        pos += step;
-      }
-      ch.samplePos = pos;
-    }
-
-    // Two channels per side; halve to keep the sum within [-1, 1).
+    const side = this.sideFactor;
     for (let i = 0; i < frames; i++) {
-      const idx = offset + i;
-      left[idx] = left[idx]! * 0.5;
-      right[idx] = right[idx]! * 0.5;
+      const dL = sL[i]!;
+      const dR = sR[i]!;
+      const mid = (dL + dR) * 0.5;
+      const sideVal = (dL - dR) * side;
+      // NORM_FACTOR (2.0) / PAULA_VOICES (4) = 0.5
+      left[offset + i]  = (mid + sideVal) * 0.5;
+      right[offset + i] = (mid - sideVal) * 0.5;
     }
   }
 }
