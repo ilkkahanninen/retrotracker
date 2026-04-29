@@ -250,6 +250,14 @@ export class Replayer {
     return this.sampleRate;
   }
 
+  getOrderIndex(): number {
+    return this.state.orderIndex;
+  }
+
+  getRow(): number {
+    return this.state.row;
+  }
+
   // --- scheduling ---------------------------------------------------------
 
   /**

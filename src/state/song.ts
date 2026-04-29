@@ -10,3 +10,6 @@ export const [song, setSong] = createSignal<Song | null>(null);
 
 export type Transport = 'idle' | 'ready' | 'playing';
 export const [transport, setTransport] = createSignal<Transport>('idle');
+
+/** Last (order, row) reported by the worklet — drives the pattern grid cursor. */
+export const [playPos, setPlayPos] = createSignal<{ order: number; row: number }>({ order: 0, row: 0 });

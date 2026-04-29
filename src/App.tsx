@@ -1,7 +1,8 @@
 import { Show, createMemo, createSignal, onCleanup, type Component } from 'solid-js';
-import { song, setSong, transport, setTransport } from './state/song';
+import { song, setSong, transport, setTransport, playPos, setPlayPos } from './state/song';
 import { parseModule } from './core/mod/parser';
 import { AudioEngine } from './core/audio/engine';
+import { PatternGrid } from './components/PatternGrid';
 
 let engine: AudioEngine | null = null;
 
@@ -9,6 +10,7 @@ async function ensureEngine(): Promise<AudioEngine> {
   if (engine) return engine;
   engine = await AudioEngine.create();
   engine.onEnded = () => setTransport('ready');
+  engine.onPosition = (order, row) => setPlayPos({ order, row });
   return engine;
 }
 
@@ -26,6 +28,7 @@ export const App: Component = () => {
       eng.load(mod);
       setSong(mod);
       setFilename(file.name);
+      setPlayPos({ order: 0, row: 0 });
       setTransport('ready');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -129,17 +132,21 @@ export const App: Component = () => {
           }
         >
           {(s) => (
-            <div class="songinfo">
-              <h2>Loaded</h2>
-              <dl>
-                <dt>File</dt><dd>{filename()}</dd>
-                <dt>Title</dt><dd>{s().title || <em>(untitled)</em>}</dd>
-                <dt>Samples</dt><dd>{sampleCount()} / 31</dd>
-                <dt>Length</dt><dd>{s().songLength} positions</dd>
-                <dt>Patterns</dt><dd>{s().patterns.length}</dd>
-                <dt>Status</dt><dd>{transport()}</dd>
-              </dl>
-              <p class="hint">Pattern editor coming soon. For now: Play to listen.</p>
+            <div class="patternpane">
+              <div class="patternpane__meta">
+                <span class="patternpane__title">{s().title || <em>(untitled)</em>}</span>
+                <span class="patternpane__sep">·</span>
+                <span>{filename()}</span>
+                <span class="patternpane__sep">·</span>
+                <span>{sampleCount()} samples</span>
+                <span class="patternpane__sep">·</span>
+                <span>order {String(playPos().order).padStart(2, '0')}/{String(s().songLength - 1).padStart(2, '0')}</span>
+                <span class="patternpane__sep">·</span>
+                <span>pat {String(s().orders[playPos().order] ?? 0).padStart(2, '0')}</span>
+                <span class="patternpane__sep">·</span>
+                <span>row {String(playPos().row).padStart(2, '0')}</span>
+              </div>
+              <PatternGrid song={s()} pos={playPos()} active={transport() === 'playing'} />
             </div>
           )}
         </Show>

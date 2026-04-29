@@ -13,12 +13,16 @@ export class AudioEngine {
   private readonly node: AudioWorkletNode;
   /** Called when the replayer reports song end. */
   onEnded: (() => void) | null = null;
+  /** Called whenever the replayer crosses a row boundary during playback. */
+  onPosition: ((order: number, row: number) => void) | null = null;
 
   private constructor(ctx: AudioContext, node: AudioWorkletNode) {
     this.ctx = ctx;
     this.node = node;
     this.node.port.onmessage = (e: MessageEvent<WorkletEvent>) => {
-      if (e.data.type === 'ended') this.onEnded?.();
+      const data = e.data;
+      if (data.type === 'ended') this.onEnded?.();
+      else if (data.type === 'pos') this.onPosition?.(data.order, data.row);
     };
   }
 

@@ -15,12 +15,17 @@ export type WorkletMessage =
   | { type: 'stop' }
   | { type: 'reset' };
 
-export type WorkletEvent = { type: 'ended' };
+export type WorkletEvent =
+  | { type: 'ended' }
+  | { type: 'pos'; order: number; row: number };
 
 class RetrotrackerProcessor extends AudioWorkletProcessor {
   private replayer: Replayer | null = null;
   private playing = false;
   private endedNotified = false;
+  // -1 forces an initial 'pos' post on the first process() call after load/play.
+  private lastOrder = -1;
+  private lastRow = -1;
 
   constructor() {
     super();
@@ -30,6 +35,8 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
         case 'load':
           this.replayer = new Replayer(msg.song, { sampleRate });
           this.endedNotified = false;
+          this.lastOrder = -1;
+          this.lastRow = -1;
           break;
         case 'play':
           this.playing = true;
@@ -54,6 +61,14 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
 
     if (this.replayer && this.playing) {
       this.replayer.process(left, right, left.length);
+      const o = this.replayer.getOrderIndex();
+      const r = this.replayer.getRow();
+      if (o !== this.lastOrder || r !== this.lastRow) {
+        this.lastOrder = o;
+        this.lastRow = r;
+        const evt: WorkletEvent = { type: 'pos', order: o, row: r };
+        this.port.postMessage(evt);
+      }
       if (this.replayer.isFinished() && !this.endedNotified) {
         this.endedNotified = true;
         this.playing = false;
