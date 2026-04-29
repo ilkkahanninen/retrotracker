@@ -12,7 +12,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "render": "tsx tests/lib/render-cli.ts",
-    "fixtures:generate": "tsx tests/fixtures/generate.ts"
+    "fixtures:generate": "tsx tests/fixtures/generate.ts",
+    "pt2-clone:build": "bash vendor/build-pt2-clone.sh",
+    "fixtures:render": "bash vendor/render-all-fixtures.sh"
   },
   "dependencies": {
     "solid-js": "^1.9.3"

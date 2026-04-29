@@ -11,6 +11,11 @@ coverage
 .tsbuildinfo
 *.tsbuildinfo
 
-# Reference fixtures: keep .mod files but ignore generated reference renders
+# Reference renders are generated locally by pt2-render — never committed.
+# (.mod fixtures ARE committed; they're tiny and authoritative.)
 tests/fixtures/*.wav
-!tests/fixtures/*.reference.wav
+
+# Vendored third-party sources and built binaries (downloaded by build script)
+vendor/pt2-clone/
+vendor/bin/
+vendor/headless/build/
