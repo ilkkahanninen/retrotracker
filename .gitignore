@@ -1,0 +1,16 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.log
+coverage
+.tsbuildinfo
+*.tsbuildinfo
+
+# Reference fixtures: keep .mod files but ignore generated reference renders
+tests/fixtures/*.wav
+!tests/fixtures/*.reference.wav
