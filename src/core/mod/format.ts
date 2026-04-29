@@ -1,9 +1,10 @@
 import type { Note, Pattern, Sample, Song } from './types';
 import { CHANNELS, MAX_ORDERS, NUM_SAMPLES, ROWS_PER_PATTERN } from './types';
 
-/** Paula CPU clocks. Used to compute output sample rate from period. */
-export const PAULA_CLOCK_PAL = 7093789.2;
-export const PAULA_CLOCK_NTSC = 7159090.5;
+/** Paula CPU clocks. Used to compute output sample rate from period.
+ *  PAL: 28375160 / 4 (XTAL / 4); NTSC: 28636363 / 4. */
+export const PAULA_CLOCK_PAL = 7093790.0;
+export const PAULA_CLOCK_NTSC = 7159090.75;
 
 /**
  * ProTracker period table.

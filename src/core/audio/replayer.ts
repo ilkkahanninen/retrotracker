@@ -118,6 +118,10 @@ interface SongState {
   jumpToRow: number;       // -1 = none
   ended: boolean;
   visited: Set<number>;    // (orderIndex << 8 | row) keys
+  /** Fxx tempo change is queued and applied at the START of the next tick
+   *  (CIA quirk: the chip doesn't read its new timer value until the next
+   *  interrupt fires). -1 = nothing pending. */
+  pendingTempo: number;
 }
 
 function newChannel(): ChannelState {
@@ -199,6 +203,7 @@ export class Replayer {
       jumpToRow: -1,
       ended: false,
       visited: new Set(),
+      pendingTempo: -1,
     };
     this.samplesUntilTick = this.samplesPerTick();
     for (const ch of this.channels) ch.effectiveVolume = -1;
@@ -270,6 +275,12 @@ export class Replayer {
   }
 
   private advanceTick(): void {
+    // CIA quirk (pt2_replayer.c:1352-1358): a Fxx tempo change is queued and
+    // applied at the START of the next tick, not the one that runs Fxx.
+    if (this.state.pendingTempo !== -1) {
+      this.state.tempo = this.state.pendingTempo;
+      this.state.pendingTempo = -1;
+    }
     this.state.tickInRow++;
     // pt2-clone writes base n_volume to Paula at every tick unless cmd is
     // tremolo (checkEffects line 974-981). We mirror that by clearing the
@@ -344,11 +355,16 @@ export class Replayer {
       if (ch.pendingTrigger) {
         const sample = ch.sampleNum > 0 ? this.song.samples[ch.sampleNum - 1] : undefined;
         if (sample && sample.data.byteLength > 0) {
+          // pt2-clone sampleOffset (replayer.c:847-862): n_length -= newOffset
+          // (in words). Pass the post-offset length so Paula doesn't read past
+          // the sample end before looping.
+          const offsetWords = ch.pendingStartOffsetBytes >> 1;
+          const initialLengthWords = Math.max(1, sample.lengthWords - offsetWords);
           this.paula.setSample(
             ci,
             sample.data,
             ch.pendingStartOffsetBytes,
-            sample.lengthWords,
+            initialLengthWords,
             sample.loopStartWords * 2,
             sample.loopLengthWords,
           );
@@ -470,9 +486,15 @@ export class Replayer {
       }
     }
 
+    // E5y — must apply BEFORE the period lookup so this row's note plays at
+    // the new finetune. Mirrors pt2-clone playVoice (replayer.c:1110-1114).
+    if (note.effect === Effect.Extended && (note.effectParam >> 4) === ExtendedEffect.SetFinetune) {
+      ch.finetune = note.effectParam & 0x0f;
+    }
+
     // Note trigger (period set).
     if (note.period > 0) {
-      const noteIndex = findNoteIndex(note.period, ch.finetune);
+      const noteIndex = findNoteIndex(note.period);
       const targetPeriod = noteIndex >= 0
         ? PERIOD_TABLE[ch.finetune]![noteIndex]!
         : note.period;
@@ -498,11 +520,6 @@ export class Replayer {
         if ((ch.waveControl & 0x04) === 0) ch.vibratoPos = 0;
         if ((ch.waveControl & 0x40) === 0) ch.tremoloPos = 0;
       }
-    }
-
-    // E5y — set finetune on note trigger.
-    if (note.effect === Effect.Extended && (note.effectParam >> 4) === ExtendedEffect.SetFinetune) {
-      ch.finetune = note.effectParam & 0x0f;
     }
 
     // Apply tick-0 effects.
@@ -590,7 +607,8 @@ export class Replayer {
         } else if (p < 0x20) {
           this.state.speed = p;
         } else {
-          this.state.tempo = p;
+          // Tempo change is deferred to the next tick (see advanceTick).
+          this.state.pendingTempo = p;
         }
         break;
     }
@@ -647,11 +665,25 @@ export class Replayer {
           if (ch.loopCount > 0) {
             this.state.jumpToOrder = this.state.orderIndex;
             this.state.jumpToRow = ch.loopRow;
+            // Clear visited entries for the rows we're about to revisit, so
+            // song-end detection doesn't trip on a legitimate pattern loop
+            // (mirrors pt2-clone jumpLoop, replayer.c:336-337).
+            for (let r = ch.loopRow; r <= this.state.row; r++) {
+              this.state.visited.delete((this.state.orderIndex << 8) | r);
+            }
           }
         }
         break;
       case ExtendedEffect.Retrigger:
         ch.retrigInterval = y;
+        // pt2-clone retrigNote (replayer.c:409-419): at tick 0, retrigger only
+        // when there's NO note this row (the note's own trigger already did it).
+        // With no note, tick 0 % y == 0 so we retrigger like any other multiple.
+        if (y > 0 && !ch.pendingTrigger && ch.sampleNum > 0) {
+          ch.pendingTrigger = true;
+          ch.pendingStartOffsetBytes = 0;
+          ch.playing = true;
+        }
         break;
       case ExtendedEffect.FineVolumeSlideUp:
         ch.volume = Math.min(64, ch.volume + y);
@@ -661,6 +693,10 @@ export class Replayer {
         break;
       case ExtendedEffect.NoteCut:
         ch.noteCutTick = y;
+        // pt2-clone EC0 cuts at tick 0 via setPeriod → checkMoreEffects →
+        // E_Commands → noteCut (replayer.c:1046). Our tickEffect only fires
+        // at tick > 0, so apply tick-0 cuts here.
+        if (y === 0) ch.volume = 0;
         break;
       case ExtendedEffect.PatternDelay:
         if (this.state.patternDelay === 0) this.state.patternDelay = y;
@@ -691,7 +727,7 @@ export class Replayer {
         const pending = ch.pendingNote;
         ch.pendingNote = null;
         if (pending.period > 0 && ch.sampleNum > 0) {
-          const idx = findNoteIndex(pending.period, ch.finetune);
+          const idx = findNoteIndex(pending.period);
           const period = idx >= 0 ? PERIOD_TABLE[ch.finetune]![idx]! : pending.period;
           ch.basePeriod = period;
           ch.period = period;
@@ -886,23 +922,16 @@ export class Replayer {
   }
 }
 
-function findNoteIndex(period: number, finetune: number): number {
-  const row = PERIOD_TABLE[finetune];
-  if (!row) return -1;
+function findNoteIndex(period: number): number {
+  // pt2-clone setPeriod (replayer.c:984-994): always searches finetune 0's row
+  // for the note INDEX, regardless of the current finetune. The caller then
+  // looks up the actual played period as PERIOD_TABLE[currentFinetune][index].
+  // .mod files store the finetune-0 period in the pattern, so this matches.
+  const row = PERIOD_TABLE[0]!;
   for (let i = 0; i < row.length; i++) {
-    if (row[i] === period) return i;
+    if (period >= row[i]!) return i;
   }
-  // No exact match (e.g. portamento landed between table entries). Find nearest.
-  let bestIdx = -1;
-  let bestDelta = Infinity;
-  for (let i = 0; i < row.length; i++) {
-    const d = Math.abs(row[i]! - period);
-    if (d < bestDelta) {
-      bestDelta = d;
-      bestIdx = i;
-    }
-  }
-  return bestIdx;
+  return -1;
 }
 
 function clampPeriod(p: number): number {

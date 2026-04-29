@@ -42,9 +42,9 @@ When changing replayer behavior, both paths get it for free. Don't fork mixing l
 
 ### Replayer model
 
-`Replayer.process(left, right, frames, offset)` writes interleaved-by-buffer Float32 samples. Internally the loop alternates `mixChunk` (sample-by-sample resampling + pan) with `advanceTick` (per-tick effects, row advancement, song state). Tick boundary = `floor(sampleRate / (tempo * 0.4))` frames.
+`Replayer.process(left, right, frames, offset)` writes interleaved-by-buffer Float32 samples. Mixing is delegated to [Paula](src/core/audio/paula.ts), which does BLEP synthesis, RC + LED filters, and 2× FIR downsampling. The replayer alternates `mixChunk` (drives Paula) with `advanceTick` (per-tick effects, row advancement, song state). Tick scheduling uses CIA-timer math (`tickHz = 709379 / (floor(1773447/BPM)+1)`) with a fractional-sample accumulator to match pt2-clone's exact timing.
 
-Effect implementation reference is **8bitbubsy/pt2-clone**, not OpenMPT or any other tracker. PT-specific quirks (PatternBreak's decimal-encoded param, period clamp 113..856, sine table sign bit, song-end via `(order, row)` revisit set) are intentional. See the comment block at the top of [replayer.ts](src/core/audio/replayer.ts) for what's implemented vs. stubbed (filter, glissando, non-sine waveforms, 8xy panning, EFx invert loop are no-ops today).
+Effect implementation reference is **8bitbubsy/pt2-clone**, not OpenMPT or any other tracker. PT-specific quirks are intentional and bug-for-bug: PatternBreak's decimal-encoded param, period clamp 113..856, sine table sign bit, song-end via `(order, row)` revisit set, vibrato waveform 3 = square, ramp-tremolo's vibratoPos half-check, E5y applied before period lookup, EC0 cuts at tick 0 (via setPeriod → checkMoreEffects path), Fxx tempo deferred 1 tick (CIA reload quirk). See the comment block at the top of [replayer.ts](src/core/audio/replayer.ts) for the current implementation list — only 8xy panning is intentionally a no-op (PT 2.3D ignores it).
 
 ### MOD format module
 
@@ -56,7 +56,7 @@ Effect implementation reference is **8bitbubsy/pt2-clone**, not OpenMPT or any o
 
 ### Accuracy test bed
 
-[tests/render-accuracy.test.ts](tests/render-accuracy.test.ts) renders every `tests/fixtures/*.mod` at the reference WAV's sample rate, then compares channel-for-channel via [tests/lib/compare.ts](tests/lib/compare.ts) (RMS + peak). Bit-exact match against pt2-clone is not the goal — we tolerate `RMS < 0.005` and `peak < 0.05` because pt2-clone uses BLEP resampling and we currently use linear interpolation.
+[tests/render-accuracy.test.ts](tests/render-accuracy.test.ts) renders every `tests/fixtures/*.mod` at the reference WAV's sample rate, then compares channel-for-channel via [tests/lib/compare.ts](tests/lib/compare.ts) (RMS + peak). Bit-exact match against pt2-clone is not the goal — we tolerate `RMS < 0.005` and `peak < 0.05` for floating-point and BLEP edge-case drift.
 
 The "ground truth" tool is [vendor/bin/pt2-render](vendor/headless/), a headless build of pt2-clone with a custom `main.c` and SDL2 shim — no audio device, no GUI. [vendor/build-pt2-clone.sh](vendor/build-pt2-clone.sh) clones pt2-clone fresh on every run (`git reset --hard origin/HEAD`); local edits to `vendor/pt2-clone/` will be lost.
 
