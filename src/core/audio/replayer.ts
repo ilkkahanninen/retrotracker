@@ -19,13 +19,14 @@ import { Paula } from './paula';
  * Implemented:
  *   - All standard effects 0xx..Fxx and most Exy
  *   - Amiga LED filter (E0x): pt2-clone convention E00 = on, E01 = off
+ *   - Vibrato waveform select (E4x): sine, ramp, square (PT2.3D quirk: 3=square)
  *   - Hard-panned LRRL with mid/side stereo separation (default 20% per pt2-clone)
  *   - Pattern break / position jump / pattern loop (E6x) / pattern delay (EEx)
  *   - Song-end detection via (order, row) revisit set
  *   - CIA-timer-based tick scheduling with fractional accumulation
  *
  * Not implemented:
- *   - Glissando (E3x), non-sine vibrato (E4x/E7x)
+ *   - Glissando (E3x), non-sine tremolo waveforms (E7x)
  *   - 8xy panning, EFx invert loop
  */
 
@@ -64,6 +65,10 @@ interface ChannelState {
   tremoloSpeed: number;
   tremoloDepth: number;
   tremoloPos: number;
+  /** Mirrors pt2-clone's n_wavecontrol: low nibble = E4x (vibrato),
+   *  high nibble = E7x (tremolo). Bits 0..1 select waveform (sine / ramp /
+   *  square; pt2-clone quirk: value 3 also = square). Bit 2 = retain on note. */
+  waveControl: number;
   volumeSlide: number;     // packed Axx parameter
   arpHi: number;
   arpLo: number;
@@ -131,6 +136,7 @@ function newChannel(): ChannelState {
     pendingTrigger: false,
     pendingStartOffsetBytes: 0,
     pendingStop: false,
+    waveControl: 0,
   };
 }
 
@@ -360,6 +366,19 @@ export class Replayer {
 
   private processChannelRow(ci: number, note: Note): void {
     const ch = this.channels[ci]!;
+    // pt2-clone tick-0 baseline: checkMoreEffects/playVoice fall through to
+    // paulaWriteWord(period, n_period) for most cmds, which resets Paula to
+    // the un-vibratoed base period. But cmds 9, B, C, D, E, F have explicit
+    // `return` in the switch and skip the reset, leaving Paula at whatever
+    // period the previous tick's vibrato/etc. left it at. Mirror that.
+    const skipPeriodReset =
+      note.effect === Effect.SetSampleOffset ||
+      note.effect === Effect.PositionJump ||
+      note.effect === Effect.SetVolume ||
+      note.effect === Effect.PatternBreak ||
+      note.effect === Effect.Extended ||
+      note.effect === Effect.SetSpeed;
+    if (!skipPeriodReset) ch.period = ch.basePeriod;
     ch.noteCutTick = -1;
     ch.noteDelayTick = -1;
     ch.pendingNote = null;
@@ -410,10 +429,10 @@ export class Replayer {
           ch.pendingStartOffsetBytes = 0;
           ch.playing = true;
         }
-        // Reset vibrato/tremolo phase unless the waveform-retain bit is set
-        // (E4x/E7x — we don't model the bit yet, so always reset).
-        ch.vibratoPos = 0;
-        ch.tremoloPos = 0;
+        // Reset vibrato/tremolo position unless the retain bit is set in the
+        // matching nibble of waveControl (vibrato: bit 2; tremolo: bit 6).
+        if ((ch.waveControl & 0x04) === 0) ch.vibratoPos = 0;
+        if ((ch.waveControl & 0x40) === 0) ch.tremoloPos = 0;
       }
     }
 
@@ -521,6 +540,12 @@ export class Replayer {
         // E00 turns the LED filter ON, E01 turns it OFF.
         this.paula.setLEDFilter((y & 1) === 0);
         break;
+      case ExtendedEffect.VibratoWaveform:
+        // pt2-clone: n_wavecontrol low nibble = y. Bits 0..1 select waveform
+        // (0=sine, 1=ramp, 2=square, 3=also-square per PT2.3D quirk).
+        // Bit 2 = retain position on note trigger.
+        ch.waveControl = (ch.waveControl & 0xf0) | (y & 0x0f);
+        break;
       case ExtendedEffect.FineSlideUp:
         ch.basePeriod = clampPeriod(ch.basePeriod - y);
         ch.period = ch.basePeriod;
@@ -593,8 +618,8 @@ export class Replayer {
           ch.pendingTrigger = true;
           ch.pendingStartOffsetBytes = 0;
           ch.playing = true;
-          ch.vibratoPos = 0;
-          ch.tremoloPos = 0;
+          if ((ch.waveControl & 0x04) === 0) ch.vibratoPos = 0;
+          if ((ch.waveControl & 0x40) === 0) ch.tremoloPos = 0;
         }
       }
     }
@@ -689,7 +714,22 @@ export class Replayer {
 
   private tickVibrato(ch: ChannelState): void {
     const phase = ch.vibratoPos & 31;
-    let delta = (SINE_TABLE[phase]! * ch.vibratoDepth) >> 7;
+    const waveform = ch.waveControl & 0x03;
+    // pt2-clone vibrato2(): table-based sine, ramp, or square. Values 2 and 3
+    // both produce square (PT2.3D quirk; the UI labels 3 "random" but the
+    // generated output is square).
+    let waveValue: number;
+    if (waveform === 0) {
+      waveValue = SINE_TABLE[phase]!;
+    } else if (waveform === 1) {
+      // Linear ramp; pt2-clone uses pt-pos `(p << 3)` in first half and
+      // `255 - (p << 3)` in second. With our half-cycle phase 0..31 and
+      // independent sign flip below, the formula is the same in each half.
+      waveValue = (ch.vibratoPos & 32) === 0 ? phase << 3 : 255 - (phase << 3);
+    } else {
+      waveValue = 255;
+    }
+    let delta = (waveValue * ch.vibratoDepth) >> 7;
     if (ch.vibratoPos & 32) delta = -delta;
     ch.period = clampPeriod(ch.basePeriod + delta);
     ch.vibratoPos = (ch.vibratoPos + ch.vibratoSpeed) & 63;
