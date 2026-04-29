@@ -1,5 +1,12 @@
-import { createStore } from 'solid-js/store';
-import { emptySong } from '../core/mod/format';
+import { createSignal } from 'solid-js';
 import type { Song } from '../core/mod/types';
 
-export const [song, setSong] = createStore<Song>(emptySong());
+/**
+ * Loaded song. Held as a signal so the UI reactively re-renders on swap;
+ * the Song itself is not deeply reactive — pattern editing will go through
+ * a dedicated store later when we wire up editing.
+ */
+export const [song, setSong] = createSignal<Song | null>(null);
+
+export type Transport = 'idle' | 'ready' | 'playing';
+export const [transport, setTransport] = createSignal<Transport>('idle');
