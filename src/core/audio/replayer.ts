@@ -18,13 +18,14 @@ import { Paula } from './paula';
  *
  * Implemented:
  *   - All standard effects 0xx..Fxx and most Exy
+ *   - Amiga LED filter (E0x): pt2-clone convention E00 = on, E01 = off
  *   - Hard-panned LRRL with mid/side stereo separation (default 20% per pt2-clone)
  *   - Pattern break / position jump / pattern loop (E6x) / pattern delay (EEx)
  *   - Song-end detection via (order, row) revisit set
  *   - CIA-timer-based tick scheduling with fractional accumulation
  *
  * Not implemented:
- *   - Amiga LED filter (E0x), glissando (E3x), non-sine vibrato (E4x/E7x)
+ *   - Glissando (E3x), non-sine vibrato (E4x/E7x)
  *   - 8xy panning, EFx invert loop
  */
 
@@ -515,6 +516,11 @@ export class Replayer {
   private applyExtendedTick0(ci: number, x: number, y: number): void {
     const ch = this.channels[ci]!;
     switch (x) {
+      case ExtendedEffect.SetFilter:
+        // pt2-clone convention: filterOn = (param & 1) ^ 1.
+        // E00 turns the LED filter ON, E01 turns it OFF.
+        this.paula.setLEDFilter((y & 1) === 0);
+        break;
       case ExtendedEffect.FineSlideUp:
         ch.basePeriod = clampPeriod(ch.basePeriod - y);
         ch.period = ch.basePeriod;
