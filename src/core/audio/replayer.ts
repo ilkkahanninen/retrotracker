@@ -19,15 +19,16 @@ import { Paula } from './paula';
  * Implemented:
  *   - All standard effects 0xx..Fxx and most Exy
  *   - Amiga LED filter (E0x): pt2-clone convention E00 = on, E01 = off
- *   - Vibrato waveform select (E4x): sine, ramp, square (PT2.3D quirk: 3=square)
+ *   - Vibrato/tremolo waveform select (E4x/E7x): sine, ramp, square
+ *     (PT2.3D quirk: value 3 also = square. PT bug: ramp tremolo uses
+ *     vibratoPos for the half check — preserved.)
  *   - Hard-panned LRRL with mid/side stereo separation (default 20% per pt2-clone)
  *   - Pattern break / position jump / pattern loop (E6x) / pattern delay (EEx)
  *   - Song-end detection via (order, row) revisit set
  *   - CIA-timer-based tick scheduling with fractional accumulation
  *
  * Not implemented:
- *   - Glissando (E3x), non-sine tremolo waveforms (E7x)
- *   - 8xy panning, EFx invert loop
+ *   - Glissando (E3x), 8xy panning, EFx invert loop
  */
 
 /** PT sine table — 32 entries, positive half. Sign comes from phase bit 5. */
@@ -53,7 +54,9 @@ interface ChannelState {
 
   // Volume
   volume: number;          // 0..64
-  effectiveVolume: number; // after tremolo
+  /** Tremolo override volume for this tick. -1 = no override (use ch.volume).
+   *  Reset at every tick boundary; tickTremolo sets it to base+delta. */
+  effectiveVolume: number;
 
   // Effect memory
   portToTarget: number;
@@ -113,7 +116,7 @@ function newChannel(): ChannelState {
     finetune: 0,
     noteIndex: -1,
     volume: 0,
-    effectiveVolume: 0,
+    effectiveVolume: -1,
     portToTarget: 0,
     portToSpeed: 0,
     portamentoSpeed: 0,
@@ -176,6 +179,7 @@ export class Replayer {
       visited: new Set(),
     };
     this.samplesUntilTick = this.samplesPerTick();
+    for (const ch of this.channels) ch.effectiveVolume = -1;
     this.processRow();
     this.syncPaula();
   }
@@ -245,6 +249,10 @@ export class Replayer {
 
   private advanceTick(): void {
     this.state.tickInRow++;
+    // pt2-clone writes base n_volume to Paula at every tick unless cmd is
+    // tremolo (checkEffects line 974-981). We mirror that by clearing the
+    // tremolo override at every tick boundary; tickTremolo re-sets it.
+    for (const ch of this.channels) ch.effectiveVolume = -1;
     if (this.state.tickInRow >= this.state.speed) {
       this.state.tickInRow = 0;
 
@@ -291,7 +299,7 @@ export class Replayer {
             sample.loopStartWords * 2,
             sample.loopLengthWords,
           );
-          this.paula.setVolume(ci, ch.effectiveVolume || ch.volume);
+          this.paula.setVolume(ci, ch.effectiveVolume >= 0 ? ch.effectiveVolume : ch.volume);
           this.paula.setPeriod(ci, ch.period);
           this.paula.startDMA(ci);
         }
@@ -299,7 +307,7 @@ export class Replayer {
         ch.pendingStartOffsetBytes = 0;
       } else if (ch.playing) {
         this.paula.setPeriod(ci, ch.period);
-        this.paula.setVolume(ci, ch.effectiveVolume || ch.volume);
+        this.paula.setVolume(ci, ch.effectiveVolume >= 0 ? ch.effectiveVolume : ch.volume);
       }
     }
   }
@@ -546,6 +554,11 @@ export class Replayer {
         // Bit 2 = retain position on note trigger.
         ch.waveControl = (ch.waveControl & 0xf0) | (y & 0x0f);
         break;
+      case ExtendedEffect.TremoloWaveform:
+        // High nibble of waveControl. Same waveform encoding as E4x.
+        // Bit 6 (retain on note) handled in note-trigger code.
+        ch.waveControl = ((y & 0x0f) << 4) | (ch.waveControl & 0x0f);
+        break;
       case ExtendedEffect.FineSlideUp:
         ch.basePeriod = clampPeriod(ch.basePeriod - y);
         ch.period = ch.basePeriod;
@@ -737,7 +750,19 @@ export class Replayer {
 
   private tickTremolo(ch: ChannelState): void {
     const phase = ch.tremoloPos & 31;
-    let delta = (SINE_TABLE[phase]! * ch.tremoloDepth) >> 6;
+    const waveform = (ch.waveControl >> 4) & 0x03;
+    let waveValue: number;
+    if (waveform === 0) {
+      waveValue = SINE_TABLE[phase]!;
+    } else if (waveform === 1) {
+      // PT2.3D bug preserved by pt2-clone: ramp tremolo reads VIBRATO
+      // position (not tremolo position) for the half check. The sign flip
+      // below still uses tremoloPos. See pt2_replayer.c:813.
+      waveValue = (ch.vibratoPos & 32) === 0 ? phase << 3 : 255 - (phase << 3);
+    } else {
+      waveValue = 255;
+    }
+    let delta = (waveValue * ch.tremoloDepth) >> 6;
     if (ch.tremoloPos & 32) delta = -delta;
     ch.effectiveVolume = Math.max(0, Math.min(64, ch.volume + delta));
     ch.tremoloPos = (ch.tremoloPos + ch.tremoloSpeed) & 63;
