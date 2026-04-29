@@ -341,6 +341,395 @@ function fixtureInvertLoop(): Song {
   });
 }
 
+/** 08-arpeggio — sustained note with major/minor/octave arpeggios at 0xy. */
+function fixtureArpeggio(): Song {
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0] = [{ note: 'C-2', sample: 1 }];
+  // Major triad: +4, +7
+  for (let i = 4; i < 16; i++) rows[i] = [{ effect: 0x0, param: 0x47 }];
+  // Minor triad: +3, +7
+  for (let i = 20; i < 32; i++) rows[i] = [{ effect: 0x0, param: 0x37 }];
+  // Octave: +12 = 0x0C
+  for (let i = 36; i < 48; i++) rows[i] = [{ effect: 0x0, param: 0x0C }];
+  // Suspended fifth: +5 only
+  for (let i = 52; i < 60; i++) rows[i] = [{ effect: 0x0, param: 0x05 }];
+  return makeSong({
+    title: 'arpeggio',
+    samples: [triLooped],
+    patterns: [makePattern(rows)],
+  });
+}
+
+/** 09-slide-up — sustained note with slide-up (1xx) at varying speeds. */
+function fixtureSlideUp(): Song {
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0] = [{ note: 'C-2', sample: 1 }];
+  for (let i = 4; i < 12; i++) rows[i] = [{ effect: 0x1, param: 0x02 }];
+  for (let i = 16; i < 24; i++) rows[i] = [{ effect: 0x1, param: 0x08 }];
+  rows[28] = [{ note: 'C-2', sample: 1 }];
+  for (let i = 32; i < 48; i++) rows[i] = [{ effect: 0x1, param: 0x10 }];
+  return makeSong({
+    title: 'slide-up',
+    samples: [triLooped],
+    patterns: [makePattern(rows)],
+  });
+}
+
+/** 10-slide-down — sustained note with slide-down (2xx) at varying speeds. */
+function fixtureSlideDown(): Song {
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0] = [{ note: 'C-3', sample: 1 }];
+  for (let i = 4; i < 12; i++) rows[i] = [{ effect: 0x2, param: 0x02 }];
+  for (let i = 16; i < 24; i++) rows[i] = [{ effect: 0x2, param: 0x08 }];
+  rows[28] = [{ note: 'C-3', sample: 1 }];
+  for (let i = 32; i < 48; i++) rows[i] = [{ effect: 0x2, param: 0x10 }];
+  return makeSong({
+    title: 'slide-down',
+    samples: [triLooped],
+    patterns: [makePattern(rows)],
+  });
+}
+
+/** 11-tone-porta-vol-slide — 3xx target then 5xy continues with vol slide. */
+function fixtureTonePortaVolSlide(): Song {
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0] = [{ note: 'C-2', sample: 1 }];
+  rows[4] = [{ note: 'G-2', effect: 0x3, param: 0x08 }];
+  for (let i = 5; i < 12; i++) rows[i] = [{ effect: 0x3, param: 0x00 }];
+  for (let i = 12; i < 20; i++) rows[i] = [{ effect: 0x5, param: 0x40 }]; // vol up + porta
+  for (let i = 20; i < 28; i++) rows[i] = [{ effect: 0x5, param: 0x04 }]; // vol down + porta
+  rows[32] = [{ note: 'C-3', effect: 0x3, param: 0x10 }];
+  for (let i = 33; i < 40; i++) rows[i] = [{ effect: 0x3, param: 0x00 }];
+  for (let i = 40; i < 48; i++) rows[i] = [{ effect: 0x5, param: 0x08 }];
+  return makeSong({
+    title: 'tone-porta-vol-slide',
+    samples: [triLooped],
+    patterns: [makePattern(rows)],
+  });
+}
+
+/** 12-vibrato-vol-slide — 4xy vibrato then 6xy continues with vol slide. */
+function fixtureVibratoVolSlide(): Song {
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0] = [{ note: 'C-3', sample: 1, effect: 0x4, param: 0x46 }];
+  for (let i = 1; i < 8; i++) rows[i] = [{ effect: 0x4, param: 0x00 }];
+  for (let i = 8; i < 16; i++) rows[i] = [{ effect: 0x6, param: 0x40 }]; // vol up + vib
+  for (let i = 16; i < 24; i++) rows[i] = [{ effect: 0x6, param: 0x04 }]; // vol down + vib
+  for (let i = 24; i < 40; i++) rows[i] = [{ effect: 0x4, param: 0x00 }]; // vib alone
+  for (let i = 40; i < 48; i++) rows[i] = [{ effect: 0x6, param: 0x80 }]; // vol up faster
+  return makeSong({
+    title: 'vibrato-vol-slide',
+    samples: [triLooped],
+    patterns: [makePattern(rows)],
+  });
+}
+
+/**
+ * 13-sample-offset — long looped triangle, retriggered with various 9xx
+ * offsets. Each retrigger starts at a different phase and the wave loops
+ * through the full sample.
+ */
+function fixtureSampleOffset(): Song {
+  const triLong: SampleSpec = {
+    slot: 1,
+    name: 'tri-long',
+    data: triangleSample(512), // 1024 bytes
+    volume: 64,
+    finetune: 0,
+    loopStartWords: 0,
+    loopLengthWords: 512,
+  };
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0]  = [{ note: 'C-2', sample: 1 }];
+  rows[16] = [{ note: 'C-2', sample: 1, effect: 0x9, param: 0x01 }]; // offset 256
+  rows[32] = [{ note: 'C-2', sample: 1, effect: 0x9, param: 0x02 }]; // offset 512
+  rows[48] = [{ note: 'C-2', sample: 1, effect: 0x9, param: 0x03 }]; // offset 768
+  return makeSong({
+    title: 'sample-offset',
+    samples: [triLong],
+    patterns: [makePattern(rows)],
+  });
+}
+
+/** 14-volume-slide — sustained note with Axx slides up and down. */
+function fixtureVolumeSlide(): Song {
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0] = [{ note: 'C-2', sample: 1 }];
+  for (let i = 4; i < 12; i++) rows[i] = [{ effect: 0xA, param: 0x04 }]; // down 4
+  for (let i = 16; i < 24; i++) rows[i] = [{ effect: 0xA, param: 0x40 }]; // up 4
+  for (let i = 28; i < 36; i++) rows[i] = [{ effect: 0xA, param: 0x08 }]; // down 8
+  for (let i = 40; i < 48; i++) rows[i] = [{ effect: 0xA, param: 0x80 }]; // up 8
+  for (let i = 52; i < 60; i++) rows[i] = [{ effect: 0xA, param: 0x0F }]; // down 15
+  return makeSong({
+    title: 'volume-slide',
+    samples: [triLooped],
+    patterns: [makePattern(rows)],
+  });
+}
+
+/**
+ * 15-position-jump — Bxx between two patterns. Pat 0 jumps to order 1,
+ * pat 1 jumps back to order 0; song-end detection fires on the second
+ * revisit of (order 1, row 0).
+ */
+function fixturePositionJump(): Song {
+  const pat0: RowSpec[] = new Array(64).fill(0).map(() => []);
+  pat0[0]  = [{ note: 'C-2', sample: 1 }];
+  pat0[8]  = [{ note: 'E-2', sample: 1 }];
+  pat0[16] = [{ note: 'G-2', sample: 1 }];
+  pat0[32] = [{ effect: 0xB, param: 0x01 }];
+  const pat1: RowSpec[] = new Array(64).fill(0).map(() => []);
+  pat1[0]  = [{ note: 'C-3', sample: 1 }];
+  pat1[8]  = [{ note: 'E-3', sample: 1 }];
+  pat1[16] = [{ effect: 0xB, param: 0x00 }];
+  return makeSong({
+    title: 'position-jump',
+    samples: [triLooped],
+    patterns: [makePattern(pat0), makePattern(pat1)],
+  });
+}
+
+/** 16-set-volume — sustained note with various Cxx volume sets. */
+function fixtureSetVolume(): Song {
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0]  = [{ note: 'C-2', sample: 1 }];
+  rows[8]  = [{ effect: 0xC, param: 0x20 }]; // 32
+  rows[16] = [{ effect: 0xC, param: 0x10 }]; // 16
+  rows[24] = [{ effect: 0xC, param: 0x00 }]; // silence
+  rows[32] = [{ note: 'C-2', sample: 1, effect: 0xC, param: 0x40 }]; // re-trigger full
+  rows[40] = [{ effect: 0xC, param: 0x30 }];
+  rows[48] = [{ effect: 0xC, param: 0x60 }]; // clamp to 64
+  rows[56] = [{ effect: 0xC, param: 0x08 }];
+  return makeSong({
+    title: 'set-volume',
+    samples: [triLooped],
+    patterns: [makePattern(rows)],
+  });
+}
+
+/**
+ * 17-pattern-break — Dxx mid-pattern; orders=[0,0] so the second pass
+ * starts at the break target and runs to song end.
+ */
+function fixturePatternBreak(): Song {
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0]  = [{ note: 'C-2', sample: 1 }];
+  rows[8]  = [{ note: 'E-2', sample: 1 }];
+  rows[16] = [{ note: 'G-2', sample: 1 }];
+  rows[24] = [{ effect: 0xD, param: 0x10 }]; // break to row 10 (decimal)
+  rows[32] = [{ note: 'C-3', sample: 1 }];   // skipped on first pass
+  rows[40] = [{ note: 'E-3', sample: 1 }];
+  return makeSong({
+    title: 'pattern-break',
+    samples: [triLooped],
+    patterns: [makePattern(rows)],
+    orders: [0, 0],
+  });
+}
+
+/** 18-set-speed — Fxx speed and tempo changes. */
+function fixtureSetSpeed(): Song {
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0]  = [{ note: 'C-2', sample: 1 }];
+  rows[8]  = [{ effect: 0xF, param: 0x03 }]; // speed 3
+  rows[16] = [{ note: 'E-2', sample: 1 }];
+  rows[24] = [{ effect: 0xF, param: 0x06 }]; // speed 6
+  rows[32] = [{ effect: 0xF, param: 0x40 }]; // tempo 64
+  rows[40] = [{ note: 'G-2', sample: 1 }];
+  rows[48] = [{ effect: 0xF, param: 0x7D }]; // tempo 125
+  rows[56] = [{ note: 'C-3', sample: 1 }];
+  return makeSong({
+    title: 'set-speed',
+    samples: [triLooped],
+    patterns: [makePattern(rows)],
+  });
+}
+
+/** 19-fine-slide-up — E1y at varying y. */
+function fixtureFineSlideUp(): Song {
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0]  = [{ note: 'C-2', sample: 1 }];
+  rows[4]  = [{ effect: 0xE, param: 0x11 }];
+  rows[8]  = [{ effect: 0xE, param: 0x12 }];
+  rows[12] = [{ effect: 0xE, param: 0x14 }];
+  rows[16] = [{ effect: 0xE, param: 0x18 }];
+  rows[20] = [{ effect: 0xE, param: 0x1F }];
+  rows[28] = [{ note: 'C-2', sample: 1 }];
+  for (let i = 32; i < 60; i += 2) rows[i] = [{ effect: 0xE, param: 0x12 }];
+  return makeSong({
+    title: 'fine-slide-up',
+    samples: [triLooped],
+    patterns: [makePattern(rows)],
+  });
+}
+
+/** 20-fine-slide-down — E2y at varying y. */
+function fixtureFineSlideDown(): Song {
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0]  = [{ note: 'C-3', sample: 1 }];
+  rows[4]  = [{ effect: 0xE, param: 0x21 }];
+  rows[8]  = [{ effect: 0xE, param: 0x22 }];
+  rows[12] = [{ effect: 0xE, param: 0x24 }];
+  rows[16] = [{ effect: 0xE, param: 0x28 }];
+  rows[20] = [{ effect: 0xE, param: 0x2F }];
+  rows[28] = [{ note: 'C-3', sample: 1 }];
+  for (let i = 32; i < 60; i += 2) rows[i] = [{ effect: 0xE, param: 0x22 }];
+  return makeSong({
+    title: 'fine-slide-down',
+    samples: [triLooped],
+    patterns: [makePattern(rows)],
+  });
+}
+
+/**
+ * 21-set-finetune — same C-2 retriggered with each E5y value. Pitch shifts
+ * subtly each row; correctness requires E5y to be applied BEFORE the period
+ * lookup (pt2-clone playVoice ordering).
+ */
+function fixtureSetFinetune(): Song {
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0]  = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0x50 }];
+  rows[8]  = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0x51 }];
+  rows[16] = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0x53 }];
+  rows[24] = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0x57 }]; // +7
+  rows[32] = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0x58 }]; // -8
+  rows[40] = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0x5C }]; // -4
+  rows[48] = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0x5F }]; // -1
+  rows[56] = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0x50 }];
+  return makeSong({
+    title: 'set-finetune',
+    samples: [triLooped],
+    patterns: [makePattern(rows)],
+  });
+}
+
+/**
+ * 22-pattern-loop — E60 marks loop start, E62 loops back twice (segment
+ * plays 3×). Tests both loopRow capture and the visited-set clear that
+ * keeps song-end from tripping.
+ */
+function fixturePatternLoop(): Song {
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0]  = [{ note: 'C-2', sample: 1 }];
+  rows[8]  = [{ effect: 0xE, param: 0x60 }];
+  rows[16] = [{ note: 'E-2', sample: 1 }];
+  rows[24] = [{ note: 'G-2', sample: 1 }];
+  rows[32] = [{ effect: 0xE, param: 0x62 }];
+  rows[48] = [{ note: 'C-3', sample: 1 }];
+  return makeSong({
+    title: 'pattern-loop',
+    samples: [triLooped],
+    patterns: [makePattern(rows)],
+  });
+}
+
+/** 23-retrigger — sustained note with E9y at varying intervals. */
+function fixtureRetrigger(): Song {
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0]  = [{ note: 'C-2', sample: 1 }];
+  for (let i = 4; i < 12; i++) rows[i] = [{ effect: 0xE, param: 0x94 }]; // every 4 ticks
+  for (let i = 16; i < 24; i++) rows[i] = [{ effect: 0xE, param: 0x92 }]; // every 2 ticks
+  for (let i = 28; i < 36; i++) rows[i] = [{ effect: 0xE, param: 0x91 }]; // every tick
+  for (let i = 40; i < 48; i++) rows[i] = [{ effect: 0xE, param: 0x96 }]; // every 6 ticks
+  for (let i = 52; i < 60; i++) rows[i] = [{ effect: 0xE, param: 0x93 }];
+  return makeSong({
+    title: 'retrigger',
+    samples: [triLooped],
+    patterns: [makePattern(rows)],
+  });
+}
+
+/** 24-fine-vol-up — EAy fine volume up after starting low (Cxx). */
+function fixtureFineVolUp(): Song {
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0]  = [{ note: 'C-2', sample: 1, effect: 0xC, param: 0x10 }]; // start at 16
+  rows[4]  = [{ effect: 0xE, param: 0xA2 }];
+  rows[8]  = [{ effect: 0xE, param: 0xA4 }];
+  rows[12] = [{ effect: 0xE, param: 0xA8 }];
+  rows[16] = [{ effect: 0xE, param: 0xAF }]; // up 15, clamps to 64
+  rows[24] = [{ note: 'C-2', sample: 1, effect: 0xC, param: 0x08 }]; // restart at 8
+  for (let i = 28; i < 56; i += 4) rows[i] = [{ effect: 0xE, param: 0xA4 }];
+  return makeSong({
+    title: 'fine-vol-up',
+    samples: [triLooped],
+    patterns: [makePattern(rows)],
+  });
+}
+
+/** 25-fine-vol-down — EBy fine volume down from full. */
+function fixtureFineVolDown(): Song {
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0]  = [{ note: 'C-2', sample: 1 }];
+  rows[4]  = [{ effect: 0xE, param: 0xB2 }];
+  rows[8]  = [{ effect: 0xE, param: 0xB4 }];
+  rows[12] = [{ effect: 0xE, param: 0xB8 }];
+  rows[16] = [{ effect: 0xE, param: 0xBF }]; // down 15, clamps to 0
+  rows[24] = [{ note: 'C-2', sample: 1 }];   // re-trigger
+  for (let i = 28; i < 56; i += 4) rows[i] = [{ effect: 0xE, param: 0xB4 }];
+  return makeSong({
+    title: 'fine-vol-down',
+    samples: [triLooped],
+    patterns: [makePattern(rows)],
+  });
+}
+
+/**
+ * 26-note-cut — ECy cuts the note y ticks into the row by zeroing volume.
+ * Each row triggers the same note with a different cut position.
+ */
+function fixtureNoteCut(): Song {
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0]  = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0xC2 }];
+  rows[8]  = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0xC4 }];
+  rows[16] = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0xC1 }];
+  rows[24] = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0xC5 }];
+  rows[32] = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0xC0 }]; // cut at tick 0
+  rows[40] = [{ note: 'C-2', sample: 1 }]; // no cut
+  return makeSong({
+    title: 'note-cut',
+    samples: [triLooped],
+    patterns: [makePattern(rows)],
+  });
+}
+
+/**
+ * 27-note-delay — EDy delays the trigger by y ticks. Each row triggers a
+ * different note with a different delay.
+ */
+function fixtureNoteDelay(): Song {
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0]  = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0xD0 }]; // no delay
+  rows[8]  = [{ note: 'E-2', sample: 1, effect: 0xE, param: 0xD2 }];
+  rows[16] = [{ note: 'G-2', sample: 1, effect: 0xE, param: 0xD4 }];
+  rows[24] = [{ note: 'C-3', sample: 1, effect: 0xE, param: 0xD5 }];
+  rows[32] = [{ note: 'E-3', sample: 1, effect: 0xE, param: 0xD3 }];
+  rows[40] = [{ note: 'G-3', sample: 1, effect: 0xE, param: 0xD1 }];
+  return makeSong({
+    title: 'note-delay',
+    samples: [triLooped],
+    patterns: [makePattern(rows)],
+  });
+}
+
+/**
+ * 28-pattern-delay — EEy repeats the row's tick stream y times. Causes
+ * sustained notes to extend by that many row-durations.
+ */
+function fixturePatternDelay(): Song {
+  const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
+  rows[0]  = [{ note: 'C-2', sample: 1 }];
+  rows[4]  = [{ note: 'E-2', sample: 1, effect: 0xE, param: 0xE3 }];
+  rows[12] = [{ note: 'G-2', sample: 1, effect: 0xE, param: 0xE5 }];
+  rows[24] = [{ note: 'C-3', sample: 1, effect: 0xE, param: 0xE2 }];
+  rows[32] = [{ note: 'E-3', sample: 1 }];
+  rows[40] = [{ note: 'G-3', sample: 1, effect: 0xE, param: 0xE1 }];
+  return makeSong({
+    title: 'pattern-delay',
+    samples: [triLooped],
+    patterns: [makePattern(rows)],
+  });
+}
+
 // ─── Wire-up ───────────────────────────────────────────────────────────────
 
 const FIXTURES: Record<string, () => Song> = {
@@ -352,6 +741,27 @@ const FIXTURES: Record<string, () => Song> = {
   '05-glissando': fixtureGlissando,
   '06-panning': fixturePanning,
   '07-invert-loop': fixtureInvertLoop,
+  '08-arpeggio': fixtureArpeggio,
+  '09-slide-up': fixtureSlideUp,
+  '10-slide-down': fixtureSlideDown,
+  '11-tone-porta-vol-slide': fixtureTonePortaVolSlide,
+  '12-vibrato-vol-slide': fixtureVibratoVolSlide,
+  '13-sample-offset': fixtureSampleOffset,
+  '14-volume-slide': fixtureVolumeSlide,
+  '15-position-jump': fixturePositionJump,
+  '16-set-volume': fixtureSetVolume,
+  '17-pattern-break': fixturePatternBreak,
+  '18-set-speed': fixtureSetSpeed,
+  '19-fine-slide-up': fixtureFineSlideUp,
+  '20-fine-slide-down': fixtureFineSlideDown,
+  '21-set-finetune': fixtureSetFinetune,
+  '22-pattern-loop': fixturePatternLoop,
+  '23-retrigger': fixtureRetrigger,
+  '24-fine-vol-up': fixtureFineVolUp,
+  '25-fine-vol-down': fixtureFineVolDown,
+  '26-note-cut': fixtureNoteCut,
+  '27-note-delay': fixtureNoteDelay,
+  '28-pattern-delay': fixturePatternDelay,
 };
 
 function main(): void {
