@@ -179,6 +179,8 @@ export class Replayer {
   private readonly sideFactor: number;
   /** If true, never report ended; treat Bxx revisits and end-of-orders as a wrap. */
   private readonly loop: boolean;
+  /** If true, playback never advances past the starting order's pattern. */
+  private readonly loopPattern: boolean;
   /** Scratch buffers for Paula's double-precision output. */
   private scratchL: Float64Array = new Float64Array(0);
   private scratchR: Float64Array = new Float64Array(0);
@@ -190,17 +192,21 @@ export class Replayer {
     this.song = song;
     this.sampleRate = opts.sampleRate;
     this.loop = opts.loop ?? false;
+    this.loopPattern = opts.loopPattern ?? false;
     this.paula = new Paula(opts.sampleRate, 'A1200');
     const sep = Math.max(0, Math.min(100, opts.stereoSeparation ?? 20));
     this.sideFactor = (sep / 100) * 0.5;
     for (let i = 0; i < CHANNELS; i++) this.channels.push(newChannel());
 
+    const startOrder = Math.max(0, Math.min(song.songLength - 1, opts.initialOrder ?? 0));
+    const startRow = Math.max(0, Math.min(ROWS_PER_PATTERN - 1, opts.initialRow ?? 0));
+
     this.state = {
       speed: opts.initialSpeed ?? 6,
       tempo: opts.initialTempo ?? 125,
       tickInRow: 0,
-      row: 0,
-      orderIndex: 0,
+      row: startRow,
+      orderIndex: startOrder,
       patternDelay: 0,
       jumpToOrder: -1,
       jumpToRow: -1,
@@ -208,6 +214,9 @@ export class Replayer {
       visited: new Set(),
       pendingTempo: -1,
     };
+    // Mark the starting row as visited so a Bxx that jumps back to it triggers
+    // the song-end / loop-detect path the same way it would mid-song.
+    this.state.visited.add((startOrder << 8) | startRow);
     this.samplesUntilTick = this.samplesPerTick();
     for (const ch of this.channels) ch.effectiveVolume = -1;
     this.processRow();
@@ -394,12 +403,17 @@ export class Replayer {
 
   private advanceRow(): void {
     if (this.state.jumpToRow >= 0 || this.state.jumpToOrder >= 0) {
-      const order = this.state.jumpToOrder >= 0
+      let order = this.state.jumpToOrder >= 0
         ? this.state.jumpToOrder
         : this.state.orderIndex + 1;
       const row = this.state.jumpToRow >= 0 ? this.state.jumpToRow : 0;
       this.state.jumpToOrder = -1;
       this.state.jumpToRow = -1;
+      // Pattern-loop mode: clamp any Bxx/Dxx-implied order change to the
+      // current order. Dxx's row target is preserved (still useful for
+      // testing pattern-internal jumps); Bxx becomes "rewind to row 0 of
+      // this pattern".
+      if (this.loopPattern) order = this.state.orderIndex;
       this.gotoOrderRow(order, row);
       return;
     }
@@ -407,6 +421,8 @@ export class Replayer {
     const nextRow = this.state.row + 1;
     if (nextRow < ROWS_PER_PATTERN) {
       this.state.row = nextRow;
+    } else if (this.loopPattern) {
+      this.gotoOrderRow(this.state.orderIndex, 0);
     } else {
       this.gotoOrderRow(this.state.orderIndex + 1, 0);
     }
@@ -414,9 +430,10 @@ export class Replayer {
 
   private gotoOrderRow(order: number, row: number): void {
     if (order >= this.song.songLength) {
-      if (this.loop) {
-        // Ran off the end with no Bxx — wrap to the start.
-        order = 0;
+      if (this.loop || this.loopPattern) {
+        // Ran off the end with no Bxx — wrap to the start (or the locked
+        // pattern, in pattern-loop mode).
+        order = this.loopPattern ? this.state.orderIndex : 0;
         row = 0;
         this.state.visited.clear();
       } else {
@@ -428,12 +445,12 @@ export class Replayer {
     this.state.orderIndex = order;
     this.state.row = row;
 
-    // Revisit detection. In live (loop) mode revisits ARE the loop point —
-    // Bxx pointing at an already-played row is the canonical MOD loop
-    // construct. We just clear the visited set and keep playing.
+    // Revisit detection. In live (loop / pattern-loop) mode revisits ARE the
+    // loop point — Bxx pointing at an already-played row is the canonical
+    // MOD loop construct. We just clear the visited set and keep playing.
     const key = (order << 8) | row;
     if (this.state.visited.has(key)) {
-      if (this.loop) {
+      if (this.loop || this.loopPattern) {
         this.state.visited.clear();
         this.state.visited.add(key);
         return;

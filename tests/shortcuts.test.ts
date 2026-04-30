@@ -79,17 +79,26 @@ describe('installShortcuts', () => {
 
   /** Minimal stand-in for `window` covering only the methods we use. */
   function makeFakeWindow() {
-    let listener: ((e: Event) => void) | null = null;
-    const w = {
-      addEventListener: (_type: string, l: EventListener) => {
-        listener = l as (e: Event) => void;
+    const listeners: Record<string, ((e: Event) => void)[]> = { keydown: [], keyup: [] };
+    return {
+      addEventListener: (type: string, l: EventListener) => {
+        listeners[type] ??= [];
+        listeners[type]!.push(l as (e: Event) => void);
       },
-      removeEventListener: (_type: string, l: EventListener) => {
-        if (listener === (l as unknown as (e: Event) => void)) listener = null;
+      removeEventListener: (type: string, l: EventListener) => {
+        const arr = listeners[type];
+        if (!arr) return;
+        const idx = arr.indexOf(l as unknown as (e: Event) => void);
+        if (idx >= 0) arr.splice(idx, 1);
       },
-      dispatch: (init: Partial<KeyboardEvent>) => listener?.(ev(init) as unknown as Event),
+      keydown: (init: Partial<KeyboardEvent>) =>
+        (listeners.keydown ?? []).forEach((l) => l(ev(init) as unknown as Event)),
+      keyup: (init: Partial<KeyboardEvent>) =>
+        (listeners.keyup ?? []).forEach((l) => l(ev(init) as unknown as Event)),
+      /** Back-compat alias used by existing chord-shortcut tests. */
+      dispatch: (init: Partial<KeyboardEvent>) =>
+        (listeners.keydown ?? []).forEach((l) => l(ev(init) as unknown as Event)),
     };
-    return w;
   }
 
   it('runs Undo when Cmd+Z is dispatched', () => {
@@ -137,5 +146,39 @@ describe('installShortcuts', () => {
 
     // Listener detached, so undo was not invoked.
     expect(song()!.title).toBe('edited');
+  });
+});
+
+describe('Space chord shortcuts', () => {
+  it('matchesShortcut routes Space + modifier permutations correctly', () => {
+    const plain    = { key: ' ',                          description: 'plain',    run: () => {} };
+    const alt      = { key: ' ', alt: true,               description: 'alt',      run: () => {} };
+    const shift    = { key: ' ', shift: true,             description: 'shift',    run: () => {} };
+    const altShift = { key: ' ', alt: true, shift: true,  description: 'altShift', run: () => {} };
+
+    expect(matchesShortcut(ev({ key: ' ' }), plain)).toBe(true);
+    expect(matchesShortcut(ev({ key: ' ', altKey: true }), plain)).toBe(false);
+
+    expect(matchesShortcut(ev({ key: ' ', altKey: true }), alt)).toBe(true);
+    expect(matchesShortcut(ev({ key: ' ' }), alt)).toBe(false);
+    expect(matchesShortcut(ev({ key: ' ', altKey: true, shiftKey: true }), alt)).toBe(false);
+
+    expect(matchesShortcut(ev({ key: ' ', shiftKey: true }), shift)).toBe(true);
+    expect(matchesShortcut(ev({ key: ' ', shiftKey: true, altKey: true }), shift)).toBe(false);
+
+    expect(matchesShortcut(ev({ key: ' ', altKey: true, shiftKey: true }), altShift)).toBe(true);
+  });
+
+  it('matches by event.code when macOS munges Alt+Space to NBSP', () => {
+    const alt = { key: ' ', alt: true, description: 'alt', run: () => {} };
+    // Real macOS event for Option+Space: key is U+00A0 (non-breaking space),
+    // code stays 'Space'.
+    expect(matchesShortcut(ev({ key: ' ', code: 'Space', altKey: true }), alt)).toBe(true);
+  });
+
+  it('matches arrow keys by code as well as key', () => {
+    const up = { key: 'arrowup', description: 'up', run: () => {} };
+    expect(matchesShortcut(ev({ key: 'ArrowUp' }), up)).toBe(true);
+    expect(matchesShortcut(ev({ key: 'foo', code: 'ArrowUp' }), up)).toBe(true);
   });
 });

@@ -4,9 +4,8 @@ import { redo, undo } from './song';
  * Keyboard shortcut registry.
  *
  * The module ships with the always-available shortcuts (Undo / Redo) baked
- * in. App-level shortcuts whose handlers depend on component state (Play
- * toggle, Open file picker) call `registerShortcut` at mount time and
- * dispose with the returned cleanup function.
+ * in. App-level bindings whose handlers depend on component state call
+ * `registerShortcut` at mount time and dispose with the returned cleanup.
  *
  * Conventions:
  *   - `mod: true` means ⌘ on macOS, Ctrl on Windows/Linux.
@@ -44,9 +43,36 @@ export function getShortcuts(): readonly Shortcut[] {
   return registered;
 }
 
+/**
+ * For non-printable / layout-stable keys we ALSO accept a match by `event.code`,
+ * because modifiers on macOS munge `event.key` (Option+Space → ' ',
+ * Option+letter → composed character, etc.). `code` is the physical-key name
+ * and ignores modifiers. We still match printable letters by `key` so users
+ * with non-QWERTY layouts get Cmd+Z at the right glyph.
+ */
+const KEY_CODE_MAP: Readonly<Record<string, string>> = {
+  ' ':          'Space',
+  tab:          'Tab',
+  enter:        'Enter',
+  escape:       'Escape',
+  backspace:    'Backspace',
+  delete:       'Delete',
+  arrowup:      'ArrowUp',
+  arrowdown:    'ArrowDown',
+  arrowleft:    'ArrowLeft',
+  arrowright:   'ArrowRight',
+  pageup:       'PageUp',
+  pagedown:     'PageDown',
+  home:         'Home',
+  end:          'End',
+};
+
 /** True iff every modifier on `s` matches the event's modifier state exactly. */
 export function matchesShortcut(e: KeyboardEvent, s: Shortcut): boolean {
-  if (e.key.toLowerCase() !== s.key) return false;
+  const expectedCode = KEY_CODE_MAP[s.key];
+  const keyMatches = e.key.toLowerCase() === s.key;
+  const codeMatches = expectedCode !== undefined && e.code === expectedCode;
+  if (!keyMatches && !codeMatches) return false;
   const mod = e.metaKey || e.ctrlKey;
   if (!!s.mod !== mod) return false;
   if (!!s.shift !== e.shiftKey) return false;
@@ -57,8 +83,7 @@ export function matchesShortcut(e: KeyboardEvent, s: Shortcut): boolean {
 /**
  * Install a window-level keydown listener that runs the matching shortcut.
  * Returns a cleanup function. We always call `preventDefault` on a match
- * so the browser's own action (edit-menu Undo, Cmd+O file picker, page
- * scroll on Space) doesn't fight ours.
+ * so the browser's own action doesn't fight ours.
  */
 export function installShortcuts(target: Window = window): () => void {
   const handler = (ev: Event) => {

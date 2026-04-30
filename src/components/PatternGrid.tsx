@@ -73,8 +73,11 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
 
   let scroller: HTMLDivElement | undefined;
 
-  // Scroll the playhead row into the middle of the viewport whenever it changes.
+  // Center the playhead row when the song is playing. We skip this when
+  // stopped because in that mode the playhead tracks the cursor — the
+  // margin-based cursor scroller below handles it more gently.
   createEffect(() => {
+    if (!props.active) return;
     const idx = activeFlatIndex();
     if (idx < 0 || !scroller) return;
     const child = scroller.children[idx] as HTMLElement | undefined;
@@ -87,6 +90,7 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
   // viewport edges by a couple of rows so the cursor never sits flush against
   // the top/bottom — once it gets within `margin`, the scroller catches up.
   createEffect(() => {
+    if (props.active) return;
     const idx = cursorFlatIndex();
     if (idx < 0 || !scroller) return;
     const child = scroller.children[idx] as HTMLElement | undefined;
@@ -104,8 +108,9 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
     }
   });
 
-  /** True if the cursor is on (this row, this channel, this field). */
+  /** True if the cursor is on (this row, this channel, this field). Hidden during playback. */
   const isCursorAt = (rowIdx: number, channel: number, field: Field): boolean => {
+    if (props.active) return false;
     if (rowIdx !== cursorFlatIndex()) return false;
     const c = cursor();
     return c.channel === channel && c.field === field;

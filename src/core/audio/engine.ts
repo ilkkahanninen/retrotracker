@@ -53,6 +53,21 @@ export class AudioEngine {
     this.node.port.postMessage(msg);
   }
 
+  /**
+   * Restart playback at a specific (order, row). With `loopPattern`, playback
+   * is locked to the starting order's pattern (FT2 F7 behavior).
+   */
+  async playFrom(order: number, row: number, opts: { loopPattern?: boolean } = {}): Promise<void> {
+    if (this.ctx.state === 'suspended') await this.ctx.resume();
+    const msg: WorkletMessage = {
+      type: 'playFrom',
+      order,
+      row,
+      loopPattern: opts.loopPattern ?? false,
+    };
+    this.node.port.postMessage(msg);
+  }
+
   stop(): void {
     const msg: WorkletMessage = { type: 'stop' };
     this.node.port.postMessage(msg);

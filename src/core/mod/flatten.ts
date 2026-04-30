@@ -1,6 +1,10 @@
 import type { Note, Song } from './types';
 import { Effect } from './format';
 
+/** MOD defaults the replayer falls back to before any Fxx is hit. */
+const DEFAULT_SPEED = 6;
+const DEFAULT_TEMPO = 125;
+
 export interface FlatRow {
   /** Index into song.orders. */
   order: number;
@@ -48,4 +52,34 @@ export function flattenSong(song: Song): FlatRow[] {
     }
   }
   return out;
+}
+
+/**
+ * Walk the song from the start to (but not including) the given (order, row)
+ * and return the speed and tempo that would be in effect at that position
+ * — i.e. the most recent Fxx commands of each kind. Used when starting
+ * playback mid-song so the song doesn't snap back to the MOD defaults.
+ *
+ * Within each row, the channels are processed left-to-right and the last
+ * Fxx of each kind wins, matching the replayer.
+ */
+export function speedTempoAt(
+  song: Song,
+  order: number,
+  row: number,
+): { speed: number; tempo: number } {
+  let speed = DEFAULT_SPEED;
+  let tempo = DEFAULT_TEMPO;
+  const flat = flattenSong(song);
+  for (const fr of flat) {
+    if (fr.order === order && fr.rowIndex === row) break;
+    for (const cell of fr.cells) {
+      if (cell.effect !== Effect.SetSpeed) continue;
+      const p = cell.effectParam;
+      if (p === 0) continue; // F00 = stop song; ignore for state-tracking
+      if (p < 0x20) speed = p;
+      else tempo = p;
+    }
+  }
+  return { speed, tempo };
 }

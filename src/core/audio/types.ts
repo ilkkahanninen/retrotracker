@@ -25,6 +25,18 @@ export interface ReplayerOptions {
    * deterministic end).
    */
   loop?: boolean;
+  /** Order index to start playback at. Defaults to 0. */
+  initialOrder?: number;
+  /** Pattern-relative row to start playback at. Defaults to 0. */
+  initialRow?: number;
+  /**
+   * If true, playback never advances past the starting order's pattern.
+   * End-of-pattern wraps to row 0 of the same pattern; Bxx is clamped to
+   * the current order; Dxx still applies its row-jump within the pattern.
+   * Implies `loop` semantics (the visited-set check is skipped). Used for
+   * F7 "play pattern" in the live editor.
+   */
+  loopPattern?: boolean;
 }
 
 export interface RenderOptions extends ReplayerOptions {

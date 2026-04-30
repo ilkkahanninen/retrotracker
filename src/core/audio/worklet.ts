@@ -7,13 +7,15 @@
  */
 
 import type { Song } from '../mod/types';
+import { speedTempoAt } from '../mod/flatten';
 import { Replayer } from './replayer';
 
 export type WorkletMessage =
   | { type: 'load'; song: Song }
   | { type: 'play' }
   | { type: 'stop' }
-  | { type: 'reset' };
+  | { type: 'reset' }
+  | { type: 'playFrom'; order: number; row: number; loopPattern: boolean };
 
 export type WorkletEvent = { type: 'pos'; order: number; row: number };
 
@@ -53,6 +55,27 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           this.playing = false;
           this.replayer = null;
           this.song = null;
+          break;
+        case 'playFrom':
+          if (this.song) {
+            // Seed the new Replayer with the speed/tempo that would be in
+            // effect if the song had played from the start to the cursor —
+            // otherwise mid-song playback always starts at the defaults
+            // (6 / 125), even if the song set its tempo earlier.
+            const { speed, tempo } = speedTempoAt(this.song, msg.order, msg.row);
+            this.replayer = new Replayer(this.song, {
+              sampleRate,
+              loop: true,
+              initialOrder: msg.order,
+              initialRow: msg.row,
+              initialSpeed: speed,
+              initialTempo: tempo,
+              loopPattern: msg.loopPattern,
+            });
+            this.lastOrder = -1;
+            this.lastRow = -1;
+            this.playing = true;
+          }
           break;
       }
     };

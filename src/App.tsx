@@ -72,58 +72,124 @@ export const App: Component = () => {
 
   const onDragLeave = () => setDragOver(false);
 
-  const togglePlay = async () => {
-    if (transport() === 'playing') {
-      engine?.stop();
-      setTransport('ready');
-      return;
-    }
+  const stopPlayback = () => {
+    engine?.stop();
+    setTransport('ready');
+    // Snap the playhead to the cursor so the row tint jumps back to where
+    // the user is editing, instead of freezing wherever the song happened
+    // to be when stop fired.
+    const c = cursor();
+    setPlayPos({ order: c.order, row: c.row });
+  };
+
+  const playFromStart = async () => {
     if (!song()) return;
     const eng = await ensureEngine();
-    await eng.play();
+    await eng.playFrom(0, 0);
     setTransport('playing');
   };
 
-  /** Update the cursor with a movement function that needs the current Song. */
-  const moveWithSong = (fn: (c: ReturnType<typeof cursor>, s: NonNullable<ReturnType<typeof song>>) => ReturnType<typeof cursor>) => {
+  const playFromCursor = async () => {
+    if (!song()) return;
+    const c = cursor();
+    const eng = await ensureEngine();
+    await eng.playFrom(c.order, c.row);
+    setTransport('playing');
+  };
+
+  const playPatternFromStart = async () => {
+    if (!song()) return;
+    const c = cursor();
+    const eng = await ensureEngine();
+    await eng.playFrom(c.order, 0, { loopPattern: true });
+    setTransport('playing');
+  };
+
+  const playPatternFromCursor = async () => {
+    if (!song()) return;
+    const c = cursor();
+    const eng = await ensureEngine();
+    await eng.playFrom(c.order, c.row, { loopPattern: true });
+    setTransport('playing');
+  };
+
+  const togglePlay = async () => {
+    if (transport() === 'playing') stopPlayback();
+    else await playFromStart();
+  };
+
+  /**
+   * Move the cursor to `next`. Disabled during playback (the cursor is also
+   * hidden), and while stopped the playhead tracks the cursor so the next
+   * Shift+Space (Play from cursor) starts where the user is editing.
+   */
+  const applyCursor = (next: ReturnType<typeof cursor>) => {
+    if (transport() === 'playing') return;
+    setCursor(next);
+    setPlayPos({ order: next.order, row: next.row });
+  };
+
+  /** Same as applyCursor but for movement functions that need the Song. */
+  const applyCursorWithSong = (
+    fn: (c: ReturnType<typeof cursor>, s: NonNullable<ReturnType<typeof song>>) => ReturnType<typeof cursor>,
+  ) => {
+    if (transport() === 'playing') return;
     const s = song();
     if (!s) return;
-    setCursor(fn(cursor(), s));
+    applyCursor(fn(cursor(), s));
   };
 
   const cleanups: Array<() => void> = [];
   onMount(() => {
     cleanups.push(installShortcuts());
     cleanups.push(registerShortcut({
-      key: ' ', description: 'Play / Stop', run: () => { void togglePlay(); },
-    }));
-    cleanups.push(registerShortcut({
       key: 'o', mod: true, description: 'Open .mod', run: openModPicker,
     }));
-    // Cursor navigation
+    // Transport (Space-based chords; Option used instead of Cmd to avoid the
+    // macOS Spotlight conflict on ⌘+Space).
+    //   Space               → toggle: stop if playing, otherwise play song from start
+    //   Option + Space      → play pattern (loop) from start of cursor's pattern
+    //   Shift + Space       → play song from cursor
+    //   Option + Shift + Space → play pattern (loop) from cursor row
     cleanups.push(registerShortcut({
-      key: 'arrowleft',  description: 'Cursor left',  run: () => setCursor(moveLeft(cursor())),
+      key: ' ', description: 'Play / Stop', run: () => {
+        if (transport() === 'playing') stopPlayback();
+        else void playFromStart();
+      },
     }));
     cleanups.push(registerShortcut({
-      key: 'arrowright', description: 'Cursor right', run: () => setCursor(moveRight(cursor())),
+      key: ' ', alt: true, description: 'Play pattern (loop)', run: () => { void playPatternFromStart(); },
     }));
     cleanups.push(registerShortcut({
-      key: 'arrowup',    description: 'Cursor up',    run: () => moveWithSong(moveUp),
+      key: ' ', shift: true, description: 'Play song from cursor', run: () => { void playFromCursor(); },
     }));
     cleanups.push(registerShortcut({
-      key: 'arrowdown',  description: 'Cursor down',  run: () => moveWithSong(moveDown),
+      key: ' ', alt: true, shift: true, description: 'Play pattern from cursor (loop)', run: () => { void playPatternFromCursor(); },
+    }));
+    // Cursor navigation (no-op while playing — handled inside applyCursor)
+    cleanups.push(registerShortcut({
+      key: 'arrowleft',  description: 'Cursor left',  run: () => applyCursor(moveLeft(cursor())),
     }));
     cleanups.push(registerShortcut({
-      key: 'tab',                description: 'Next channel',     run: () => setCursor(tabNext(cursor())),
+      key: 'arrowright', description: 'Cursor right', run: () => applyCursor(moveRight(cursor())),
     }));
     cleanups.push(registerShortcut({
-      key: 'tab', shift: true,    description: 'Previous channel', run: () => setCursor(tabPrev(cursor())),
+      key: 'arrowup',    description: 'Cursor up',    run: () => applyCursorWithSong(moveUp),
     }));
     cleanups.push(registerShortcut({
-      key: 'pageup',   description: 'Page up',   run: () => moveWithSong((c, s) => pageUp(c, s, rowsPerBeat() * beatsPerBar())),
+      key: 'arrowdown',  description: 'Cursor down',  run: () => applyCursorWithSong(moveDown),
     }));
     cleanups.push(registerShortcut({
-      key: 'pagedown', description: 'Page down', run: () => moveWithSong((c, s) => pageDown(c, s, rowsPerBeat() * beatsPerBar())),
+      key: 'tab',                description: 'Next channel',     run: () => applyCursor(tabNext(cursor())),
+    }));
+    cleanups.push(registerShortcut({
+      key: 'tab', shift: true,    description: 'Previous channel', run: () => applyCursor(tabPrev(cursor())),
+    }));
+    cleanups.push(registerShortcut({
+      key: 'pageup',   description: 'Page up',   run: () => applyCursorWithSong((c, s) => pageUp(c, s, rowsPerBeat() * beatsPerBar())),
+    }));
+    cleanups.push(registerShortcut({
+      key: 'pagedown', description: 'Page down', run: () => applyCursorWithSong((c, s) => pageDown(c, s, rowsPerBeat() * beatsPerBar())),
     }));
   });
   onCleanup(() => {
