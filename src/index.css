@@ -190,15 +190,19 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   padding: 0 0;
   border-radius: 2px;
 }
-.patgrid__row--beat { background: rgba(255, 255, 255, 0.02); }
+.patgrid__row--beat { background: rgba(255, 255, 255, 0.025); }
+.patgrid__row--bar  { background: rgba(94, 200, 255, 0.07); box-shadow: inset 2px 0 0 var(--accent); }
+.patgrid__part--empty { opacity: 0.3; }
 .patgrid__row--cursor { background: var(--accent-dim); }
 .patgrid__row--active {
   background: var(--accent);
   color: #061119;
 }
 .patgrid__row--active .patgrid__num,
+.patgrid__row--active .patgrid__note,
 .patgrid__row--active .patgrid__samp,
 .patgrid__row--active .patgrid__eff { color: #061119; }
+.patgrid__row--active .patgrid__part--empty { opacity: 0.5; }
 
 .patgrid__num {
   color: var(--muted);

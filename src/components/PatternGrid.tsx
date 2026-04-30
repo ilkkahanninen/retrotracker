@@ -2,6 +2,7 @@ import { For, Show, createEffect, createMemo, type Component } from 'solid-js';
 import type { Note, Song } from '../core/mod/types';
 import { CHANNELS } from '../core/mod/types';
 import { PERIOD_TABLE } from '../core/mod/format';
+import { beatsPerBar, rowsPerBeat } from '../state/gridConfig';
 
 const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'] as const;
 
@@ -29,6 +30,7 @@ function effectStr(note: Note): string {
   const param = note.effectParam.toString(16).toUpperCase().padStart(2, '0');
   return `${cmd}${param}`;
 }
+
 
 interface PatternGridProps {
   song: Song;
@@ -67,11 +69,17 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
         {(p) => (
           <div class="patgrid__rows" ref={(el) => (scroller = el)}>
             <For each={p().rows}>
-              {(row, i) => (
+              {(row, i) => {
+                const beat = rowsPerBeat();
+                const bar = beat * beatsPerBar();
+                const isBeat = beat > 0 && i() % beat === 0;
+                const isBar = bar > 0 && i() % bar === 0;
+                return (
                 <div
                   class="patgrid__row"
                   classList={{
-                    'patgrid__row--beat': i() % 4 === 0,
+                    'patgrid__row--beat': isBeat && !isBar,
+                    'patgrid__row--bar': isBar,
                     'patgrid__row--active': props.active && i() === props.pos.row,
                     'patgrid__row--cursor': !props.active && i() === props.pos.row,
                   }}
@@ -80,14 +88,32 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                   <For each={row}>
                     {(note) => (
                       <span class="patgrid__cell">
-                        <span class="patgrid__note">{periodToNoteName(note.period)}</span>
-                        <span class="patgrid__samp">{sampleStr(note)}</span>
-                        <span class="patgrid__eff">{effectStr(note)}</span>
+                        <span
+                          class="patgrid__note"
+                          classList={{ 'patgrid__part--empty': note.period === 0 }}
+                        >
+                          {periodToNoteName(note.period)}
+                        </span>
+                        <span
+                          class="patgrid__samp"
+                          classList={{ 'patgrid__part--empty': note.sample === 0 }}
+                        >
+                          {sampleStr(note)}
+                        </span>
+                        <span
+                          class="patgrid__eff"
+                          classList={{
+                            'patgrid__part--empty': note.effect === 0 && note.effectParam === 0,
+                          }}
+                        >
+                          {effectStr(note)}
+                        </span>
                       </span>
                     )}
                   </For>
                 </div>
-              )}
+                );
+              }}
             </For>
           </div>
         )}
