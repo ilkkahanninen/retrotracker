@@ -157,7 +157,7 @@ export const App: Component = () => {
           {(s) => (
             <ol class="orderlist">
               {s().orders.slice(0, s().songLength).map((p, i) => (
-                <li>
+                <li classList={{ 'orderlist__item--active': i === playPos().order }}>
                   <span class="num">{String(i).padStart(3, '0')}</span>
                   <span class="pat">{String(p).padStart(2, '0')}</span>
                 </li>
