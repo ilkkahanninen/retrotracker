@@ -9,7 +9,6 @@ let engine: AudioEngine | null = null;
 async function ensureEngine(): Promise<AudioEngine> {
   if (engine) return engine;
   engine = await AudioEngine.create();
-  engine.onEnded = () => setTransport('ready');
   engine.onPosition = (order, row) => setPlayPos({ order, row });
   return engine;
 }

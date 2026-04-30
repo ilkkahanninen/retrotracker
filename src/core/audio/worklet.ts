@@ -15,14 +15,12 @@ export type WorkletMessage =
   | { type: 'stop' }
   | { type: 'reset' };
 
-export type WorkletEvent =
-  | { type: 'ended' }
-  | { type: 'pos'; order: number; row: number };
+export type WorkletEvent = { type: 'pos'; order: number; row: number };
 
 class RetrotrackerProcessor extends AudioWorkletProcessor {
   private replayer: Replayer | null = null;
+  private song: Song | null = null;
   private playing = false;
-  private endedNotified = false;
   // -1 forces an initial 'pos' post on the first process() call after load/play.
   private lastOrder = -1;
   private lastRow = -1;
@@ -33,14 +31,20 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
       const msg = e.data;
       switch (msg.type) {
         case 'load':
+          this.song = msg.song;
           this.replayer = new Replayer(msg.song, { sampleRate });
-          this.endedNotified = false;
           this.lastOrder = -1;
           this.lastRow = -1;
           break;
         case 'play':
+          // Replayer is one-shot — recreate it from the stored Song if the
+          // previous run finished. This is what makes Play→end→Play work.
+          if (this.song && (!this.replayer || this.replayer.isFinished())) {
+            this.replayer = new Replayer(this.song, { sampleRate });
+            this.lastOrder = -1;
+            this.lastRow = -1;
+          }
           this.playing = true;
-          this.endedNotified = false;
           break;
         case 'stop':
           this.playing = false;
@@ -48,6 +52,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
         case 'reset':
           this.playing = false;
           this.replayer = null;
+          this.song = null;
           break;
       }
     };
@@ -61,18 +66,24 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
 
     if (this.replayer && this.playing) {
       this.replayer.process(left, right, left.length);
+
+      // Loop: when the replayer reports end-of-song, swap in a fresh one so
+      // the *next* render quantum starts from the song's beginning. The tail
+      // of the current quantum may already be silence (the replayer writes
+      // zeros after `ended` is set) — a sub-render-quantum gap on the order
+      // of a few ms.
+      if (this.replayer.isFinished() && this.song) {
+        this.replayer = new Replayer(this.song, { sampleRate });
+        this.lastOrder = -1;
+        this.lastRow = -1;
+      }
+
       const o = this.replayer.getOrderIndex();
       const r = this.replayer.getRow();
       if (o !== this.lastOrder || r !== this.lastRow) {
         this.lastOrder = o;
         this.lastRow = r;
         const evt: WorkletEvent = { type: 'pos', order: o, row: r };
-        this.port.postMessage(evt);
-      }
-      if (this.replayer.isFinished() && !this.endedNotified) {
-        this.endedNotified = true;
-        this.playing = false;
-        const evt: WorkletEvent = { type: 'ended' };
         this.port.postMessage(evt);
       }
     } else {

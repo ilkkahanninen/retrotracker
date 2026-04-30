@@ -4,15 +4,16 @@ import type { WorkletEvent, WorkletMessage } from './worklet';
 
 /**
  * Browser-side wrapper around AudioContext + AudioWorkletNode.
- * Owns the worklet lifetime and exposes load/play/stop + an `onEnded` callback.
+ * Owns the worklet lifetime and exposes load/play/stop + position updates.
  *
  * Construct with `AudioEngine.create()` (async — has to register the worklet).
+ *
+ * Note: live playback loops the song forever. End-of-song wraps back to the
+ * start inside the worklet, so there is no `onEnded` callback.
  */
 export class AudioEngine {
   private readonly ctx: AudioContext;
   private readonly node: AudioWorkletNode;
-  /** Called when the replayer reports song end. */
-  onEnded: (() => void) | null = null;
   /** Called whenever the replayer crosses a row boundary during playback. */
   onPosition: ((order: number, row: number) => void) | null = null;
 
@@ -21,8 +22,7 @@ export class AudioEngine {
     this.node = node;
     this.node.port.onmessage = (e: MessageEvent<WorkletEvent>) => {
       const data = e.data;
-      if (data.type === 'ended') this.onEnded?.();
-      else if (data.type === 'pos') this.onPosition?.(data.order, data.row);
+      if (data.type === 'pos') this.onPosition?.(data.order, data.row);
     };
   }
 
