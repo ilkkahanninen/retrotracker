@@ -177,6 +177,8 @@ export class Replayer {
   private readonly paula: Paula;
   /** Mid/side panning side coefficient: (sep% / 100) * 0.5. */
   private readonly sideFactor: number;
+  /** If true, never report ended; treat Bxx revisits and end-of-orders as a wrap. */
+  private readonly loop: boolean;
   /** Scratch buffers for Paula's double-precision output. */
   private scratchL: Float64Array = new Float64Array(0);
   private scratchR: Float64Array = new Float64Array(0);
@@ -187,6 +189,7 @@ export class Replayer {
   constructor(song: Song, opts: ReplayerOptions) {
     this.song = song;
     this.sampleRate = opts.sampleRate;
+    this.loop = opts.loop ?? false;
     this.paula = new Paula(opts.sampleRate, 'A1200');
     const sep = Math.max(0, Math.min(100, opts.stereoSeparation ?? 20));
     this.sideFactor = (sep / 100) * 0.5;
@@ -411,18 +414,30 @@ export class Replayer {
 
   private gotoOrderRow(order: number, row: number): void {
     if (order >= this.song.songLength) {
-      // End of song. PT2 typically loops to restartPosition (or 0).
-      // We mark as ended so the caller can stop; the AudioWorklet can choose
-      // to loop by reseeking. For tests we want a clear end.
-      this.state.ended = true;
-      return;
+      if (this.loop) {
+        // Ran off the end with no Bxx — wrap to the start.
+        order = 0;
+        row = 0;
+        this.state.visited.clear();
+      } else {
+        // Offline render: deterministic stop at the natural end.
+        this.state.ended = true;
+        return;
+      }
     }
     this.state.orderIndex = order;
     this.state.row = row;
 
-    // Song-end detection via revisit.
+    // Revisit detection. In live (loop) mode revisits ARE the loop point —
+    // Bxx pointing at an already-played row is the canonical MOD loop
+    // construct. We just clear the visited set and keep playing.
     const key = (order << 8) | row;
     if (this.state.visited.has(key)) {
+      if (this.loop) {
+        this.state.visited.clear();
+        this.state.visited.add(key);
+        return;
+      }
       this.state.ended = true;
       return;
     }

@@ -17,6 +17,14 @@ export interface ReplayerOptions {
    * pt2-clone defaults to 20, which is what the accuracy test bed uses.
    */
   stereoSeparation?: number;
+  /**
+   * If true, the replayer never reports end-of-song. Bxx that targets an
+   * already-played row is treated as the song's loop point (which is its
+   * intended use in MOD files), and running off the end falls back to
+   * order 0. Use for live playback. Default false (offline render needs a
+   * deterministic end).
+   */
+  loop?: boolean;
 }
 
 export interface RenderOptions extends ReplayerOptions {

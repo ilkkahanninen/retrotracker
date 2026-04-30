@@ -32,7 +32,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
       switch (msg.type) {
         case 'load':
           this.song = msg.song;
-          this.replayer = new Replayer(msg.song, { sampleRate });
+          this.replayer = new Replayer(msg.song, { sampleRate, loop: true });
           this.lastOrder = -1;
           this.lastRow = -1;
           break;
@@ -40,7 +40,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           // Replayer is one-shot — recreate it from the stored Song if the
           // previous run finished. This is what makes Play→end→Play work.
           if (this.song && (!this.replayer || this.replayer.isFinished())) {
-            this.replayer = new Replayer(this.song, { sampleRate });
+            this.replayer = new Replayer(this.song, { sampleRate, loop: true });
             this.lastOrder = -1;
             this.lastRow = -1;
           }
@@ -73,7 +73,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
       // zeros after `ended` is set) — a sub-render-quantum gap on the order
       // of a few ms.
       if (this.replayer.isFinished() && this.song) {
-        this.replayer = new Replayer(this.song, { sampleRate });
+        this.replayer = new Replayer(this.song, { sampleRate, loop: true });
         this.lastOrder = -1;
         this.lastRow = -1;
       }
