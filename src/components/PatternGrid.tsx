@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, type Component } from 'solid-js';
+import { For, Index, Show, createEffect, createMemo, type Component } from 'solid-js';
 import type { Note, Song } from '../core/mod/types';
 import { CHANNELS } from '../core/mod/types';
 import { PERIOD_TABLE } from '../core/mod/format';
@@ -126,37 +126,44 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
       </div>
       <Show when={flat().length > 0} fallback={<p class="placeholder">No pattern</p>}>
         <div class="patgrid__rows" ref={(el) => (scroller = el)}>
-          <For each={flat()}>
+          {/* <Index> keeps row DOM mounted at each position; only the reactive
+              expressions inside re-evaluate when the row's data changes. This
+              makes column-shifting edits (Backspace / Enter, which rewrite
+              every Note[] from the cursor downward) O(changed cells) instead
+              of O(remounted rows) — the inner <For> over cells then preserves
+              the 3 unchanged channel cells per row by Note reference. */}
+          <Index each={flat()}>
             {(item, i) => {
-              const beat = rowsPerBeat();
-              const bar = beat * beatsPerBar();
-              const isBeat = beat > 0 && item.rowIndex % beat === 0;
-              const isBar = bar > 0 && item.rowIndex % bar === 0;
+              const rowIndex = createMemo(() => item().rowIndex);
+              const beat = createMemo(() => rowsPerBeat());
+              const bar = createMemo(() => beat() * beatsPerBar());
+              const isBeat = createMemo(() => beat() > 0 && rowIndex() % beat() === 0);
+              const isBar = createMemo(() => bar() > 0 && rowIndex() % bar() === 0);
               return (
                 <div
                   class="patgrid__row"
                   classList={{
-                    'patgrid__row--beat': isBeat && !isBar,
-                    'patgrid__row--bar': isBar,
-                    'patgrid__row--boundary': item.boundaryAbove,
-                    'patgrid__row--active': props.active && i() === activeFlatIndex(),
-                    'patgrid__row--cursor': !props.active && i() === activeFlatIndex(),
+                    'patgrid__row--beat': isBeat() && !isBar(),
+                    'patgrid__row--bar': isBar(),
+                    'patgrid__row--boundary': item().boundaryAbove,
+                    'patgrid__row--active': props.active && i === activeFlatIndex(),
+                    'patgrid__row--cursor': !props.active && i === activeFlatIndex(),
                   }}
                 >
                   <span class="patgrid__num">
-                    {item.rowIndex.toString(16).toUpperCase().padStart(2, '0')}
+                    {rowIndex().toString(16).toUpperCase().padStart(2, '0')}
                   </span>
-                  <For each={item.cells}>
+                  <For each={item().cells}>
                     {(note, ch) => {
-                      const eff = effectChars(note);
-                      const blank = note.effect === 0 && note.effectParam === 0;
+                      const eff = createMemo(() => effectChars(note));
+                      const blank = createMemo(() => note.effect === 0 && note.effectParam === 0);
                       return (
                         <span class="patgrid__cell">
                           <span
                             class="patgrid__note"
                             classList={{
                               'patgrid__part--empty': note.period === 0,
-                              'patgrid__field--cursor': isCursorAt(i(), ch(), 'note'),
+                              'patgrid__field--cursor': isCursorAt(i, ch(), 'note'),
                             }}
                           >
                             {periodToNoteName(note.period)}
@@ -165,7 +172,7 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                             class="patgrid__samp"
                             classList={{
                               'patgrid__part--empty': note.sample === 0,
-                              'patgrid__field--cursor': isCursorAt(i(), ch(), 'sample'),
+                              'patgrid__field--cursor': isCursorAt(i, ch(), 'sample'),
                             }}
                           >
                             {sampleStr(note)}
@@ -174,29 +181,29 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                             <span
                               class="patgrid__eff-char"
                               classList={{
-                                'patgrid__part--empty': blank,
-                                'patgrid__field--cursor': isCursorAt(i(), ch(), 'effectCmd'),
+                                'patgrid__part--empty': blank(),
+                                'patgrid__field--cursor': isCursorAt(i, ch(), 'effectCmd'),
                               }}
                             >
-                              {eff.cmd}
+                              {eff().cmd}
                             </span>
                             <span
                               class="patgrid__eff-char"
                               classList={{
-                                'patgrid__part--empty': blank,
-                                'patgrid__field--cursor': isCursorAt(i(), ch(), 'effectHi'),
+                                'patgrid__part--empty': blank(),
+                                'patgrid__field--cursor': isCursorAt(i, ch(), 'effectHi'),
                               }}
                             >
-                              {eff.hi}
+                              {eff().hi}
                             </span>
                             <span
                               class="patgrid__eff-char"
                               classList={{
-                                'patgrid__part--empty': blank,
-                                'patgrid__field--cursor': isCursorAt(i(), ch(), 'effectLo'),
+                                'patgrid__part--empty': blank(),
+                                'patgrid__field--cursor': isCursorAt(i, ch(), 'effectLo'),
                               }}
                             >
-                              {eff.lo}
+                              {eff().lo}
                             </span>
                           </span>
                         </span>
@@ -206,7 +213,7 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                 </div>
               );
             }}
-          </For>
+          </Index>
         </div>
       </Show>
     </div>

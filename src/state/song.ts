@@ -40,9 +40,12 @@ export const canRedo = () => future().length > 0;
  * Apply an immutable transform to the current song. Pushes the previous
  * state onto the undo stack, clears redo, and updates the signal.
  *
- * No-op if no song is loaded, or if the transform returns the same reference.
+ * No-op if no song is loaded, the transform returns the same reference, or
+ * the transport is currently playing — edits during playback would diverge
+ * the on-screen state from what the worklet is rendering.
  */
 export function commitEdit(transform: (song: Song) => Song): void {
+  if (transport() === 'playing') return;
   const current = song();
   if (!current) return;
   const next = transform(current);
@@ -57,8 +60,9 @@ export function commitEdit(transform: (song: Song) => Song): void {
   setSong(next);
 }
 
-/** Pop the latest entry off the undo stack and restore it. */
+/** Pop the latest entry off the undo stack and restore it. No-op while playing. */
 export function undo(): void {
+  if (transport() === 'playing') return;
   const list = past();
   if (list.length === 0) return;
   const previous = list[list.length - 1]!;
@@ -68,8 +72,9 @@ export function undo(): void {
   setSong(previous);
 }
 
-/** Replay the most recently undone edit. */
+/** Replay the most recently undone edit. No-op while playing. */
 export function redo(): void {
+  if (transport() === 'playing') return;
   const list = future();
   if (list.length === 0) return;
   const next = list[list.length - 1]!;

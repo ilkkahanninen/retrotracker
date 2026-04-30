@@ -1,7 +1,7 @@
 import { Show, createMemo, createSignal, onCleanup, onMount, type Component } from 'solid-js';
 import {
   song, setSong, transport, setTransport, playPos, setPlayPos,
-  canRedo, canUndo, clearHistory, redo, undo,
+  canRedo, canUndo, clearHistory, commitEdit, redo, undo,
 } from './state/song';
 import { installShortcuts, registerShortcut } from './state/shortcuts';
 import {
@@ -9,9 +9,36 @@ import {
   moveDown, moveLeft, moveRight, moveUp, pageDown, pageUp, tabNext, tabPrev,
 } from './state/cursor';
 import { beatsPerBar, rowsPerBeat } from './state/gridConfig';
+import { clearFieldPatch, currentOctave, currentSample, octaveDown, octaveUp } from './state/edit';
 import { parseModule } from './core/mod/parser';
+import { PERIOD_TABLE, emptySong } from './core/mod/format';
+import { deleteCellPullUp, insertCellPushDown, setCell } from './core/mod/mutations';
 import { AudioEngine } from './core/audio/engine';
 import { PatternGrid } from './components/PatternGrid';
+
+/**
+ * Piano-row key mapping → semitone offset from the current octave's C.
+ *   row 1 (white keys A S D F G H J K L ;)  + row 0 sharps (W E   T Y U   O P)
+ */
+const PIANO_KEYS: Readonly<Record<string, number>> = {
+  a: 0,   // C
+  w: 1,   // C#
+  s: 2,   // D
+  e: 3,   // D#
+  d: 4,   // E
+  f: 5,   // F
+  t: 6,   // F#
+  g: 7,   // G
+  y: 8,   // G#
+  h: 9,   // A
+  u: 10,  // A#
+  j: 11,  // B
+  k: 12,  // C +1 octave
+  o: 13,  // C# +1
+  l: 14,  // D +1
+  p: 15,  // D# +1
+  ';': 16, // E +1
+};
 
 let engine: AudioEngine | null = null;
 
@@ -20,6 +47,20 @@ async function ensureEngine(): Promise<AudioEngine> {
   engine = await AudioEngine.create();
   engine.onPosition = (order, row) => setPlayPos({ order, row });
   return engine;
+}
+
+/**
+ * Ensure the engine exists and push the current Song into it before play.
+ * The worklet keeps its own copy of the song, so without this every edit
+ * would only show up in the UI — the user would press Play and hear the
+ * pre-edit version. Returns null if no song is loaded.
+ */
+async function prepareEngine(): Promise<AudioEngine | null> {
+  const eng = await ensureEngine();
+  const s = song();
+  if (!s) return null;
+  eng.load(s);
+  return eng;
 }
 
 export const App: Component = () => {
@@ -32,8 +73,6 @@ export const App: Component = () => {
     try {
       const buf = await file.arrayBuffer();
       const mod = parseModule(buf);
-      const eng = await ensureEngine();
-      eng.load(mod);
       setSong(mod);
       clearHistory();
       resetCursor();
@@ -83,32 +122,32 @@ export const App: Component = () => {
   };
 
   const playFromStart = async () => {
-    if (!song()) return;
-    const eng = await ensureEngine();
+    const eng = await prepareEngine();
+    if (!eng) return;
     await eng.playFrom(0, 0);
     setTransport('playing');
   };
 
   const playFromCursor = async () => {
-    if (!song()) return;
     const c = cursor();
-    const eng = await ensureEngine();
+    const eng = await prepareEngine();
+    if (!eng) return;
     await eng.playFrom(c.order, c.row);
     setTransport('playing');
   };
 
   const playPatternFromStart = async () => {
-    if (!song()) return;
     const c = cursor();
-    const eng = await ensureEngine();
+    const eng = await prepareEngine();
+    if (!eng) return;
     await eng.playFrom(c.order, 0, { loopPattern: true });
     setTransport('playing');
   };
 
   const playPatternFromCursor = async () => {
-    if (!song()) return;
     const c = cursor();
-    const eng = await ensureEngine();
+    const eng = await prepareEngine();
+    if (!eng) return;
     await eng.playFrom(c.order, c.row, { loopPattern: true });
     setTransport('playing');
   };
@@ -139,8 +178,97 @@ export const App: Component = () => {
     applyCursor(fn(cursor(), s));
   };
 
+  /**
+   * Write a note at the cursor and audition it. No-op if the cursor isn't on
+   * the note field, the song isn't loaded, the resulting note is out of
+   * ProTracker's 3-octave range, or playback is active (note entry is a
+   * stopped-mode action).
+   */
+  const enterNote = (semitoneOffset: number) => {
+    if (transport() === 'playing') return;
+    const c = cursor();
+    if (c.field !== 'note') return;
+    const s = song();
+    if (!s) return;
+    const noteIdx = (currentOctave() - 1) * 12 + semitoneOffset;
+    if (noteIdx < 0 || noteIdx >= 36) return;
+    const period = PERIOD_TABLE[0]![noteIdx]!;
+    const sampleNum = currentSample();
+
+    commitEdit((song) => setCell(song, c.order, c.row, c.channel, {
+      period, sample: sampleNum,
+    }));
+    advanceCursor();
+
+    const sample = s.samples[sampleNum - 1];
+    if (sample && engine) void engine.previewNote(sample, period);
+  };
+
+  /**
+   * Clear the field under the cursor (note → period, sample → sample number,
+   * effect cmd/hi/lo → corresponding effect bytes) and step the cursor down
+   * one row. No-op while playing or with no song loaded.
+   */
+  const clearAtCursor = () => {
+    if (transport() === 'playing') return;
+    const s = song();
+    if (!s) return;
+    const c = cursor();
+    const pat = s.patterns[s.orders[c.order] ?? -1];
+    const note = pat?.rows[c.row]?.[c.channel];
+    if (!note) return;
+    const patch = clearFieldPatch(note, c.field);
+    commitEdit((song) => setCell(song, c.order, c.row, c.channel, patch));
+    advanceCursor();
+  };
+
+  /** Step the cursor one row down on the post-edit song. Called after note entry / clear. */
+  const advanceCursor = () => {
+    const s = song();
+    if (!s) return;
+    applyCursor(moveDown(cursor(), s));
+  };
+
+  /**
+   * Backspace: delete the cell directly above the cursor on this channel and
+   * pull the rest of the channel up by one. Cursor moves up one row to land
+   * on the now-shifted content, mirroring text-editor backspace. Affects only
+   * the current pattern.
+   */
+  const backspaceCell = () => {
+    if (transport() === 'playing') return;
+    const s = song();
+    if (!s) return;
+    const c = cursor();
+    if (c.row <= 0) return;
+    commitEdit((song) => deleteCellPullUp(song, c.order, c.row - 1, c.channel));
+    const after = song();
+    if (after) applyCursor(moveUp(c, after));
+  };
+
+  /**
+   * Return: insert an empty cell at the cursor on this channel and push the
+   * rest of the channel down by one (last cell falls off). Cursor advances
+   * one row so the user can keep building. Affects only the current pattern.
+   */
+  const insertEmptyCell = () => {
+    if (transport() === 'playing') return;
+    const s = song();
+    if (!s) return;
+    const c = cursor();
+    commitEdit((song) => insertCellPushDown(song, c.order, c.row, c.channel));
+    advanceCursor();
+  };
+
   const cleanups: Array<() => void> = [];
   onMount(() => {
+    // Boot with a blank "M.K." song so the user can start editing immediately
+    // without having to load a file first. The engine is created lazily on
+    // the first Play, so we don't touch AudioContext on mount.
+    if (!song()) {
+      setSong(emptySong());
+      setTransport('ready');
+    }
     cleanups.push(installShortcuts());
     cleanups.push(registerShortcut({
       key: 'o', mod: true, description: 'Open .mod', run: openModPicker,
@@ -191,6 +319,32 @@ export const App: Component = () => {
     cleanups.push(registerShortcut({
       key: 'pagedown', description: 'Page down', run: () => applyCursorWithSong((c, s) => pageDown(c, s, rowsPerBeat() * beatsPerBar())),
     }));
+    // Note entry — piano-row keys when the cursor is on the note field.
+    // `runUp` stops the audition preview when the key is released, so held
+    // notes (especially looping samples) don't keep ringing forever.
+    for (const [k, offset] of Object.entries(PIANO_KEYS)) {
+      cleanups.push(registerShortcut({
+        key: k,
+        description: `Note (offset ${offset})`,
+        run: () => enterNote(offset),
+        runUp: () => engine?.stopPreview(),
+      }));
+    }
+    cleanups.push(registerShortcut({
+      key: 'z', description: 'Octave down', run: octaveDown,
+    }));
+    cleanups.push(registerShortcut({
+      key: 'x', description: 'Octave up', run: octaveUp,
+    }));
+    cleanups.push(registerShortcut({
+      key: '.', description: 'Clear field under cursor', run: clearAtCursor,
+    }));
+    cleanups.push(registerShortcut({
+      key: 'backspace', description: 'Delete cell above (pull channel up)', run: backspaceCell,
+    }));
+    cleanups.push(registerShortcut({
+      key: 'enter',     description: 'Insert empty cell (push channel down)', run: insertEmptyCell,
+    }));
   });
   onCleanup(() => {
     for (const c of cleanups) c();
@@ -226,10 +380,18 @@ export const App: Component = () => {
           >
             {transport() === 'playing' ? 'Stop' : 'Play'}
           </button>
-          <button onClick={undo} disabled={!canUndo()} title="Undo (⌘Z)">
+          <button
+            onClick={undo}
+            disabled={!canUndo() || transport() === 'playing'}
+            title="Undo (⌘Z)"
+          >
             Undo
           </button>
-          <button onClick={redo} disabled={!canRedo()} title="Redo (⇧⌘Z)">
+          <button
+            onClick={redo}
+            disabled={!canRedo() || transport() === 'playing'}
+            title="Redo (⇧⌘Z)"
+          >
             Redo
           </button>
         </div>
@@ -277,6 +439,10 @@ export const App: Component = () => {
                 <span>pat {String(s().orders[playPos().order] ?? 0).padStart(2, '0')}</span>
                 <span class="patternpane__sep">·</span>
                 <span>row {String(playPos().row).padStart(2, '0')}</span>
+                <span class="patternpane__sep">·</span>
+                <span>oct {currentOctave()}</span>
+                <span class="patternpane__sep">·</span>
+                <span>smp {String(currentSample()).padStart(2, '0')}</span>
               </div>
               <PatternGrid song={s()} pos={playPos()} active={transport() === 'playing'} />
             </div>

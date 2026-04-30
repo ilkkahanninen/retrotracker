@@ -147,6 +147,78 @@ describe('installShortcuts', () => {
     // Listener detached, so undo was not invoked.
     expect(song()!.title).toBe('edited');
   });
+
+  it('fires runUp on keyup for press-and-hold shortcuts', () => {
+    const w = makeFakeWindow();
+    const cleanup = installShortcuts(w as unknown as Window);
+    let downs = 0;
+    let ups = 0;
+    const release = registerShortcut({
+      key: 'a', description: 'Test',
+      run: () => { downs++; },
+      runUp: () => { ups++; },
+    });
+
+    w.keydown({ key: 'a' });
+    w.keyup({ key: 'a' });
+    expect(downs).toBe(1);
+    expect(ups).toBe(1);
+
+    release();
+    cleanup();
+  });
+
+  it('runUp matches keyup ignoring modifiers (user grabs Shift mid-hold)', () => {
+    const w = makeFakeWindow();
+    const cleanup = installShortcuts(w as unknown as Window);
+    let ups = 0;
+    const release = registerShortcut({
+      key: 'a', description: 'Test', run: () => {}, runUp: () => { ups++; },
+    });
+
+    w.keydown({ key: 'a' });
+    w.keyup({ key: 'a', shiftKey: true });
+    expect(ups).toBe(1);
+
+    release();
+    cleanup();
+  });
+
+  it('suppresses repeat keydowns for press-and-hold shortcuts', () => {
+    const w = makeFakeWindow();
+    const cleanup = installShortcuts(w as unknown as Window);
+    let downs = 0;
+    const release = registerShortcut({
+      key: 'a', description: 'Test',
+      run: () => { downs++; },
+      runUp: () => {},
+    });
+
+    w.keydown({ key: 'a' });
+    w.keydown({ key: 'a', repeat: true });
+    w.keydown({ key: 'a', repeat: true });
+    expect(downs).toBe(1);
+
+    release();
+    cleanup();
+  });
+
+  it('still fires repeat keydowns for ordinary shortcuts (e.g. arrow nav)', () => {
+    const w = makeFakeWindow();
+    const cleanup = installShortcuts(w as unknown as Window);
+    let downs = 0;
+    const release = registerShortcut({
+      key: 'a', description: 'Test', run: () => { downs++; },
+    });
+
+    w.keydown({ key: 'a' });
+    w.keydown({ key: 'a', repeat: true });
+    w.keydown({ key: 'a', repeat: true });
+    expect(downs).toBe(3);
+
+    release();
+    cleanup();
+  });
 });
 
 describe('Space chord shortcuts', () => {

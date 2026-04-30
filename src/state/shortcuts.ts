@@ -21,6 +21,13 @@ export interface Shortcut {
   alt?: boolean;
   description: string;
   run: () => void;
+  /**
+   * Optional keyup handler. When present, the shortcut acts as a "press and
+   * hold" binding: auto-repeat keydowns are suppressed (so `run` fires once
+   * per real press), and `runUp` fires when the user releases the key. Used
+   * for note-preview audition where the sound should stop on release.
+   */
+  runUp?: () => void;
 }
 
 const registered: Shortcut[] = [
@@ -81,20 +88,52 @@ export function matchesShortcut(e: KeyboardEvent, s: Shortcut): boolean {
 }
 
 /**
- * Install a window-level keydown listener that runs the matching shortcut.
- * Returns a cleanup function. We always call `preventDefault` on a match
- * so the browser's own action doesn't fight ours.
+ * Looser match used on keyup: matches by key/code only and ignores modifiers.
+ * Mods can change between keydown and keyup (user grabs Shift mid-hold) but
+ * the user still expects the release action to fire.
+ */
+function matchesKeyOnly(e: KeyboardEvent, s: Shortcut): boolean {
+  const expectedCode = KEY_CODE_MAP[s.key];
+  const keyMatches = e.key.toLowerCase() === s.key;
+  const codeMatches = expectedCode !== undefined && e.code === expectedCode;
+  return keyMatches || codeMatches;
+}
+
+/**
+ * Install window-level keydown + keyup listeners that run matching shortcuts.
+ * Returns a cleanup function. We always call `preventDefault` on a match so
+ * the browser's own action doesn't fight ours.
+ *
+ * Auto-repeat keydowns are passed through to ordinary shortcuts (so holding
+ * an arrow key keeps moving the cursor) but suppressed for shortcuts that
+ * declare a `runUp` — those are press-and-hold bindings whose `run` should
+ * fire exactly once per real press.
  */
 export function installShortcuts(target: Window = window): () => void {
-  const handler = (ev: Event) => {
+  const downHandler = (ev: Event) => {
     const e = ev as KeyboardEvent;
     for (const s of registered) {
       if (!matchesShortcut(e, s)) continue;
       e.preventDefault();
+      if (s.runUp && e.repeat) return;
       s.run();
       return;
     }
   };
-  target.addEventListener('keydown', handler);
-  return () => target.removeEventListener('keydown', handler);
+  const upHandler = (ev: Event) => {
+    const e = ev as KeyboardEvent;
+    for (const s of registered) {
+      if (!s.runUp) continue;
+      if (!matchesKeyOnly(e, s)) continue;
+      e.preventDefault();
+      s.runUp();
+      return;
+    }
+  };
+  target.addEventListener('keydown', downHandler);
+  target.addEventListener('keyup', upHandler);
+  return () => {
+    target.removeEventListener('keydown', downHandler);
+    target.removeEventListener('keyup', upHandler);
+  };
 }

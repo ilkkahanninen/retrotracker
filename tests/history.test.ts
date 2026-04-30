@@ -7,6 +7,7 @@ import {
   commitEdit,
   redo,
   setSong,
+  setTransport,
   song,
   undo,
 } from '../src/state/song';
@@ -110,5 +111,36 @@ describe('song history', () => {
 
     expect(canUndo()).toBe(false);
     expect(canRedo()).toBe(false);
+  });
+
+  describe('playback gate', () => {
+    afterEach(() => setTransport('idle'));
+
+    it('commitEdit is a no-op while playing', () => {
+      setSong(makeSong('A'));
+      setTransport('playing');
+      commitEdit((s) => ({ ...s, title: 'B' }));
+      expect(song()!.title).toBe('A');
+      expect(canUndo()).toBe(false);
+    });
+
+    it('undo is a no-op while playing', () => {
+      setSong(makeSong('A'));
+      commitEdit((s) => ({ ...s, title: 'B' }));
+      setTransport('playing');
+      undo();
+      expect(song()!.title).toBe('B');
+      expect(canUndo()).toBe(true);
+    });
+
+    it('redo is a no-op while playing', () => {
+      setSong(makeSong('A'));
+      commitEdit((s) => ({ ...s, title: 'B' }));
+      undo();
+      setTransport('playing');
+      redo();
+      expect(song()!.title).toBe('A');
+      expect(canRedo()).toBe(true);
+    });
   });
 });

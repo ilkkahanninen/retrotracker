@@ -15,6 +15,27 @@ export interface FlatRow {
   boundaryAbove: boolean;
 }
 
+// Cache keyed on a row's `Note[]` reference so unchanged rows yield the same
+// FlatRow object across calls. setCell preserves cells refs for untouched
+// rows, so editing one cell rebuilds exactly one FlatRow and Solid's <For>
+// can skip reconciling the other ~255.
+const flatRowCache = new WeakMap<Note[], FlatRow>();
+
+function getFlatRow(cells: Note[], order: number, rowIndex: number, boundaryAbove: boolean): FlatRow {
+  const cached = flatRowCache.get(cells);
+  if (
+    cached
+    && cached.order === order
+    && cached.rowIndex === rowIndex
+    && cached.boundaryAbove === boundaryAbove
+  ) {
+    return cached;
+  }
+  const fr: FlatRow = { order, rowIndex, cells, boundaryAbove };
+  flatRowCache.set(cells, fr);
+  return fr;
+}
+
 /**
  * Walk the order list and produce a single flat row list.
  *
@@ -35,12 +56,7 @@ export function flattenSong(song: Song): FlatRow[] {
     nextStartRow = 0;
     for (let r = startRow; r < pat.rows.length; r++) {
       const cells = pat.rows[r]!;
-      out.push({
-        order: o,
-        rowIndex: r,
-        cells,
-        boundaryAbove: r === startRow && o > 0,
-      });
+      out.push(getFlatRow(cells, o, r, r === startRow && o > 0));
       let dxx = -1;
       for (const c of cells) {
         if (c.effect === Effect.PatternBreak) dxx = c.effectParam;
