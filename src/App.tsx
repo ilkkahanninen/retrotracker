@@ -3,6 +3,7 @@ import {
   song, setSong, transport, setTransport, playPos, setPlayPos,
   canRedo, canUndo, clearHistory, redo, undo,
 } from './state/song';
+import { installShortcuts } from './state/shortcuts';
 import { parseModule } from './core/mod/parser';
 import { AudioEngine } from './core/audio/engine';
 import { PatternGrid } from './components/PatternGrid';
@@ -71,22 +72,12 @@ export const App: Component = () => {
     setTransport('ready');
   };
 
-  const onKeyDown = (e: KeyboardEvent) => {
-    // Cmd/Ctrl+Z = undo. Add Shift (or Ctrl+Y) for redo.
-    const mod = e.metaKey || e.ctrlKey;
-    if (!mod) return;
-    if (e.key === 'z' || e.key === 'Z') {
-      e.preventDefault();
-      if (e.shiftKey) redo(); else undo();
-    } else if (e.key === 'y' || e.key === 'Y') {
-      e.preventDefault();
-      redo();
-    }
-  };
-
-  onMount(() => window.addEventListener('keydown', onKeyDown));
+  let uninstallShortcuts: (() => void) | null = null;
+  onMount(() => {
+    uninstallShortcuts = installShortcuts();
+  });
   onCleanup(() => {
-    window.removeEventListener('keydown', onKeyDown);
+    uninstallShortcuts?.();
     void engine?.dispose();
     engine = null;
   });
