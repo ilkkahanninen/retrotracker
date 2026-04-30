@@ -1,5 +1,8 @@
-import { Show, createMemo, createSignal, onCleanup, type Component } from 'solid-js';
-import { song, setSong, transport, setTransport, playPos, setPlayPos } from './state/song';
+import { Show, createMemo, createSignal, onCleanup, onMount, type Component } from 'solid-js';
+import {
+  song, setSong, transport, setTransport, playPos, setPlayPos,
+  canRedo, canUndo, clearHistory, redo, undo,
+} from './state/song';
 import { parseModule } from './core/mod/parser';
 import { AudioEngine } from './core/audio/engine';
 import { PatternGrid } from './components/PatternGrid';
@@ -26,6 +29,7 @@ export const App: Component = () => {
       const eng = await ensureEngine();
       eng.load(mod);
       setSong(mod);
+      clearHistory();
       setFilename(file.name);
       setPlayPos({ order: 0, row: 0 });
       setTransport('ready');
@@ -67,7 +71,22 @@ export const App: Component = () => {
     setTransport('ready');
   };
 
+  const onKeyDown = (e: KeyboardEvent) => {
+    // Cmd/Ctrl+Z = undo. Add Shift (or Ctrl+Y) for redo.
+    const mod = e.metaKey || e.ctrlKey;
+    if (!mod) return;
+    if (e.key === 'z' || e.key === 'Z') {
+      e.preventDefault();
+      if (e.shiftKey) redo(); else undo();
+    } else if (e.key === 'y' || e.key === 'Y') {
+      e.preventDefault();
+      redo();
+    }
+  };
+
+  onMount(() => window.addEventListener('keydown', onKeyDown));
   onCleanup(() => {
+    window.removeEventListener('keydown', onKeyDown);
     void engine?.dispose();
     engine = null;
   });
@@ -98,6 +117,12 @@ export const App: Component = () => {
           </button>
           <button onClick={onStop} disabled={transport() !== 'playing'}>
             Stop
+          </button>
+          <button onClick={undo} disabled={!canUndo()} title="Undo (⌘Z)">
+            Undo
+          </button>
+          <button onClick={redo} disabled={!canRedo()} title="Redo (⇧⌘Z)">
+            Redo
           </button>
         </div>
       </header>
