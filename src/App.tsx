@@ -3,7 +3,7 @@ import {
   song, setSong, transport, setTransport, playPos, setPlayPos,
   canRedo, canUndo, clearHistory, redo, undo,
 } from './state/song';
-import { installShortcuts } from './state/shortcuts';
+import { installShortcuts, registerShortcut } from './state/shortcuts';
 import { parseModule } from './core/mod/parser';
 import { AudioEngine } from './core/audio/engine';
 import { PatternGrid } from './components/PatternGrid';
@@ -40,11 +40,17 @@ export const App: Component = () => {
     }
   };
 
+  let fileInput: HTMLInputElement | undefined;
+
   const onPickFile = (e: Event) => {
     const input = e.currentTarget as HTMLInputElement;
     const file = input.files?.[0];
     if (file) void loadFile(file);
+    // Clear so re-picking the same file still fires onChange.
+    input.value = '';
   };
+
+  const openModPicker = () => fileInput?.click();
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
@@ -60,24 +66,30 @@ export const App: Component = () => {
 
   const onDragLeave = () => setDragOver(false);
 
-  const onPlay = async () => {
+  const togglePlay = async () => {
+    if (transport() === 'playing') {
+      engine?.stop();
+      setTransport('ready');
+      return;
+    }
     if (!song()) return;
     const eng = await ensureEngine();
     await eng.play();
     setTransport('playing');
   };
 
-  const onStop = () => {
-    engine?.stop();
-    setTransport('ready');
-  };
-
-  let uninstallShortcuts: (() => void) | null = null;
+  const cleanups: Array<() => void> = [];
   onMount(() => {
-    uninstallShortcuts = installShortcuts();
+    cleanups.push(installShortcuts());
+    cleanups.push(registerShortcut({
+      key: ' ', description: 'Play / Stop', run: () => { void togglePlay(); },
+    }));
+    cleanups.push(registerShortcut({
+      key: 'o', mod: true, description: 'Open .mod', run: openModPicker,
+    }));
   });
   onCleanup(() => {
-    uninstallShortcuts?.();
+    for (const c of cleanups) c();
     void engine?.dispose();
     engine = null;
   });
@@ -99,15 +111,16 @@ export const App: Component = () => {
       <header class="app__header">
         <h1>RetroTracker</h1>
         <div class="transport">
-          <label class="file-button">
-            <input type="file" accept=".mod" onChange={onPickFile} hidden />
-            Load .mod…
+          <label class="file-button" title="Open .mod (⌘O)">
+            <input type="file" accept=".mod" onChange={onPickFile} hidden ref={fileInput} />
+            Open .mod…
           </label>
-          <button onClick={onPlay} disabled={!song() || transport() === 'playing'}>
-            Play
-          </button>
-          <button onClick={onStop} disabled={transport() !== 'playing'}>
-            Stop
+          <button
+            onClick={() => void togglePlay()}
+            disabled={!song()}
+            title="Play / Stop (Space)"
+          >
+            {transport() === 'playing' ? 'Stop' : 'Play'}
           </button>
           <button onClick={undo} disabled={!canUndo()} title="Undo (⌘Z)">
             Undo

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { SHORTCUTS, installShortcuts, matchesShortcut, type Shortcut } from '../src/state/shortcuts';
+import {
+  getShortcuts, installShortcuts, matchesShortcut, registerShortcut, type Shortcut,
+} from '../src/state/shortcuts';
 import {
   canRedo, canUndo, clearHistory, commitEdit, setSong, song,
 } from '../src/state/song';
@@ -46,11 +48,22 @@ describe('matchesShortcut', () => {
   });
 });
 
-describe('SHORTCUTS list', () => {
-  it('exposes Undo and Redo bindings', () => {
-    const descriptions = SHORTCUTS.map(s => s.description);
+describe('shortcut registry', () => {
+  it('ships with Undo and Redo bindings', () => {
+    const descriptions = getShortcuts().map(s => s.description);
     expect(descriptions).toContain('Undo');
     expect(descriptions).toContain('Redo');
+  });
+
+  it('registerShortcut adds an entry; the cleanup removes it', () => {
+    const before = getShortcuts().length;
+    const cleanup = registerShortcut({
+      key: 'q', description: 'Test only', run: () => {},
+    });
+    expect(getShortcuts().length).toBe(before + 1);
+
+    cleanup();
+    expect(getShortcuts().length).toBe(before);
   });
 });
 
