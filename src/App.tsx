@@ -4,6 +4,11 @@ import {
   canRedo, canUndo, clearHistory, redo, undo,
 } from './state/song';
 import { installShortcuts, registerShortcut } from './state/shortcuts';
+import {
+  cursor, setCursor, resetCursor,
+  moveDown, moveLeft, moveRight, moveUp, pageDown, pageUp, tabNext, tabPrev,
+} from './state/cursor';
+import { beatsPerBar, rowsPerBeat } from './state/gridConfig';
 import { parseModule } from './core/mod/parser';
 import { AudioEngine } from './core/audio/engine';
 import { PatternGrid } from './components/PatternGrid';
@@ -31,6 +36,7 @@ export const App: Component = () => {
       eng.load(mod);
       setSong(mod);
       clearHistory();
+      resetCursor();
       setFilename(file.name);
       setPlayPos({ order: 0, row: 0 });
       setTransport('ready');
@@ -78,6 +84,13 @@ export const App: Component = () => {
     setTransport('playing');
   };
 
+  /** Update the cursor with a movement function that needs the current Song. */
+  const moveWithSong = (fn: (c: ReturnType<typeof cursor>, s: NonNullable<ReturnType<typeof song>>) => ReturnType<typeof cursor>) => {
+    const s = song();
+    if (!s) return;
+    setCursor(fn(cursor(), s));
+  };
+
   const cleanups: Array<() => void> = [];
   onMount(() => {
     cleanups.push(installShortcuts());
@@ -86,6 +99,31 @@ export const App: Component = () => {
     }));
     cleanups.push(registerShortcut({
       key: 'o', mod: true, description: 'Open .mod', run: openModPicker,
+    }));
+    // Cursor navigation
+    cleanups.push(registerShortcut({
+      key: 'arrowleft',  description: 'Cursor left',  run: () => setCursor(moveLeft(cursor())),
+    }));
+    cleanups.push(registerShortcut({
+      key: 'arrowright', description: 'Cursor right', run: () => setCursor(moveRight(cursor())),
+    }));
+    cleanups.push(registerShortcut({
+      key: 'arrowup',    description: 'Cursor up',    run: () => moveWithSong(moveUp),
+    }));
+    cleanups.push(registerShortcut({
+      key: 'arrowdown',  description: 'Cursor down',  run: () => moveWithSong(moveDown),
+    }));
+    cleanups.push(registerShortcut({
+      key: 'tab',                description: 'Next channel',     run: () => setCursor(tabNext(cursor())),
+    }));
+    cleanups.push(registerShortcut({
+      key: 'tab', shift: true,    description: 'Previous channel', run: () => setCursor(tabPrev(cursor())),
+    }));
+    cleanups.push(registerShortcut({
+      key: 'pageup',   description: 'Page up',   run: () => moveWithSong((c, s) => pageUp(c, s, rowsPerBeat() * beatsPerBar())),
+    }));
+    cleanups.push(registerShortcut({
+      key: 'pagedown', description: 'Page down', run: () => moveWithSong((c, s) => pageDown(c, s, rowsPerBeat() * beatsPerBar())),
     }));
   });
   onCleanup(() => {

@@ -1,8 +1,10 @@
 import { For, Show, createEffect, createMemo, type Component } from 'solid-js';
 import type { Note, Song } from '../core/mod/types';
 import { CHANNELS } from '../core/mod/types';
-import { Effect, PERIOD_TABLE } from '../core/mod/format';
+import { PERIOD_TABLE } from '../core/mod/format';
+import { flattenSong } from '../core/mod/flatten';
 import { beatsPerBar, rowsPerBeat } from '../state/gridConfig';
+import { cursor, type Field } from '../state/cursor';
 
 const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'] as const;
 
@@ -24,56 +26,18 @@ function sampleStr(note: Note): string {
   return note.sample === 0 ? '..' : note.sample.toString(16).toUpperCase().padStart(2, '0');
 }
 
-function effectStr(note: Note): string {
-  if (note.effect === 0 && note.effectParam === 0) return '...';
+interface EffectChars {
+  cmd: string;
+  hi: string;
+  lo: string;
+}
+
+function effectChars(note: Note): EffectChars {
+  if (note.effect === 0 && note.effectParam === 0) return { cmd: '.', hi: '.', lo: '.' };
   const cmd = note.effect.toString(16).toUpperCase();
-  const param = note.effectParam.toString(16).toUpperCase().padStart(2, '0');
-  return `${cmd}${param}`;
-}
-
-interface FlatRow {
-  order: number;
-  /** Pattern-relative row index (used for beat/bar markers and the row label). */
-  rowIndex: number;
-  cells: Note[];
-  /** Render a dashed divider above this row (true on the first row of a new pattern segment). */
-  boundaryAbove: boolean;
-}
-
-/**
- * Walk the order list and produce a single flat row list. Dxx (Pattern Break)
- * truncates the rest of the current pattern; the next order resumes at the
- * Dxx-target row. Bxx and pattern-loop are deliberately not honored here —
- * they would create infinite views for songs that loop.
- */
-function flattenSong(song: Song): FlatRow[] {
-  const out: FlatRow[] = [];
-  let nextStartRow = 0;
-  for (let o = 0; o < song.songLength; o++) {
-    const pat = song.patterns[song.orders[o] ?? 0];
-    if (!pat) continue;
-    const startRow = Math.min(nextStartRow, pat.rows.length - 1);
-    nextStartRow = 0;
-    for (let r = startRow; r < pat.rows.length; r++) {
-      const cells = pat.rows[r]!;
-      out.push({
-        order: o,
-        rowIndex: r,
-        cells,
-        boundaryAbove: r === startRow && o > 0,
-      });
-      // PT spec: last Dxx in row order wins for the target row.
-      let dxx = -1;
-      for (const c of cells) {
-        if (c.effect === Effect.PatternBreak) dxx = c.effectParam;
-      }
-      if (dxx >= 0) {
-        nextStartRow = Math.min(((dxx >> 4) * 10) + (dxx & 0x0f), pat.rows.length - 1);
-        break;
-      }
-    }
-  }
-  return out;
+  const hi = ((note.effectParam >> 4) & 0x0f).toString(16).toUpperCase();
+  const lo = (note.effectParam & 0x0f).toString(16).toUpperCase();
+  return { cmd, hi, lo };
 }
 
 interface PatternGridProps {
@@ -96,6 +60,17 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
     return -1;
   });
 
+  /** Index of the edit cursor row inside the flat list, or -1 if hidden. */
+  const cursorFlatIndex = createMemo(() => {
+    const items = flat();
+    const c = cursor();
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i]!;
+      if (it.order === c.order && it.rowIndex === c.row) return i;
+    }
+    return -1;
+  });
+
   let scroller: HTMLDivElement | undefined;
 
   // Scroll the playhead row into the middle of the viewport whenever it changes.
@@ -107,6 +82,34 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
     const target = child.offsetTop - scroller.clientHeight / 2 + child.clientHeight / 2;
     scroller.scrollTop = target;
   });
+
+  // Keep the cursor visible as the user navigates with arrows. We pad the
+  // viewport edges by a couple of rows so the cursor never sits flush against
+  // the top/bottom — once it gets within `margin`, the scroller catches up.
+  createEffect(() => {
+    const idx = cursorFlatIndex();
+    if (idx < 0 || !scroller) return;
+    const child = scroller.children[idx] as HTMLElement | undefined;
+    if (!child) return;
+    const rowH = child.clientHeight;
+    const margin = rowH * 2;
+    const top = child.offsetTop;
+    const bottom = top + rowH;
+    const viewTop = scroller.scrollTop;
+    const viewBottom = viewTop + scroller.clientHeight;
+    if (top - margin < viewTop) {
+      scroller.scrollTop = Math.max(0, top - margin);
+    } else if (bottom + margin > viewBottom) {
+      scroller.scrollTop = bottom + margin - scroller.clientHeight;
+    }
+  });
+
+  /** True if the cursor is on (this row, this channel, this field). */
+  const isCursorAt = (rowIdx: number, channel: number, field: Field): boolean => {
+    if (rowIdx !== cursorFlatIndex()) return false;
+    const c = cursor();
+    return c.channel === channel && c.field === field;
+  };
 
   return (
     <div class="patgrid">
@@ -139,30 +142,61 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                     {item.rowIndex.toString(16).toUpperCase().padStart(2, '0')}
                   </span>
                   <For each={item.cells}>
-                    {(note) => (
-                      <span class="patgrid__cell">
-                        <span
-                          class="patgrid__note"
-                          classList={{ 'patgrid__part--empty': note.period === 0 }}
-                        >
-                          {periodToNoteName(note.period)}
+                    {(note, ch) => {
+                      const eff = effectChars(note);
+                      const blank = note.effect === 0 && note.effectParam === 0;
+                      return (
+                        <span class="patgrid__cell">
+                          <span
+                            class="patgrid__note"
+                            classList={{
+                              'patgrid__part--empty': note.period === 0,
+                              'patgrid__field--cursor': isCursorAt(i(), ch(), 'note'),
+                            }}
+                          >
+                            {periodToNoteName(note.period)}
+                          </span>
+                          <span
+                            class="patgrid__samp"
+                            classList={{
+                              'patgrid__part--empty': note.sample === 0,
+                              'patgrid__field--cursor': isCursorAt(i(), ch(), 'sample'),
+                            }}
+                          >
+                            {sampleStr(note)}
+                          </span>
+                          <span class="patgrid__eff">
+                            <span
+                              class="patgrid__eff-char"
+                              classList={{
+                                'patgrid__part--empty': blank,
+                                'patgrid__field--cursor': isCursorAt(i(), ch(), 'effectCmd'),
+                              }}
+                            >
+                              {eff.cmd}
+                            </span>
+                            <span
+                              class="patgrid__eff-char"
+                              classList={{
+                                'patgrid__part--empty': blank,
+                                'patgrid__field--cursor': isCursorAt(i(), ch(), 'effectHi'),
+                              }}
+                            >
+                              {eff.hi}
+                            </span>
+                            <span
+                              class="patgrid__eff-char"
+                              classList={{
+                                'patgrid__part--empty': blank,
+                                'patgrid__field--cursor': isCursorAt(i(), ch(), 'effectLo'),
+                              }}
+                            >
+                              {eff.lo}
+                            </span>
+                          </span>
                         </span>
-                        <span
-                          class="patgrid__samp"
-                          classList={{ 'patgrid__part--empty': note.sample === 0 }}
-                        >
-                          {sampleStr(note)}
-                        </span>
-                        <span
-                          class="patgrid__eff"
-                          classList={{
-                            'patgrid__part--empty': note.effect === 0 && note.effectParam === 0,
-                          }}
-                        >
-                          {effectStr(note)}
-                        </span>
-                      </span>
-                    )}
+                      );
+                    }}
                   </For>
                 </div>
               );
