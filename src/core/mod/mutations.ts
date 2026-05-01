@@ -1,6 +1,6 @@
-import type { Note, Pattern, Song } from './types';
+import type { Note, Pattern, Sample, Song } from './types';
 import { MAX_ORDERS } from './types';
-import { emptyNote, emptyPattern } from './format';
+import { emptyNote, emptyPattern, emptySample } from './format';
 
 /**
  * Return a new Song with one cell's fields overridden, sharing every other
@@ -251,4 +251,79 @@ export function duplicatePatternAtOrder(song: Song, order: number): Song {
   const newOrders = [...song.orders];
   newOrders[order] = newPatterns.length - 1;
   return { ...song, patterns: newPatterns, orders: newOrders };
+}
+
+// ─── Samples ──────────────────────────────────────────────────────────────
+
+/**
+ * Replace fields on `song.samples[slot]`. Patches the named keys, leaves the
+ * rest alone. Returns the same Song reference when nothing actually changed.
+ */
+export function setSample(song: Song, slot: number, patch: Partial<Sample>): Song {
+  if (slot < 0 || slot >= song.samples.length) return song;
+  const old = song.samples[slot];
+  if (!old) return song;
+  let changed = false;
+  for (const k of Object.keys(patch) as (keyof Sample)[]) {
+    if (old[k] !== patch[k]) { changed = true; break; }
+  }
+  if (!changed) return song;
+  const newSample: Sample = { ...old, ...patch };
+  const newSamples: Sample[] = [...song.samples];
+  newSamples[slot] = newSample;
+  return { ...song, samples: newSamples };
+}
+
+/** Reset `song.samples[slot]` to the empty/default sample. No-op if out of range. */
+export function clearSample(song: Song, slot: number): Song {
+  if (slot < 0 || slot >= song.samples.length) return song;
+  const old = song.samples[slot];
+  if (!old) return song;
+  if (old.lengthWords === 0 && old.name === '' && old.volume === 0) return song;
+  const newSamples: Sample[] = [...song.samples];
+  newSamples[slot] = emptySample();
+  return { ...song, samples: newSamples };
+}
+
+/**
+ * Replace the PCM payload of `song.samples[slot]` with new audio data, plus
+ * optional name/volume/finetune overrides for what gets associated with it.
+ *
+ * Sample data is word-aligned in PT, so an odd-length input is padded with a
+ * trailing zero byte. `lengthWords` is recomputed from the padded data, and
+ * loop points are reset to "no loop" — the user can dial them in afterward.
+ *
+ * Inputs longer than PT's 16-bit `lengthWords` field (max 65535 words ≈ 128 KB)
+ * are truncated to fit.
+ */
+export function replaceSampleData(
+  song: Song,
+  slot: number,
+  data: Int8Array,
+  meta: Partial<Pick<Sample, 'name' | 'volume' | 'finetune'>> = {},
+): Song {
+  if (slot < 0 || slot >= song.samples.length) return song;
+
+  // Word-align: pad odd-length inputs by one zero byte so lengthWords is exact.
+  const aligned = data.byteLength % 2 === 0
+    ? data
+    : ((): Int8Array => {
+        const p = new Int8Array(data.byteLength + 1);
+        p.set(data);
+        return p;
+      })();
+  // Cap at PT's 16-bit lengthWords field.
+  const MAX_BYTES = 65535 * 2;
+  const capped = aligned.byteLength > MAX_BYTES
+    ? aligned.subarray(0, MAX_BYTES)
+    : aligned;
+  const lengthWords = capped.byteLength >> 1;
+
+  return setSample(song, slot, {
+    ...meta,
+    data: capped,
+    lengthWords,
+    loopStartWords: 0,
+    loopLengthWords: 1,
+  });
 }

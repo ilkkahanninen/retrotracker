@@ -1,6 +1,12 @@
 /**
  * Minimal RIFF/WAV PCM reader + writer.
- * Supports 16-bit and 24-bit PCM, mono or stereo. Anything else throws.
+ *
+ * Reader supports 8/16/24-bit integer PCM and 32-bit float PCM, mono or
+ * stereo. Writer emits 16/24-bit integer PCM. Anything outside that throws.
+ *
+ * Used by the offline-render test bed (writing reference WAVs and reading
+ * them back) and by the runtime sample importer (converting user-loaded
+ * WAVs into ProTracker 8-bit signed mono samples).
  */
 
 export interface WavData {
@@ -45,24 +51,42 @@ export function readWav(buf: ArrayBufferLike | Uint8Array): WavData {
 
   if (!fmtFound) throw new Error('WAV missing fmt chunk');
   if (dataOff < 0) throw new Error('WAV missing data chunk');
-  if (audioFormat !== 1) throw new Error(`Unsupported WAV format: ${audioFormat} (need PCM)`);
   if (numChannels < 1 || numChannels > 2) throw new Error(`Unsupported channel count: ${numChannels}`);
-  if (bitsPerSample !== 16 && bitsPerSample !== 24) {
-    throw new Error(`Unsupported bit depth: ${bitsPerSample}`);
+
+  // Format 1 = PCM int, 3 = IEEE float, 0xFFFE = WAVE_FORMAT_EXTENSIBLE.
+  // Extensible carries a sub-format GUID; for sample loading we just trust
+  // the bit depth and treat int/float by depth alone.
+  const isFloat = audioFormat === 3;
+  if (audioFormat !== 1 && audioFormat !== 3 && audioFormat !== 0xFFFE) {
+    throw new Error(`Unsupported WAV format: ${audioFormat} (need PCM int or float)`);
+  }
+  if (isFloat && bitsPerSample !== 32) {
+    throw new Error(`Unsupported float bit depth: ${bitsPerSample}`);
+  }
+  if (!isFloat && bitsPerSample !== 8 && bitsPerSample !== 16 && bitsPerSample !== 24) {
+    throw new Error(`Unsupported PCM bit depth: ${bitsPerSample}`);
   }
 
   const bytesPerSample = bitsPerSample / 8;
   const frames = Math.floor(dataLen / (bytesPerSample * numChannels));
   const channels: Float32Array[] = Array.from({ length: numChannels }, () => new Float32Array(frames));
 
-  if (bitsPerSample === 16) {
+  if (bitsPerSample === 8) {
+    // 8-bit WAV is UNSIGNED — 128 is silence.
+    for (let i = 0; i < frames; i++) {
+      for (let c = 0; c < numChannels; c++) {
+        const s = u8[dataOff + i * numChannels + c]!;
+        channels[c]![i] = (s - 128) / 128;
+      }
+    }
+  } else if (bitsPerSample === 16) {
     for (let i = 0; i < frames; i++) {
       for (let c = 0; c < numChannels; c++) {
         const s = view.getInt16(dataOff + (i * numChannels + c) * 2, true);
         channels[c]![i] = s / 32768;
       }
     }
-  } else {
+  } else if (bitsPerSample === 24) {
     for (let i = 0; i < frames; i++) {
       for (let c = 0; c < numChannels; c++) {
         const o = dataOff + (i * numChannels + c) * 3;
@@ -72,6 +96,13 @@ export function readWav(buf: ArrayBufferLike | Uint8Array): WavData {
         let s = (hi << 16) | (mi << 8) | lo;
         if (s & 0x800000) s -= 0x1000000;
         channels[c]![i] = s / 8388608;
+      }
+    }
+  } else {
+    // 32-bit float.
+    for (let i = 0; i < frames; i++) {
+      for (let c = 0; c < numChannels; c++) {
+        channels[c]![i] = view.getFloat32(dataOff + (i * numChannels + c) * 4, true);
       }
     }
   }

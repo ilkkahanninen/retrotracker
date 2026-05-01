@@ -3,6 +3,7 @@ import {
   deleteCellPullUp, insertCellPushDown, setCell,
   setOrderPattern, nextPatternAtOrder, prevPatternAtOrder,
   insertOrder, deleteOrder, newPatternAtOrder, duplicatePatternAtOrder,
+  setSample, clearSample, replaceSampleData,
 } from '../src/core/mod/mutations';
 import { emptyPattern, emptySong } from '../src/core/mod/format';
 import { MAX_ORDERS } from '../src/core/mod/types';
@@ -310,5 +311,85 @@ describe('duplicatePatternAtOrder', () => {
     const s = makeSong();
     expect(duplicatePatternAtOrder(s, 99)).toBe(s);
     expect(duplicatePatternAtOrder(s, -1)).toBe(s);
+  });
+});
+
+describe('setSample', () => {
+  it('patches the named fields and leaves the rest alone', () => {
+    const s = makeSong();
+    s.samples[0]!.name = 'kick';
+    s.samples[0]!.volume = 32;
+    s.samples[0]!.finetune = 0;
+    const next = setSample(s, 0, { volume: 50, finetune: 3 });
+    expect(next.samples[0]!.name).toBe('kick');
+    expect(next.samples[0]!.volume).toBe(50);
+    expect(next.samples[0]!.finetune).toBe(3);
+  });
+
+  it('returns the same Song reference when nothing actually changed', () => {
+    const s = makeSong();
+    s.samples[0]!.volume = 32;
+    expect(setSample(s, 0, { volume: 32 })).toBe(s);
+  });
+
+  it('no-ops on an out-of-range slot', () => {
+    const s = makeSong();
+    expect(setSample(s, 99, { volume: 50 })).toBe(s);
+    expect(setSample(s, -1, { volume: 50 })).toBe(s);
+  });
+});
+
+describe('clearSample', () => {
+  it('resets a populated slot to empty', () => {
+    const s = makeSong();
+    s.samples[0] = {
+      name: 'kick', lengthWords: 8, finetune: 3, volume: 50,
+      loopStartWords: 0, loopLengthWords: 1,
+      data: new Int8Array(16),
+    };
+    const next = clearSample(s, 0);
+    expect(next.samples[0]!.lengthWords).toBe(0);
+    expect(next.samples[0]!.name).toBe('');
+    expect(next.samples[0]!.volume).toBe(0);
+    expect(next.samples[0]!.data.byteLength).toBe(0);
+  });
+
+  it('no-ops on an already-empty slot', () => {
+    const s = makeSong();
+    expect(clearSample(s, 0)).toBe(s);
+  });
+});
+
+describe('replaceSampleData', () => {
+  it('writes new data, recomputes lengthWords, resets loop, applies metadata', () => {
+    const s = makeSong();
+    const data = new Int8Array([1, 2, 3, 4, 5, 6, 7, 8]); // 8 bytes = 4 words
+    const next = replaceSampleData(s, 0, data, { name: 'snare', volume: 64, finetune: 2 });
+    expect(next.samples[0]!.data).toBe(data);
+    expect(next.samples[0]!.lengthWords).toBe(4);
+    expect(next.samples[0]!.name).toBe('snare');
+    expect(next.samples[0]!.volume).toBe(64);
+    expect(next.samples[0]!.finetune).toBe(2);
+    // Loop reset to "no loop".
+    expect(next.samples[0]!.loopStartWords).toBe(0);
+    expect(next.samples[0]!.loopLengthWords).toBe(1);
+  });
+
+  it('pads odd-length input by one trailing zero byte', () => {
+    const s = makeSong();
+    const data = new Int8Array([10, 20, 30]); // 3 bytes
+    const next = replaceSampleData(s, 0, data);
+    expect(next.samples[0]!.data.byteLength).toBe(4);
+    expect(next.samples[0]!.lengthWords).toBe(2);
+    expect(next.samples[0]!.data[3]).toBe(0); // pad
+    expect(next.samples[0]!.data[0]).toBe(10);
+  });
+
+  it('caps inputs longer than PT\'s 16-bit lengthWords field', () => {
+    const s = makeSong();
+    const big = new Int8Array(200_000); // > 65535 words = 131070 bytes
+    const next = replaceSampleData(s, 0, big);
+    expect(next.samples[0]!.lengthWords).toBe(65535);
+    expect(next.samples[0]!.data.byteLength).toBe(65535 * 2);
   });
 });

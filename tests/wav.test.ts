@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readWav, writeWav } from './lib/wav';
+import { readWav, writeWav } from '../src/core/audio/wav';
 import { compareChannels } from './lib/compare';
 
 describe('WAV round-trip', () => {

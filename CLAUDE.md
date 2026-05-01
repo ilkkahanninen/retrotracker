@@ -68,6 +68,12 @@ Each fixture targets exactly one behavior (resampler, filter, vibrato waveform, 
 
 [src/state/song.ts](src/state/song.ts) holds the loaded `Song` as a Solid signal. The `Song` itself is not deeply reactive — pattern editing will get its own store when that work starts.
 
+### Views
+
+The app has two top-level views — `'pattern'` and `'sample'` — driven by the `view` signal in [src/state/view.ts](src/state/view.ts). They occupy the same `<main>` slot; the layout's `grid-template-columns` flips between 3 columns (samples / main / order) and 2 (samples / main) via `.app--view-pattern` / `.app--view-sample` on the root. The sample list pane is shared across both views; `currentSample()` from [src/state/edit.ts](src/state/edit.ts) is what both the pattern grid and the sample editor read.
+
+Sample editing has its own mutations (`setSample`, `clearSample`, `replaceSampleData` in [src/core/mod/mutations.ts](src/core/mod/mutations.ts)) and an importer ([src/core/mod/sampleImport.ts](src/core/mod/sampleImport.ts)) that converts a parsed WAV into 8-bit signed mono. The WAV reader/writer lives at [src/core/audio/wav.ts](src/core/audio/wav.ts) and is shared between the runtime importer and the offline-render test bed.
+
 ## Conventions
 
 - TypeScript strict mode with `noUncheckedIndexedAccess` — array/record access returns `T | undefined`. Use `arr[i]!` only when an invariant guarantees presence (e.g., `PERIOD_TABLE[finetune]!` — finetune is 0..15).

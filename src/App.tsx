@@ -22,9 +22,14 @@ import {
   deleteCellPullUp, insertCellPushDown, setCell,
   nextPatternAtOrder, prevPatternAtOrder,
   insertOrder, deleteOrder, newPatternAtOrder, duplicatePatternAtOrder,
+  setSample, clearSample, replaceSampleData,
 } from './core/mod/mutations';
+import { importWavSample } from './core/mod/sampleImport';
 import { AudioEngine } from './core/audio/engine';
 import { PatternGrid } from './components/PatternGrid';
+import { SampleList } from './components/SampleList';
+import { SampleView } from './components/SampleView';
+import { view, setView } from './state/view';
 
 /**
  * Piano-row key mapping → semitone offset from the current octave's C.
@@ -388,6 +393,42 @@ export const App: Component = () => {
     commitEdit((song) => duplicatePatternAtOrder(song, c.order));
   };
 
+  // ─── Sample editing ──────────────────────────────────────────────────────
+
+  /** Patch metadata fields on the currently-selected sample. */
+  const patchCurrentSample = (patch: Parameters<typeof setSample>[2]) => {
+    if (transport() === 'playing') return;
+    commitEdit((song) => setSample(song, currentSample() - 1, patch));
+  };
+
+  /** Reset the currently-selected sample to empty. */
+  const clearCurrentSample = () => {
+    if (transport() === 'playing') return;
+    commitEdit((song) => clearSample(song, currentSample() - 1));
+  };
+
+  /**
+   * Decode a WAV file's bytes into PT-shaped sample data and write it into
+   * the currently-selected slot. Volume defaults to full so the sample is
+   * audible immediately; finetune is left at 0 since WAVs don't carry one.
+   */
+  const loadWavIntoCurrentSample = (bytes: Uint8Array, filename: string) => {
+    if (transport() === 'playing') return;
+    let imported;
+    try {
+      imported = importWavSample(bytes, filename);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    setError(null);
+    commitEdit((song) => replaceSampleData(song, currentSample() - 1, imported.data, {
+      name: imported.name,
+      volume: 64,
+      finetune: 0,
+    }));
+  };
+
   const cleanups: Array<() => void> = [];
   onMount(() => {
     // Boot with a blank "M.K." song so the user can start editing immediately
@@ -403,6 +444,12 @@ export const App: Component = () => {
     }));
     cleanups.push(registerShortcut({
       key: 's', mod: true, description: 'Save .mod', run: exportMod,
+    }));
+    cleanups.push(registerShortcut({
+      key: 'f2', description: 'Pattern view', run: () => setView('pattern'),
+    }));
+    cleanups.push(registerShortcut({
+      key: 'f3', description: 'Sample view', run: () => setView('sample'),
     }));
     // Transport (Space-based chords; Option used instead of Cmd to avoid the
     // macOS Spotlight conflict on ⌘+Space).
@@ -587,13 +634,35 @@ export const App: Component = () => {
   return (
     <div
       class="app"
-      classList={{ 'app--drag': dragOver() }}
+      classList={{
+        'app--drag': dragOver(),
+        'app--view-pattern': view() === 'pattern',
+        'app--view-sample':  view() === 'sample',
+      }}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
       <header class="app__header">
         <h1>RetroTracker</h1>
+        <div class="viewtabs" role="tablist" aria-label="View">
+          <button
+            type="button"
+            role="tab"
+            classList={{ 'viewtab--active': view() === 'pattern' }}
+            aria-selected={view() === 'pattern'}
+            onClick={() => setView('pattern')}
+            title="Pattern view (F2)"
+          >Pattern</button>
+          <button
+            type="button"
+            role="tab"
+            classList={{ 'viewtab--active': view() === 'sample' }}
+            aria-selected={view() === 'sample'}
+            onClick={() => setView('sample')}
+            title="Sample view (F3)"
+          >Sample</button>
+        </div>
         <div class="transport">
           <label class="file-button" title="Open .mod (⌘O)">
             <input type="file" accept=".mod" onChange={onPickFile} hidden ref={fileInput} />
@@ -633,28 +702,10 @@ export const App: Component = () => {
 
       <aside class="app__samples">
         <h2>Samples</h2>
-        <Show when={song()} fallback={<p class="placeholder">No song loaded</p>}>
-          {(s) => (
-            <ol>
-              {s().samples.map((sample, i) => (
-                <li
-                  classList={{
-                    'sample--empty':   sample.lengthWords === 0,
-                    'sample--current': currentSample() === i + 1,
-                  }}
-                  onClick={() => selectSample(i + 1)}
-                  title={`Select sample ${i + 1}`}
-                >
-                  <span class="num">{String(i + 1).padStart(2, '0')}</span>
-                  <span class="name">{sample.name || '—'}</span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </Show>
+        <SampleList song={song()} onSelect={selectSample} />
       </aside>
 
-      <main class="app__pattern">
+      <main class="app__main">
         <Show
           when={song()}
           fallback={
@@ -667,31 +718,44 @@ export const App: Component = () => {
           }
         >
           {(s) => (
-            <div class="patternpane">
-              <div class="patternpane__meta">
-                <span class="patternpane__title">{s().title || <em>(untitled)</em>}</span>
-                <span class="patternpane__sep">·</span>
-                <span>{filename()}</span>
-                <span class="patternpane__sep">·</span>
-                <span>{sampleCount()} samples</span>
-                <span class="patternpane__sep">·</span>
-                <span>order {String(playPos().order).padStart(2, '0')}/{String(s().songLength - 1).padStart(2, '0')}</span>
-                <span class="patternpane__sep">·</span>
-                <span>pat {String(s().orders[playPos().order] ?? 0).padStart(2, '0')}</span>
-                <span class="patternpane__sep">·</span>
-                <span>row {String(playPos().row).padStart(2, '0')}</span>
-                <span class="patternpane__sep">·</span>
-                <span>oct {currentOctave()}</span>
-                <span class="patternpane__sep">·</span>
-                <span>smp {String(currentSample()).padStart(2, '0')}</span>
+            <Show
+              when={view() === 'pattern'}
+              fallback={
+                <SampleView
+                  song={s()}
+                  onLoadWav={loadWavIntoCurrentSample}
+                  onClear={clearCurrentSample}
+                  onPatch={patchCurrentSample}
+                />
+              }
+            >
+              <div class="patternpane">
+                <div class="patternpane__meta">
+                  <span class="patternpane__title">{s().title || <em>(untitled)</em>}</span>
+                  <span class="patternpane__sep">·</span>
+                  <span>{filename()}</span>
+                  <span class="patternpane__sep">·</span>
+                  <span>{sampleCount()} samples</span>
+                  <span class="patternpane__sep">·</span>
+                  <span>order {String(playPos().order).padStart(2, '0')}/{String(s().songLength - 1).padStart(2, '0')}</span>
+                  <span class="patternpane__sep">·</span>
+                  <span>pat {String(s().orders[playPos().order] ?? 0).padStart(2, '0')}</span>
+                  <span class="patternpane__sep">·</span>
+                  <span>row {String(playPos().row).padStart(2, '0')}</span>
+                  <span class="patternpane__sep">·</span>
+                  <span>oct {currentOctave()}</span>
+                  <span class="patternpane__sep">·</span>
+                  <span>smp {String(currentSample()).padStart(2, '0')}</span>
+                </div>
+                <PatternGrid song={s()} pos={playPos()} active={transport() === 'playing'} />
               </div>
-              <PatternGrid song={s()} pos={playPos()} active={transport() === 'playing'} />
-            </div>
+            </Show>
           )}
         </Show>
       </main>
 
-      <aside class="app__order">
+      <Show when={view() === 'pattern'}>
+       <aside class="app__order">
         <h2>Order</h2>
         <Show when={song()} fallback={<p class="placeholder">—</p>}>
           {(s) => {
@@ -770,7 +834,8 @@ export const App: Component = () => {
             );
           }}
         </Show>
-      </aside>
+       </aside>
+      </Show>
     </div>
   );
 };

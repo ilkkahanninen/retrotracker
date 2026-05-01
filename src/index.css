@@ -24,17 +24,27 @@ body {
 
 .app {
   display: grid;
-  grid-template-columns: 240px 1fr 240px;
   grid-template-rows: 48px 1fr;
-  grid-template-areas:
-    "header header header"
-    "samples pattern order";
   height: 100%;
   gap: 1px;
   background: var(--grid-line);
   transition: outline-color 120ms ease;
   outline: 2px dashed transparent;
   outline-offset: -8px;
+}
+/* View-aware grid: pattern view keeps the right-hand order pane; sample
+ * view drops it and lets the editor span the freed columns. */
+.app--view-pattern {
+  grid-template-columns: 240px 1fr 240px;
+  grid-template-areas:
+    "header header header"
+    "samples main order";
+}
+.app--view-sample {
+  grid-template-columns: 240px 1fr;
+  grid-template-areas:
+    "header header"
+    "samples main";
 }
 .app--drag { outline-color: var(--accent); }
 
@@ -52,6 +62,24 @@ body {
   margin: 0;
   font-weight: 600;
   letter-spacing: 0.04em;
+}
+
+.viewtabs { display: flex; gap: 4px; }
+.viewtabs button {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 12px;
+  font: inherit;
+  cursor: pointer;
+  user-select: none;
+}
+.viewtabs button:hover { color: var(--fg); border-color: var(--grid-line); }
+.viewtabs button.viewtab--active {
+  background: var(--panel-2);
+  color: var(--fg);
+  border-color: var(--accent);
 }
 
 .transport { display: flex; gap: 8px; align-items: center; }
@@ -99,15 +127,16 @@ body {
 }
 .ordertools button:hover:not(:disabled) { border-color: var(--accent); }
 .ordertools button:disabled { color: var(--muted); cursor: not-allowed; opacity: 0.55; }
-.app__pattern {
-  grid-area: pattern;
+.app__main {
+  grid-area: main;
   background: var(--panel-2);
   display: grid;
   min-height: 0;
   overflow: hidden;
 }
-.app__pattern > .dropzone { place-self: center; }
-.app__pattern > .patternpane { min-height: 0; }
+.app__main > .dropzone { place-self: center; }
+.app__main > .patternpane,
+.app__main > .sampleview { min-height: 0; }
 
 h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 8px; }
 
@@ -279,4 +308,98 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   opacity: 1;
   box-shadow: 0 0 0 1px var(--accent);
   border-radius: 2px;
+}
+
+/* ── Sample editor view ─────────────────────────────────────────────── */
+
+.sampleview {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 16px 24px;
+  gap: 16px;
+  overflow: auto;
+}
+.sampleview__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.sampleview__header h2 {
+  font-size: 13px;
+  margin: 0;
+  color: var(--fg);
+  letter-spacing: 0.04em;
+}
+.sampleview__actions {
+  display: flex;
+  gap: 8px;
+}
+.sampleview__actions button {
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 6px;
+  padding: 4px 12px;
+  font: inherit;
+  cursor: pointer;
+  user-select: none;
+}
+.sampleview__actions button:hover:not(:disabled) { border-color: var(--accent); }
+.sampleview__actions button:disabled { color: var(--muted); cursor: not-allowed; opacity: 0.55; }
+
+.waveform {
+  width: 100%;
+  height: 160px;
+  background: var(--panel);
+  border: 1px solid var(--grid-line);
+  border-radius: 6px;
+  display: block;
+}
+
+.samplemeta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 24px;
+  font-family: ui-monospace, 'SFMono-Regular', monospace;
+}
+.samplemeta label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.samplemeta__label {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+}
+.samplemeta__static { color: var(--fg); }
+.samplemeta input[type="text"],
+.samplemeta input[type="number"] {
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 13px;
+}
+.samplemeta input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.samplemeta input:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.samplemeta__hint {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11px;
+  margin: 0;
 }

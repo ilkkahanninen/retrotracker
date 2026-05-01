@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, it, expect, beforeAll } from 'vitest';
 import { parseModule } from '../src/core/mod/parser';
 import { renderToBuffer } from '../src/core/audio/offlineRender';
-import { readWav } from './lib/wav';
+import { readWav } from '../src/core/audio/wav';
 import { compareChannels } from './lib/compare';
 
 const FIXTURES_DIR = fileURLToPath(new URL('./fixtures/', import.meta.url));

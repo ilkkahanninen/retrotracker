@@ -10,7 +10,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { argv } from 'node:process';
 import { parseModule } from '../../src/core/mod/parser';
 import { renderToBuffer } from '../../src/core/audio/offlineRender';
-import { writeWav } from './wav';
+import { writeWav } from '../../src/core/audio/wav';
 
 function parseArg(name: string, fallback: number): number {
   const flag = `--${name}=`;

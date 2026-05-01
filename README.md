@@ -9,14 +9,38 @@ A modern, web-based ProTracker module editor.
 
 ## Status
 
-Project scaffold. Implemented:
+Working editor with playback. Plays and edits real `.mod` files; round-trips them through the parser, writer, and replayer.
 
-- MOD parser + writer (M.K., 31-sample, 4-channel)
-- WAV PCM reader/writer + buffer comparison utility (RMS, peak, sample-level)
-- Replayer / offline renderer **stubs** with the right shapes — produce silence today
-- Solid app shell
+**Replayer**
 
-The replayer is the next major task. Architecture is set up so the same pure mixing routine drives both the live `AudioWorklet` and the offline render used by tests.
+- Bug-for-bug match against pt2-clone for all standard effects (`0xx–Fxx`) and the supported extended (`Exy`) family — see the comment block at the top of [src/core/audio/replayer.ts](src/core/audio/replayer.ts) for the full list.
+- BLEP synthesis, RC + LED Amiga filters, 2× FIR downsampler ([src/core/audio/paula.ts](src/core/audio/paula.ts)).
+- CIA-timer-based tick scheduling with fractional-sample accumulation.
+- Same pure state machine drives both the live AudioWorklet and the offline render used by the test bed.
+- The only intentionally-skipped effect is `8xy` panning (PT 2.3D ignores it).
+
+**Editor**
+
+- Pattern grid: hex-field cursor (`note → sampleHi → sampleLo → effectCmd → effectHi → effectLo`), live playback highlight, auto-scroll, beat / bar shading.
+- Note entry from a piano-row keyboard mapping (Z/X for octave); hex entry on sample / effect nibbles with auto-advance.
+- Sample list shared across views — click or 1-0 / Shift+1-0 / -/= to select.
+- Sample editor (F3): waveform canvas, name / volume / finetune / loop fields, WAV loader (8/16/24-bit int + float32, mono or stereo, mixed and quantised to PT's 8-bit signed mono).
+- Order list: click-to-jump, prev/next pattern (auto-grow), insert / delete / new / duplicate slot — keyboard and toolbar buttons.
+- Open `.mod` (drop or ⌘O), save `.mod` (⌘S), undo / redo with a 200-step history.
+- Multi-step transport (`Space` / `Shift+Space` / `Alt+Space` / `Alt+Shift+Space`) for play-from-start / play-from-cursor / loop-pattern.
+
+**Tests**
+
+- 266 passing across 20 files: replayer accuracy against pt2-clone reference WAVs (29 fixtures), pattern / sample / order mutations, WAV I/O, sample importer, history, cursor / shortcut routing, and Solid component tests via jsdom + `@testing-library`.
+- See [tests/fixtures/README.md](tests/fixtures/README.md) for the accuracy fixture conventions.
+
+**Known gaps**
+
+- No sample export (.mod export bundles them; no standalone WAV save yet).
+- No IFF/8SVX importer — only WAV.
+- Pattern-block ops (copy / cut / paste across rows / channels) aren't wired.
+- Sample editing is metadata + import only — no waveform editing (crop / fade / normalize).
+- Touch / mobile UI not addressed.
 
 ## Keyboard shortcuts
 
@@ -39,6 +63,15 @@ The replayer is the next major task. Architecture is set up so the same pure mix
 | ⌘S | Save the current song as a `.mod` (downloads the file) |
 | ⌘Z | Undo |
 | ⌘⇧Z, ⌘Y | Redo |
+
+### Views
+
+| Shortcut | Action |
+| --- | --- |
+| F2 | Pattern view — order list + pattern grid |
+| F3 | Sample view — waveform + sample metadata + WAV loader |
+
+The sample list pane is shared across both views. Whichever sample is selected there is the one the pattern grid stamps on note entry and the one the sample editor edits.
 
 ### Cursor navigation
 
@@ -108,24 +141,37 @@ Two rows of the QWERTY layout act as a piano keyboard. The home row gives natura
 ```
 src/
   core/
-    mod/         MOD format types, period table, parser, writer
-    audio/       Replayer state machine, offline renderer, AudioWorklet
-  state/         Solid stores (song, transport, selection)
-  ui/            Solid components
+    mod/         Format types, period table, parser, writer, mutations,
+                 sample importer
+    audio/       Replayer + Paula (BLEP, filters, 2× downsampler), AudioWorklet,
+                 offline renderer, WAV I/O
+  state/         Solid signals: song + history, cursor, edit (octave / sample),
+                 view (pattern | sample), grid config, shortcuts, io (export)
+  components/    Solid components: PatternGrid, SampleList, SampleView
 tests/
-  lib/           WAV I/O, buffer comparison, render CLI
-  fixtures/      .mod files + matching pt2-clone reference WAVs
+  ui/            jsdom + @testing-library component / keyboard tests
+  fixtures/      .mod files + pt2-clone reference WAVs (gitignored, rebuilt
+                 on first test run)
+  lib/           Buffer-compare utility, render CLI
+vendor/
+  pt2-clone/     Cloned fresh on each build of vendor/bin/pt2-render
+  headless/      Custom main.c + SDL2 shim for the headless build
+  bin/           Built artifacts (pt2-render)
 ```
 
 ## Scripts
 
 ```bash
 npm install
-npm run dev         # Vite dev server
-npm run build       # Production build
-npm run typecheck
-npm run test        # Vitest (offline render vs reference WAV)
-npm run render -- input.mod output.wav   # Offline render via CLI
+npm run dev                                # Vite dev server
+npm run build                              # Production build (tsc + vite)
+npm run typecheck                          # tsc --noEmit
+npm run test                               # Full vitest suite
+npm run test:watch                         # Vitest watch mode
+npm run render -- input.mod output.wav     # Offline render via CLI
+npm run fixtures:generate                  # Rebuild .mod test fixtures
+npm run pt2-clone:build                    # Build vendor/bin/pt2-render
+npm run fixtures:render                    # Render reference WAVs via pt2-render
 ```
 
 ## Generating reference WAVs from pt2-clone
