@@ -14,6 +14,8 @@ import type { Field } from './cursor';
 
 export const MIN_OCTAVE = 1;
 export const MAX_OCTAVE = 3;
+export const MIN_SAMPLE = 1;
+export const MAX_SAMPLE = 31;
 
 export const [currentOctave, setCurrentOctave] = createSignal<number>(2);
 export const [currentSample, setCurrentSample] = createSignal<number>(1);
@@ -24,6 +26,19 @@ export function octaveUp(): void {
 
 export function octaveDown(): void {
   setCurrentOctave((o) => Math.max(MIN_OCTAVE, o - 1));
+}
+
+/** Set the active sample, clamped to ProTracker's 1..31 range. */
+export function selectSample(n: number): void {
+  setCurrentSample(Math.max(MIN_SAMPLE, Math.min(MAX_SAMPLE, n)));
+}
+
+export function nextSample(): void {
+  setCurrentSample((s) => Math.min(MAX_SAMPLE, s + 1));
+}
+
+export function prevSample(): void {
+  setCurrentSample((s) => Math.max(MIN_SAMPLE, s - 1));
 }
 
 /**

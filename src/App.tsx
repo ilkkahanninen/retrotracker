@@ -9,7 +9,11 @@ import {
   moveDown, moveLeft, moveRight, moveUp, pageDown, pageUp, tabNext, tabPrev,
 } from './state/cursor';
 import { beatsPerBar, rowsPerBeat } from './state/gridConfig';
-import { clearFieldPatch, currentOctave, currentSample, octaveDown, octaveUp } from './state/edit';
+import {
+  clearFieldPatch, currentOctave, currentSample,
+  octaveDown, octaveUp,
+  selectSample, nextSample, prevSample,
+} from './state/edit';
 import { parseModule } from './core/mod/parser';
 import { PERIOD_TABLE, emptySong } from './core/mod/format';
 import { deleteCellPullUp, insertCellPushDown, setCell } from './core/mod/mutations';
@@ -394,6 +398,41 @@ export const App: Component = () => {
     cleanups.push(registerShortcut({
       key: 'x', description: 'Octave up', run: octaveUp,
     }));
+    // Sample quick-select.
+    //   1..9, 0          → samples 1..10 (only when cursor is on the note
+    //                      field — on hex fields these keys type hex digits)
+    //   Shift+1..9, 0    → samples 11..20 (always; hex entry doesn't use shift)
+    //   -, =             → previous / next sample
+    const SAMPLE_QUICK: Readonly<Record<string, number>> = {
+      '1': 1, '2': 2, '3': 3, '4': 4, '5': 5,
+      '6': 6, '7': 7, '8': 8, '9': 9, '0': 10,
+    };
+    for (const [k, n] of Object.entries(SAMPLE_QUICK)) {
+      cleanups.push(registerShortcut({
+        key: k,
+        description: `Select sample ${n}`,
+        when: () => transport() !== 'playing' && !isHexField(cursor().field),
+        run: () => selectSample(n),
+      }));
+      cleanups.push(registerShortcut({
+        key: k, shift: true,
+        description: `Select sample ${n + 10}`,
+        when: () => transport() !== 'playing',
+        run: () => selectSample(n + 10),
+      }));
+    }
+    cleanups.push(registerShortcut({
+      key: '-',
+      description: 'Previous sample',
+      when: () => transport() !== 'playing',
+      run: prevSample,
+    }));
+    cleanups.push(registerShortcut({
+      key: '=',
+      description: 'Next sample',
+      when: () => transport() !== 'playing',
+      run: nextSample,
+    }));
     cleanups.push(registerShortcut({
       key: '.', description: 'Clear field under cursor', run: clearAtCursor,
     }));
@@ -461,7 +500,14 @@ export const App: Component = () => {
           {(s) => (
             <ol>
               {s().samples.map((sample, i) => (
-                <li classList={{ 'sample--empty': sample.lengthWords === 0 }}>
+                <li
+                  classList={{
+                    'sample--empty':   sample.lengthWords === 0,
+                    'sample--current': currentSample() === i + 1,
+                  }}
+                  onClick={() => selectSample(i + 1)}
+                  title={`Select sample ${i + 1}`}
+                >
                   <span class="num">{String(i + 1).padStart(2, '0')}</span>
                   <span class="name">{sample.name || '—'}</span>
                 </li>

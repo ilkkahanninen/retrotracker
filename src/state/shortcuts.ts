@@ -79,6 +79,21 @@ const KEY_CODE_MAP: Readonly<Record<string, string>> = {
   pagedown:     'PageDown',
   home:         'Home',
   end:          'End',
+  // Digits and a couple of OEM punctuation keys: registering a `key: '1', shift: true`
+  // shortcut would otherwise miss because `event.key` becomes '!' under shift on
+  // US layout. Matching by `event.code` (`Digit1`) catches it regardless.
+  '0':          'Digit0',
+  '1':          'Digit1',
+  '2':          'Digit2',
+  '3':          'Digit3',
+  '4':          'Digit4',
+  '5':          'Digit5',
+  '6':          'Digit6',
+  '7':          'Digit7',
+  '8':          'Digit8',
+  '9':          'Digit9',
+  '-':          'Minus',
+  '=':          'Equal',
 };
 
 /** True iff every modifier on `s` matches the event's modifier state exactly. */

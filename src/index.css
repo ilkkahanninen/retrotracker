@@ -93,7 +93,14 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .app__samples li, .orderlist li {
   display: flex; gap: 8px; padding: 2px 4px; border-radius: 4px;
 }
+.app__samples li { cursor: pointer; user-select: none; }
 .app__samples li:hover, .orderlist li:hover { background: var(--panel-2); }
+.app__samples li.sample--current {
+  background: var(--accent);
+  color: #061119;
+}
+.app__samples li.sample--current .num,
+.app__samples li.sample--current .name { color: #061119; }
 .orderlist li.orderlist__item--active {
   background: var(--accent);
   color: #061119;
