@@ -74,6 +74,10 @@ The app has two top-level views — `'pattern'` and `'sample'` — driven by the
 
 Sample editing has its own mutations (`setSample`, `clearSample`, `replaceSampleData` in [src/core/mod/mutations.ts](src/core/mod/mutations.ts)) and an importer ([src/core/mod/sampleImport.ts](src/core/mod/sampleImport.ts)) that converts a parsed WAV into 8-bit signed mono. The WAV reader/writer lives at [src/core/audio/wav.ts](src/core/audio/wav.ts) and is shared between the runtime importer and the offline-render test bed.
 
+### Sample pipeline
+
+The sample editor wraps each loaded WAV in a [SampleWorkbench](src/core/audio/sampleWorkbench.ts): the source `WavData` plus an editable list of pure `WavData → WavData` effect nodes (gain, normalize, reverse, crop, fade in/out) terminated by a PT transformer (mono mix + int8 quantise). Workbenches are held in [src/state/sampleWorkbench.ts](src/state/sampleWorkbench.ts) — a Map keyed by sample slot, **session-only** (cleared on `.mod` load, never serialised). Whenever the workbench changes, App's `writeWorkbenchToSong` re-runs `runPipeline` and pushes the resulting `Int8Array` into the slot via `replaceSampleData`. Playback never sees the workbench — it reads the int8 result like any other sample. When we add a project file format, the chain will round-trip there.
+
 ## Conventions
 
 - TypeScript strict mode with `noUncheckedIndexedAccess` — array/record access returns `T | undefined`. Use `arr[i]!` only when an invariant guarantees presence (e.g., `PERIOD_TABLE[finetune]!` — finetune is 0..15).

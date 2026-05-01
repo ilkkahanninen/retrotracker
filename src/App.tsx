@@ -24,7 +24,13 @@ import {
   insertOrder, deleteOrder, newPatternAtOrder, duplicatePatternAtOrder,
   setSample, clearSample, replaceSampleData,
 } from './core/mod/mutations';
-import { importWavSample } from './core/mod/sampleImport';
+import {
+  workbenchFromWav, runPipeline, defaultEffect,
+  type SampleWorkbench, type EffectNode, type EffectKind, type MonoMix,
+} from './core/audio/sampleWorkbench';
+import {
+  getWorkbench, setWorkbench, clearWorkbench, clearAllWorkbenches,
+} from './state/sampleWorkbench';
 import { AudioEngine } from './core/audio/engine';
 import { PatternGrid } from './components/PatternGrid';
 import { SampleList } from './components/SampleList';
@@ -90,6 +96,9 @@ export const App: Component = () => {
       const mod = parseModule(buf);
       setSong(mod);
       clearHistory();
+      // Workbenches are session-only; a fresh .mod gives us new int8 slots
+      // with no recipe to re-derive them. Drop any in-memory pipelines.
+      clearAllWorkbenches();
       resetCursor();
       setFilename(file.name);
       setPlayPos({ order: 0, row: 0 });
@@ -401,32 +410,105 @@ export const App: Component = () => {
     commitEdit((song) => setSample(song, currentSample() - 1, patch));
   };
 
-  /** Reset the currently-selected sample to empty. */
+  /** Reset the currently-selected sample to empty (also drops its workbench). */
   const clearCurrentSample = () => {
     if (transport() === 'playing') return;
-    commitEdit((song) => clearSample(song, currentSample() - 1));
+    const slot = currentSample() - 1;
+    clearWorkbench(slot);
+    commitEdit((song) => clearSample(song, slot));
   };
 
   /**
-   * Decode a WAV file's bytes into PT-shaped sample data and write it into
-   * the currently-selected slot. Volume defaults to full so the sample is
-   * audible immediately; finetune is left at 0 since WAVs don't carry one.
+   * Apply a workbench's pipeline (chain → PT transformer) and write the
+   * resulting int8 into its sample slot. Stamps a sensible default name from
+   * the source filename when the slot was empty before — otherwise preserves
+   * whatever name the user has set.
+   */
+  const writeWorkbenchToSong = (slot: number, wb: SampleWorkbench) => {
+    const data = runPipeline(wb);
+    commitEdit((song) => {
+      const old = song.samples[slot];
+      const meta: Parameters<typeof replaceSampleData>[3] = { volume: 64, finetune: 0 };
+      // First write into this slot — adopt the source name. Subsequent edits
+      // (re-running the pipeline) leave the user's name alone.
+      if (!old || old.lengthWords === 0) meta.name = wb.sourceName.slice(0, 22);
+      else meta.name = old.name;
+      return replaceSampleData(song, slot, data, meta);
+    });
+  };
+
+  /**
+   * Decode a WAV into a workbench for the current slot and run the (initially
+   * empty) pipeline. The workbench survives until the user clears the slot
+   * or loads a different `.mod`; further pipeline edits go through the
+   * patchWorkbench / addEffect / removeEffect handlers below.
    */
   const loadWavIntoCurrentSample = (bytes: Uint8Array, filename: string) => {
     if (transport() === 'playing') return;
-    let imported;
+    let wb: SampleWorkbench;
     try {
-      imported = importWavSample(bytes, filename);
+      wb = workbenchFromWav(bytes, filename);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       return;
     }
     setError(null);
-    commitEdit((song) => replaceSampleData(song, currentSample() - 1, imported.data, {
-      name: imported.name,
-      volume: 64,
-      finetune: 0,
-    }));
+    const slot = currentSample() - 1;
+    setWorkbench(slot, wb);
+    writeWorkbenchToSong(slot, wb);
+  };
+
+  /** Replace the workbench at the current slot and re-run the pipeline. */
+  const updateCurrentWorkbench = (next: SampleWorkbench) => {
+    if (transport() === 'playing') return;
+    const slot = currentSample() - 1;
+    setWorkbench(slot, next);
+    writeWorkbenchToSong(slot, next);
+  };
+
+  /** Append an effect of the given kind with default params. */
+  const addEffect = (kind: EffectKind) => {
+    const wb = getWorkbench(currentSample() - 1);
+    if (!wb) return;
+    updateCurrentWorkbench({
+      ...wb,
+      chain: [...wb.chain, defaultEffect(kind, wb.source)],
+    });
+  };
+
+  const removeEffect = (index: number) => {
+    const wb = getWorkbench(currentSample() - 1);
+    if (!wb) return;
+    if (index < 0 || index >= wb.chain.length) return;
+    updateCurrentWorkbench({
+      ...wb,
+      chain: wb.chain.filter((_, i) => i !== index),
+    });
+  };
+
+  const moveEffect = (index: number, delta: -1 | 1) => {
+    const wb = getWorkbench(currentSample() - 1);
+    if (!wb) return;
+    const target = index + delta;
+    if (target < 0 || target >= wb.chain.length) return;
+    const chain = [...wb.chain];
+    [chain[index], chain[target]] = [chain[target]!, chain[index]!];
+    updateCurrentWorkbench({ ...wb, chain });
+  };
+
+  /** Replace one node's params (or whole node, for variants without params). */
+  const patchEffect = (index: number, next: EffectNode) => {
+    const wb = getWorkbench(currentSample() - 1);
+    if (!wb) return;
+    if (index < 0 || index >= wb.chain.length) return;
+    const chain = wb.chain.map((n, i) => (i === index ? next : n));
+    updateCurrentWorkbench({ ...wb, chain });
+  };
+
+  const setMonoMix = (monoMix: MonoMix) => {
+    const wb = getWorkbench(currentSample() - 1);
+    if (!wb) return;
+    updateCurrentWorkbench({ ...wb, pt: { ...wb.pt, monoMix } });
   };
 
   const cleanups: Array<() => void> = [];
@@ -726,6 +808,11 @@ export const App: Component = () => {
                   onLoadWav={loadWavIntoCurrentSample}
                   onClear={clearCurrentSample}
                   onPatch={patchCurrentSample}
+                  onAddEffect={addEffect}
+                  onRemoveEffect={removeEffect}
+                  onMoveEffect={moveEffect}
+                  onPatchEffect={patchEffect}
+                  onSetMonoMix={setMonoMix}
                 />
               }
             >

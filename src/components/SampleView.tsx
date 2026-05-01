@@ -1,6 +1,11 @@
-import { Show, createEffect, createMemo, type Component } from 'solid-js';
+import { For, Match, Show, Switch, createEffect, createMemo, type Component } from 'solid-js';
 import type { Sample, Song } from '../core/mod/types';
 import { currentSample } from '../state/edit';
+import { workbenches } from '../state/sampleWorkbench';
+import {
+  EFFECT_KINDS, EFFECT_LABELS,
+  type EffectKind, type EffectNode, type MonoMix, type SampleWorkbench,
+} from '../core/audio/sampleWorkbench';
 
 const PT_FINETUNE_MIN = -8;
 const PT_FINETUNE_MAX = 7;
@@ -25,6 +30,12 @@ interface Props {
   onLoadWav: (bytes: Uint8Array, filename: string) => void;
   onClear: () => void;
   onPatch: (patch: Partial<Sample>) => void;
+  /** Pipeline editing — only meaningful when a workbench exists for the slot. */
+  onAddEffect: (kind: EffectKind) => void;
+  onRemoveEffect: (index: number) => void;
+  onMoveEffect: (index: number, delta: -1 | 1) => void;
+  onPatchEffect: (index: number, next: EffectNode) => void;
+  onSetMonoMix: (monoMix: MonoMix) => void;
 }
 
 /** Editor for the sample under `currentSample()`: waveform + metadata + load. */
@@ -33,6 +44,11 @@ export const SampleView: Component<Props> = (props) => {
   const slotIndex = createMemo(() => String(currentSample()).padStart(2, '0'));
   const lengthBytes = createMemo(() => (sample()?.lengthWords ?? 0) * 2);
   const isLooping = createMemo(() => (sample()?.loopLengthWords ?? 0) > 1);
+  // Subscribing to the map signal makes the pipeline section reactive — Solid
+  // doesn't deeply track Map mutations, so we read .get() inside the memo.
+  const workbench = createMemo<SampleWorkbench | null>(
+    () => workbenches().get(currentSample() - 1) ?? null,
+  );
 
   const onPickWav = async (e: Event) => {
     const input = e.currentTarget as HTMLInputElement;
@@ -64,6 +80,18 @@ export const SampleView: Component<Props> = (props) => {
         {(s) => (
           <>
             <Waveform sample={s()} />
+            <Show when={workbench()}>
+              {(wb) => (
+                <PipelineEditor
+                  wb={wb()}
+                  onAddEffect={props.onAddEffect}
+                  onRemoveEffect={props.onRemoveEffect}
+                  onMoveEffect={props.onMoveEffect}
+                  onPatchEffect={props.onPatchEffect}
+                  onSetMonoMix={props.onSetMonoMix}
+                />
+              )}
+            </Show>
             <div class="samplemeta">
               <label>
                 <span class="samplemeta__label">Name</span>
@@ -200,18 +228,8 @@ const Waveform: Component<{ sample: Sample }> = (props) => {
       ctx.fillRect(x, Math.min(yMax, yMin), 1, Math.max(1, Math.abs(yMax - yMin)));
     }
 
-    // Loop-region overlay.
-    const loopStart = props.sample.loopStartWords * 2;
-    const loopLen = props.sample.loopLengthWords * 2;
-    if (loopLen > 2 && data.length > 0) {
-      const x0 = Math.max(0, Math.min(w, (loopStart / data.length) * w));
-      const x1 = Math.max(0, Math.min(w, ((loopStart + loopLen) / data.length) * w));
-      ctx.fillStyle = 'rgba(94, 200, 255, 0.18)';
-      ctx.fillRect(x0, 0, Math.max(1, x1 - x0), h);
-      ctx.fillStyle = '#5ec8ff';
-      ctx.fillRect(x0, 0, 1, h);
-      ctx.fillRect(Math.max(0, x1 - 1), 0, 1, h);
-    }
+    // (loop overlay below)
+    drawLoopOverlay(ctx, props.sample, w, h, data.length);
   });
 
   return (
@@ -221,5 +239,222 @@ const Waveform: Component<{ sample: Sample }> = (props) => {
       width={1024}
       height={160}
     />
+  );
+};
+
+function drawLoopOverlay(
+  ctx: CanvasRenderingContext2D,
+  sample: Sample,
+  w: number,
+  h: number,
+  dataLen: number,
+): void {
+  const loopStart = sample.loopStartWords * 2;
+  const loopLen = sample.loopLengthWords * 2;
+  if (loopLen <= 2 || dataLen <= 0) return;
+  const x0 = Math.max(0, Math.min(w, (loopStart / dataLen) * w));
+  const x1 = Math.max(0, Math.min(w, ((loopStart + loopLen) / dataLen) * w));
+  ctx.fillStyle = 'rgba(94, 200, 255, 0.18)';
+  ctx.fillRect(x0, 0, Math.max(1, x1 - x0), h);
+  ctx.fillStyle = '#5ec8ff';
+  ctx.fillRect(x0, 0, 1, h);
+  ctx.fillRect(Math.max(0, x1 - 1), 0, 1, h);
+}
+
+// ─── Pipeline editor ─────────────────────────────────────────────────────
+
+interface PipelineEditorProps {
+  wb: SampleWorkbench;
+  onAddEffect: (kind: EffectKind) => void;
+  onRemoveEffect: (index: number) => void;
+  onMoveEffect: (index: number, delta: -1 | 1) => void;
+  onPatchEffect: (index: number, next: EffectNode) => void;
+  onSetMonoMix: (monoMix: MonoMix) => void;
+}
+
+const PipelineEditor: Component<PipelineEditorProps> = (props) => {
+  const channels = () => props.wb.source.channels.length;
+  const sourceFrames = () => props.wb.source.channels[0]?.length ?? 0;
+
+  return (
+    <section class="pipeline">
+      <header class="pipeline__header">
+        <h3>Pipeline</h3>
+        <span class="pipeline__source">
+          {props.wb.sourceName} · {props.wb.source.sampleRate} Hz ·{' '}
+          {channels() === 1 ? 'mono' : channels() === 2 ? 'stereo' : `${channels()} ch`} ·{' '}
+          {sourceFrames()} frames
+        </span>
+      </header>
+      <ol class="pipeline__chain">
+        <For each={props.wb.chain}>
+          {(node, i) => (
+            <li class="effect-node">
+              <div class="effect-node__controls">
+                <button
+                  type="button"
+                  title="Move up"
+                  aria-label={`Move effect ${i() + 1} up`}
+                  disabled={i() === 0}
+                  onClick={() => props.onMoveEffect(i(), -1)}
+                >↑</button>
+                <button
+                  type="button"
+                  title="Move down"
+                  aria-label={`Move effect ${i() + 1} down`}
+                  disabled={i() === props.wb.chain.length - 1}
+                  onClick={() => props.onMoveEffect(i(), 1)}
+                >↓</button>
+                <button
+                  type="button"
+                  title="Remove effect"
+                  aria-label={`Remove effect ${i() + 1}`}
+                  onClick={() => props.onRemoveEffect(i())}
+                >×</button>
+              </div>
+              <div class="effect-node__body">
+                <span class="effect-node__kind">{EFFECT_LABELS[node.kind]}</span>
+                <EffectParams
+                  node={node}
+                  sourceFrames={sourceFrames()}
+                  onPatch={(next) => props.onPatchEffect(i(), next)}
+                />
+              </div>
+            </li>
+          )}
+        </For>
+      </ol>
+      <div class="pipeline__add">
+        <select
+          aria-label="Add effect"
+          value=""
+          onChange={(e) => {
+            const v = e.currentTarget.value as EffectKind | '';
+            if (!v) return;
+            props.onAddEffect(v);
+            e.currentTarget.value = '';
+          }}
+        >
+          <option value="">+ Add effect…</option>
+          <For each={EFFECT_KINDS}>
+            {(k) => <option value={k}>{EFFECT_LABELS[k]}</option>}
+          </For>
+        </select>
+      </div>
+      <div class="pipeline__transformer">
+        <span class="pipeline__transformer-label">PT export · 8-bit signed mono</span>
+        <Show when={channels() > 1}>
+          <label>
+            <span class="samplemeta__label">Mono mix</span>
+            <select
+              aria-label="Mono mix"
+              value={props.wb.pt.monoMix}
+              onChange={(e) => props.onSetMonoMix(e.currentTarget.value as MonoMix)}
+            >
+              <option value="average">Average channels</option>
+              <option value="left">Left only</option>
+              <option value="right">Right only</option>
+            </select>
+          </label>
+        </Show>
+      </div>
+    </section>
+  );
+};
+
+interface EffectParamsProps {
+  node: EffectNode;
+  sourceFrames: number;
+  onPatch: (next: EffectNode) => void;
+}
+
+const EffectParams: Component<EffectParamsProps> = (props) => {
+  return (
+    <Switch>
+      <Match when={props.node.kind === 'gain' && props.node}>
+        {(n) => (
+          <label class="effect-node__param">
+            <span class="samplemeta__label">Gain ×</span>
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              max="20"
+              value={n().params.gain}
+              onInput={(e) => {
+                const v = parseFloat(e.currentTarget.value);
+                if (!Number.isFinite(v)) return;
+                props.onPatch({ kind: 'gain', params: { gain: Math.max(0, v) } });
+              }}
+            />
+          </label>
+        )}
+      </Match>
+      <Match when={props.node.kind === 'normalize'}>
+        <span class="effect-node__hint">Scales to peak ±1.0</span>
+      </Match>
+      <Match when={props.node.kind === 'reverse'}>
+        <span class="effect-node__hint">Plays backwards</span>
+      </Match>
+      <Match when={props.node.kind === 'crop' && props.node}>
+        {(n) => (
+          <>
+            <label class="effect-node__param">
+              <span class="samplemeta__label">Start (frame)</span>
+              <input
+                type="number"
+                min="0"
+                max={props.sourceFrames}
+                value={n().params.startFrame}
+                onInput={(e) => {
+                  const v = parseInt(e.currentTarget.value, 10);
+                  if (!Number.isFinite(v)) return;
+                  props.onPatch({
+                    kind: 'crop',
+                    params: { startFrame: Math.max(0, v), endFrame: n().params.endFrame },
+                  });
+                }}
+              />
+            </label>
+            <label class="effect-node__param">
+              <span class="samplemeta__label">End (frame)</span>
+              <input
+                type="number"
+                min="0"
+                max={props.sourceFrames}
+                value={n().params.endFrame}
+                onInput={(e) => {
+                  const v = parseInt(e.currentTarget.value, 10);
+                  if (!Number.isFinite(v)) return;
+                  props.onPatch({
+                    kind: 'crop',
+                    params: { startFrame: n().params.startFrame, endFrame: Math.max(0, v) },
+                  });
+                }}
+              />
+            </label>
+          </>
+        )}
+      </Match>
+      <Match when={(props.node.kind === 'fadeIn' || props.node.kind === 'fadeOut') && props.node}>
+        {(n) => (
+          <label class="effect-node__param">
+            <span class="samplemeta__label">Frames</span>
+            <input
+              type="number"
+              min="0"
+              max={props.sourceFrames}
+              value={n().params.frames}
+              onInput={(e) => {
+                const v = parseInt(e.currentTarget.value, 10);
+                if (!Number.isFinite(v)) return;
+                const kind = n().kind as 'fadeIn' | 'fadeOut';
+                props.onPatch({ kind, params: { frames: Math.max(0, v) } });
+              }}
+            />
+          </label>
+        )}
+      </Match>
+    </Switch>
   );
 };

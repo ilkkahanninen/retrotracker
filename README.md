@@ -24,7 +24,7 @@ Working editor with playback. Plays and edits real `.mod` files; round-trips the
 - Pattern grid: hex-field cursor (`note → sampleHi → sampleLo → effectCmd → effectHi → effectLo`), live playback highlight, auto-scroll, beat / bar shading.
 - Note entry from a piano-row keyboard mapping (Z/X for octave); hex entry on sample / effect nibbles with auto-advance.
 - Sample list shared across views — click or 1-0 / Shift+1-0 / -/= to select.
-- Sample editor (F3): waveform canvas, name / volume / finetune / loop fields, WAV loader (8/16/24-bit int + float32, mono or stereo, mixed and quantised to PT's 8-bit signed mono).
+- Sample editor (F3): waveform canvas, name / volume / finetune / loop fields, WAV loader (8/16/24-bit int + float32, mono or stereo). A per-slot **sample pipeline** keeps the loaded WAV at full quality and runs an editable chain of effects (gain, normalize, reverse, crop, fade in/out) before a terminal PT transformer mixes to mono and quantises to 8-bit signed. Pipeline state is session-only — playback always reads the int8 result, never the source.
 - Order list: click-to-jump, prev/next pattern (auto-grow), insert / delete / new / duplicate slot — keyboard and toolbar buttons.
 - Open `.mod` (drop or ⌘O), save `.mod` (⌘S), undo / redo with a 200-step history.
 - Multi-step transport (`Space` / `Shift+Space` / `Alt+Space` / `Alt+Shift+Space`) for play-from-start / play-from-cursor / loop-pattern.
@@ -39,7 +39,7 @@ Working editor with playback. Plays and edits real `.mod` files; round-trips the
 - No sample export (.mod export bundles them; no standalone WAV save yet).
 - No IFF/8SVX importer — only WAV.
 - Pattern-block ops (copy / cut / paste across rows / channels) aren't wired.
-- Sample editing is metadata + import only — no waveform editing (crop / fade / normalize).
+- The sample pipeline is session-only — saving as `.mod` keeps only the PT-shaped int8 result, not the source + recipe. A future project file format will preserve the chain.
 - Touch / mobile UI not addressed.
 
 ## Keyboard shortcuts

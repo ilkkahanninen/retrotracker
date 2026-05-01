@@ -403,3 +403,141 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   font-size: 11px;
   margin: 0;
 }
+
+/* ── Pipeline editor ────────────────────────────────────────────────── */
+
+.pipeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--grid-line);
+  border-radius: 6px;
+}
+.pipeline__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pipeline__header h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin: 0;
+}
+.pipeline__source {
+  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+.pipeline__chain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.effect-node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
+}
+.effect-node__controls {
+  display: flex;
+  gap: 2px;
+}
+.effect-node__controls button {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.effect-node__controls button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+.effect-node__controls button:disabled { opacity: 0.3; cursor: not-allowed; }
+.effect-node__body {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  flex: 1;
+}
+.effect-node__kind {
+  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  color: var(--accent);
+  min-width: 80px;
+}
+.effect-node__hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+.effect-node__param {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+.effect-node__param input {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 12px;
+  width: 100px;
+}
+.effect-node__param input:focus { outline: none; border-color: var(--accent); }
+
+.pipeline__add select,
+.pipeline__transformer select {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.pipeline__add select:focus,
+.pipeline__transformer select:focus { outline: none; border-color: var(--accent); }
+
+.pipeline__transformer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px;
+  border-top: 1px dashed var(--grid-line);
+  margin-top: 4px;
+}
+.pipeline__transformer-label {
+  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.pipeline__transformer label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
