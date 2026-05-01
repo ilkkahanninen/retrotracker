@@ -15,6 +15,8 @@ import {
   selectSample, nextSample, prevSample,
 } from './state/edit';
 import { parseModule } from './core/mod/parser';
+import { writeModule } from './core/mod/writer';
+import { deriveExportFilename, io } from './state/io';
 import { PERIOD_TABLE, emptySong } from './core/mod/format';
 import {
   deleteCellPullUp, insertCellPushDown, setCell,
@@ -104,6 +106,18 @@ export const App: Component = () => {
   };
 
   const openModPicker = () => fileInput?.click();
+
+  /**
+   * Serialise the current Song and trigger a browser download. No-op when
+   * no song is loaded, but otherwise works at any transport state — saving
+   * mid-playback is harmless since `writeModule` is read-only.
+   */
+  const exportMod = () => {
+    const s = song();
+    if (!s) return;
+    const bytes = writeModule(s);
+    io.download(deriveExportFilename(filename(), s.title), bytes);
+  };
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
@@ -387,6 +401,9 @@ export const App: Component = () => {
     cleanups.push(registerShortcut({
       key: 'o', mod: true, description: 'Open .mod', run: openModPicker,
     }));
+    cleanups.push(registerShortcut({
+      key: 's', mod: true, description: 'Save .mod', run: exportMod,
+    }));
     // Transport (Space-based chords; Option used instead of Cmd to avoid the
     // macOS Spotlight conflict on ⌘+Space).
     //   Space               → toggle: stop if playing, otherwise play song from start
@@ -582,6 +599,14 @@ export const App: Component = () => {
             <input type="file" accept=".mod" onChange={onPickFile} hidden ref={fileInput} />
             Open .mod…
           </label>
+          <button
+            onClick={exportMod}
+            disabled={!song()}
+            title="Save .mod (⌘S)"
+            aria-label="Save .mod"
+          >
+            Save .mod…
+          </button>
           <button
             onClick={() => void togglePlay()}
             disabled={!song()}

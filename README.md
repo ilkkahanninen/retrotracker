@@ -36,6 +36,7 @@ The replayer is the next major task. Architecture is set up so the same pure mix
 | Shortcut | Action |
 | --- | --- |
 | ⌘O | Open `.mod` file |
+| ⌘S | Save the current song as a `.mod` (downloads the file) |
 | ⌘Z | Undo |
 | ⌘⇧Z, ⌘Y | Redo |
 
