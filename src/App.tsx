@@ -212,11 +212,13 @@ export const App: Component = () => {
    * Write one hex nibble (0..F) into the field under the cursor and step
    * the cursor on. Sample numbers are clamped to ProTracker's 1..31 range
    * (5-bit field) — typing a digit that overflows just lands the cell at
-   * the cap. Auto-advance: hi → lo (same row) for two-digit entry, lo →
-   * next row (matches note-entry rhythm).
+   * the cap. Effect command + param have no overflow constraint (cmd is
+   * one nibble, param two nibbles — all hex-aligned).
    *
-   * Currently only sampleHi/sampleLo are wired; effect-field entry will
-   * extend the same dispatcher when that work lands.
+   * Auto-advance is "right within the row, then down on the last sub-field":
+   *   sampleHi → sampleLo → (down)
+   *   effectCmd → effectHi → effectLo → (down)
+   * Matches the multi-digit rhythm in PT/FT2.
    */
   const enterHexDigit = (digit: number) => {
     if (transport() === 'playing') return;
@@ -239,11 +241,23 @@ export const App: Component = () => {
         patch = { sample: Math.min(31, raw) };
         break;
       }
+      case 'effectCmd':
+        patch = { effect: digit & 0x0f };
+        break;
+      case 'effectHi':
+        patch = { effectParam: ((digit & 0x0f) << 4) | (note.effectParam & 0x0f) };
+        break;
+      case 'effectLo':
+        patch = { effectParam: (note.effectParam & 0xf0) | (digit & 0x0f) };
+        break;
       default: return;
     }
 
     commitEdit((song) => setCell(song, c.order, c.row, c.channel, patch));
-    if (c.field === 'sampleHi') applyCursor(moveRight(cursor()));
+    const stepsRight = c.field === 'sampleHi'
+      || c.field === 'effectCmd'
+      || c.field === 'effectHi';
+    if (stepsRight) applyCursor(moveRight(cursor()));
     else advanceCursor();
   };
 
