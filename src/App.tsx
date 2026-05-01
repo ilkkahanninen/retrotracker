@@ -16,7 +16,11 @@ import {
 } from './state/edit';
 import { parseModule } from './core/mod/parser';
 import { PERIOD_TABLE, emptySong } from './core/mod/format';
-import { deleteCellPullUp, insertCellPushDown, setCell } from './core/mod/mutations';
+import {
+  deleteCellPullUp, insertCellPushDown, setCell,
+  nextPatternAtOrder, prevPatternAtOrder,
+  insertOrder, deleteOrder, newPatternAtOrder, duplicatePatternAtOrder,
+} from './core/mod/mutations';
 import { AudioEngine } from './core/audio/engine';
 import { PatternGrid } from './components/PatternGrid';
 
@@ -317,6 +321,59 @@ export const App: Component = () => {
     advanceCursor();
   };
 
+  // ─── Order-list editing ──────────────────────────────────────────────────
+
+  /** Move the edit cursor to a specific order slot, row 0. */
+  const jumpToOrder = (order: number) => {
+    if (transport() === 'playing') return;
+    const s = song();
+    if (!s) return;
+    const clamped = Math.max(0, Math.min(s.songLength - 1, order));
+    applyCursor({ ...cursor(), order: clamped, row: 0 });
+  };
+
+  const stepNextPattern = () => {
+    if (transport() === 'playing') return;
+    const c = cursor();
+    commitEdit((song) => nextPatternAtOrder(song, c.order));
+  };
+
+  const stepPrevPattern = () => {
+    if (transport() === 'playing') return;
+    const c = cursor();
+    commitEdit((song) => prevPatternAtOrder(song, c.order));
+  };
+
+  const insertOrderSlot = () => {
+    if (transport() === 'playing') return;
+    const c = cursor();
+    commitEdit((song) => insertOrder(song, c.order));
+  };
+
+  /** Delete the slot under the cursor; clamp the cursor if it fell off the end. */
+  const deleteOrderSlot = () => {
+    if (transport() === 'playing') return;
+    const c = cursor();
+    commitEdit((song) => deleteOrder(song, c.order));
+    const after = song();
+    if (after && c.order >= after.songLength) {
+      applyCursor({ ...cursor(), order: after.songLength - 1, row: 0 });
+    }
+  };
+
+  const newBlankPatternAtOrder = () => {
+    if (transport() === 'playing') return;
+    const c = cursor();
+    commitEdit((song) => newPatternAtOrder(song, c.order));
+  };
+
+  /** Append a copy of the current pattern and point the slot at the copy. */
+  const duplicateCurrentPattern = () => {
+    if (transport() === 'playing') return;
+    const c = cursor();
+    commitEdit((song) => duplicatePatternAtOrder(song, c.order));
+  };
+
   const cleanups: Array<() => void> = [];
   onMount(() => {
     // Boot with a blank "M.K." song so the user can start editing immediately
@@ -447,6 +504,47 @@ export const App: Component = () => {
       when: () => transport() !== 'playing',
       run: nextSample,
     }));
+    // Order-list editing. The cursor's `order` field is the target slot.
+    //   < / >          → step the slot's pattern number ±1 (auto-grows on >)
+    //   Cmd/Ctrl + I   → insert a new slot at the cursor (duplicates current)
+    //   Cmd/Ctrl + D   → delete the slot at the cursor
+    //   Cmd/Ctrl + B   → assign a fresh empty pattern to the current slot
+    cleanups.push(registerShortcut({
+      key: ',', shift: true,
+      description: 'Previous pattern at slot',
+      when: () => transport() !== 'playing',
+      run: stepPrevPattern,
+    }));
+    cleanups.push(registerShortcut({
+      key: '.', shift: true,
+      description: 'Next pattern at slot',
+      when: () => transport() !== 'playing',
+      run: stepNextPattern,
+    }));
+    cleanups.push(registerShortcut({
+      key: 'i', mod: true,
+      description: 'Insert order slot',
+      when: () => transport() !== 'playing',
+      run: insertOrderSlot,
+    }));
+    cleanups.push(registerShortcut({
+      key: 'd', mod: true,
+      description: 'Delete order slot',
+      when: () => transport() !== 'playing',
+      run: deleteOrderSlot,
+    }));
+    cleanups.push(registerShortcut({
+      key: 'b', mod: true,
+      description: 'New blank pattern at slot',
+      when: () => transport() !== 'playing',
+      run: newBlankPatternAtOrder,
+    }));
+    cleanups.push(registerShortcut({
+      key: 'b', mod: true, shift: true,
+      description: 'Duplicate pattern at slot',
+      when: () => transport() !== 'playing',
+      run: duplicateCurrentPattern,
+    }));
     cleanups.push(registerShortcut({
       key: '.', description: 'Clear field under cursor', run: clearAtCursor,
     }));
@@ -571,16 +669,81 @@ export const App: Component = () => {
       <aside class="app__order">
         <h2>Order</h2>
         <Show when={song()} fallback={<p class="placeholder">—</p>}>
-          {(s) => (
-            <ol class="orderlist">
-              {s().orders.slice(0, s().songLength).map((p, i) => (
-                <li classList={{ 'orderlist__item--active': i === playPos().order }}>
-                  <span class="num">{String(i).padStart(3, '0')}</span>
-                  <span class="pat">{String(p).padStart(2, '0')}</span>
-                </li>
-              ))}
-            </ol>
-          )}
+          {(s) => {
+            // Disable a button when the corresponding action would no-op so
+            // the UI doesn't lie about what's possible. `playing` blocks
+            // every edit (mirrors the rules in the keyboard handlers).
+            const playing  = () => transport() === 'playing';
+            const slotPat  = () => s().orders[cursor().order] ?? 0;
+            const canPrev  = () => !playing() && slotPat() > 0;
+            const canNext  = () => !playing();
+            const canIns   = () => !playing() && s().songLength < s().orders.length;
+            const canDel   = () => !playing() && s().songLength > 1;
+            const canBlank = () => !playing();
+            return (
+              <>
+                <div class="ordertools">
+                  <button
+                    type="button"
+                    onClick={stepPrevPattern}
+                    disabled={!canPrev()}
+                    title="Previous pattern at slot (<)"
+                    aria-label="Previous pattern at slot"
+                  >‹</button>
+                  <button
+                    type="button"
+                    onClick={stepNextPattern}
+                    disabled={!canNext()}
+                    title="Next pattern at slot (>)"
+                    aria-label="Next pattern at slot"
+                  >›</button>
+                  <button
+                    type="button"
+                    onClick={insertOrderSlot}
+                    disabled={!canIns()}
+                    title="Insert slot at cursor (⌘I)"
+                    aria-label="Insert slot"
+                  >+</button>
+                  <button
+                    type="button"
+                    onClick={deleteOrderSlot}
+                    disabled={!canDel()}
+                    title="Delete slot at cursor (⌘D)"
+                    aria-label="Delete slot"
+                  >−</button>
+                  <button
+                    type="button"
+                    onClick={newBlankPatternAtOrder}
+                    disabled={!canBlank()}
+                    title="New blank pattern at slot (⌘B)"
+                    aria-label="New blank pattern"
+                  >New</button>
+                  <button
+                    type="button"
+                    onClick={duplicateCurrentPattern}
+                    disabled={!canBlank()}
+                    title="Duplicate pattern at slot (⌘⇧B)"
+                    aria-label="Duplicate pattern"
+                  >Dup</button>
+                </div>
+                <ol class="orderlist">
+                  {s().orders.slice(0, s().songLength).map((p, i) => (
+                    <li
+                      classList={{
+                        'orderlist__item--active': i === playPos().order,
+                        'orderlist__item--cursor': transport() !== 'playing' && i === cursor().order,
+                      }}
+                      onClick={() => jumpToOrder(i)}
+                      title={`Jump to order ${i}`}
+                    >
+                      <span class="num">{String(i).padStart(3, '0')}</span>
+                      <span class="pat">{String(p).padStart(2, '0')}</span>
+                    </li>
+                  ))}
+                </ol>
+              </>
+            );
+          }}
         </Show>
       </aside>
     </div>
