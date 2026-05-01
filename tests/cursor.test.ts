@@ -29,7 +29,8 @@ function setDxx(s: Song, orderIndex: number, row: number, nextRow: number): void
 describe('cursor LEFT / RIGHT', () => {
   it('moves between fields within a channel', () => {
     let c = C0;
-    c = moveRight(c); expect(c.field).toBe('sample');
+    c = moveRight(c); expect(c.field).toBe('sampleHi');
+    c = moveRight(c); expect(c.field).toBe('sampleLo');
     c = moveRight(c); expect(c.field).toBe('effectCmd');
     c = moveRight(c); expect(c.field).toBe('effectHi');
     c = moveRight(c); expect(c.field).toBe('effectLo');
@@ -58,13 +59,13 @@ describe('cursor TAB / SHIFT-TAB', () => {
   });
 
   it('Tab wraps from last channel to first', () => {
-    const c: Cursor = { order: 2, row: 7, channel: CHANNELS - 1, field: 'sample' };
+    const c: Cursor = { order: 2, row: 7, channel: CHANNELS - 1, field: 'sampleHi' };
     expect(tabNext(c).channel).toBe(0);
     expect(tabNext(c).field).toBe('note');
   });
 
   it('Shift-Tab moves to previous channel and resets to note', () => {
-    const c: Cursor = { order: 0, row: 0, channel: 2, field: 'sample' };
+    const c: Cursor = { order: 0, row: 0, channel: 2, field: 'sampleHi' };
     expect(tabPrev(c)).toEqual({ order: 0, row: 0, channel: 1, field: 'note' });
   });
 

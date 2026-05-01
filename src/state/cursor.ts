@@ -15,9 +15,14 @@ import { flattenSong } from '../core/mod/flatten';
  * pattern naturally advances into the next.
  */
 
-/** The five sub-fields inside one cell, in left-to-right cursor order. */
-export const FIELDS = ['note', 'sample', 'effectCmd', 'effectHi', 'effectLo'] as const;
+/** The six sub-fields inside one cell, in left-to-right cursor order. */
+export const FIELDS = ['note', 'sampleHi', 'sampleLo', 'effectCmd', 'effectHi', 'effectLo'] as const;
 export type Field = (typeof FIELDS)[number];
+
+/** True if the field accepts a hex-digit (0..F) entry — every field except note. */
+export function isHexField(f: Field): boolean {
+  return f !== 'note';
+}
 
 export interface Cursor {
   order: number;

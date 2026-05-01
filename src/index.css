@@ -230,7 +230,8 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   border-left: 1px solid var(--grid-line);
 }
 .patgrid__note { min-width: 3ch; color: var(--fg); }
-.patgrid__samp { min-width: 2ch; color: var(--accent); }
+.patgrid__samp { min-width: 2ch; color: var(--accent); display: inline-flex; }
+.patgrid__samp-char { display: inline-block; min-width: 1ch; }
 .patgrid__eff  { min-width: 3ch; color: var(--muted); display: inline-flex; }
 .patgrid__eff-char { display: inline-block; min-width: 1ch; }
 

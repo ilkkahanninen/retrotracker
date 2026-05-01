@@ -40,8 +40,12 @@ describe('clearFieldPatch', () => {
     expect(clearFieldPatch(full, 'note')).toEqual({ period: 0, sample: 0 });
   });
 
-  it('clears sample when cursor is on sample', () => {
-    expect(clearFieldPatch(full, 'sample')).toEqual({ sample: 0 });
+  it('clears only the high nibble of sample', () => {
+    expect(clearFieldPatch(full, 'sampleHi')).toEqual({ sample: 0x07 });
+  });
+
+  it('clears only the low nibble of sample', () => {
+    expect(clearFieldPatch(full, 'sampleLo')).toEqual({ sample: 0x00 });
   });
 
   it('clears effect AND param when cursor is on effect command', () => {

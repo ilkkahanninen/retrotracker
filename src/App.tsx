@@ -5,7 +5,7 @@ import {
 } from './state/song';
 import { installShortcuts, registerShortcut } from './state/shortcuts';
 import {
-  cursor, setCursor, resetCursor,
+  cursor, setCursor, resetCursor, isHexField,
   moveDown, moveLeft, moveRight, moveUp, pageDown, pageUp, tabNext, tabPrev,
 } from './state/cursor';
 import { beatsPerBar, rowsPerBeat } from './state/gridConfig';
@@ -205,6 +205,45 @@ export const App: Component = () => {
   };
 
   /**
+   * Write one hex nibble (0..F) into the field under the cursor and step
+   * the cursor on. Sample numbers are clamped to ProTracker's 1..31 range
+   * (5-bit field) — typing a digit that overflows just lands the cell at
+   * the cap. Auto-advance: hi → lo (same row) for two-digit entry, lo →
+   * next row (matches note-entry rhythm).
+   *
+   * Currently only sampleHi/sampleLo are wired; effect-field entry will
+   * extend the same dispatcher when that work lands.
+   */
+  const enterHexDigit = (digit: number) => {
+    if (transport() === 'playing') return;
+    const c = cursor();
+    const s = song();
+    if (!s) return;
+    const pat = s.patterns[s.orders[c.order] ?? -1];
+    const note = pat?.rows[c.row]?.[c.channel];
+    if (!note) return;
+
+    let patch: Partial<typeof note> | null = null;
+    switch (c.field) {
+      case 'sampleHi': {
+        const raw = ((digit & 0x0f) << 4) | (note.sample & 0x0f);
+        patch = { sample: Math.min(31, raw) };
+        break;
+      }
+      case 'sampleLo': {
+        const raw = (note.sample & 0xf0) | (digit & 0x0f);
+        patch = { sample: Math.min(31, raw) };
+        break;
+      }
+      default: return;
+    }
+
+    commitEdit((song) => setCell(song, c.order, c.row, c.channel, patch));
+    if (c.field === 'sampleHi') applyCursor(moveRight(cursor()));
+    else advanceCursor();
+  };
+
+  /**
    * Clear the field under the cursor (note → period, sample → sample number,
    * effect cmd/hi/lo → corresponding effect bytes) and step the cursor down
    * one row. No-op while playing or with no song loaded.
@@ -322,12 +361,31 @@ export const App: Component = () => {
     // Note entry — piano-row keys when the cursor is on the note field.
     // `runUp` stops the audition preview when the key is released, so held
     // notes (especially looping samples) don't keep ringing forever.
+    //
+    // The `when` gate matters because A/D/E/F (and others) double as hex
+    // digits when the cursor is on a hex-editable field; without it, the
+    // piano shortcut would shadow the hex shortcut on those overlapping keys.
     for (const [k, offset] of Object.entries(PIANO_KEYS)) {
       cleanups.push(registerShortcut({
         key: k,
         description: `Note (offset ${offset})`,
+        when: () => transport() !== 'playing' && cursor().field === 'note',
         run: () => enterNote(offset),
         runUp: () => engine?.stopPreview(),
+      }));
+    }
+    // Hex-digit entry — fills sample/effect nibbles. Same physical keys as
+    // the piano-row letters (A..F) but the `when` gate routes by cursor field.
+    const HEX_KEYS: Readonly<Record<string, number>> = {
+      '0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
+      '8': 8, '9': 9, a: 10, b: 11, c: 12, d: 13, e: 14, f: 15,
+    };
+    for (const [k, val] of Object.entries(HEX_KEYS)) {
+      cleanups.push(registerShortcut({
+        key: k,
+        description: `Hex digit ${val.toString(16).toUpperCase()}`,
+        when: () => transport() !== 'playing' && isHexField(cursor().field),
+        run: () => enterHexDigit(val),
       }));
     }
     cleanups.push(registerShortcut({

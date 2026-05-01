@@ -11,7 +11,13 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['tests/**/*.test.ts'],
+    include: ['tests/**/*.test.{ts,tsx}'],
+    // Per-file environment: anything under `tests/ui/` runs in jsdom so we
+    // can mount Solid components and dispatch keyboard events. The accuracy
+    // / replayer / parser tests keep the lighter node environment.
+    environmentMatchGlobs: [
+      ['tests/ui/**', 'jsdom'],
+    ],
     testTimeout: 30_000,
   },
 });

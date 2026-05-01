@@ -22,8 +22,16 @@ function periodToNoteName(period: number): string {
   return '???';
 }
 
-function sampleStr(note: Note): string {
-  return note.sample === 0 ? '..' : note.sample.toString(16).toUpperCase().padStart(2, '0');
+interface SampleChars {
+  hi: string;
+  lo: string;
+}
+
+function sampleChars(note: Note): SampleChars {
+  if (note.sample === 0) return { hi: '.', lo: '.' };
+  const hi = ((note.sample >> 4) & 0xf).toString(16).toUpperCase();
+  const lo = (note.sample & 0xf).toString(16).toUpperCase();
+  return { hi, lo };
 }
 
 interface EffectChars {
@@ -156,6 +164,7 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                   <For each={item().cells}>
                     {(note, ch) => {
                       const eff = createMemo(() => effectChars(note));
+                      const samp = createMemo(() => sampleChars(note));
                       const blank = createMemo(() => note.effect === 0 && note.effectParam === 0);
                       return (
                         <span class="patgrid__cell">
@@ -168,14 +177,25 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                           >
                             {periodToNoteName(note.period)}
                           </span>
-                          <span
-                            class="patgrid__samp"
-                            classList={{
-                              'patgrid__part--empty': note.sample === 0,
-                              'patgrid__field--cursor': isCursorAt(i, ch(), 'sample'),
-                            }}
-                          >
-                            {sampleStr(note)}
+                          <span class="patgrid__samp">
+                            <span
+                              class="patgrid__samp-char"
+                              classList={{
+                                'patgrid__part--empty': note.sample === 0,
+                                'patgrid__field--cursor': isCursorAt(i, ch(), 'sampleHi'),
+                              }}
+                            >
+                              {samp().hi}
+                            </span>
+                            <span
+                              class="patgrid__samp-char"
+                              classList={{
+                                'patgrid__part--empty': note.sample === 0,
+                                'patgrid__field--cursor': isCursorAt(i, ch(), 'sampleLo'),
+                              }}
+                            >
+                              {samp().lo}
+                            </span>
                           </span>
                           <span class="patgrid__eff">
                             <span

@@ -28,6 +28,13 @@ export interface Shortcut {
    * for note-preview audition where the sound should stop on release.
    */
   runUp?: () => void;
+  /**
+   * Optional gate: when present and returning false, this shortcut does not
+   * match — the dispatcher continues looking for the next match. Lets two
+   * shortcuts share the same key+modifiers but route by app state (e.g. piano
+   * keys when the cursor is on a note field; hex digits otherwise).
+   */
+  when?: () => boolean;
 }
 
 const registered: Shortcut[] = [
@@ -84,6 +91,7 @@ export function matchesShortcut(e: KeyboardEvent, s: Shortcut): boolean {
   if (!!s.mod !== mod) return false;
   if (!!s.shift !== e.shiftKey) return false;
   if (!!s.alt !== e.altKey) return false;
+  if (s.when && !s.when()) return false;
   return true;
 }
 

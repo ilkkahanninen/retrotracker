@@ -37,7 +37,8 @@ export function octaveDown(): void {
 export function clearFieldPatch(note: Note, field: Field): Partial<Note> {
   switch (field) {
     case 'note':      return { period: 0, sample: 0 };
-    case 'sample':    return { sample: 0 };
+    case 'sampleHi':  return { sample: note.sample & 0x0f };
+    case 'sampleLo':  return { sample: note.sample & 0xf0 };
     case 'effectCmd': return { effect: 0, effectParam: 0 };
     case 'effectHi':  return { effectParam: note.effectParam & 0x0f };
     case 'effectLo':  return { effectParam: note.effectParam & 0xf0 };
