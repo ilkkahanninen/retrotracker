@@ -48,15 +48,18 @@ describe('clearFieldPatch', () => {
     expect(clearFieldPatch(full, 'sampleLo')).toEqual({ sample: 0x00 });
   });
 
-  it('clears effect AND param when cursor is on effect command', () => {
+  it('clears effect AND param when cursor is on the effect command', () => {
     expect(clearFieldPatch(full, 'effectCmd')).toEqual({ effect: 0, effectParam: 0 });
   });
 
-  it('clears only the high nibble of effectParam', () => {
-    expect(clearFieldPatch(full, 'effectHi')).toEqual({ effectParam: 0x0A });
+  it('clears effect AND param when cursor is on the high nibble too', () => {
+    // `.` from any of the three effect nibbles wipes the whole 3-nibble
+    // column — partial clears would leave a half-typed effect that the
+    // user has to keep tap-deleting until it's fully gone.
+    expect(clearFieldPatch(full, 'effectHi')).toEqual({ effect: 0, effectParam: 0 });
   });
 
-  it('clears only the low nibble of effectParam', () => {
-    expect(clearFieldPatch(full, 'effectLo')).toEqual({ effectParam: 0x40 });
+  it('clears effect AND param when cursor is on the low nibble too', () => {
+    expect(clearFieldPatch(full, 'effectLo')).toEqual({ effect: 0, effectParam: 0 });
   });
 });

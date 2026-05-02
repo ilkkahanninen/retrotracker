@@ -45,17 +45,21 @@ export function prevSample(): void {
  * Patch that clears the cursor's current field on a Note. Clearing the
  * note also wipes the sample — a sample number without a period plays
  * nothing on PT and is almost always a leftover from a since-deleted
- * note. Clearing the effect command also wipes the param — a param
- * without a command is a dangling number with no meaning. The hi/lo
- * nibble clears preserve the other nibble so partial entry survives.
+ * note. Clearing ANY of the effect nibbles wipes the whole effect (cmd
+ * + param): a param without a command is meaningless, and tap-deleting
+ * just one nibble leaves a half-typed effect that the user has to
+ * triple-tap to fully erase — `.` from any effect column clears all
+ * three at once. Sample hi/lo nibble clears still preserve the other
+ * nibble so partial entry survives there.
  */
 export function clearFieldPatch(note: Note, field: Field): Partial<Note> {
   switch (field) {
     case 'note':      return { period: 0, sample: 0 };
     case 'sampleHi':  return { sample: note.sample & 0x0f };
     case 'sampleLo':  return { sample: note.sample & 0xf0 };
-    case 'effectCmd': return { effect: 0, effectParam: 0 };
-    case 'effectHi':  return { effectParam: note.effectParam & 0x0f };
-    case 'effectLo':  return { effectParam: note.effectParam & 0xf0 };
+    case 'effectCmd':
+    case 'effectHi':
+    case 'effectLo':
+      return { effect: 0, effectParam: 0 };
   }
 }

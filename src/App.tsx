@@ -375,8 +375,11 @@ export const App: Component = () => {
    *
    * Auto-advance is "right within the row, then down on the last sub-field":
    *   sampleHi → sampleLo → (down)
-   *   effectCmd → effectHi → effectLo → (down)
-   * Matches the multi-digit rhythm in PT/FT2.
+   *   effectCmd → effectHi → effectLo → (down, then jump back to effectCmd)
+   * For effects we additionally rewind the field to `effectCmd` after the
+   * line break so the user can keep punching three-digit effects without
+   * pulling the cursor back left after each one. Matches the multi-digit
+   * rhythm in PT/FT2.
    */
   const enterHexDigit = (digit: number) => {
     if (transport() === "playing") return;
@@ -419,8 +422,17 @@ export const App: Component = () => {
       c.field === "sampleHi" ||
       c.field === "effectCmd" ||
       c.field === "effectHi";
-    if (stepsRight) applyCursor(moveRight(cursor()));
-    else advanceCursor();
+    if (stepsRight) {
+      applyCursor(moveRight(cursor()));
+    } else {
+      advanceCursor();
+      // After completing a 3-nibble effect, rewind the column to effectCmd
+      // on the new row so a follow-up effect can be typed without manually
+      // moving the cursor back left.
+      if (c.field === "effectLo") {
+        applyCursor({ ...cursor(), field: "effectCmd" });
+      }
+    }
   };
 
   /**
@@ -437,6 +449,36 @@ export const App: Component = () => {
     const note = pat?.rows[c.row]?.[c.channel];
     if (!note) return;
     const patch = clearFieldPatch(note, c.field);
+    commitEdit((song) => setCell(song, c.order, c.row, c.channel, patch));
+    advanceCursor();
+  };
+
+  /**
+   * Copy the most recent non-empty effect on the cursor's channel from any
+   * row above the cursor (within the current pattern) into the cursor's
+   * cell, then advance. No-op when the cursor is on row 0 or no prior cell
+   * on this channel carries an effect — that's a deliberate choice so the
+   * key doesn't quietly write zeros and skip a row, which would make
+   * accidental presses destructive.
+   */
+  const repeatLastEffectFromAbove = () => {
+    if (transport() === "playing") return;
+    const s = song();
+    if (!s) return;
+    const c = cursor();
+    const pat = s.patterns[s.orders[c.order] ?? -1];
+    if (!pat) return;
+    let copy: { effect: number; effectParam: number } | null = null;
+    for (let r = c.row - 1; r >= 0; r--) {
+      const cell = pat.rows[r]?.[c.channel];
+      if (!cell) continue;
+      if (cell.effect !== 0 || cell.effectParam !== 0) {
+        copy = { effect: cell.effect, effectParam: cell.effectParam };
+        break;
+      }
+    }
+    if (!copy) return;
+    const patch = copy;
     commitEdit((song) => setCell(song, c.order, c.row, c.channel, patch));
     advanceCursor();
   };
@@ -1106,6 +1148,18 @@ export const App: Component = () => {
     //   Cmd/Ctrl + I   → insert a new slot at the cursor (duplicates current)
     //   Cmd/Ctrl + D   → delete the slot at the cursor
     //   Cmd/Ctrl + B   → assign a fresh empty pattern to the current slot
+    // Plain `,` (without shift, which is the order-step `<`): copy the
+    // most recent non-empty effect on the cursor's channel from any row
+    // above and advance. Pattern-view only — the cursor signal is shared
+    // with the sample view but doesn't address a pattern cell there.
+    cleanups.push(
+      registerShortcut({
+        key: ",",
+        description: "Repeat last effect from above on this channel",
+        when: () => transport() !== "playing" && view() !== "sample",
+        run: repeatLastEffectFromAbove,
+      }),
+    );
     cleanups.push(
       registerShortcut({
         key: ",",
