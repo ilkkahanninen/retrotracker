@@ -1,10 +1,10 @@
-import { For, Index, Show, createEffect, createMemo, type Component } from 'solid-js';
+import { For, Index, Show, createEffect, createMemo, untrack, type Component } from 'solid-js';
 import type { Note, Song } from '../core/mod/types';
 import { CHANNELS } from '../core/mod/types';
 import { PERIOD_TABLE } from '../core/mod/format';
 import { flattenSong } from '../core/mod/flatten';
 import { beatsPerBar, rowsPerBeat } from '../state/gridConfig';
-import { cursor, type Field } from '../state/cursor';
+import { cursor, jumpRequest, type Field } from '../state/cursor';
 
 const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'] as const;
 
@@ -114,6 +114,29 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
     } else if (bottom + margin > viewBottom) {
       scroller.scrollTop = bottom + margin - scroller.clientHeight;
     }
+  });
+
+  // Discrete "jump" snap: when an explicit navigation action (order-list
+  // click, Insert slot) bumps `jumpRequest`, snap the cursor row to the top
+  // of the viewport so the user sees the bulk of the destination pattern
+  // below. Without this, jumping forward to a new order lands the cursor
+  // at the bottom of the viewport (the margin-effect above only nudges the
+  // nearer edge into view, which for a downward jump is the bottom).
+  //
+  // Registered after the margin effect so when both signals tick in the
+  // same batch, this runs last and wins the final scrollTop assignment.
+  // Reads `cursorFlatIndex` and `props.active` via untrack — the trigger
+  // here is purely the jump counter, not cursor / playback changes.
+  let firstJump = true;
+  createEffect(() => {
+    jumpRequest();
+    if (firstJump) { firstJump = false; return; }
+    if (untrack(() => props.active)) return;
+    const idx = untrack(cursorFlatIndex);
+    if (idx < 0 || !scroller) return;
+    const child = scroller.children[idx] as HTMLElement | undefined;
+    if (!child) return;
+    scroller.scrollTop = child.offsetTop;
   });
 
   /** True if the cursor is on (this row, this channel, this field). Hidden during playback. */

@@ -41,6 +41,25 @@ export function resetCursor(): void {
   setCursor({ ...INITIAL_CURSOR });
 }
 
+/**
+ * Monotonic "jump request" counter, bumped whenever the cursor was moved by
+ * a discrete navigation action (clicking an order-list slot, inserting a
+ * slot) where the user expects the pattern grid to snap the cursor to the
+ * top of the viewport rather than gently scrolling on its margin. Plain
+ * arrow / page navigation does NOT bump this — those keep the existing
+ * "scroll only when the cursor crosses the margin" behaviour.
+ *
+ * The PatternGrid subscribes to this counter and scrolls cursor → top each
+ * time the counter ticks. Storing a counter (not a boolean / position) lets
+ * consecutive jumps to the same order still re-trigger the scroll.
+ */
+export const [jumpRequest, setJumpRequest] = createSignal(0);
+
+/** Bump `jumpRequest` so the PatternGrid snaps the cursor row to the top. */
+export function requestJumpToTop(): void {
+  setJumpRequest((n) => n + 1);
+}
+
 // ─── Pure movement primitives ─────────────────────────────────────────────
 
 /** Find the cursor's index in the flat list, or -1 if its row is hidden. */

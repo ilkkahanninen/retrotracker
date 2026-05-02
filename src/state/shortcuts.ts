@@ -94,6 +94,15 @@ const KEY_CODE_MAP: Readonly<Record<string, string>> = {
   '9':          'Digit9',
   '-':          'Minus',
   '=':          'Equal',
+  ',':          'Comma',
+  '.':          'Period',
+  ';':          'Semicolon',
+  '/':          'Slash',
+  "'":          'Quote',
+  '[':          'BracketLeft',
+  ']':          'BracketRight',
+  '\\':         'Backslash',
+  '`':          'Backquote',
 };
 
 /** True iff every modifier on `s` matches the event's modifier state exactly. */

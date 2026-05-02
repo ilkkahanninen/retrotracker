@@ -215,6 +215,36 @@ describe('order toolbar buttons', () => {
     expect(song()!.songLength).toBe(3);
   });
 
+  it('Insert advances the cursor onto the newly-created slot', async () => {
+    setSong(songWith(3));
+    setCursor({ order: 1, row: 0, channel: 0, field: 'note' });
+    const { container } = render(() => <App />);
+    const user = userEvent.setup();
+    await user.click(tool(container, 'Insert slot'));
+    // [0,1,2] with cursor on 1 → [0,1,1,2]; the new (duplicate) slot is at
+    // index 2 and the cursor advances there.
+    expect(cursor().order).toBe(2);
+    expect(song()!.orders.slice(0, 4)).toEqual([0, 1, 1, 2]);
+  });
+
+  it('Insert via Cmd+I at MAX_ORDERS leaves the cursor put (no-op insertOrder)', () => {
+    // The toolbar button gates on `songLength < 128` so it disables itself,
+    // but the Cmd+I shortcut only checks transport — without our songLength
+    // before/after diff the handler would still bump the cursor on a no-op
+    // insert, walking it past content. Drive the keyboard path (via a raw
+    // KeyboardEvent — `userEvent.keyboard` has heavy realtime delays we
+    // don't need here) so we hit exactly that branch.
+    const s = emptySong();
+    s.songLength = 128;
+    for (let i = 0; i < 128; i++) s.orders[i] = 0;
+    setSong(s);
+    setCursor({ order: 5, row: 0, channel: 0, field: 'note' });
+    render(() => <App />);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i', metaKey: true }));
+    expect(cursor().order).toBe(5);
+    expect(song()!.songLength).toBe(128);
+  });
+
   it('Delete button shrinks songLength and disables at length 1', async () => {
     setSong(songWith(2));
     const { container } = render(() => <App />);

@@ -253,4 +253,16 @@ describe('Space chord shortcuts', () => {
     expect(matchesShortcut(ev({ key: 'ArrowUp' }), up)).toBe(true);
     expect(matchesShortcut(ev({ key: 'foo', code: 'ArrowUp' }), up)).toBe(true);
   });
+
+  it('matches Shift + comma/period via event.code on US layouts', () => {
+    // On US layout Shift+',' produces event.key '<' (and code 'Comma'); the
+    // bare-key match would miss, so we need to match by code. Symmetric
+    // case for '.' / '>'.
+    const prevPat = { key: ',', shift: true, description: '<', run: () => {} };
+    const nextPat = { key: '.', shift: true, description: '>', run: () => {} };
+    expect(matchesShortcut(ev({ key: '<', code: 'Comma',  shiftKey: true }), prevPat)).toBe(true);
+    expect(matchesShortcut(ev({ key: '>', code: 'Period', shiftKey: true }), nextPat)).toBe(true);
+    // Plain ',' / '.' (no shift) doesn't accidentally satisfy the shifted shortcut.
+    expect(matchesShortcut(ev({ key: ',', code: 'Comma' }), prevPat)).toBe(false);
+  });
 });
