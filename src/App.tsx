@@ -72,6 +72,15 @@ import {
 } from "./core/mod/mutations";
 import { cropSample, cutSample } from "./core/mod/sampleSelection";
 import {
+  readSlice, clearRange, pasteSlice, type PatternRange,
+} from "./core/mod/clipboardOps";
+import { CHANNELS, ROWS_PER_PATTERN } from "./core/mod/types";
+import {
+  selection, setSelection, setSelectionAnchor, selectionAnchor,
+  makeSelection, clearSelection,
+} from "./state/selection";
+import { clipboardSlice, setClipboardSlice } from "./state/clipboard";
+import {
   workbenchFromWav,
   runPipeline,
   runChain,
@@ -292,11 +301,51 @@ export const App: Component = () => {
    * Move the cursor to `next`. Disabled during playback (the cursor is also
    * hidden), and while stopped the playhead tracks the cursor so the next
    * Shift+Space (Play from cursor) starts where the user is editing.
+   *
+   * Plain-cursor moves drop the active range selection AND its anchor —
+   * once the user starts navigating with arrows / clicks, the highlighted
+   * rectangle is stale and would otherwise just confuse the eye. The
+   * shift-arrow / drag handlers go through `extendSelection` instead,
+   * which keeps the anchor and updates the selection rectangle as a unit.
    */
   const applyCursor = (next: ReturnType<typeof cursor>) => {
     if (transport() === "playing") return;
     setCursor(next);
     setPlayPos({ order: next.order, row: next.row });
+    clearSelection();
+  };
+
+  /**
+   * Move the cursor to `next` AND extend the selection from its anchor.
+   * Used by shift-arrow nav and (indirectly, via PatternGrid) by mouse
+   * drag. The first call after a plain navigation re-anchors at the
+   * cursor's PRE-MOVE position so the originating cell is included.
+   *
+   * Selection is single-pattern: if `next.order` differs from the anchor's
+   * order, we drop the existing selection and re-anchor at `next`. That
+   * keeps the rectangle well-defined without trying to span orders.
+   */
+  const extendSelection = (next: ReturnType<typeof cursor>) => {
+    if (transport() === "playing") return;
+    const before = cursor();
+    let anchor = selectionAnchor();
+    if (!anchor) {
+      anchor = { order: before.order, row: before.row, channel: before.channel };
+      setSelectionAnchor(anchor);
+    }
+    setCursor(next);
+    setPlayPos({ order: next.order, row: next.row });
+    if (next.order !== anchor.order) {
+      const reAnchor = { order: next.order, row: next.row, channel: next.channel };
+      setSelectionAnchor(reAnchor);
+      setSelection(null);
+      return;
+    }
+    setSelection(makeSelection(
+      anchor.order,
+      anchor.row, anchor.channel,
+      next.row, next.channel,
+    ));
   };
 
   /** Same as applyCursor but for movement functions that need the Song. */
@@ -311,6 +360,27 @@ export const App: Component = () => {
     if (!s) return;
     applyCursor(fn(cursor(), s));
   };
+
+  // ─── Shift+arrow range extension ────────────────────────────────────────
+  // Shift+left/right hops a WHOLE channel at a time (skipping the per-cell
+  // sub-fields the user has to traverse during plain editing) — when the
+  // user is sweeping out a selection rectangle the sub-field doesn't
+  // matter, so jumping directly to the neighbouring channel matches the
+  // user's mental model. Shift+up/down/page step rows. All of these stay
+  // within the cursor's current pattern; the selection rectangle is
+  // single-pattern by design (see PatternSelection in state/selection.ts).
+  const stepChannelLeft = (c: ReturnType<typeof cursor>) =>
+    ({ ...c, channel: Math.max(0, c.channel - 1) });
+  const stepChannelRight = (c: ReturnType<typeof cursor>) =>
+    ({ ...c, channel: Math.min(CHANNELS - 1, c.channel + 1) });
+  const stepRowUp = (c: ReturnType<typeof cursor>) =>
+    ({ ...c, row: Math.max(0, c.row - 1) });
+  const stepRowDown = (c: ReturnType<typeof cursor>) =>
+    ({ ...c, row: Math.min(ROWS_PER_PATTERN - 1, c.row + 1) });
+  const stepRowPageUp = (c: ReturnType<typeof cursor>, n: number) =>
+    ({ ...c, row: Math.max(0, c.row - Math.max(1, n)) });
+  const stepRowPageDown = (c: ReturnType<typeof cursor>, n: number) =>
+    ({ ...c, row: Math.min(ROWS_PER_PATTERN - 1, c.row + Math.max(1, n)) });
 
   /**
    * Write a note at the cursor and audition it. No-op if the cursor isn't on
@@ -516,6 +586,123 @@ export const App: Component = () => {
     let next = cursor();
     for (let i = 0; i < step; i++) next = moveDown(next, s);
     applyCursor(next);
+  };
+
+  // ─── Range selection / clipboard ────────────────────────────────────────
+
+  /**
+   * Cmd+A cycles through three "select all" levels:
+   *   1. (no selection or smaller)  → entire current channel
+   *   2. (channel-wide selection)   → entire pattern (all rows × 4 ch)
+   *   3. (already pattern-wide)     → no further expansion
+   *
+   * The cycle key is the *exact* selection rectangle — if the user has
+   * an arbitrary drag-selection active, Cmd+A jumps straight to step 1.
+   */
+  const selectAllStep = () => {
+    if (transport() === "playing") return;
+    const s = song();
+    if (!s) return;
+    const c = cursor();
+    const sel = selection();
+    const isWholePattern = !!sel
+      && sel.order === c.order
+      && sel.startRow === 0
+      && sel.endRow === ROWS_PER_PATTERN - 1
+      && sel.startChannel === 0
+      && sel.endChannel === CHANNELS - 1;
+    if (isWholePattern) return; // step 3+ — already maximal, no-op
+    const isWholeChannel = !!sel
+      && sel.order === c.order
+      && sel.startRow === 0
+      && sel.endRow === ROWS_PER_PATTERN - 1
+      && sel.startChannel === c.channel
+      && sel.endChannel === c.channel;
+    if (isWholeChannel) {
+      // Step 2: expand to the whole pattern.
+      setSelection(makeSelection(
+        c.order,
+        0, 0,
+        ROWS_PER_PATTERN - 1, CHANNELS - 1,
+      ));
+      return;
+    }
+    // Step 1 (default): select the whole current channel.
+    setSelection(makeSelection(
+      c.order,
+      0, c.channel,
+      ROWS_PER_PATTERN - 1, c.channel,
+    ));
+  };
+
+  /**
+   * Build a `PatternRange` from the current selection if any, otherwise from
+   * the cursor's single cell. Returns null when no song is loaded — every
+   * caller bails on null without erroring so this is a safe pre-check.
+   */
+  const rangeForClipboard = (): PatternRange | null => {
+    if (!song()) return null;
+    const sel = selection();
+    if (sel) return {
+      order: sel.order,
+      startRow: sel.startRow, endRow: sel.endRow,
+      startChannel: sel.startChannel, endChannel: sel.endChannel,
+    };
+    const c = cursor();
+    return {
+      order: c.order,
+      startRow: c.row, endRow: c.row,
+      startChannel: c.channel, endChannel: c.channel,
+    };
+  };
+
+  /**
+   * Cmd+C: read the selection (or the cursor's cell when nothing's
+   * selected) into the in-memory clipboard. The slice is a deep copy so
+   * later edits to the song don't mutate what's on the clipboard.
+   */
+  const copySelection = () => {
+    const range = rangeForClipboard();
+    if (!range) return;
+    const s = song();
+    if (!s) return;
+    const slice = readSlice(s, range);
+    if (!slice) return;
+    setClipboardSlice({ rows: slice });
+  };
+
+  /**
+   * Cmd+X: copy then clear. The clear goes through `commitEdit` so undo
+   * restores the cells. After cutting we clear the selection too — the
+   * highlighted cells are now empty, and a stale selection rectangle
+   * just confuses the eye.
+   */
+  const cutSelection = () => {
+    const range = rangeForClipboard();
+    if (!range) return;
+    const s = song();
+    if (!s) return;
+    const slice = readSlice(s, range);
+    if (!slice) return;
+    setClipboardSlice({ rows: slice });
+    commitEdit((song) => clearRange(song, range));
+    setSelection(null);
+  };
+
+  /**
+   * Cmd+V: stamp the clipboard at the cursor. Cells past pattern bounds
+   * are silently clipped (pasteSlice handles that). We don't move the
+   * cursor or grow a new selection — the user's original placement is
+   * the friendliest "after-paste" state to be in.
+   */
+  const pasteAtCursor = () => {
+    if (transport() === "playing") return;
+    const slice = clipboardSlice();
+    if (!slice || slice.rows.length === 0) return;
+    const c = cursor();
+    commitEdit((song) =>
+      pasteSlice(song, slice.rows, c.order, c.row, c.channel),
+    );
   };
 
   /**
@@ -917,6 +1104,45 @@ export const App: Component = () => {
         run: exportMod,
       }),
     );
+    // Range selection / clipboard. Pattern view only — sample view has its
+    // own clipboard story (none yet). All four are gated on transport so
+    // mid-playback presses don't desync the on-screen song from the worklet.
+    cleanups.push(
+      registerShortcut({
+        key: "a",
+        mod: true,
+        description: "Select all rows of channel / pattern",
+        when: () => transport() !== "playing" && view() !== "sample",
+        run: selectAllStep,
+      }),
+    );
+    cleanups.push(
+      registerShortcut({
+        key: "c",
+        mod: true,
+        description: "Copy selection to clipboard",
+        when: () => transport() !== "playing" && view() !== "sample",
+        run: copySelection,
+      }),
+    );
+    cleanups.push(
+      registerShortcut({
+        key: "x",
+        mod: true,
+        description: "Cut selection to clipboard",
+        when: () => transport() !== "playing" && view() !== "sample",
+        run: cutSelection,
+      }),
+    );
+    cleanups.push(
+      registerShortcut({
+        key: "v",
+        mod: true,
+        description: "Paste clipboard at cursor",
+        when: () => transport() !== "playing" && view() !== "sample",
+        run: pasteAtCursor,
+      }),
+    );
     cleanups.push(
       registerShortcut({
         key: "f2",
@@ -1040,6 +1266,61 @@ export const App: Component = () => {
           applyCursorWithSong((c, s) =>
             pageDown(c, s, rowsPerBeat() * beatsPerBar()),
           ),
+      }),
+    );
+    // Shift+arrow: extend the range selection. Left/right hop a whole
+    // channel (skipping per-cell sub-fields, which are irrelevant for
+    // selection rectangles); up/down/page step rows. All gated to pattern
+    // view — the cursor signal is shared with sample view but doesn't
+    // address a pattern cell there.
+    const shiftNav = (mover: (c: ReturnType<typeof cursor>) => ReturnType<typeof cursor>) =>
+      () => extendSelection(mover(cursor()));
+    cleanups.push(
+      registerShortcut({
+        key: "arrowleft", shift: true,
+        description: "Extend selection left",
+        when: () => transport() !== "playing" && view() !== "sample",
+        run: shiftNav(stepChannelLeft),
+      }),
+    );
+    cleanups.push(
+      registerShortcut({
+        key: "arrowright", shift: true,
+        description: "Extend selection right",
+        when: () => transport() !== "playing" && view() !== "sample",
+        run: shiftNav(stepChannelRight),
+      }),
+    );
+    cleanups.push(
+      registerShortcut({
+        key: "arrowup", shift: true,
+        description: "Extend selection up",
+        when: () => transport() !== "playing" && view() !== "sample",
+        run: shiftNav(stepRowUp),
+      }),
+    );
+    cleanups.push(
+      registerShortcut({
+        key: "arrowdown", shift: true,
+        description: "Extend selection down",
+        when: () => transport() !== "playing" && view() !== "sample",
+        run: shiftNav(stepRowDown),
+      }),
+    );
+    cleanups.push(
+      registerShortcut({
+        key: "pageup", shift: true,
+        description: "Extend selection by a page up",
+        when: () => transport() !== "playing" && view() !== "sample",
+        run: () => extendSelection(stepRowPageUp(cursor(), rowsPerBeat() * beatsPerBar())),
+      }),
+    );
+    cleanups.push(
+      registerShortcut({
+        key: "pagedown", shift: true,
+        description: "Extend selection by a page down",
+        when: () => transport() !== "playing" && view() !== "sample",
+        run: () => extendSelection(stepRowPageDown(cursor(), rowsPerBeat() * beatsPerBar())),
       }),
     );
     // Note entry — piano-row keys when the cursor is on the note field.

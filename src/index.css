@@ -339,6 +339,18 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   border-radius: 2px;
 }
 
+/*
+ * Range-selection highlight. Painted on the cell wrapper so it sits BENEATH
+ * the field-cursor pill (which has its own opaque background) — the cursor
+ * stays legible inside an active selection. cursor:cell makes the drag
+ * intent obvious to the user.
+ */
+.patgrid__cell--selected {
+  background: rgba(94, 200, 255, 0.18);
+  /* box-shadow: inset 0 0 0 1px rgba(94, 200, 255, 0.45); */
+}
+.patgrid__cell { cursor: cell; user-select: none; }
+
 /* ── Sample editor view ─────────────────────────────────────────────── */
 
 .sampleview {

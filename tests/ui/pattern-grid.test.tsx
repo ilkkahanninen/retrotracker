@@ -97,6 +97,9 @@ describe('PatternGrid rendering', () => {
 });
 
 describe('PatternGrid cell click', () => {
+  // The cell handlers fire on mousedown (not click) because they ALSO
+  // anchor a drag selection; using click would lose the drag intent on
+  // the way back up. Tests fire mouseDown to match that contract.
   it('clicking the note column reports the cursor position with field=note', () => {
     const onCellClick = vi.fn<(c: Cursor) => void>();
     const { container } = render(() => (
@@ -108,7 +111,7 @@ describe('PatternGrid cell click', () => {
     const row3 = container.querySelectorAll<HTMLElement>('.patgrid__row')[3]!;
     const cells = row3.querySelectorAll<HTMLElement>('.patgrid__cell');
     // Channel 2's note span — verifies the (row, channel, field) decoding.
-    fireEvent.click(cells[2]!.querySelector('.patgrid__note')!);
+    fireEvent.mouseDown(cells[2]!.querySelector('.patgrid__note')!);
     expect(onCellClick).toHaveBeenCalledTimes(1);
     expect(onCellClick).toHaveBeenCalledWith({
       order: 0, row: 3, channel: 2, field: 'note',
@@ -126,8 +129,8 @@ describe('PatternGrid cell click', () => {
     const row5 = container.querySelectorAll<HTMLElement>('.patgrid__row')[5]!;
     const chars = row5.querySelectorAll<HTMLElement>('.patgrid__cell')[0]!
       .querySelectorAll<HTMLElement>('.patgrid__samp-char');
-    fireEvent.click(chars[0]!);
-    fireEvent.click(chars[1]!);
+    fireEvent.mouseDown(chars[0]!);
+    fireEvent.mouseDown(chars[1]!);
     expect(onCellClick).toHaveBeenNthCalledWith(1, {
       order: 0, row: 5, channel: 0, field: 'sampleHi',
     });
@@ -147,9 +150,9 @@ describe('PatternGrid cell click', () => {
     const row5 = container.querySelectorAll<HTMLElement>('.patgrid__row')[5]!;
     const effChars = row5.querySelectorAll<HTMLElement>('.patgrid__cell')[0]!
       .querySelectorAll<HTMLElement>('.patgrid__eff-char');
-    fireEvent.click(effChars[0]!);
-    fireEvent.click(effChars[1]!);
-    fireEvent.click(effChars[2]!);
+    fireEvent.mouseDown(effChars[0]!);
+    fireEvent.mouseDown(effChars[1]!);
+    fireEvent.mouseDown(effChars[2]!);
     expect(onCellClick.mock.calls.map(([c]) => c.field)).toEqual([
       'effectCmd', 'effectHi', 'effectLo',
     ]);
@@ -166,7 +169,7 @@ describe('PatternGrid cell click', () => {
       />
     ));
     const row3 = container.querySelectorAll<HTMLElement>('.patgrid__row')[3]!;
-    fireEvent.click(row3.querySelectorAll<HTMLElement>('.patgrid__cell')[1]!);
+    fireEvent.mouseDown(row3.querySelectorAll<HTMLElement>('.patgrid__cell')[1]!);
     expect(onCellClick).toHaveBeenCalledTimes(1);
     expect(onCellClick).toHaveBeenCalledWith({
       order: 0, row: 3, channel: 1, field: 'note',
@@ -187,7 +190,7 @@ describe('PatternGrid cell click', () => {
     const row5 = container.querySelectorAll<HTMLElement>('.patgrid__row')[5]!;
     const sampLo = row5.querySelectorAll<HTMLElement>('.patgrid__cell')[0]!
       .querySelectorAll<HTMLElement>('.patgrid__samp-char')[1]!;
-    fireEvent.click(sampLo);
+    fireEvent.mouseDown(sampLo);
     expect(onCellClick).toHaveBeenCalledTimes(1);
     expect(onCellClick.mock.calls[0]![0].field).toBe('sampleLo');
   });
