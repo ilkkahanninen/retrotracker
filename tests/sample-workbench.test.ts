@@ -47,10 +47,22 @@ describe('applyNormalize', () => {
 });
 
 describe('applyReverse', () => {
-  it('reverses each channel independently', () => {
-    const out = applyReverse(stereo([1, 2, 3], [4, 5, 6]));
+  it('reverses the [start, end) range, leaves the rest untouched', () => {
+    const out = applyReverse(mono(1, 2, 3, 4, 5), 1, 4);
+    // [2,3,4] flips → [4,3,2]; head and tail untouched.
+    expect(Array.from(out.channels[0]!)).toEqual([1, 4, 3, 2, 5]);
+  });
+
+  it('reverses each channel independently when the range covers the whole input', () => {
+    const out = applyReverse(stereo([1, 2, 3], [4, 5, 6]), 0, 3);
     expect(Array.from(out.channels[0]!)).toEqual([3, 2, 1]);
     expect(Array.from(out.channels[1]!)).toEqual([6, 5, 4]);
+  });
+
+  it('returns the same reference when the range is shorter than 2 frames', () => {
+    const w = mono(1, 2, 3);
+    expect(applyReverse(w, 1, 1)).toBe(w);
+    expect(applyReverse(w, 2, 2)).toBe(w);
   });
 });
 
@@ -95,38 +107,50 @@ describe('applyCut', () => {
 });
 
 describe('applyFadeIn / applyFadeOut', () => {
-  it('fade-in ramps from 0 to 1 over the requested frame count', () => {
-    const out = applyFadeIn(mono(1, 1, 1, 1, 1), 4);
+  it('fade-in ramps from 0 to 1 over [start, end), leaves the tail untouched', () => {
+    // start=0, end=4 — same as the old `frames=4` form on a length-5 input.
+    const out = applyFadeIn(mono(1, 1, 1, 1, 1), 0, 4);
     const ch = out.channels[0]!;
     expect(ch[0]).toBe(0);
     expect(ch[1]).toBeCloseTo(0.25, 5);
     expect(ch[2]).toBeCloseTo(0.5, 5);
     expect(ch[3]).toBeCloseTo(0.75, 5);
+    expect(ch[4]).toBe(1);  // outside the range — untouched
+  });
+
+  it('fade-in over a middle range only modulates within the range', () => {
+    const out = applyFadeIn(mono(1, 1, 1, 1, 1), 1, 3);
+    const ch = out.channels[0]!;
+    expect(ch[0]).toBe(1);   // before start — untouched
+    expect(ch[1]).toBe(0);   // ramp start
+    expect(ch[2]).toBeCloseTo(0.5, 5);
+    expect(ch[3]).toBe(1);   // after end — untouched
     expect(ch[4]).toBe(1);
   });
 
-  it('fade-out ramps from 1 to 0 over the last N frames', () => {
-    const out = applyFadeOut(mono(1, 1, 1, 1, 1), 4);
+  it('fade-out ramps from 1 to 0 over [start, end), leaves the head untouched', () => {
+    // start=1, end=5 — same as the old `frames=4` tail form on a length-5 input.
+    const out = applyFadeOut(mono(1, 1, 1, 1, 1), 1, 5);
     const ch = out.channels[0]!;
-    expect(ch[0]).toBe(1);
+    expect(ch[0]).toBe(1);   // before start — untouched
     expect(ch[1]).toBeCloseTo(1, 5);
     expect(ch[2]).toBeCloseTo(0.75, 5);
     expect(ch[3]).toBeCloseTo(0.5, 5);
     expect(ch[4]).toBeCloseTo(0.25, 5);
   });
 
-  it('frames=0 is a noop', () => {
+  it('empty range is a noop', () => {
     const w = mono(1, 1, 1);
-    expect(applyFadeIn(w, 0)).toBe(w);
-    expect(applyFadeOut(w, 0)).toBe(w);
+    expect(applyFadeIn(w, 0, 0)).toBe(w);
+    expect(applyFadeOut(w, 1, 1)).toBe(w);
   });
 });
 
 describe('runChain', () => {
   it('runs effects in order', () => {
     const out = runChain(mono(0.25, -0.5, 0.5), [
-      { kind: 'gain', params: { gain: 2 } },     // ×2 → 0.5, -1, 1
-      { kind: 'reverse' },                        // → 1, -1, 0.5
+      { kind: 'gain', params: { gain: 2 } },                            // ×2 → 0.5, -1, 1
+      { kind: 'reverse', params: { startFrame: 0, endFrame: 3 } },      // → 1, -1, 0.5
     ]);
     expect(Array.from(out.channels[0]!)).toEqual([1, -1, 0.5]);
   });
@@ -310,7 +334,7 @@ describe('applyEffect dispatcher', () => {
   it('dispatches each kind to its specialised function', () => {
     expect(applyEffect(mono(1, -1), { kind: 'gain', params: { gain: 0.5 } })
       .channels[0]).toEqual(Float32Array.from([0.5, -0.5]));
-    expect(applyEffect(mono(1, 2, 3), { kind: 'reverse' })
+    expect(applyEffect(mono(1, 2, 3), { kind: 'reverse', params: { startFrame: 0, endFrame: 3 } })
       .channels[0]).toEqual(Float32Array.from([3, 2, 1]));
     expect(applyEffect(mono(0, 1, 2, 3, 4), { kind: 'cut', params: { startFrame: 1, endFrame: 4 } })
       .channels[0]).toEqual(Float32Array.from([0, 4]));

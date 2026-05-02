@@ -26,14 +26,23 @@ export const DEFAULT_TARGET_NOTE = 12;
 
 // ─── Effect node types ───────────────────────────────────────────────────
 
+/**
+ * Range-aware effects (reverse, fadeIn, fadeOut, crop, cut) carry a
+ * [startFrame, endFrame) over the chain's input — their per-effect input is
+ * the previous chain stage's output, NOT the source. Outside the range, the
+ * audio passes through unchanged: a fadeIn over the selection's frames doesn't
+ * silence the rest of the sample, it ramps within the selection only.
+ *
+ * gain / normalize don't take a range — they apply to the whole input.
+ */
 export type EffectNode =
   | { kind: 'gain'; params: { gain: number } }
   | { kind: 'normalize' }
-  | { kind: 'reverse' }
-  | { kind: 'crop'; params: { startFrame: number; endFrame: number } }
-  | { kind: 'cut';  params: { startFrame: number; endFrame: number } }
-  | { kind: 'fadeIn'; params: { frames: number } }
-  | { kind: 'fadeOut'; params: { frames: number } };
+  | { kind: 'reverse';  params: { startFrame: number; endFrame: number } }
+  | { kind: 'crop';     params: { startFrame: number; endFrame: number } }
+  | { kind: 'cut';      params: { startFrame: number; endFrame: number } }
+  | { kind: 'fadeIn';   params: { startFrame: number; endFrame: number } }
+  | { kind: 'fadeOut';  params: { startFrame: number; endFrame: number } };
 
 export type EffectKind = EffectNode['kind'];
 
@@ -108,11 +117,22 @@ export function applyNormalize(input: WavData): WavData {
   return applyGain(input, 1 / peak);
 }
 
-export function applyReverse(input: WavData): WavData {
+/**
+ * Reverse the frames in `[startFrame, endFrame)`. Frames outside that range
+ * pass through untouched, so the effect only flips the selected slice — the
+ * tail still plays forward, the head still plays forward, only the middle is
+ * mirrored.
+ */
+export function applyReverse(input: WavData, startFrame: number, endFrame: number): WavData {
+  const len = input.channels[0]?.length ?? 0;
+  const s = Math.max(0, Math.min(len, Math.floor(startFrame)));
+  const e = Math.max(s, Math.min(len, Math.floor(endFrame)));
+  if (e - s < 2) return input;
   return mapChannels(input, (ch) => {
-    const len = ch.length;
-    const out = new Float32Array(len);
-    for (let i = 0; i < len; i++) out[i] = ch[len - 1 - i]!;
+    const out = new Float32Array(ch.length);
+    for (let i = 0; i < s; i++) out[i] = ch[i]!;
+    for (let i = s; i < e; i++) out[i] = ch[s + (e - 1 - i)]!;
+    for (let i = e; i < ch.length; i++) out[i] = ch[i]!;
     return out;
   });
 }
@@ -143,30 +163,45 @@ export function applyCut(input: WavData, startFrame: number, endFrame: number): 
   });
 }
 
-export function applyFadeIn(input: WavData, frames: number): WavData {
-  const n = Math.max(0, Math.floor(frames));
-  if (n === 0) return input;
+/**
+ * Linear ramp from gain 0 → 1 over `[startFrame, endFrame)`. Frames outside
+ * the range are left untouched (the effect only modulates within the
+ * selection — it does NOT silence the tail or head). With start=0 and end=N
+ * you get a classic head-fade equivalent to the old `frames=N` form.
+ */
+export function applyFadeIn(input: WavData, startFrame: number, endFrame: number): WavData {
+  const len = input.channels[0]?.length ?? 0;
+  const s = Math.max(0, Math.min(len, Math.floor(startFrame)));
+  const e = Math.max(s, Math.min(len, Math.floor(endFrame)));
+  if (e <= s) return input;
+  const span = e - s;
   return mapChannels(input, (ch) => {
     const out = new Float32Array(ch.length);
-    const ramp = Math.min(n, ch.length);
-    for (let i = 0; i < ramp; i++) out[i] = ch[i]! * (i / n);
-    for (let i = ramp; i < ch.length; i++) out[i] = ch[i]!;
+    for (let i = 0; i < s; i++) out[i] = ch[i]!;
+    for (let i = s; i < e; i++) out[i] = ch[i]! * ((i - s) / span);
+    for (let i = e; i < ch.length; i++) out[i] = ch[i]!;
     return out;
   });
 }
 
-export function applyFadeOut(input: WavData, frames: number): WavData {
-  const n = Math.max(0, Math.floor(frames));
-  if (n === 0) return input;
+/**
+ * Linear ramp from gain 1 → 0 over `[startFrame, endFrame)`. Frames outside
+ * the range are left untouched (the head plays at full volume, anything
+ * after the fade also plays at full volume — the effect only acts within
+ * the selection). With start=len-N and end=len you get a classic tail-fade
+ * equivalent to the old `frames=N` form.
+ */
+export function applyFadeOut(input: WavData, startFrame: number, endFrame: number): WavData {
+  const len = input.channels[0]?.length ?? 0;
+  const s = Math.max(0, Math.min(len, Math.floor(startFrame)));
+  const e = Math.max(s, Math.min(len, Math.floor(endFrame)));
+  if (e <= s) return input;
+  const span = e - s;
   return mapChannels(input, (ch) => {
     const out = new Float32Array(ch.length);
-    const total = ch.length;
-    const start = Math.max(0, total - n);
-    for (let i = 0; i < start; i++) out[i] = ch[i]!;
-    for (let i = start; i < total; i++) {
-      const remaining = total - i;
-      out[i] = ch[i]! * (remaining / n);
-    }
+    for (let i = 0; i < s; i++) out[i] = ch[i]!;
+    for (let i = s; i < e; i++) out[i] = ch[i]! * (1 - (i - s) / span);
+    for (let i = e; i < ch.length; i++) out[i] = ch[i]!;
     return out;
   });
 }
@@ -175,11 +210,11 @@ export function applyEffect(input: WavData, node: EffectNode): WavData {
   switch (node.kind) {
     case 'gain':       return applyGain(input, node.params.gain);
     case 'normalize':  return applyNormalize(input);
-    case 'reverse':    return applyReverse(input);
+    case 'reverse':    return applyReverse(input, node.params.startFrame, node.params.endFrame);
     case 'crop':       return applyCrop(input, node.params.startFrame, node.params.endFrame);
     case 'cut':        return applyCut(input, node.params.startFrame, node.params.endFrame);
-    case 'fadeIn':     return applyFadeIn(input, node.params.frames);
-    case 'fadeOut':    return applyFadeOut(input, node.params.frames);
+    case 'fadeIn':     return applyFadeIn(input, node.params.startFrame, node.params.endFrame);
+    case 'fadeOut':    return applyFadeOut(input, node.params.startFrame, node.params.endFrame);
   }
 }
 
@@ -294,19 +329,24 @@ export function workbenchFromWav(bytes: Uint8Array, filename: string): SampleWor
   };
 }
 
-/** Default-parameter factory for newly-added effects. */
-export function defaultEffect(kind: EffectKind, source: WavData): EffectNode {
-  const len = source.channels[0]?.length ?? 0;
+/**
+ * Default-parameter factory for newly-added effects. `input` is the WavData
+ * the new effect will receive — i.e. the chain output up to this point, NOT
+ * the workbench source. That way an effect appended after a crop gets
+ * defaults sized to the cropped length, not the original source length.
+ */
+export function defaultEffect(kind: EffectKind, input: WavData): EffectNode {
+  const len = input.channels[0]?.length ?? 0;
   switch (kind) {
     case 'gain':      return { kind: 'gain', params: { gain: 1 } };
     case 'normalize': return { kind: 'normalize' };
-    case 'reverse':   return { kind: 'reverse' };
-    case 'crop':      return { kind: 'crop', params: { startFrame: 0, endFrame: len } };
+    case 'reverse':   return { kind: 'reverse', params: { startFrame: 0, endFrame: len } };
+    case 'crop':      return { kind: 'crop',    params: { startFrame: 0, endFrame: len } };
     // Default Cut is a noop (empty range) — the user fills in start/end
     // either by editing the param fields or, in the common case, by
-    // selecting on the waveform and clicking "Cut selection".
-    case 'cut':       return { kind: 'cut',  params: { startFrame: 0, endFrame: 0 } };
-    case 'fadeIn':    return { kind: 'fadeIn', params: { frames: Math.min(1024, len) } };
-    case 'fadeOut':   return { kind: 'fadeOut', params: { frames: Math.min(1024, len) } };
+    // selecting on the waveform and clicking "Cut".
+    case 'cut':       return { kind: 'cut',     params: { startFrame: 0, endFrame: 0 } };
+    case 'fadeIn':    return { kind: 'fadeIn',  params: { startFrame: 0, endFrame: Math.min(1024, len) } };
+    case 'fadeOut':   return { kind: 'fadeOut', params: { startFrame: Math.max(0, len - 1024), endFrame: len } };
   }
 }

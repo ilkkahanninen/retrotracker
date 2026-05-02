@@ -1,15 +1,66 @@
-import { For, Index, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, type Component } from 'solid-js';
-import type { Sample, Song } from '../core/mod/types';
-import { currentSample } from '../state/edit';
-import { workbenches } from '../state/sampleWorkbench';
-import { previewFrame } from '../state/preview';
-import { transport } from '../state/song';
 import {
-  EFFECT_KINDS, EFFECT_LABELS,
-  type EffectKind, type EffectNode, type MonoMix, type SampleWorkbench,
-} from '../core/audio/sampleWorkbench';
+  For,
+  Index,
+  Match,
+  Show,
+  Switch,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  type Component,
+} from "solid-js";
+import type { Sample, Song } from "../core/mod/types";
+import { currentSample } from "../state/edit";
+import { workbenches } from "../state/sampleWorkbench";
+import { previewFrame } from "../state/preview";
+import { transport } from "../state/song";
+import {
+  EFFECT_LABELS,
+  type EffectKind,
+  type EffectNode,
+  type MonoMix,
+  type SampleWorkbench,
+} from "../core/audio/sampleWorkbench";
 
-const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'] as const;
+/**
+ * Effect kinds that ride the Crop/Cut row as their own buttons. Order
+ * matches the on-screen layout: range-aware first (with Crop/Cut leading,
+ * since those are only meaningful with a selection), then range-unaware.
+ */
+const EFFECT_BUTTON_KINDS: readonly EffectKind[] = [
+  "reverse",
+  "fadeIn",
+  "fadeOut",
+  "gain",
+  "normalize",
+] as const;
+
+/** Hover hint that hints at selection-aware vs always-whole behaviour. */
+function titleForEffectButton(kind: EffectKind, hasSelection: boolean): string {
+  const isRangeAware =
+    kind === "reverse" || kind === "fadeIn" || kind === "fadeOut";
+  const label = EFFECT_LABELS[kind];
+  if (!isRangeAware) return `Append ${label} to the effect chain`;
+  return hasSelection
+    ? `Append ${label} over the current selection`
+    : `Append ${label} (whole sample — no selection)`;
+}
+
+const NOTE_NAMES = [
+  "C-",
+  "C#",
+  "D-",
+  "D#",
+  "E-",
+  "F-",
+  "F#",
+  "G-",
+  "G#",
+  "A-",
+  "A#",
+  "B-",
+] as const;
 function noteIndexName(i: number): string {
   return `${NOTE_NAMES[i % 12]}${1 + Math.floor(i / 12)}`;
 }
@@ -32,7 +83,10 @@ function encodeFinetune(signed: number): number {
 }
 
 /** A user-drawn range over the int8 sample data (byte indices, half-open). */
-export interface SampleSelection { start: number; end: number; }
+export interface SampleSelection {
+  start: number;
+  end: number;
+}
 
 interface Props {
   song: Song;
@@ -44,8 +98,13 @@ interface Props {
   onCropToSelection: (startByte: number, endByte: number) => void;
   /** Replace sample.data with everything OUTSIDE [startByte, endByte). */
   onCutSelection: (startByte: number, endByte: number) => void;
-  /** Pipeline editing — only meaningful when a workbench exists for the slot. */
-  onAddEffect: (kind: EffectKind) => void;
+  /**
+   * Append an effect to the workbench chain. For range-aware kinds the
+   * caller can use the user's current waveform selection (passed through)
+   * to scope the effect to a region; passing `null` defaults the effect to
+   * a sensible whole-sample range. Workbench-only — no-ops without one.
+   */
+  onAddEffect: (kind: EffectKind, selection: SampleSelection | null) => void;
   onRemoveEffect: (index: number) => void;
   onMoveEffect: (index: number, delta: -1 | 1) => void;
   onPatchEffect: (index: number, next: EffectNode) => void;
@@ -55,8 +114,10 @@ interface Props {
 
 /** Editor for the sample under `currentSample()`: waveform + metadata + load. */
 export const SampleView: Component<Props> = (props) => {
-  const sample = createMemo(() => props.song.samples[currentSample() - 1] ?? null);
-  const slotIndex = createMemo(() => String(currentSample()).padStart(2, '0'));
+  const sample = createMemo(
+    () => props.song.samples[currentSample() - 1] ?? null,
+  );
+  const slotIndex = createMemo(() => String(currentSample()).padStart(2, "0"));
   const lengthBytes = createMemo(() => (sample()?.lengthWords ?? 0) * 2);
   const isLooping = createMemo(() => (sample()?.loopLengthWords ?? 0) > 1);
   // Subscribing to the map signal makes the pipeline section reactive — Solid
@@ -73,7 +134,7 @@ export const SampleView: Component<Props> = (props) => {
   // reactively reverted it, and the song would silently miss the edit
   // (which exactly matches the "loop works in preview but not in song
   // play" report — the user toggled while playing).
-  const editingDisabled = createMemo(() => transport() === 'playing');
+  const editingDisabled = createMemo(() => transport() === "playing");
 
   // Drag-selection state. Lives at SampleView level because both the Waveform
   // (which draws the overlay and handles the drag) and the action buttons
@@ -90,7 +151,7 @@ export const SampleView: Component<Props> = (props) => {
   const onPickWav = async (e: Event) => {
     const input = e.currentTarget as HTMLInputElement;
     const file = input.files?.[0];
-    input.value = ''; // re-allow picking the same file
+    input.value = ""; // re-allow picking the same file
     if (!file) return;
     const buf = new Uint8Array(await file.arrayBuffer());
     props.onLoadWav(buf, file.name);
@@ -101,28 +162,45 @@ export const SampleView: Component<Props> = (props) => {
       <header class="sampleview__header">
         <h2>Sample {slotIndex()}</h2>
         <div class="sampleview__actions">
-          <label class="file-button" title="Load a WAV file into this sample slot">
-            <input type="file" accept=".wav,audio/wav,audio/x-wav" hidden onChange={onPickWav} />
+          <label
+            class="file-button"
+            title="Load a WAV file into this sample slot"
+          >
+            <input
+              type="file"
+              accept=".wav,audio/wav,audio/x-wav"
+              hidden
+              onChange={onPickWav}
+            />
             Load WAV…
           </label>
           <button
             type="button"
             onClick={props.onClear}
             disabled={!sample() || sample()!.lengthWords === 0}
-          >Clear sample</button>
+          >
+            Clear sample
+          </button>
         </div>
       </header>
 
-      <Show when={sample()} fallback={<p class="placeholder">Select a sample slot from the list.</p>}>
+      <Show
+        when={sample()}
+        fallback={
+          <p class="placeholder">Select a sample slot from the list.</p>
+        }
+      >
         <Waveform
           sample={sample()!}
           onPatch={props.onPatch}
           selection={selection()}
           onSelect={setSelection}
         />
-        {/* Selection-action row: always rendered so the buttons don't
-            shift in and out as the user drags. They disable when there's
-            nothing meaningful to crop/cut. */}
+        {/* Selection-action row: Crop/Cut act on the selection (and require
+            one); the remaining effect buttons append to the workbench chain
+            — range-aware kinds adopt the selection if present, gain /
+            normalize ignore it. All workbench-only buttons disable when the
+            slot has no workbench (e.g. a sample loaded from a `.mod`). */}
         <div class="sampleview__selection">
           <button
             type="button"
@@ -134,7 +212,9 @@ export const SampleView: Component<Props> = (props) => {
             }}
             disabled={!selection() || selection()!.end - selection()!.start < 2}
             title="Keep the selected range, discard the rest"
-          >Crop</button>
+          >
+            Crop
+          </button>
           <button
             type="button"
             onClick={() => {
@@ -145,10 +225,33 @@ export const SampleView: Component<Props> = (props) => {
             }}
             disabled={!selection() || selection()!.end - selection()!.start < 2}
             title="Remove the selected range, keep the rest"
-          >Cut</button>
+          >
+            Cut
+          </button>
+          <For each={EFFECT_BUTTON_KINDS}>
+            {(kind) => (
+              <button
+                type="button"
+                onClick={() => {
+                  // For range-aware kinds (reverse / fadeIn / fadeOut) the
+                  // selection scopes the effect; pass it through whether or
+                  // not it's present and let the App handler decide. Don't
+                  // clear the selection — unlike Crop/Cut these don't change
+                  // the data shape, so the user may want to apply more than
+                  // one effect to the same region.
+                  props.onAddEffect(kind, selection());
+                }}
+                disabled={!workbench() || editingDisabled()}
+                title={titleForEffectButton(kind, selection() !== null)}
+              >
+                {EFFECT_LABELS[kind]}
+              </button>
+            )}
+          </For>
           <Show when={selection()}>
             <span class="sampleview__selection-info">
-              Selection: bytes {selection()!.start} – {selection()!.end} ({selection()!.end - selection()!.start} bytes)
+              Selection: bytes {selection()!.start} – {selection()!.end} (
+              {selection()!.end - selection()!.start} bytes)
             </span>
           </Show>
         </div>
@@ -181,7 +284,9 @@ export const SampleView: Component<Props> = (props) => {
               onInput={(e) => {
                 const v = parseInt(e.currentTarget.value, 10);
                 if (!Number.isFinite(v)) return;
-                props.onPatch({ volume: Math.max(0, Math.min(PT_VOLUME_MAX, v)) });
+                props.onPatch({
+                  volume: Math.max(0, Math.min(PT_VOLUME_MAX, v)),
+                });
               }}
             />
           </label>
@@ -216,10 +321,10 @@ export const SampleView: Component<Props> = (props) => {
                   const sel = selection();
                   if (sel) {
                     const start = (sel.start + 1) & ~1;
-                    const end   = sel.end & ~1;
+                    const end = sel.end & ~1;
                     if (end - start >= 2) {
                       props.onPatch({
-                        loopStartWords:  start >> 1,
+                        loopStartWords: start >> 1,
                         loopLengthWords: (end - start) >> 1,
                       });
                       setSelection(null);
@@ -227,7 +332,10 @@ export const SampleView: Component<Props> = (props) => {
                     }
                   }
                   // No (usable) selection — default loop = whole sample.
-                  props.onPatch({ loopStartWords: 0, loopLengthWords: sample()!.lengthWords });
+                  props.onPatch({
+                    loopStartWords: 0,
+                    loopLengthWords: sample()!.lengthWords,
+                  });
                 } else {
                   // PT no-loop sentinel.
                   props.onPatch({ loopLengthWords: 1 });
@@ -236,16 +344,10 @@ export const SampleView: Component<Props> = (props) => {
             />
             <span>Loop</span>
           </label>
-          <Show when={isLooping()}>
-            <p class="samplemeta__hint">
-              Looping {sample()!.loopStartWords} – {sample()!.loopStartWords + sample()!.loopLengthWords} (words). Drag the cyan handles on the waveform to adjust.
-            </p>
-          </Show>
         </div>
         <Show when={workbench()}>
           <PipelineEditor
             wb={workbench()!}
-            onAddEffect={props.onAddEffect}
             onRemoveEffect={props.onRemoveEffect}
             onMoveEffect={props.onMoveEffect}
             onPatchEffect={props.onPatchEffect}
@@ -275,8 +377,8 @@ interface WaveformProps {
 
 /** Either dragging a loop boundary, or sweeping a selection range. */
 type DragState =
-  | { kind: 'loop'; which: 'start' | 'end' }
-  | { kind: 'select'; anchorByte: number };
+  | { kind: "loop"; which: "start" | "end" }
+  | { kind: "select"; anchorByte: number };
 
 const Waveform: Component<WaveformProps> = (props) => {
   let waveCanvas: HTMLCanvasElement | undefined;
@@ -291,7 +393,7 @@ const Waveform: Component<WaveformProps> = (props) => {
   const [drag, setDrag] = createSignal<DragState | null>(null);
   /** Hover over a handle (drives cursor) — independent of drag because we
    *  also want the cursor while the user is grabbing. */
-  const [hover, setHover] = createSignal<'start' | 'end' | null>(null);
+  const [hover, setHover] = createSignal<"start" | "end" | null>(null);
 
   /** Same byte→x mapping the waveform paths use, so the lines line up. */
   const xForByte = (byte: number, dataLen: number): number => {
@@ -320,7 +422,7 @@ const Waveform: Component<WaveformProps> = (props) => {
   };
 
   /** Mouse-x near a loop boundary? Returns which one, or null. */
-  const handleAt = (x: number): 'start' | 'end' | null => {
+  const handleAt = (x: number): "start" | "end" | null => {
     const s = props.sample;
     if (s.loopLengthWords <= 1) return null;
     const dataLen = s.data.length;
@@ -330,14 +432,14 @@ const Waveform: Component<WaveformProps> = (props) => {
     const ds = Math.abs(x - xs);
     const de = Math.abs(x - xe);
     if (Math.min(ds, de) > HANDLE_HIT_PX) return null;
-    return ds <= de ? 'start' : 'end';
+    return ds <= de ? "start" : "end";
   };
 
   const onMouseDown = (e: MouseEvent) => {
     const x = clientToCanvasX(e.clientX);
     const handle = handleAt(x);
     if (handle) {
-      setDrag({ kind: 'loop', which: handle });
+      setDrag({ kind: "loop", which: handle });
       e.preventDefault();
       return;
     }
@@ -346,7 +448,7 @@ const Waveform: Component<WaveformProps> = (props) => {
     const dataLen = props.sample.data.length;
     if (dataLen === 0) return;
     const byte = Math.max(0, Math.min(dataLen, byteForX(x, dataLen)));
-    setDrag({ kind: 'select', anchorByte: byte });
+    setDrag({ kind: "select", anchorByte: byte });
     props.onSelect({ start: byte, end: byte });
     e.preventDefault();
   };
@@ -360,11 +462,14 @@ const Waveform: Component<WaveformProps> = (props) => {
     }
     const s = props.sample;
     const dataLen = s.data.length;
-    if (d.kind === 'loop') {
+    if (d.kind === "loop") {
       // Clamp to sample bounds and round to a word boundary (PT's loop fields
       // are word-aligned).
-      const word = Math.max(0, Math.min(s.lengthWords, Math.round(byteForX(x, dataLen) / 2)));
-      if (d.which === 'start') {
+      const word = Math.max(
+        0,
+        Math.min(s.lengthWords, Math.round(byteForX(x, dataLen) / 2)),
+      );
+      if (d.which === "start") {
         // Keep at least 2 words of loop so the boundaries never cross.
         const endWord = s.loopStartWords + s.loopLengthWords;
         const newStart = Math.max(0, Math.min(word, endWord - 2));
@@ -373,7 +478,10 @@ const Waveform: Component<WaveformProps> = (props) => {
           loopLengthWords: endWord - newStart,
         });
       } else {
-        const newEnd = Math.max(s.loopStartWords + 2, Math.min(word, s.lengthWords));
+        const newEnd = Math.max(
+          s.loopStartWords + 2,
+          Math.min(word, s.lengthWords),
+        );
         props.onPatch({ loopLengthWords: newEnd - s.loopStartWords });
       }
     } else {
@@ -383,7 +491,7 @@ const Waveform: Component<WaveformProps> = (props) => {
       const byte = Math.max(0, Math.min(dataLen, byteForX(x, dataLen)));
       props.onSelect({
         start: Math.min(d.anchorByte, byte),
-        end:   Math.max(d.anchorByte, byte),
+        end: Math.max(d.anchorByte, byte),
       });
     }
   };
@@ -401,17 +509,17 @@ const Waveform: Component<WaveformProps> = (props) => {
       // A click without movement (anchor === pointer) collapses the
       // selection — clear it so the action row doesn't linger empty.
       const d = drag();
-      if (d?.kind === 'select') {
+      if (d?.kind === "select") {
         const sel = props.selection;
         if (sel && sel.start === sel.end) props.onSelect(null);
       }
       setDrag(null);
     };
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', up);
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
     onCleanup(() => {
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', up);
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
     });
   });
 
@@ -419,22 +527,22 @@ const Waveform: Component<WaveformProps> = (props) => {
   createEffect(() => {
     const c = waveCanvas;
     if (!c) return;
-    const ctx = c.getContext('2d');
+    const ctx = c.getContext("2d");
     if (!ctx) return;
 
     // Background.
-    ctx.fillStyle = '#1c1e26';
+    ctx.fillStyle = "#1c1e26";
     ctx.fillRect(0, 0, W, H);
 
     // Center line.
-    ctx.fillStyle = '#2a2d38';
+    ctx.fillStyle = "#2a2d38";
     ctx.fillRect(0, H / 2, W, 1);
 
     const data = props.sample.data;
     if (data.byteLength === 0) return;
 
-    ctx.fillStyle = '#5ec8ff';
-    ctx.strokeStyle = '#5ec8ff';
+    ctx.fillStyle = "#5ec8ff";
+    ctx.strokeStyle = "#5ec8ff";
     ctx.lineWidth = 1;
     const yFor = (v: number) => H / 2 - (v / 128) * (H / 2 - 1);
 
@@ -460,11 +568,17 @@ const Waveform: Component<WaveformProps> = (props) => {
       let prev: number | null = null;
       for (let x = 0; x < W; x++) {
         const start = Math.floor(x * samplesPerPixel);
-        const end = Math.min(data.length, Math.floor((x + 1) * samplesPerPixel));
+        const end = Math.min(
+          data.length,
+          Math.floor((x + 1) * samplesPerPixel),
+        );
         if (start >= end) continue;
         let mn = 127;
         let mx = -128;
-        if (prev !== null) { if (prev < mn) mn = prev; if (prev > mx) mx = prev; }
+        if (prev !== null) {
+          if (prev < mn) mn = prev;
+          if (prev > mx) mx = prev;
+        }
         for (let i = start; i < end; i++) {
           const v = data[i]!;
           if (v < mn) mn = v;
@@ -473,7 +587,12 @@ const Waveform: Component<WaveformProps> = (props) => {
         prev = data[end - 1]!;
         const yMax = yFor(mx);
         const yMin = yFor(mn);
-        ctx.fillRect(x, Math.min(yMax, yMin), 1, Math.max(1, Math.abs(yMax - yMin)));
+        ctx.fillRect(
+          x,
+          Math.min(yMax, yMin),
+          1,
+          Math.max(1, Math.abs(yMax - yMin)),
+        );
       }
     }
 
@@ -486,7 +605,7 @@ const Waveform: Component<WaveformProps> = (props) => {
   createEffect(() => {
     const c = playheadCanvas;
     if (!c) return;
-    const ctx = c.getContext('2d');
+    const ctx = c.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, W, H);
 
@@ -498,9 +617,9 @@ const Waveform: Component<WaveformProps> = (props) => {
     if (sel && dataLen > 0 && sel.end > sel.start) {
       const x0 = xForByte(sel.start, dataLen);
       const x1 = xForByte(sel.end, dataLen);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      ctx.fillStyle = "rgba(255, 255, 255, 0.15)";
       ctx.fillRect(x0, 0, Math.max(1, x1 - x0), H);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
       ctx.fillRect(Math.floor(x0), 0, 1, H);
       ctx.fillRect(Math.max(0, Math.floor(x1) - 1), 0, 1, H);
     }
@@ -516,7 +635,7 @@ const Waveform: Component<WaveformProps> = (props) => {
     } else {
       x = (pf.frame * W) / dataLen;
     }
-    ctx.fillStyle = '#ff7a59';
+    ctx.fillStyle = "#ff7a59";
     ctx.fillRect(Math.floor(x), 0, 1, H);
   });
 
@@ -525,8 +644,8 @@ const Waveform: Component<WaveformProps> = (props) => {
       class="waveform"
       ref={(el) => (container = el)}
       classList={{
-        'waveform--grab':     hover() !== null && !drag(),
-        'waveform--grabbing': drag()?.kind === 'loop',
+        "waveform--grab": hover() !== null && !drag(),
+        "waveform--grabbing": drag()?.kind === "loop",
       }}
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
@@ -560,9 +679,9 @@ function drawLoopOverlay(
   if (loopLen <= 2 || dataLen <= 0) return;
   const x0 = Math.max(0, Math.min(w, (loopStart / dataLen) * w));
   const x1 = Math.max(0, Math.min(w, ((loopStart + loopLen) / dataLen) * w));
-  ctx.fillStyle = 'rgba(94, 200, 255, 0.18)';
+  ctx.fillStyle = "rgba(94, 200, 255, 0.18)";
   ctx.fillRect(x0, 0, Math.max(1, x1 - x0), h);
-  ctx.fillStyle = '#5ec8ff';
+  ctx.fillStyle = "#5ec8ff";
   ctx.fillRect(x0, 0, 1, h);
   ctx.fillRect(Math.max(0, x1 - 1), 0, 1, h);
 }
@@ -571,7 +690,6 @@ function drawLoopOverlay(
 
 interface PipelineEditorProps {
   wb: SampleWorkbench;
-  onAddEffect: (kind: EffectKind) => void;
   onRemoveEffect: (index: number) => void;
   onMoveEffect: (index: number, delta: -1 | 1) => void;
   onPatchEffect: (index: number, next: EffectNode) => void;
@@ -586,11 +704,14 @@ const PipelineEditor: Component<PipelineEditorProps> = (props) => {
   return (
     <section class="pipeline">
       <header class="pipeline__header">
-        <h3>Effects</h3>
         <span class="pipeline__source">
-          {props.wb.sourceName} · {props.wb.source.sampleRate} Hz ·{' '}
-          {channels() === 1 ? 'mono' : channels() === 2 ? 'stereo' : `${channels()} ch`} ·{' '}
-          {sourceFrames()} frames
+          {props.wb.sourceName} · {props.wb.source.sampleRate} Hz ·{" "}
+          {channels() === 1
+            ? "mono"
+            : channels() === 2
+              ? "stereo"
+              : `${channels()} ch`}{" "}
+          · {sourceFrames()} frames
         </span>
       </header>
       <ol class="pipeline__chain">
@@ -608,23 +729,31 @@ const PipelineEditor: Component<PipelineEditorProps> = (props) => {
                   aria-label={`Move effect ${i + 1} up`}
                   disabled={i === 0}
                   onClick={() => props.onMoveEffect(i, -1)}
-                >↑</button>
+                >
+                  ↑
+                </button>
                 <button
                   type="button"
                   title="Move down"
                   aria-label={`Move effect ${i + 1} down`}
                   disabled={i === props.wb.chain.length - 1}
                   onClick={() => props.onMoveEffect(i, 1)}
-                >↓</button>
+                >
+                  ↓
+                </button>
                 <button
                   type="button"
                   title="Remove effect"
                   aria-label={`Remove effect ${i + 1}`}
                   onClick={() => props.onRemoveEffect(i)}
-                >×</button>
+                >
+                  ×
+                </button>
               </div>
               <div class="effect-node__body">
-                <span class="effect-node__kind">{EFFECT_LABELS[node().kind]}</span>
+                <span class="effect-node__kind">
+                  {EFFECT_LABELS[node().kind]}
+                </span>
                 <EffectParams
                   node={node()}
                   sourceFrames={sourceFrames()}
@@ -635,32 +764,16 @@ const PipelineEditor: Component<PipelineEditorProps> = (props) => {
           )}
         </Index>
       </ol>
-      <div class="pipeline__add">
-        <select
-          aria-label="Add effect"
-          value=""
-          onChange={(e) => {
-            const v = e.currentTarget.value as EffectKind | '';
-            if (!v) return;
-            props.onAddEffect(v);
-            e.currentTarget.value = '';
-          }}
-        >
-          <option value="">+ Add effect…</option>
-          <For each={EFFECT_KINDS}>
-            {(k) => <option value={k}>{EFFECT_LABELS[k]}</option>}
-          </For>
-        </select>
-      </div>
       <div class="pipeline__transformer">
-        <span class="pipeline__transformer-label">PT export · 8-bit signed mono</span>
         <Show when={channels() > 1}>
           <label>
             <span class="samplemeta__label">Mono mix</span>
             <select
               aria-label="Mono mix"
               value={props.wb.pt.monoMix}
-              onChange={(e) => props.onSetMonoMix(e.currentTarget.value as MonoMix)}
+              onChange={(e) =>
+                props.onSetMonoMix(e.currentTarget.value as MonoMix)
+              }
             >
               <option value="average">Average channels</option>
               <option value="left">Left only</option>
@@ -672,10 +785,14 @@ const PipelineEditor: Component<PipelineEditorProps> = (props) => {
           <span class="samplemeta__label">Target note</span>
           <select
             aria-label="Target note"
-            value={props.wb.pt.targetNote === null ? '' : String(props.wb.pt.targetNote)}
+            value={
+              props.wb.pt.targetNote === null
+                ? ""
+                : String(props.wb.pt.targetNote)
+            }
             onChange={(e) => {
               const v = e.currentTarget.value;
-              props.onSetTargetNote(v === '' ? null : parseInt(v, 10));
+              props.onSetTargetNote(v === "" ? null : parseInt(v, 10));
             }}
           >
             <option value="">(none) — keep source rate</option>
@@ -695,19 +812,20 @@ interface EffectParamsProps {
   onPatch: (next: EffectNode) => void;
 }
 
+/** Discriminated-union narrowing of the range-aware kinds. */
+type RangeKind = "reverse" | "crop" | "cut" | "fadeIn" | "fadeOut";
+
 const EffectParams: Component<EffectParamsProps> = (props) => {
   // Non-keyed Match (static children, no `(n) => ...` callback) so the
   // controlled <input>s aren't disposed every time the user types — focus
   // would otherwise jump on every keystroke. Each Match's `when` predicate
   // narrows the discriminated union, but TS can't see that across the
   // children boundary, so we re-narrow with typed accessors.
-  const asGain = () => props.node as Extract<EffectNode, { kind: 'gain' }>;
-  const asCrop = () => props.node as Extract<EffectNode, { kind: 'crop' }>;
-  const asCut  = () => props.node as Extract<EffectNode, { kind: 'cut' }>;
-  const asFade = () => props.node as Extract<EffectNode, { kind: 'fadeIn' | 'fadeOut' }>;
+  const asGain = () => props.node as Extract<EffectNode, { kind: "gain" }>;
+  const asRange = () => props.node as Extract<EffectNode, { kind: RangeKind }>;
   return (
     <Switch>
-      <Match when={props.node.kind === 'gain'}>
+      <Match when={props.node.kind === "gain"}>
         <label class="effect-node__param">
           <span class="samplemeta__label">Gain ×</span>
           <input
@@ -719,31 +837,40 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
             onInput={(e) => {
               const v = parseFloat(e.currentTarget.value);
               if (!Number.isFinite(v)) return;
-              props.onPatch({ kind: 'gain', params: { gain: Math.max(0, v) } });
+              props.onPatch({ kind: "gain", params: { gain: Math.max(0, v) } });
             }}
           />
         </label>
       </Match>
-      <Match when={props.node.kind === 'normalize'}>
+      <Match when={props.node.kind === "normalize"}>
         <span class="effect-node__hint">Scales to peak ±1.0</span>
       </Match>
-      <Match when={props.node.kind === 'reverse'}>
-        <span class="effect-node__hint">Plays backwards</span>
-      </Match>
-      <Match when={props.node.kind === 'crop'}>
+      <Match
+        when={
+          props.node.kind === "reverse" ||
+          props.node.kind === "crop" ||
+          props.node.kind === "cut" ||
+          props.node.kind === "fadeIn" ||
+          props.node.kind === "fadeOut"
+        }
+      >
         <label class="effect-node__param">
           <span class="samplemeta__label">Start (frame)</span>
           <input
             type="number"
             min="0"
             max={props.sourceFrames}
-            value={asCrop().params.startFrame}
+            value={asRange().params.startFrame}
             onInput={(e) => {
               const v = parseInt(e.currentTarget.value, 10);
               if (!Number.isFinite(v)) return;
+              const node = asRange();
               props.onPatch({
-                kind: 'crop',
-                params: { startFrame: Math.max(0, v), endFrame: asCrop().params.endFrame },
+                kind: node.kind,
+                params: {
+                  startFrame: Math.max(0, v),
+                  endFrame: node.params.endFrame,
+                },
               });
             }}
           />
@@ -754,66 +881,18 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
             type="number"
             min="0"
             max={props.sourceFrames}
-            value={asCrop().params.endFrame}
+            value={asRange().params.endFrame}
             onInput={(e) => {
               const v = parseInt(e.currentTarget.value, 10);
               if (!Number.isFinite(v)) return;
+              const node = asRange();
               props.onPatch({
-                kind: 'crop',
-                params: { startFrame: asCrop().params.startFrame, endFrame: Math.max(0, v) },
+                kind: node.kind,
+                params: {
+                  startFrame: node.params.startFrame,
+                  endFrame: Math.max(0, v),
+                },
               });
-            }}
-          />
-        </label>
-      </Match>
-      <Match when={props.node.kind === 'cut'}>
-        <label class="effect-node__param">
-          <span class="samplemeta__label">Start (frame)</span>
-          <input
-            type="number"
-            min="0"
-            max={props.sourceFrames}
-            value={asCut().params.startFrame}
-            onInput={(e) => {
-              const v = parseInt(e.currentTarget.value, 10);
-              if (!Number.isFinite(v)) return;
-              props.onPatch({
-                kind: 'cut',
-                params: { startFrame: Math.max(0, v), endFrame: asCut().params.endFrame },
-              });
-            }}
-          />
-        </label>
-        <label class="effect-node__param">
-          <span class="samplemeta__label">End (frame)</span>
-          <input
-            type="number"
-            min="0"
-            max={props.sourceFrames}
-            value={asCut().params.endFrame}
-            onInput={(e) => {
-              const v = parseInt(e.currentTarget.value, 10);
-              if (!Number.isFinite(v)) return;
-              props.onPatch({
-                kind: 'cut',
-                params: { startFrame: asCut().params.startFrame, endFrame: Math.max(0, v) },
-              });
-            }}
-          />
-        </label>
-      </Match>
-      <Match when={props.node.kind === 'fadeIn' || props.node.kind === 'fadeOut'}>
-        <label class="effect-node__param">
-          <span class="samplemeta__label">Frames</span>
-          <input
-            type="number"
-            min="0"
-            max={props.sourceFrames}
-            value={asFade().params.frames}
-            onInput={(e) => {
-              const v = parseInt(e.currentTarget.value, 10);
-              if (!Number.isFinite(v)) return;
-              props.onPatch({ kind: asFade().kind, params: { frames: Math.max(0, v) } });
             }}
           />
         </label>

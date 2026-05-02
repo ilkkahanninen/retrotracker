@@ -1,7 +1,7 @@
 import { Show, createMemo, createSignal, onCleanup, onMount, type Component } from 'solid-js';
 import {
   song, setSong, transport, setTransport, playPos, setPlayPos,
-  canRedo, canUndo, clearHistory, commitEdit, redo, undo,
+  canRedo, canUndo, clearHistory, commitEdit, commitEditWithWorkbenches, redo, undo,
 } from './state/song';
 import { installShortcuts, registerShortcut } from './state/shortcuts';
 import {
@@ -30,12 +30,12 @@ import {
   type SampleWorkbench, type EffectNode, type EffectKind, type MonoMix,
 } from './core/audio/sampleWorkbench';
 import {
-  getWorkbench, setWorkbench, clearWorkbench, clearAllWorkbenches,
+  getWorkbench, clearAllWorkbenches, withWorkbench, withoutWorkbench,
 } from './state/sampleWorkbench';
 import { AudioEngine } from './core/audio/engine';
 import { PatternGrid } from './components/PatternGrid';
 import { SampleList } from './components/SampleList';
-import { SampleView } from './components/SampleView';
+import { SampleView, type SampleSelection } from './components/SampleView';
 import { view, setView } from './state/view';
 import * as preview from './state/preview';
 
@@ -477,12 +477,19 @@ export const App: Component = () => {
     commitEdit((song) => setSample(song, currentSample() - 1, patch));
   };
 
-  /** Reset the currently-selected sample to empty (also drops its workbench). */
+  /**
+   * Reset the currently-selected sample to empty (also drops its workbench).
+   * The song clear and the workbench drop are bundled into a single history
+   * entry so undo restores both — the chain UI was previously left dangling
+   * after a Clear-then-undo.
+   */
   const clearCurrentSample = () => {
     if (transport() === 'playing') return;
     const slot = currentSample() - 1;
-    clearWorkbench(slot);
-    commitEdit((song) => clearSample(song, slot));
+    commitEditWithWorkbenches(({ song, workbenches }) => ({
+      song: clearSample(song, slot),
+      workbenches: withoutWorkbench(workbenches, slot),
+    }));
   };
 
   /**
@@ -553,38 +560,43 @@ export const App: Component = () => {
     applySelectionEdit('cut', start, end);
 
   /**
-   * Apply a workbench's pipeline (chain → PT transformer) and write the
-   * resulting int8 into its sample slot. Stamps a sensible default name from
-   * the source filename when the slot was empty before — otherwise preserves
-   * whatever name the user has set.
+   * Apply a workbench's pipeline and produce a new Song with the resulting
+   * int8 written into `slot`. Pure — used inside `commitEditWithWorkbenches`
+   * so the song update and the workbench-map update share one history entry.
+   *
+   * First write into a fresh slot adopts the source name and full volume.
+   * Re-runs (pipeline edits on an already-populated slot) leave the user's
+   * name / volume / finetune / loop alone — otherwise dragging a gain slider
+   * would silently clobber any volume the user dialed in by hand, and any
+   * loop they configured on the waveform. `replaceSampleData` clamps the
+   * loop to the new length so a length-changing effect (crop) can't leave
+   * the loop pointing past the data.
    */
-  const writeWorkbenchToSong = (slot: number, wb: SampleWorkbench) => {
+  const writeWorkbenchToSongPure = (
+    song: import('./core/mod/types').Song,
+    slot: number,
+    wb: SampleWorkbench,
+  ): import('./core/mod/types').Song => {
     const data = runPipeline(wb);
-    commitEdit((song) => {
-      const old = song.samples[slot];
-      // First write into a fresh slot adopts the source name and full volume.
-      // Re-runs (pipeline edits on an already-populated slot) leave the user's
-      // name / volume / finetune / loop alone — otherwise dragging a gain
-      // slider would silently clobber any volume the user dialed in by hand,
-      // and any loop they configured on the waveform. replaceSampleData
-      // clamps the loop to the new length so a length-changing effect (crop)
-      // can't leave the loop pointing past the data.
-      const isFirstWrite = !old || old.lengthWords === 0;
-      const meta: Parameters<typeof replaceSampleData>[3] = isFirstWrite
-        ? { volume: 64, finetune: 0, name: wb.sourceName.slice(0, 22) }
-        : {
-            volume: old.volume, finetune: old.finetune, name: old.name,
-            loopStartWords: old.loopStartWords, loopLengthWords: old.loopLengthWords,
-          };
-      return replaceSampleData(song, slot, data, meta);
-    });
+    const old = song.samples[slot];
+    const isFirstWrite = !old || old.lengthWords === 0;
+    const meta: Parameters<typeof replaceSampleData>[3] = isFirstWrite
+      ? { volume: 64, finetune: 0, name: wb.sourceName.slice(0, 22) }
+      : {
+          volume: old.volume, finetune: old.finetune, name: old.name,
+          loopStartWords: old.loopStartWords, loopLengthWords: old.loopLengthWords,
+        };
+    return replaceSampleData(song, slot, data, meta);
   };
 
   /**
    * Decode a WAV into a workbench for the current slot and run the (initially
    * empty) pipeline. The workbench survives until the user clears the slot
    * or loads a different `.mod`; further pipeline edits go through the
-   * patchWorkbench / addEffect / removeEffect handlers below.
+   * addEffect / removeEffect / patchEffect handlers below.
+   *
+   * Bundles workbench creation + pipeline write into a single history entry
+   * so undoing reverts both halves at once.
    */
   const loadWavIntoCurrentSample = (bytes: Uint8Array, filename: string) => {
     if (transport() === 'playing') return;
@@ -597,26 +609,58 @@ export const App: Component = () => {
     }
     setError(null);
     const slot = currentSample() - 1;
-    setWorkbench(slot, wb);
-    writeWorkbenchToSong(slot, wb);
+    commitEditWithWorkbenches(({ song, workbenches }) => ({
+      song: writeWorkbenchToSongPure(song, slot, wb),
+      workbenches: withWorkbench(workbenches, slot, wb),
+    }));
   };
 
-  /** Replace the workbench at the current slot and re-run the pipeline. */
+  /**
+   * Replace the workbench at the current slot and re-run the pipeline. Both
+   * halves (the workbench map and the int8 in the song) move together inside
+   * one history entry — undo reverts the chain UI alongside the waveform.
+   */
   const updateCurrentWorkbench = (next: SampleWorkbench) => {
     if (transport() === 'playing') return;
     const slot = currentSample() - 1;
-    setWorkbench(slot, next);
-    writeWorkbenchToSong(slot, next);
+    commitEditWithWorkbenches(({ song, workbenches }) => ({
+      song: writeWorkbenchToSongPure(song, slot, next),
+      workbenches: withWorkbench(workbenches, slot, next),
+    }));
   };
 
-  /** Append an effect of the given kind with default params. */
-  const addEffect = (kind: EffectKind) => {
-    const wb = getWorkbench(currentSample() - 1);
+  /**
+   * Append an effect to the chain. For range-aware kinds (reverse / fadeIn /
+   * fadeOut / crop / cut) we use the user's current waveform selection if
+   * present — mapping the int8-byte selection back to chain-output frame
+   * indices, since the new effect's input is the chain's current output. With
+   * no selection, `defaultEffect` picks a sensible default range over that
+   * same chain output (whole sample for reverse, head 1024 for fadeIn, etc).
+   * gain / normalize ignore selection — they don't take a range.
+   */
+  const addEffect = (kind: EffectKind, selection: SampleSelection | null) => {
+    const slot = currentSample() - 1;
+    const wb = getWorkbench(slot);
     if (!wb) return;
-    updateCurrentWorkbench({
-      ...wb,
-      chain: [...wb.chain, defaultEffect(kind, wb.source)],
-    });
+    const s = song()?.samples[slot];
+    if (!s) return;
+
+    const chainOut = runChain(wb.source, wb.chain);
+    let node: EffectNode;
+    const isRangeAware =
+      kind === 'reverse' || kind === 'fadeIn' || kind === 'fadeOut'
+      || kind === 'crop' || kind === 'cut';
+    if (isRangeAware && selection && s.data.byteLength > 0) {
+      const chainLen = chainOut.channels[0]?.length ?? 0;
+      const int8Len = s.data.byteLength;
+      const startFrame = Math.max(0, Math.min(chainLen, Math.round(selection.start * chainLen / int8Len)));
+      const endFrame   = Math.max(startFrame, Math.min(chainLen, Math.round(selection.end   * chainLen / int8Len)));
+      if (endFrame - startFrame < 1) return;
+      node = { kind, params: { startFrame, endFrame } } as EffectNode;
+    } else {
+      node = defaultEffect(kind, chainOut);
+    }
+    updateCurrentWorkbench({ ...wb, chain: [...wb.chain, node] });
   };
 
   const removeEffect = (index: number) => {

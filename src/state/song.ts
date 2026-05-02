@@ -1,5 +1,9 @@
 import { createSignal } from 'solid-js';
 import type { Song } from '../core/mod/types';
+import {
+  workbenches as workbenchesSig, setWorkbenchesRaw,
+  type WorkbenchMap,
+} from './sampleWorkbench';
 
 /**
  * Loaded song. Held as a signal so the UI reactively re-renders on swap;
@@ -17,10 +21,17 @@ export const [playPos, setPlayPos] = createSignal<{ order: number; row: number }
 /**
  * Edit history.
  *
- * Snapshot-based: each `commitEdit` pushes the pre-edit Song reference onto
- * the past stack and replaces the signal with the new one. Edits should be
- * immutable updates (return a new Song) so that the snapshot we keep stays
- * a stable reference to the prior state.
+ * Snapshot-based: each commit pushes a `{ song, workbenches }` tuple onto
+ * the past stack and replaces both signals with the new ones. We bundle the
+ * workbench map alongside the Song so undo/redo of a sample-pipeline edit
+ * reverts BOTH the chain (visible in the pipeline UI) and the int8 data
+ * (visible in the waveform) atomically — without this, undoing an effect
+ * would silently desync the editor: the chain stayed at its post-edit state
+ * while the waveform jumped back to the pre-edit int8.
+ *
+ * Edits should be immutable (return new references). Workbenches are
+ * compared/restored by Map identity — `withWorkbench` / `withoutWorkbench`
+ * over in `state/sampleWorkbench.ts` produce fresh maps for that reason.
  *
  * History is capped to keep memory bounded; older entries fall off the bottom.
  * Loading a different file calls `clearHistory` so undo doesn't reach across
@@ -28,8 +39,13 @@ export const [playPos, setPlayPos] = createSignal<{ order: number; row: number }
  */
 export const HISTORY_LIMIT = 200;
 
-const [past, setPast] = createSignal<Song[]>([]);
-const [future, setFuture] = createSignal<Song[]>([]);
+interface EditState {
+  song: Song;
+  workbenches: WorkbenchMap;
+}
+
+const [past, setPast] = createSignal<EditState[]>([]);
+const [future, setFuture] = createSignal<EditState[]>([]);
 
 /** True if there's a prior snapshot the user can revert to. */
 export const canUndo = () => past().length > 0;
@@ -37,12 +53,37 @@ export const canUndo = () => past().length > 0;
 export const canRedo = () => future().length > 0;
 
 /**
- * Apply an immutable transform to the current song. Pushes the previous
- * state onto the undo stack, clears redo, and updates the signal.
+ * Internal — push a `{song, workbenches}` snapshot of the *current* live
+ * state onto the past stack and apply `next`. No-op if both sides are
+ * unchanged (commitEdit / commitEditWithWorkbenches each gate on their own
+ * "is this actually different" check before calling, but we re-check here
+ * to keep the contract local).
+ */
+function applyCommit(next: EditState): void {
+  if (transport() === 'playing') return;
+  const currentSong = song();
+  if (!currentSong) return;
+  const currentWb = workbenchesSig();
+  if (next.song === currentSong && next.workbenches === currentWb) return;
+
+  const prev = past();
+  const trimmed = prev.length >= HISTORY_LIMIT
+    ? prev.slice(prev.length - HISTORY_LIMIT + 1)
+    : prev;
+  setPast([...trimmed, { song: currentSong, workbenches: currentWb }]);
+  setFuture([]);
+  setSong(next.song);
+  if (next.workbenches !== currentWb) setWorkbenchesRaw(next.workbenches);
+}
+
+/**
+ * Apply an immutable transform to the current song. Workbenches are carried
+ * across unchanged — pattern edits don't touch them, but they're still part
+ * of the snapshot we push, so a subsequent undo restores the workbench state
+ * that was live at this commit.
  *
  * No-op if no song is loaded, the transform returns the same reference, or
- * the transport is currently playing — edits during playback would diverge
- * the on-screen state from what the worklet is rendering.
+ * the transport is currently playing.
  */
 export function commitEdit(transform: (song: Song) => Song): void {
   if (transport() === 'playing') return;
@@ -50,14 +91,29 @@ export function commitEdit(transform: (song: Song) => Song): void {
   if (!current) return;
   const next = transform(current);
   if (next === current) return;
+  applyCommit({ song: next, workbenches: workbenchesSig() });
+}
 
-  const prev = past();
-  const trimmed = prev.length >= HISTORY_LIMIT
-    ? prev.slice(prev.length - HISTORY_LIMIT + 1)
-    : prev;
-  setPast([...trimmed, current]);
-  setFuture([]);
-  setSong(next);
+/**
+ * Apply an immutable transform that touches both the song AND the workbench
+ * map. Used by sample-pipeline operations (load WAV, add/remove/patch
+ * effect, clear sample) so the two halves of state move together — the
+ * waveform's int8 and the chain UI undo/redo as one unit.
+ *
+ * No-op while playing or with no song. The transform receives the live
+ * snapshot; return new references for whatever changed (untouched fields
+ * can be the same reference).
+ */
+export function commitEditWithWorkbenches(
+  transform: (state: EditState) => EditState,
+): void {
+  if (transport() === 'playing') return;
+  const current = song();
+  if (!current) return;
+  const before: EditState = { song: current, workbenches: workbenchesSig() };
+  const next = transform(before);
+  if (next.song === before.song && next.workbenches === before.workbenches) return;
+  applyCommit(next);
 }
 
 /** Pop the latest entry off the undo stack and restore it. No-op while playing. */
@@ -66,10 +122,14 @@ export function undo(): void {
   const list = past();
   if (list.length === 0) return;
   const previous = list[list.length - 1]!;
-  const current = song();
+  const currentSong = song();
+  const currentWb = workbenchesSig();
   setPast(list.slice(0, -1));
-  if (current) setFuture([...future(), current]);
-  setSong(previous);
+  if (currentSong) {
+    setFuture([...future(), { song: currentSong, workbenches: currentWb }]);
+  }
+  setSong(previous.song);
+  if (previous.workbenches !== currentWb) setWorkbenchesRaw(previous.workbenches);
 }
 
 /** Replay the most recently undone edit. No-op while playing. */
@@ -78,10 +138,14 @@ export function redo(): void {
   const list = future();
   if (list.length === 0) return;
   const next = list[list.length - 1]!;
-  const current = song();
+  const currentSong = song();
+  const currentWb = workbenchesSig();
   setFuture(list.slice(0, -1));
-  if (current) setPast([...past(), current]);
-  setSong(next);
+  if (currentSong) {
+    setPast([...past(), { song: currentSong, workbenches: currentWb }]);
+  }
+  setSong(next.song);
+  if (next.workbenches !== currentWb) setWorkbenchesRaw(next.workbenches);
 }
 
 /** Drop both stacks. Call after loading a new file. */

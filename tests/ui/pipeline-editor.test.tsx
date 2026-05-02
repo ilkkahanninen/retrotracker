@@ -138,8 +138,20 @@ describe('pipeline editor: visibility', () => {
   });
 });
 
+/**
+ * The Crop/Cut/Reverse/Fade-in/Fade-out/Gain/Normalize buttons live in the
+ * SampleView's selection action row (next to the waveform). Helper to grab
+ * one by visible label, since all buttons in that row share the same class.
+ */
+function findEffectButton(container: HTMLElement, label: string): HTMLButtonElement {
+  for (const btn of container.querySelectorAll<HTMLButtonElement>('.sampleview__selection button')) {
+    if (btn.textContent?.trim() === label) return btn;
+  }
+  throw new Error(`No effect button labelled "${label}"`);
+}
+
 describe('pipeline editor: add / remove / reorder', () => {
-  it('selecting a kind from the picker appends a default-param node', async () => {
+  it('clicking the Gain button appends a default-param node', async () => {
     setView('sample');
     const { container } = render(() => <App />);
     seedSampleWithWorkbench({
@@ -148,10 +160,7 @@ describe('pipeline editor: add / remove / reorder', () => {
       chain: [],
       pt: { monoMix: 'average', targetNote: null },
     });
-    const select = container.querySelector<HTMLSelectElement>(
-      '.pipeline__add select',
-    )!;
-    fireEvent.change(select, { target: { value: 'gain' } });
+    await userEvent.setup().click(findEffectButton(container, 'Gain'));
     expect(getWorkbench(0)!.chain).toHaveLength(1);
     expect(getWorkbench(0)!.chain[0]!.kind).toBe('gain');
   });
@@ -162,14 +171,14 @@ describe('pipeline editor: add / remove / reorder', () => {
     seedSampleWithWorkbench({
       source: { sampleRate: 44100, channels: [new Float32Array([0, 1, -1])] },
       sourceName: 'demo',
-      chain: [{ kind: 'normalize' }, { kind: 'reverse' }],
+      chain: [{ kind: 'normalize' }, { kind: 'reverse', params: { startFrame: 0, endFrame: 3 } }],
       pt: { monoMix: 'average', targetNote: null },
     });
     const removeBtn = container.querySelector<HTMLButtonElement>(
       '.effect-node__controls button[aria-label="Remove effect 1"]',
     )!;
     await userEvent.setup().click(removeBtn);
-    expect(getWorkbench(0)!.chain).toEqual([{ kind: 'reverse' }]);
+    expect(getWorkbench(0)!.chain).toEqual([{ kind: 'reverse', params: { startFrame: 0, endFrame: 3 } }]);
   });
 
   it('the ↓ button swaps with the next node', async () => {
@@ -178,7 +187,7 @@ describe('pipeline editor: add / remove / reorder', () => {
     seedSampleWithWorkbench({
       source: { sampleRate: 44100, channels: [new Float32Array([0, 1])] },
       sourceName: 'demo',
-      chain: [{ kind: 'normalize' }, { kind: 'reverse' }],
+      chain: [{ kind: 'normalize' }, { kind: 'reverse', params: { startFrame: 0, endFrame: 3 } }],
       pt: { monoMix: 'average', targetNote: null },
     });
     const downBtn = container.querySelector<HTMLButtonElement>(
@@ -329,7 +338,7 @@ describe('pipeline editor: editing params preserves input focus', () => {
 });
 
 describe('pipeline editor: re-run preserves user-set sample metadata', () => {
-  it('a manual volume change is not clobbered by a subsequent pipeline edit', () => {
+  it('a manual volume change is not clobbered by a subsequent pipeline edit', async () => {
     setView('sample');
     const { container } = render(() => <App />);
     seedSampleWithWorkbench({
@@ -348,8 +357,7 @@ describe('pipeline editor: re-run preserves user-set sample metadata', () => {
     expect(song()!.samples[0]!.volume).toBe(32);
 
     // Now add a Gain effect — pipeline re-runs.
-    const select = container.querySelector<HTMLSelectElement>('.pipeline__add select')!;
-    fireEvent.change(select, { target: { value: 'gain' } });
+    await userEvent.setup().click(findEffectButton(container, 'Gain'));
 
     // Volume should still be 32, not reset to 64.
     expect(song()!.samples[0]!.volume).toBe(32);
@@ -390,53 +398,124 @@ describe('pipeline editor: re-run preserves user-set loop', () => {
   });
 });
 
-describe('pipeline editor: selection edits go through the chain (non-destructive)', () => {
-  // The "Crop to selection" / "Cut selection" buttons in SampleView call
-  // App's handlers, which append a Crop or Cut effect to the workbench
-  // chain rather than mutating sample.data. The workbench survives, the
-  // user can undo via the pipeline editor.
-  it('Crop to selection appends a Crop effect at the end of the chain', () => {
+describe('pipeline editor: effect buttons append range-aware nodes (non-destructive)', () => {
+  // Crop/Cut still require a selection (and can't be driven without canvas
+  // drag in jsdom), but Reverse / Fade in / Fade out fall back to a sane
+  // whole-sample default range when no selection is active. Clicking the
+  // button appends a node onto the chain — the same chain-append path
+  // selection-aware applies use, just with the default range.
+  it('Reverse with no selection appends a reverse effect spanning the whole chain output', async () => {
     setView('sample');
     const { container } = render(() => <App />);
     seedSampleWithWorkbench({
-      // 256 frames at 44.1kHz → resampled to ~48 frames (~96 bytes int8) at C-2
       source: { sampleRate: 44100, channels: [new Float32Array(256).fill(0.5)] },
       sourceName: 'demo',
       chain: [],
-      pt: { monoMix: 'average', targetNote: 12 },
+      pt: { monoMix: 'average', targetNote: null }, // no resample → chain out = 256
     });
-    const beforeChainLen = getWorkbench(0)!.chain.length;
-    const beforeSampleLen = song()!.samples[0]!.lengthWords;
+    await userEvent.setup().click(findEffectButton(container, 'Reverse'));
+    const chain = getWorkbench(0)!.chain;
+    expect(chain).toHaveLength(1);
+    const node = chain[0]!;
+    expect(node.kind).toBe('reverse');
+    if (node.kind === 'reverse') {
+      expect(node.params.startFrame).toBe(0);
+      expect(node.params.endFrame).toBe(256);
+    }
+  });
 
-    // Pretend the user dragged a selection of bytes [10, 50] of the int8
-    // and clicked Crop. We can't drive the canvas drag in jsdom, so we
-    // call the App's handler indirectly via a known interaction: render
-    // the SampleView, set selection through the SampleView's exported
-    // setter is not possible — so we drive the buttons by exposing them
-    // through a small DOM injection.
-    //
-    // Pragmatic shortcut: dispatch the call by setting the slot's
-    // workbench and pretending the user used the picker to add a Crop
-    // effect with hand-picked frames. That tests the same chain-append
-    // path that the button uses.
-    const wb = getWorkbench(0)!;
-    const chainOut = (() => {
-      // No effects in chain → chain output is just the source.
-      return wb.source.channels[0]!.length;
-    })();
-    expect(chainOut).toBe(256);
-    expect(beforeSampleLen).toBeGreaterThan(0);
+  it('Fade in with no selection appends a fadeIn over the head of the chain output', async () => {
+    setView('sample');
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: { sampleRate: 44100, channels: [new Float32Array(2048).fill(0.5)] },
+      sourceName: 'demo',
+      chain: [],
+      pt: { monoMix: 'average', targetNote: null },
+    });
+    await userEvent.setup().click(findEffectButton(container, 'Fade in'));
+    const chain = getWorkbench(0)!.chain;
+    expect(chain).toHaveLength(1);
+    const node = chain[0]!;
+    expect(node.kind).toBe('fadeIn');
+    if (node.kind === 'fadeIn') {
+      expect(node.params.startFrame).toBe(0);
+      expect(node.params.endFrame).toBe(1024); // head defaults to min(1024, len)
+    }
+  });
+});
 
-    // Verify the Cut effect kind shows up in the picker — the user-visible
-    // surface for the new effect kind.
-    const select = container.querySelector<HTMLSelectElement>('.pipeline__add select')!;
-    const options = Array.from(select.querySelectorAll('option')).map(o => o.value);
-    expect(options).toContain('cut');
-    expect(options).toContain('crop');
+describe('pipeline editor: undo/redo restores chain alongside song', () => {
+  // Regression: workbenches lived in a separate signal map outside the song
+  // history, so undoing an effect-add reverted the int8 in the waveform but
+  // left the chain UI showing the new effect — desync the user could only
+  // fix by reloading. Now both halves move together inside one history entry.
+  it('undoing an Add Effect drops the new node from the chain', async () => {
+    setView('sample');
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: { sampleRate: 44100, channels: [new Float32Array([0, 0.5, -0.5])] },
+      sourceName: 'demo',
+      chain: [],
+      pt: { monoMix: 'average', targetNote: null },
+    });
+    expect(getWorkbench(0)!.chain).toHaveLength(0);
 
-    fireEvent.change(select, { target: { value: 'cut' } });
-    expect(getWorkbench(0)!.chain).toHaveLength(beforeChainLen + 1);
-    expect(getWorkbench(0)!.chain.at(-1)!.kind).toBe('cut');
+    await userEvent.setup().click(findEffectButton(container, 'Gain'));
+    expect(getWorkbench(0)!.chain).toHaveLength(1);
+
+    // Click the Undo transport button. (We could call `undo()` directly, but
+    // routing through the button confirms the keyboard/header path works
+    // end-to-end too.)
+    const undoBtn = container.querySelector<HTMLButtonElement>('button[title="Undo (⌘Z)"]')!;
+    await userEvent.setup().click(undoBtn);
+
+    expect(getWorkbench(0)!.chain).toHaveLength(0);
+  });
+
+  it('redoing a previously-undone Add Effect re-introduces the node', async () => {
+    setView('sample');
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: { sampleRate: 44100, channels: [new Float32Array([0, 0.5, -0.5])] },
+      sourceName: 'demo',
+      chain: [],
+      pt: { monoMix: 'average', targetNote: null },
+    });
+
+    await userEvent.setup().click(findEffectButton(container, 'Gain'));
+    const undoBtn = container.querySelector<HTMLButtonElement>('button[title="Undo (⌘Z)"]')!;
+    await userEvent.setup().click(undoBtn);
+    expect(getWorkbench(0)!.chain).toHaveLength(0);
+
+    const redoBtn = container.querySelector<HTMLButtonElement>('button[title="Redo (⇧⌘Z)"]')!;
+    await userEvent.setup().click(redoBtn);
+
+    expect(getWorkbench(0)!.chain).toHaveLength(1);
+    expect(getWorkbench(0)!.chain[0]!.kind).toBe('gain');
+  });
+
+  it('undoing Clear Sample restores the workbench too', async () => {
+    setView('sample');
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: { sampleRate: 44100, channels: [new Float32Array([0, 0.5, -0.5])] },
+      sourceName: 'demo',
+      chain: [{ kind: 'gain', params: { gain: 2 } }],
+      pt: { monoMix: 'average', targetNote: null },
+    });
+    expect(getWorkbench(0)).toBeDefined();
+
+    const clearBtn = container.querySelector<HTMLButtonElement>('.sampleview__actions button')!;
+    await userEvent.setup().click(clearBtn);
+    expect(getWorkbench(0)).toBeUndefined();
+
+    const undoBtn = container.querySelector<HTMLButtonElement>('button[title="Undo (⌘Z)"]')!;
+    await userEvent.setup().click(undoBtn);
+
+    expect(getWorkbench(0)).toBeDefined();
+    expect(getWorkbench(0)!.chain).toHaveLength(1);
+    expect(getWorkbench(0)!.chain[0]!.kind).toBe('gain');
   });
 });
 
