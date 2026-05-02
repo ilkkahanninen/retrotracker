@@ -490,12 +490,18 @@ export const App: Component = () => {
       const old = song.samples[slot];
       // First write into a fresh slot adopts the source name and full volume.
       // Re-runs (pipeline edits on an already-populated slot) leave the user's
-      // name / volume / finetune alone — otherwise dragging a gain slider
-      // would silently clobber any volume the user had dialed in by hand.
+      // name / volume / finetune / loop alone — otherwise dragging a gain
+      // slider would silently clobber any volume the user dialed in by hand,
+      // and any loop they configured on the waveform. replaceSampleData
+      // clamps the loop to the new length so a length-changing effect (crop)
+      // can't leave the loop pointing past the data.
       const isFirstWrite = !old || old.lengthWords === 0;
       const meta: Parameters<typeof replaceSampleData>[3] = isFirstWrite
         ? { volume: 64, finetune: 0, name: wb.sourceName.slice(0, 22) }
-        : { volume: old.volume, finetune: old.finetune, name: old.name };
+        : {
+            volume: old.volume, finetune: old.finetune, name: old.name,
+            loopStartWords: old.loopStartWords, loopLengthWords: old.loopLengthWords,
+          };
       return replaceSampleData(song, slot, data, meta);
     });
   };

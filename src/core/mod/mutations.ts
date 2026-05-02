@@ -300,7 +300,7 @@ export function replaceSampleData(
   song: Song,
   slot: number,
   data: Int8Array,
-  meta: Partial<Pick<Sample, 'name' | 'volume' | 'finetune'>> = {},
+  meta: Partial<Pick<Sample, 'name' | 'volume' | 'finetune' | 'loopStartWords' | 'loopLengthWords'>> = {},
 ): Song {
   if (slot < 0 || slot >= song.samples.length) return song;
 
@@ -319,11 +319,21 @@ export function replaceSampleData(
     : aligned;
   const lengthWords = capped.byteLength >> 1;
 
+  // Preserve any loop the caller supplied, but clamp it to the new length so
+  // an effect that shortens the sample (e.g. crop) can't leave the loop
+  // pointing past the data. When no loop is passed, default to PT's no-loop
+  // sentinel (0, 1) — matches replaceSampleData's pre-loop-passing behaviour.
+  const loopStartReq = meta.loopStartWords ?? 0;
+  const loopStart = Math.max(0, Math.min(loopStartReq, Math.max(0, lengthWords - 1)));
+  const loopLenReq = meta.loopLengthWords ?? 1;
+  const loopMax = Math.max(1, lengthWords - loopStart);
+  const loopLen = Math.max(1, Math.min(loopLenReq, loopMax));
+
   return setSample(song, slot, {
     ...meta,
     data: capped,
     lengthWords,
-    loopStartWords: 0,
-    loopLengthWords: 1,
+    loopStartWords: loopStart,
+    loopLengthWords: loopLen,
   });
 }

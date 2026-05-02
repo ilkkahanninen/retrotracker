@@ -1,4 +1,4 @@
-import { For, Index, Match, Show, Switch, createEffect, createMemo, type Component } from 'solid-js';
+import { For, Index, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, type Component } from 'solid-js';
 import type { Sample, Song } from '../core/mod/types';
 import { currentSample } from '../state/edit';
 import { workbenches } from '../state/sampleWorkbench';
@@ -84,7 +84,7 @@ export const SampleView: Component<Props> = (props) => {
       </header>
 
       <Show when={sample()} fallback={<p class="placeholder">Select a sample slot from the list.</p>}>
-        <Waveform sample={sample()!} />
+        <Waveform sample={sample()!} onPatch={props.onPatch} />
         <Show when={workbench()}>
           <PipelineEditor
             wb={workbench()!}
@@ -143,43 +143,27 @@ export const SampleView: Component<Props> = (props) => {
               }}
             />
           </label>
-          <label>
-            <span class="samplemeta__label">Loop start (words)</span>
+          <label class="samplemeta__toggle">
             <input
-              type="number"
-              min={0}
-              max={sample()!.lengthWords}
-              value={sample()!.loopStartWords}
+              type="checkbox"
+              checked={isLooping()}
               disabled={sample()!.lengthWords === 0}
-              onInput={(e) => {
-                const v = parseInt(e.currentTarget.value, 10);
-                if (!Number.isFinite(v)) return;
-                props.onPatch({ loopStartWords: Math.max(0, Math.min(sample()!.lengthWords, v)) });
+              onChange={(e) => {
+                if (e.currentTarget.checked) {
+                  // Default loop = whole sample. The user fine-tunes by
+                  // dragging the loop handles on the waveform.
+                  props.onPatch({ loopStartWords: 0, loopLengthWords: sample()!.lengthWords });
+                } else {
+                  // PT no-loop sentinel.
+                  props.onPatch({ loopLengthWords: 1 });
+                }
               }}
             />
-          </label>
-          <label>
-            <span class="samplemeta__label">
-              Loop length (words; 1 = no loop)
-            </span>
-            <input
-              type="number"
-              min={1}
-              max={Math.max(1, sample()!.lengthWords)}
-              value={sample()!.loopLengthWords}
-              disabled={sample()!.lengthWords === 0}
-              onInput={(e) => {
-                const v = parseInt(e.currentTarget.value, 10);
-                if (!Number.isFinite(v)) return;
-                props.onPatch({
-                  loopLengthWords: Math.max(1, Math.min(Math.max(1, sample()!.lengthWords), v)),
-                });
-              }}
-            />
+            <span>Loop</span>
           </label>
           <Show when={isLooping()}>
             <p class="samplemeta__hint">
-              Looping {sample()!.loopStartWords} – {sample()!.loopStartWords + sample()!.loopLengthWords} (words)
+              Looping {sample()!.loopStartWords} – {sample()!.loopStartWords + sample()!.loopLengthWords} (words). Drag the cyan handles on the waveform to adjust.
             </p>
           </Show>
         </div>
@@ -196,11 +180,117 @@ export const SampleView: Component<Props> = (props) => {
  * out of the 60 Hz update path and side-steps the "redraw the whole wave
  * to move the cursor" problem.
  */
-const Waveform: Component<{ sample: Sample }> = (props) => {
+interface WaveformProps {
+  sample: Sample;
+  onPatch: (patch: Partial<Sample>) => void;
+}
+
+const Waveform: Component<WaveformProps> = (props) => {
   let waveCanvas: HTMLCanvasElement | undefined;
   let playheadCanvas: HTMLCanvasElement | undefined;
+  let container: HTMLDivElement | undefined;
   const W = 1024;
   const H = 160;
+  /** Pointer must be within this many canvas-internal pixels of a loop line to grab it. */
+  const HANDLE_HIT_PX = 8;
+
+  /** Active drag, if any. */
+  const [dragging, setDragging] = createSignal<'start' | 'end' | null>(null);
+  /** Hover over a handle (drives cursor) — independent of drag because we
+   *  also want the cursor while the user is grabbing. */
+  const [hover, setHover] = createSignal<'start' | 'end' | null>(null);
+
+  /** Same byte→x mapping the waveform paths use, so the lines line up. */
+  const xForByte = (byte: number, dataLen: number): number => {
+    if (dataLen <= W) {
+      const span = Math.max(1, dataLen - 1);
+      return (byte / span) * (W - 1);
+    }
+    return (byte * W) / dataLen;
+  };
+
+  /** Inverse of xForByte: convert a canvas-internal x back to a byte index. */
+  const byteForX = (x: number, dataLen: number): number => {
+    if (dataLen <= W) {
+      const span = Math.max(1, dataLen - 1);
+      return Math.round((x / Math.max(1, W - 1)) * span);
+    }
+    return Math.round((x * dataLen) / W);
+  };
+
+  /** Convert a clientX from a mouse event to canvas-internal x (0..W). */
+  const clientToCanvasX = (clientX: number): number => {
+    if (!container) return 0;
+    const rect = container.getBoundingClientRect();
+    if (rect.width <= 0) return 0;
+    return ((clientX - rect.left) / rect.width) * W;
+  };
+
+  /** Mouse-x near a loop boundary? Returns which one, or null. */
+  const handleAt = (x: number): 'start' | 'end' | null => {
+    const s = props.sample;
+    if (s.loopLengthWords <= 1) return null;
+    const dataLen = s.data.length;
+    if (dataLen === 0) return null;
+    const xs = xForByte(s.loopStartWords * 2, dataLen);
+    const xe = xForByte((s.loopStartWords + s.loopLengthWords) * 2, dataLen);
+    const ds = Math.abs(x - xs);
+    const de = Math.abs(x - xe);
+    if (Math.min(ds, de) > HANDLE_HIT_PX) return null;
+    return ds <= de ? 'start' : 'end';
+  };
+
+  const onMouseDown = (e: MouseEvent) => {
+    const handle = handleAt(clientToCanvasX(e.clientX));
+    if (!handle) return;
+    setDragging(handle);
+    e.preventDefault();
+  };
+
+  const onMouseMove = (e: MouseEvent) => {
+    const x = clientToCanvasX(e.clientX);
+    const drag = dragging();
+    if (!drag) {
+      setHover(handleAt(x));
+      return;
+    }
+    // Drag in progress — clamp to sample bounds and round to a word boundary
+    // (PT's loop fields are word-aligned).
+    const s = props.sample;
+    const dataLen = s.data.length;
+    const word = Math.max(0, Math.min(s.lengthWords, Math.round(byteForX(x, dataLen) / 2)));
+    if (drag === 'start') {
+      // Keep at least 2 words of loop so the boundaries never cross.
+      const endWord = s.loopStartWords + s.loopLengthWords;
+      const newStart = Math.max(0, Math.min(word, endWord - 2));
+      props.onPatch({
+        loopStartWords: newStart,
+        loopLengthWords: endWord - newStart,
+      });
+    } else {
+      const maxEnd = s.lengthWords;
+      const newEnd = Math.max(s.loopStartWords + 2, Math.min(word, maxEnd));
+      props.onPatch({ loopLengthWords: newEnd - s.loopStartWords });
+    }
+  };
+
+  const onMouseLeave = () => {
+    if (!dragging()) setHover(null);
+  };
+
+  // Window-level move/up while dragging, so the user can drag past the canvas
+  // edge without losing the grab. Cleaned up the moment the drag ends.
+  createEffect(() => {
+    if (!dragging()) return;
+    const move = (e: MouseEvent) => onMouseMove(e);
+    const up = () => setDragging(null);
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    onCleanup(() => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    });
+  });
 
   // Waveform layer: redrawn only when the underlying sample changes.
   createEffect(() => {
@@ -295,7 +385,17 @@ const Waveform: Component<{ sample: Sample }> = (props) => {
   });
 
   return (
-    <div class="waveform">
+    <div
+      class="waveform"
+      ref={(el) => (container = el)}
+      classList={{
+        'waveform--grab':     hover() !== null && !dragging(),
+        'waveform--grabbing': dragging() !== null,
+      }}
+      onMouseDown={onMouseDown}
+      onMouseMove={onMouseMove}
+      onMouseLeave={onMouseLeave}
+    >
       <canvas
         class="waveform__layer"
         ref={(el) => (waveCanvas = el)}

@@ -356,6 +356,40 @@ describe('pipeline editor: re-run preserves user-set sample metadata', () => {
   });
 });
 
+describe('pipeline editor: re-run preserves user-set loop', () => {
+  // Regression: every workbench re-run went through replaceSampleData, which
+  // hard-coded loop back to (0, 1). Editing any effect param wiped the loop.
+  it('a configured loop survives a subsequent pipeline edit', () => {
+    setView('sample');
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: { sampleRate: 44100, channels: [new Float32Array(200).fill(0.5)] },
+      sourceName: 'demo',
+      chain: [{ kind: 'gain', params: { gain: 1 } }],
+      pt: { monoMix: 'average', targetNote: null },
+    });
+    // Configure a loop directly on the song (mirrors what dragging the
+    // waveform handles produces).
+    const s0 = song()!;
+    setSong({
+      ...s0,
+      samples: s0.samples.map((sm, i) => i === 0
+        ? { ...sm, loopStartWords: 4, loopLengthWords: 12 }
+        : sm),
+    });
+    expect(song()!.samples[0]!.loopStartWords).toBe(4);
+    expect(song()!.samples[0]!.loopLengthWords).toBe(12);
+
+    // Tweak the gain — pipeline re-runs, sample data is rewritten.
+    const gain = container.querySelector<HTMLInputElement>('.effect-node input')!;
+    fireEvent.input(gain, { target: { value: '2' } });
+
+    // Loop should still be there.
+    expect(song()!.samples[0]!.loopStartWords).toBe(4);
+    expect(song()!.samples[0]!.loopLengthWords).toBe(12);
+  });
+});
+
 describe('pipeline editor: workbench is cleared on .mod load', () => {
   it('loading a fresh empty song clears any existing workbenches', () => {
     setWorkbench(0, {

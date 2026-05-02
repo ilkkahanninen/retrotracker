@@ -369,6 +369,15 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .waveform__playhead {
   pointer-events: none;
 }
+.waveform--grab     { cursor: ew-resize; }
+.waveform--grabbing { cursor: grabbing; }
+.samplemeta__toggle {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+  user-select: none;
+}
+.samplemeta__toggle input[type="checkbox"] { accent-color: var(--accent); }
 
 .samplemeta {
   display: grid;
