@@ -4,7 +4,7 @@ import { CHANNELS } from '../core/mod/types';
 import { PERIOD_TABLE } from '../core/mod/format';
 import { flattenSong } from '../core/mod/flatten';
 import { beatsPerBar, rowsPerBeat } from '../state/gridConfig';
-import { cursor, jumpRequest, type Field } from '../state/cursor';
+import { cursor, jumpRequest, type Cursor, type Field } from '../state/cursor';
 
 const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'] as const;
 
@@ -52,6 +52,14 @@ interface PatternGridProps {
   song: Song;
   pos: { order: number; row: number };
   active: boolean;
+  /**
+   * Called when the user clicks a cell sub-field (note / sample-hi/lo /
+   * effect-cmd/hi/lo). The handler decides whether to honour the click —
+   * App routes it through `applyCursor`, which suppresses cursor moves
+   * during playback. Optional so the standalone PatternGrid tests don't
+   * have to wire a no-op.
+   */
+  onCellClick?: (next: Cursor) => void;
 }
 
 export const PatternGrid: Component<PatternGridProps> = (props) => {
@@ -189,14 +197,29 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                       const eff = createMemo(() => effectChars(note));
                       const samp = createMemo(() => sampleChars(note));
                       const blank = createMemo(() => note.effect === 0 && note.effectParam === 0);
+                      // Click → place the cursor at this cell's sub-field.
+                      // The cell-level fallback (clicking padding around the
+                      // characters) lands on `note`, mirroring FT2's "click
+                      // anywhere on the cell to focus its note column".
+                      const focus = (field: Field) => {
+                        const it = item();
+                        props.onCellClick?.({
+                          order: it.order, row: it.rowIndex,
+                          channel: ch(), field,
+                        });
+                      };
                       return (
-                        <span class="patgrid__cell">
+                        <span
+                          class="patgrid__cell"
+                          onClick={() => focus('note')}
+                        >
                           <span
                             class="patgrid__note"
                             classList={{
                               'patgrid__part--empty': note.period === 0,
                               'patgrid__field--cursor': isCursorAt(i, ch(), 'note'),
                             }}
+                            onClick={(e) => { e.stopPropagation(); focus('note'); }}
                           >
                             {periodToNoteName(note.period)}
                           </span>
@@ -207,6 +230,7 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                                 'patgrid__part--empty': note.sample === 0,
                                 'patgrid__field--cursor': isCursorAt(i, ch(), 'sampleHi'),
                               }}
+                              onClick={(e) => { e.stopPropagation(); focus('sampleHi'); }}
                             >
                               {samp().hi}
                             </span>
@@ -216,6 +240,7 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                                 'patgrid__part--empty': note.sample === 0,
                                 'patgrid__field--cursor': isCursorAt(i, ch(), 'sampleLo'),
                               }}
+                              onClick={(e) => { e.stopPropagation(); focus('sampleLo'); }}
                             >
                               {samp().lo}
                             </span>
@@ -227,6 +252,7 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                                 'patgrid__part--empty': blank(),
                                 'patgrid__field--cursor': isCursorAt(i, ch(), 'effectCmd'),
                               }}
+                              onClick={(e) => { e.stopPropagation(); focus('effectCmd'); }}
                             >
                               {eff().cmd}
                             </span>
@@ -236,6 +262,7 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                                 'patgrid__part--empty': blank(),
                                 'patgrid__field--cursor': isCursorAt(i, ch(), 'effectHi'),
                               }}
+                              onClick={(e) => { e.stopPropagation(); focus('effectHi'); }}
                             >
                               {eff().hi}
                             </span>
@@ -245,6 +272,7 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                                 'patgrid__part--empty': blank(),
                                 'patgrid__field--cursor': isCursorAt(i, ch(), 'effectLo'),
                               }}
+                              onClick={(e) => { e.stopPropagation(); focus('effectLo'); }}
                             >
                               {eff().lo}
                             </span>

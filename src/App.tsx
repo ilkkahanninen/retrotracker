@@ -1345,6 +1345,7 @@ export const App: Component = () => {
                   song={s()}
                   pos={playPos()}
                   active={transport() === "playing"}
+                  onCellClick={applyCursor}
                 />
               </div>
             </Show>

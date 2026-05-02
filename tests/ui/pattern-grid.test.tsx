@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cleanup, render } from '@solidjs/testing-library';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, render, fireEvent } from '@solidjs/testing-library';
 import { PatternGrid } from '../../src/components/PatternGrid';
-import { setCursor, INITIAL_CURSOR } from '../../src/state/cursor';
+import { setCursor, INITIAL_CURSOR, type Cursor } from '../../src/state/cursor';
 import { emptyPattern, emptySong, PERIOD_TABLE } from '../../src/core/mod/format';
 import type { Song } from '../../src/core/mod/types';
 
@@ -93,5 +93,110 @@ describe('PatternGrid rendering', () => {
     const chars = row3.querySelectorAll<HTMLElement>('.patgrid__samp-char');
     expect(chars[0]!.textContent).toBe('.');
     expect(chars[1]!.textContent).toBe('.');
+  });
+});
+
+describe('PatternGrid cell click', () => {
+  it('clicking the note column reports the cursor position with field=note', () => {
+    const onCellClick = vi.fn<(c: Cursor) => void>();
+    const { container } = render(() => (
+      <PatternGrid
+        song={songFixture()} pos={{ order: 0, row: 0 }} active={false}
+        onCellClick={onCellClick}
+      />
+    ));
+    const row3 = container.querySelectorAll<HTMLElement>('.patgrid__row')[3]!;
+    const cells = row3.querySelectorAll<HTMLElement>('.patgrid__cell');
+    // Channel 2's note span — verifies the (row, channel, field) decoding.
+    fireEvent.click(cells[2]!.querySelector('.patgrid__note')!);
+    expect(onCellClick).toHaveBeenCalledTimes(1);
+    expect(onCellClick).toHaveBeenCalledWith({
+      order: 0, row: 3, channel: 2, field: 'note',
+    });
+  });
+
+  it('clicking a sample nibble reports field=sampleHi or sampleLo', () => {
+    const onCellClick = vi.fn<(c: Cursor) => void>();
+    const { container } = render(() => (
+      <PatternGrid
+        song={songFixture()} pos={{ order: 0, row: 0 }} active={false}
+        onCellClick={onCellClick}
+      />
+    ));
+    const row5 = container.querySelectorAll<HTMLElement>('.patgrid__row')[5]!;
+    const chars = row5.querySelectorAll<HTMLElement>('.patgrid__cell')[0]!
+      .querySelectorAll<HTMLElement>('.patgrid__samp-char');
+    fireEvent.click(chars[0]!);
+    fireEvent.click(chars[1]!);
+    expect(onCellClick).toHaveBeenNthCalledWith(1, {
+      order: 0, row: 5, channel: 0, field: 'sampleHi',
+    });
+    expect(onCellClick).toHaveBeenNthCalledWith(2, {
+      order: 0, row: 5, channel: 0, field: 'sampleLo',
+    });
+  });
+
+  it('clicking each effect nibble reports the matching field', () => {
+    const onCellClick = vi.fn<(c: Cursor) => void>();
+    const { container } = render(() => (
+      <PatternGrid
+        song={songFixture()} pos={{ order: 0, row: 0 }} active={false}
+        onCellClick={onCellClick}
+      />
+    ));
+    const row5 = container.querySelectorAll<HTMLElement>('.patgrid__row')[5]!;
+    const effChars = row5.querySelectorAll<HTMLElement>('.patgrid__cell')[0]!
+      .querySelectorAll<HTMLElement>('.patgrid__eff-char');
+    fireEvent.click(effChars[0]!);
+    fireEvent.click(effChars[1]!);
+    fireEvent.click(effChars[2]!);
+    expect(onCellClick.mock.calls.map(([c]) => c.field)).toEqual([
+      'effectCmd', 'effectHi', 'effectLo',
+    ]);
+  });
+
+  it('clicking a cell\'s padding (outside any character) falls back to the note field', () => {
+    // The cell-level fallback handler — clicking the wrapping
+    // .patgrid__cell directly (not bubbling from a child) reports field=note.
+    const onCellClick = vi.fn<(c: Cursor) => void>();
+    const { container } = render(() => (
+      <PatternGrid
+        song={songFixture()} pos={{ order: 0, row: 0 }} active={false}
+        onCellClick={onCellClick}
+      />
+    ));
+    const row3 = container.querySelectorAll<HTMLElement>('.patgrid__row')[3]!;
+    fireEvent.click(row3.querySelectorAll<HTMLElement>('.patgrid__cell')[1]!);
+    expect(onCellClick).toHaveBeenCalledTimes(1);
+    expect(onCellClick).toHaveBeenCalledWith({
+      order: 0, row: 3, channel: 1, field: 'note',
+    });
+  });
+
+  it('a child-field click does not also fire the cell-level fallback', () => {
+    // stopPropagation on each field span keeps the cell-level handler from
+    // double-firing — without it, a click on .patgrid__samp-char would
+    // bubble up and re-fire as field=note.
+    const onCellClick = vi.fn<(c: Cursor) => void>();
+    const { container } = render(() => (
+      <PatternGrid
+        song={songFixture()} pos={{ order: 0, row: 0 }} active={false}
+        onCellClick={onCellClick}
+      />
+    ));
+    const row5 = container.querySelectorAll<HTMLElement>('.patgrid__row')[5]!;
+    const sampLo = row5.querySelectorAll<HTMLElement>('.patgrid__cell')[0]!
+      .querySelectorAll<HTMLElement>('.patgrid__samp-char')[1]!;
+    fireEvent.click(sampLo);
+    expect(onCellClick).toHaveBeenCalledTimes(1);
+    expect(onCellClick.mock.calls[0]![0].field).toBe('sampleLo');
+  });
+
+  it('omitting onCellClick is fine — clicks are silent no-ops', () => {
+    const { container } = render(() => (
+      <PatternGrid song={songFixture()} pos={{ order: 0, row: 0 }} active={false} />
+    ));
+    const row3 = container.querySelectorAll<HTMLElement>('.patgrid__row')[3]!;
+    expect(() => fireEvent.click(row3.querySelector('.patgrid__note')!)).not.toThrow();
   });
 });
