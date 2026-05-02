@@ -22,6 +22,7 @@ import {
   type MonoMix,
   type SampleWorkbench,
 } from "../core/audio/sampleWorkbench";
+import { truncateSampleAtLoopEnd } from "../core/audio/loopTruncate";
 
 /**
  * Effect kinds that ride the Crop/Cut row as their own buttons. Order
@@ -118,8 +119,19 @@ export const SampleView: Component<Props> = (props) => {
     () => props.song.samples[currentSample() - 1] ?? null,
   );
   const slotIndex = createMemo(() => String(currentSample()).padStart(2, "0"));
-  const lengthBytes = createMemo(() => (sample()?.lengthWords ?? 0) * 2);
   const isLooping = createMemo(() => (sample()?.loopLengthWords ?? 0) > 1);
+  // Length the user actually hears: the live worklet plays a snapshot
+  // truncated at loopEnd (see core/audio/loopTruncate.ts), so a 32-byte
+  // sample with loopEnd at byte 16 exports as 16 bytes. We show that
+  // exported length here — the full post-pipeline int8 stays available on
+  // the waveform, so dragging the loop end back outward grows this number
+  // again. `truncateSampleAtLoopEnd` is also what `engine.load` uses, so
+  // the displayed number always matches what playback receives.
+  const exportedLengthWords = createMemo(() => {
+    const s = sample();
+    if (!s) return 0;
+    return truncateSampleAtLoopEnd(s).lengthWords;
+  });
   // Subscribing to the map signal makes the pipeline section reactive — Solid
   // doesn't deeply track Map mutations, so we read .get() inside the memo.
   const workbench = createMemo<SampleWorkbench | null>(
@@ -270,7 +282,7 @@ export const SampleView: Component<Props> = (props) => {
           <label>
             <span class="samplemeta__label">Length</span>
             <span class="samplemeta__static">
-              {lengthBytes()} bytes ({sample()!.lengthWords} words)
+              {exportedLengthWords() * 2} bytes ({exportedLengthWords()} words)
             </span>
           </label>
           <label>
