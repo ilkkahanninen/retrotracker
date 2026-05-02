@@ -146,13 +146,14 @@ describe('SampleView: WAV loading', () => {
     setCurrentSample(2);
     const { container } = render(() => <App />);
 
-    // Build a tiny synthetic 16-bit mono WAV in memory and feed it through the
-    // file input. userEvent.upload uses the real File API in jsdom, which is
-    // good enough here.
+    // Build a synthetic 16-bit mono WAV in memory and feed it through the
+    // file input. We use 256 frames so the C-2 default resampler (which
+    // downsamples 22050 Hz → ~8287 Hz, ratio ~2.66) still emits a non-trivial
+    // output buffer.
     const { writeWav } = await import('../../src/core/audio/wav');
     const wav = writeWav({
       sampleRate: 22050,
-      channels: [new Float32Array([0, 1, 0, -1])],
+      channels: [new Float32Array(256).fill(0.5)],
     }, { bitsPerSample: 16 });
     // Copy into a fresh ArrayBuffer so File's BlobPart narrowing is satisfied.
     const buf = new ArrayBuffer(wav.byteLength);
@@ -165,8 +166,11 @@ describe('SampleView: WAV loading', () => {
 
     const s = song()!.samples[1]!;
     expect(s.name).toBe('snare');
-    expect(s.lengthWords).toBe(2);    // 4 bytes ÷ 2
     expect(s.volume).toBe(64);
-    expect(s.data.byteLength).toBe(4);
+    // 256 frames @ 22050 Hz resampled to ~8287 Hz → ~96 frames.
+    expect(s.data.byteLength).toBeGreaterThan(80);
+    expect(s.data.byteLength).toBeLessThan(110);
+    // 0.5 → ~64 in int8.
+    expect(s.data[0]).toBe(64);
   });
 });

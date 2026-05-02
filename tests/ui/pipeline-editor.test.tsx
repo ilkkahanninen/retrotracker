@@ -101,7 +101,7 @@ describe('pipeline editor: visibility', () => {
       source: { sampleRate: 44100, channels: [new Float32Array([0, 0.5, -0.5])] },
       sourceName: 'demo',
       chain: [],
-      pt: { monoMix: 'average' },
+      pt: { monoMix: 'average', targetNote: null },
     });
     expect(container.querySelector('.pipeline')).not.toBeNull();
   });
@@ -113,7 +113,7 @@ describe('pipeline editor: visibility', () => {
       source: { sampleRate: 44100, channels: [new Float32Array([0])] },
       sourceName: 'demo',
       chain: [],
-      pt: { monoMix: 'average' },
+      pt: { monoMix: 'average', targetNote: null },
     });
     expect(container.querySelector('.pipeline__header h3')!.textContent).toBe('Effects');
   });
@@ -128,7 +128,7 @@ describe('pipeline editor: visibility', () => {
       },
       sourceName: 'demo',
       chain: [],
-      pt: { monoMix: 'average' },
+      pt: { monoMix: 'average', targetNote: null },
     });
     const src = container.querySelector('.pipeline__source')!.textContent!;
     expect(src).toContain('demo');
@@ -146,7 +146,7 @@ describe('pipeline editor: add / remove / reorder', () => {
       source: { sampleRate: 44100, channels: [new Float32Array([0, 1, -1])] },
       sourceName: 'demo',
       chain: [],
-      pt: { monoMix: 'average' },
+      pt: { monoMix: 'average', targetNote: null },
     });
     const select = container.querySelector<HTMLSelectElement>(
       '.pipeline__add select',
@@ -163,7 +163,7 @@ describe('pipeline editor: add / remove / reorder', () => {
       source: { sampleRate: 44100, channels: [new Float32Array([0, 1, -1])] },
       sourceName: 'demo',
       chain: [{ kind: 'normalize' }, { kind: 'reverse' }],
-      pt: { monoMix: 'average' },
+      pt: { monoMix: 'average', targetNote: null },
     });
     const removeBtn = container.querySelector<HTMLButtonElement>(
       '.effect-node__controls button[aria-label="Remove effect 1"]',
@@ -179,7 +179,7 @@ describe('pipeline editor: add / remove / reorder', () => {
       source: { sampleRate: 44100, channels: [new Float32Array([0, 1])] },
       sourceName: 'demo',
       chain: [{ kind: 'normalize' }, { kind: 'reverse' }],
-      pt: { monoMix: 'average' },
+      pt: { monoMix: 'average', targetNote: null },
     });
     const downBtn = container.querySelector<HTMLButtonElement>(
       '.effect-node__controls button[aria-label="Move effect 1 down"]',
@@ -200,7 +200,7 @@ describe('pipeline editor: live param updates re-run the pipeline', () => {
       source: { sampleRate: 44100, channels: [new Float32Array([0, 0.25, -0.25])] },
       sourceName: 'demo',
       chain: [{ kind: 'gain', params: { gain: 1 } }],
-      pt: { monoMix: 'average' },
+      pt: { monoMix: 'average', targetNote: null },
     });
     // The gain input lives inside the first .effect-node row.
     const gainInput = container.querySelector<HTMLInputElement>('.effect-node input')!;
@@ -222,7 +222,7 @@ describe('pipeline editor: live param updates re-run the pipeline', () => {
       ] },
       sourceName: 'demo',
       chain: [],
-      pt: { monoMix: 'average' },
+      pt: { monoMix: 'average', targetNote: null },
     });
     // average → 0,0
     expect(Array.from(song()!.samples[0]!.data)).toEqual([0, 0]);
@@ -237,6 +237,48 @@ describe('pipeline editor: live param updates re-run the pipeline', () => {
   });
 });
 
+describe('pipeline editor: target-note selector', () => {
+  it('changing the target note re-runs the pipeline and resamples to that rate', () => {
+    setView('sample');
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: { sampleRate: 44100, channels: [new Float32Array(256).fill(1)] },
+      sourceName: 'demo',
+      chain: [],
+      pt: { monoMix: 'average', targetNote: null },
+    });
+    const before = song()!.samples[0]!.lengthWords;
+    expect(before).toBe(128); // 256 frames / 2 bytes-per-word, no resample
+
+    const select = container.querySelector<HTMLSelectElement>(
+      'select[aria-label="Target note"]',
+    )!;
+    fireEvent.change(select, { target: { value: '12' } }); // C-2
+    // 256 frames at 44100 Hz → ~48 frames at ~8287 Hz → ~24 words.
+    const after = song()!.samples[0]!.lengthWords;
+    expect(after).toBeGreaterThan(20);
+    expect(after).toBeLessThan(30);
+  });
+
+  it('selecting "(none)" disables resampling — back to source rate', () => {
+    setView('sample');
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: { sampleRate: 44100, channels: [new Float32Array(256).fill(1)] },
+      sourceName: 'demo',
+      chain: [],
+      pt: { monoMix: 'average', targetNote: 12 }, // resampled to ~48 frames
+    });
+    expect(song()!.samples[0]!.lengthWords).toBeLessThan(30);
+
+    const select = container.querySelector<HTMLSelectElement>(
+      'select[aria-label="Target note"]',
+    )!;
+    fireEvent.change(select, { target: { value: '' } });
+    expect(song()!.samples[0]!.lengthWords).toBe(128);
+  });
+});
+
 describe('pipeline editor: re-run preserves user-set sample metadata', () => {
   it('a manual volume change is not clobbered by a subsequent pipeline edit', () => {
     setView('sample');
@@ -245,7 +287,7 @@ describe('pipeline editor: re-run preserves user-set sample metadata', () => {
       source: { sampleRate: 44100, channels: [new Float32Array([0, 0.5, -0.5])] },
       sourceName: 'demo',
       chain: [],
-      pt: { monoMix: 'average' },
+      pt: { monoMix: 'average', targetNote: null },
     });
     // Tweak the volume by hand via the metadata UI.
     const inputs = container.querySelectorAll<HTMLInputElement>('.samplemeta input[type="number"]');
@@ -271,7 +313,7 @@ describe('pipeline editor: workbench is cleared on .mod load', () => {
       source: { sampleRate: 44100, channels: [new Float32Array([0])] },
       sourceName: 'demo',
       chain: [],
-      pt: { monoMix: 'average' },
+      pt: { monoMix: 'average', targetNote: null },
     });
     expect(getWorkbench(0)).toBeDefined();
     clearAllWorkbenches();

@@ -4,6 +4,7 @@ import {
   applyFadeIn, applyFadeOut, applyEffect,
   runChain, transformToPt, runPipeline,
   workbenchFromWav, defaultEffect,
+  resampleLinear, rateForTargetNote, DEFAULT_TARGET_NOTE,
   type SampleWorkbench,
 } from '../src/core/audio/sampleWorkbench';
 import { writeWav } from '../src/core/audio/wav';
@@ -116,22 +117,22 @@ describe('runChain', () => {
 
 describe('transformToPt (mono mix + int8 quantise)', () => {
   it('passes through a mono source', () => {
-    const out = transformToPt(mono(0, 1, -1), { monoMix: 'average' });
+    const out = transformToPt(mono(0, 1, -1), { monoMix: 'average', targetNote: null });
     expect(Array.from(out)).toEqual([0, 127, -127]);
   });
 
   it('mono mix = average sums and divides stereo', () => {
-    const out = transformToPt(stereo([1, 0], [-1, 0]), { monoMix: 'average' });
+    const out = transformToPt(stereo([1, 0], [-1, 0]), { monoMix: 'average', targetNote: null });
     expect(Array.from(out)).toEqual([0, 0]);
   });
 
   it('mono mix = left picks just the left channel', () => {
-    const out = transformToPt(stereo([1, 0.5], [-1, -0.5]), { monoMix: 'left' });
+    const out = transformToPt(stereo([1, 0.5], [-1, -0.5]), { monoMix: 'left', targetNote: null });
     expect(Array.from(out)).toEqual([127, 64]);
   });
 
   it('mono mix = right picks just the right channel', () => {
-    const out = transformToPt(stereo([1, 0.5], [-1, -0.5]), { monoMix: 'right' });
+    const out = transformToPt(stereo([1, 0.5], [-1, -0.5]), { monoMix: 'right', targetNote: null });
     expect(Array.from(out)).toEqual([-127, -63]);
   });
 });
@@ -142,7 +143,7 @@ describe('runPipeline (end-to-end)', () => {
       source: stereo([0.5, 0.5], [-0.5, -0.5]),
       sourceName: 'demo',
       chain: [{ kind: 'gain', params: { gain: 2 } }], // → 1, 1 / -1, -1
-      pt: { monoMix: 'average' },                      // → 0, 0
+      pt: { monoMix: 'average', targetNote: null },                      // → 0, 0
     };
     const out = runPipeline(wb);
     expect(Array.from(out)).toEqual([0, 0]);
@@ -153,14 +154,14 @@ describe('runPipeline (end-to-end)', () => {
       source: mono(0, 1, -1),
       sourceName: 'demo',
       chain: [],
-      pt: { monoMix: 'average' },
+      pt: { monoMix: 'average', targetNote: null },
     };
     expect(Array.from(runPipeline(wb))).toEqual([0, 127, -127]);
   });
 });
 
 describe('workbenchFromWav (round-trip from a synthetic WAV)', () => {
-  it('decodes the WAV into a workbench with empty chain + average monoMix', () => {
+  it('decodes the WAV into a workbench with empty chain + average monoMix + C-2 target', () => {
     const wav = writeWav({
       sampleRate: 22050,
       channels: [new Float32Array([0, 0.5, -0.5])],
@@ -170,7 +171,98 @@ describe('workbenchFromWav (round-trip from a synthetic WAV)', () => {
     expect(wb.source.channels).toHaveLength(1);
     expect(wb.chain).toEqual([]);
     expect(wb.pt.monoMix).toBe('average');
+    expect(wb.pt.targetNote).toBe(DEFAULT_TARGET_NOTE); // C-2 = 12
     expect(wb.sourceName).toBe('beep');
+  });
+});
+
+describe('rateForTargetNote', () => {
+  // PAULA_CLOCK_PAL = 7093790; rate = 7093790 / 2 / period.
+  it('returns ~8287 Hz for C-2 (period 428)', () => {
+    expect(rateForTargetNote(12)!).toBeCloseTo(3546895 / 428, 2);
+  });
+  it('returns ~16574 Hz for C-3 (period 214)', () => {
+    expect(rateForTargetNote(24)!).toBeCloseTo(3546895 / 214, 2);
+  });
+  it('returns null for an out-of-range note slot', () => {
+    expect(rateForTargetNote(99)).toBeNull();
+    expect(rateForTargetNote(-1)).toBeNull();
+  });
+});
+
+describe('resampleLinear', () => {
+  it('passes the input through when from === to', () => {
+    const buf = Float32Array.from([0, 1, -1]);
+    expect(resampleLinear(buf, 44100, 44100)).toBe(buf);
+  });
+
+  it('halves the length when downsampling 2:1', () => {
+    const buf = Float32Array.from([0, 0.5, 1, 0.5, 0, -0.5, -1, -0.5]);
+    const out = resampleLinear(buf, 88200, 44100);
+    expect(out.length).toBe(4);
+    // First, third, fifth, seventh sample.
+    expect(out[0]).toBe(0);
+    expect(out[1]).toBe(1);
+    expect(out[2]).toBe(0);
+    expect(out[3]).toBe(-1);
+  });
+
+  it('doubles the length when upsampling 1:2 with linear interpolation', () => {
+    const buf = Float32Array.from([0, 1, 0]);
+    const out = resampleLinear(buf, 22050, 44100);
+    expect(out.length).toBe(6);
+    // Mid-points are average of neighbours.
+    expect(out[0]).toBe(0);
+    expect(out[1]).toBeCloseTo(0.5, 5);
+    expect(out[2]).toBeCloseTo(1, 5);
+    expect(out[3]).toBeCloseTo(0.5, 5);
+    expect(out[4]).toBe(0);
+  });
+
+  it('always emits at least one frame for non-empty input', () => {
+    const buf = Float32Array.from([0.5]);
+    const out = resampleLinear(buf, 44100, 8287); // ratio 5.32 → length 0.19
+    expect(out.length).toBe(1);
+  });
+
+  it('preserves an empty input as an empty output', () => {
+    expect(resampleLinear(new Float32Array(0), 44100, 8287).length).toBe(0);
+  });
+});
+
+describe('transformToPt with targetNote', () => {
+  it('null targetNote leaves the source rate alone (no resample)', () => {
+    const audio = { sampleRate: 44100, channels: [new Float32Array([0, 1, -1])] };
+    const out = transformToPt(audio, { monoMix: 'average', targetNote: null });
+    expect(out.length).toBe(3); // unchanged
+  });
+
+  it('resamples to the target note rate before quantising', () => {
+    // Build a 256-frame source at 44.1 kHz; with target=C-2 the rate becomes
+    // ~8287 Hz and we expect ~256 * 8287/44100 ≈ 48 frames.
+    const audio = {
+      sampleRate: 44100,
+      channels: [new Float32Array(256).fill(1)],
+    };
+    const out = transformToPt(audio, { monoMix: 'average', targetNote: 12 });
+    expect(out.length).toBeGreaterThan(40);
+    expect(out.length).toBeLessThan(60);
+    // All input samples were +1 → all output samples should be ~127.
+    expect(out[0]).toBe(127);
+    expect(out[10]).toBe(127);
+  });
+
+  it('runPipeline default (C-2) downsamples a 44.1 kHz source', () => {
+    const wav = writeWav({
+      sampleRate: 44100,
+      channels: [new Float32Array(256).fill(0.5)],
+    }, { bitsPerSample: 16 });
+    const wb = workbenchFromWav(wav, 'tone.wav');
+    expect(wb.pt.targetNote).toBe(12);
+    const out = runPipeline(wb);
+    // ~256 frames at 44100 → ~48 frames at 8287.
+    expect(out.length).toBeGreaterThan(40);
+    expect(out.length).toBeLessThan(60);
   });
 });
 

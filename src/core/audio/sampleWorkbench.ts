@@ -19,6 +19,10 @@
 import type { WavData } from './wav';
 import { readWav } from './wav';
 import { deriveSampleName } from '../mod/sampleImport';
+import { PAULA_CLOCK_PAL, PERIOD_TABLE } from '../mod/format';
+
+/** PT note slot for "C-2" — the conventional default target for fresh imports. */
+export const DEFAULT_TARGET_NOTE = 12;
 
 // ─── Effect node types ───────────────────────────────────────────────────
 
@@ -50,6 +54,18 @@ export type MonoMix = 'average' | 'left' | 'right';
 
 export interface PtTransformerParams {
   monoMix: MonoMix;
+  /**
+   * PT note slot (0..35, where 0 = C-1, 12 = C-2, 24 = C-3, 35 = B-3) at
+   * which the sample should play at its original speed. The transformer
+   * resamples the mono signal so its rate equals what PT's Paula reads at
+   * that note's period — i.e. triggering this note in a pattern plays the
+   * source at the rate it was recorded.
+   *
+   * `null` disables resampling: the int8 data carries the source's original
+   * rate, and PT will play it slowed (typically way down) when you trigger
+   * a note in the standard 113..856 period range.
+   */
+  targetNote: number | null;
 }
 
 export interface SampleWorkbench {
@@ -178,6 +194,42 @@ function floatToInt8(buf: Float32Array): Int8Array {
   return out;
 }
 
+/**
+ * Linear-interpolation resampler. Cheap, mildly aliasing on heavy
+ * downsamples — fine for tracker work, where 8-bit quantisation dominates
+ * the noise floor anyway. Output length is rounded so the duration stays
+ * as close to the source as the integer-frame target allows; non-empty
+ * inputs always produce at least one output frame.
+ */
+export function resampleLinear(input: Float32Array, fromRate: number, toRate: number): Float32Array {
+  if (input.length === 0) return input;
+  if (Math.abs(fromRate - toRate) < 1e-3) return input;
+  const ratio = fromRate / toRate;
+  const outLen = Math.max(1, Math.round(input.length / ratio));
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const srcPos = i * ratio;
+    const idx = Math.floor(srcPos);
+    const frac = srcPos - idx;
+    const a = input[idx] ?? 0;
+    const b = input[idx + 1] ?? a;
+    out[i] = a + (b - a) * frac;
+  }
+  return out;
+}
+
+/**
+ * Convert a PT note slot (0..35) into the Paula playback rate it produces
+ * at finetune 0. We resample the source to this rate so the sample plays at
+ * its original speed when this note is triggered.
+ */
+export function rateForTargetNote(noteIndex: number): number | null {
+  const period = PERIOD_TABLE[0]?.[noteIndex];
+  if (!period || period <= 0) return null;
+  // PAULA_CLOCK_PAL is the doubled CPU clock; PT divides by (period * 2).
+  return (PAULA_CLOCK_PAL / 2) / period;
+}
+
 export function transformToPt(audio: WavData, pt: PtTransformerParams): Int8Array {
   let mono: Float32Array;
   if (audio.channels.length === 0) {
@@ -191,6 +243,14 @@ export function transformToPt(audio: WavData, pt: PtTransformerParams): Int8Arra
   } else {
     mono = averageChannels(audio.channels);
   }
+
+  // Resample to the rate PT will play this note at, so the user gets the
+  // source at original speed when triggering that note in a pattern.
+  if (pt.targetNote !== null) {
+    const targetRate = rateForTargetNote(pt.targetNote);
+    if (targetRate !== null) mono = resampleLinear(mono, audio.sampleRate, targetRate);
+  }
+
   return floatToInt8(mono);
 }
 
@@ -207,7 +267,10 @@ export function workbenchFromWav(bytes: Uint8Array, filename: string): SampleWor
     source: readWav(bytes),
     sourceName: deriveSampleName(filename) || filename,
     chain: [],
-    pt: { monoMix: 'average' },
+    // Default to C-2: when the user triggers C-2 in a pattern, the sample
+    // plays at its original speed. They can change the target (or set null
+    // to disable resampling entirely) from the Effects panel.
+    pt: { monoMix: 'average', targetNote: DEFAULT_TARGET_NOTE },
   };
 }
 

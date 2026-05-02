@@ -7,6 +7,11 @@ import {
   type EffectKind, type EffectNode, type MonoMix, type SampleWorkbench,
 } from '../core/audio/sampleWorkbench';
 
+const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'] as const;
+function noteIndexName(i: number): string {
+  return `${NOTE_NAMES[i % 12]}${1 + Math.floor(i / 12)}`;
+}
+
 const PT_FINETUNE_MIN = -8;
 const PT_FINETUNE_MAX = 7;
 const PT_VOLUME_MAX = 64;
@@ -36,6 +41,7 @@ interface Props {
   onMoveEffect: (index: number, delta: -1 | 1) => void;
   onPatchEffect: (index: number, next: EffectNode) => void;
   onSetMonoMix: (monoMix: MonoMix) => void;
+  onSetTargetNote: (targetNote: number | null) => void;
 }
 
 /** Editor for the sample under `currentSample()`: waveform + metadata + load. */
@@ -89,6 +95,7 @@ export const SampleView: Component<Props> = (props) => {
                   onMoveEffect={props.onMoveEffect}
                   onPatchEffect={props.onPatchEffect}
                   onSetMonoMix={props.onSetMonoMix}
+                  onSetTargetNote={props.onSetTargetNote}
                 />
               )}
             </Show>
@@ -270,6 +277,7 @@ interface PipelineEditorProps {
   onMoveEffect: (index: number, delta: -1 | 1) => void;
   onPatchEffect: (index: number, next: EffectNode) => void;
   onSetMonoMix: (monoMix: MonoMix) => void;
+  onSetTargetNote: (targetNote: number | null) => void;
 }
 
 const PipelineEditor: Component<PipelineEditorProps> = (props) => {
@@ -357,6 +365,22 @@ const PipelineEditor: Component<PipelineEditorProps> = (props) => {
             </select>
           </label>
         </Show>
+        <label>
+          <span class="samplemeta__label">Target note</span>
+          <select
+            aria-label="Target note"
+            value={props.wb.pt.targetNote === null ? '' : String(props.wb.pt.targetNote)}
+            onChange={(e) => {
+              const v = e.currentTarget.value;
+              props.onSetTargetNote(v === '' ? null : parseInt(v, 10));
+            }}
+          >
+            <option value="">(none) — keep source rate</option>
+            <For each={Array.from({ length: 36 }, (_, i) => i)}>
+              {(i) => <option value={i}>{noteIndexName(i)}</option>}
+            </For>
+          </select>
+        </label>
       </div>
     </section>
   );

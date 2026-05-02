@@ -566,6 +566,12 @@ export const App: Component = () => {
     updateCurrentWorkbench({ ...wb, pt: { ...wb.pt, monoMix } });
   };
 
+  const setTargetNote = (targetNote: number | null) => {
+    const wb = getWorkbench(currentSample() - 1);
+    if (!wb) return;
+    updateCurrentWorkbench({ ...wb, pt: { ...wb.pt, targetNote } });
+  };
+
   const cleanups: Array<() => void> = [];
   onMount(() => {
     // Boot with a blank "M.K." song so the user can start editing immediately
@@ -878,6 +884,7 @@ export const App: Component = () => {
                   onMoveEffect={moveEffect}
                   onPatchEffect={patchEffect}
                   onSetMonoMix={setMonoMix}
+                  onSetTargetNote={setTargetNote}
                 />
               }
             >
