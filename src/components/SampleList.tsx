@@ -25,9 +25,9 @@ export const SampleList: Component<Props> = (props) => {
                   'sample--current': currentSample() === i() + 1,
                 }}
                 onClick={() => props.onSelect(i() + 1)}
-                title={`Select sample ${i() + 1}`}
+                title={`Select sample ${(i() + 1).toString(16).toUpperCase().padStart(2, '0')}`}
               >
-                <span class="num">{String(i() + 1).padStart(2, '0')}</span>
+                <span class="num">{(i() + 1).toString(16).toUpperCase().padStart(2, '0')}</span>
                 <span class="name">{sample.name || '—'}</span>
               </li>
             )}

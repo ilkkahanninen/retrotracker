@@ -1717,20 +1717,20 @@ export const App: Component = () => {
                   <span>{sampleCount()} samples</span>
                   <span class="patternpane__sep">·</span>
                   <span>
-                    order {String(playPos().order).padStart(2, "0")}/
-                    {String(s().songLength - 1).padStart(2, "0")}
+                    order {playPos().order.toString(16).toUpperCase().padStart(2, "0")}/
+                    {(s().songLength - 1).toString(16).toUpperCase().padStart(2, "0")}
                   </span>
                   <span class="patternpane__sep">·</span>
                   <span>
                     pat{" "}
-                    {String(s().orders[playPos().order] ?? 0).padStart(2, "0")}
+                    {(s().orders[playPos().order] ?? 0).toString(16).toUpperCase().padStart(2, "0")}
                   </span>
                   <span class="patternpane__sep">·</span>
-                  <span>row {String(playPos().row).padStart(2, "0")}</span>
+                  <span>row {playPos().row.toString(16).toUpperCase().padStart(2, "0")}</span>
                   <span class="patternpane__sep">·</span>
                   <span>oct {currentOctave()}</span>
                   <span class="patternpane__sep">·</span>
-                  <span>smp {String(currentSample()).padStart(2, "0")}</span>
+                  <span>smp {currentSample().toString(16).toUpperCase().padStart(2, "0")}</span>
                   <span class="patternpane__sep">·</span>
                   <span class="patternpane__editstep">
                     step
@@ -1853,10 +1853,10 @@ export const App: Component = () => {
                               transport() !== "playing" && i === cursor().order,
                           }}
                           onClick={() => jumpToOrder(i)}
-                          title={`Jump to order ${i}`}
+                          title={`Jump to order ${i.toString(16).toUpperCase().padStart(2, "0")}`}
                         >
-                          <span class="num">{String(i).padStart(3, "0")}</span>
-                          <span class="pat">{String(p).padStart(2, "0")}</span>
+                          <span class="num">{i.toString(16).toUpperCase().padStart(2, "0")}</span>
+                          <span class="pat">{p.toString(16).toUpperCase().padStart(2, "0")}</span>
                         </li>
                       ))}
                   </ol>
