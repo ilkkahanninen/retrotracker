@@ -1,5 +1,6 @@
 import {
   Show,
+  createEffect,
   createMemo,
   createSignal,
   onCleanup,
@@ -49,6 +50,9 @@ import {
   octaveDown,
   octaveUp,
   selectSample,
+  setCurrentSample,
+  setCurrentOctave,
+  setEditStep,
   nextSample,
   prevSample,
 } from "./state/edit";
@@ -101,6 +105,7 @@ import { PatternGrid } from "./components/PatternGrid";
 import { SampleList } from "./components/SampleList";
 import { SampleView, type SampleSelection } from "./components/SampleView";
 import { view, setView } from "./state/view";
+import { saveSession, loadSession } from "./state/persistence";
 import * as preview from "./state/preview";
 
 /**
@@ -1080,14 +1085,61 @@ export const App: Component = () => {
 
   const cleanups: Array<() => void> = [];
   onMount(() => {
-    // Boot with a blank "M.K." song so the user can start editing immediately
+    // Restore the previous session from localStorage if one exists; otherwise
+    // boot with a blank "M.K." song so the user can start editing immediately
     // without having to load a file first. The engine is created lazily on
     // the first Play, so we don't touch AudioContext on mount.
+    //
+    // Workbenches don't survive a reload (their WAV sources can be MB-sized,
+    // not a good fit for localStorage); the int8 sample data IS in the song,
+    // so playback restores cleanly — only the pipeline editor loses state.
     if (!song()) {
-      setSong(emptySong());
-      setTransport("ready");
+      const restored = loadSession();
+      if (restored) {
+        setSong(restored.song);
+        setFilename(restored.filename);
+        setView(restored.view);
+        setCursor(restored.cursor);
+        setPlayPos({ order: restored.cursor.order, row: restored.cursor.row });
+        setCurrentSample(restored.currentSample);
+        setCurrentOctave(restored.currentOctave);
+        setEditStep(restored.editStep);
+        setTransport("ready");
+      } else {
+        setSong(emptySong());
+        setTransport("ready");
+      }
     }
     cleanups.push(installShortcuts());
+
+    // Autosave to localStorage whenever the persisted signals change.
+    // Debounced because some interactions (drag-selection, hex digit
+    // entry sweeping a column) fire many cursor / song updates in quick
+    // succession, and writing the song through writeModule + base64 +
+    // JSON.stringify dozens of times a second is wasted work.
+    let saveTimer: number | null = null;
+    createEffect(() => {
+      const s = song();
+      // Track the rest of the persisted signals so the effect re-runs.
+      const fname = filename();
+      const v = view();
+      const c = cursor();
+      const samp = currentSample();
+      const oct = currentOctave();
+      const step = editStep();
+      if (!s) return;
+      if (saveTimer !== null) window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(() => {
+        saveSession({
+          song: s, filename: fname, view: v, cursor: c,
+          currentSample: samp, currentOctave: oct, editStep: step,
+        });
+      }, 250);
+    });
+    cleanups.push(() => {
+      if (saveTimer !== null) window.clearTimeout(saveTimer);
+    });
+
     cleanups.push(
       registerShortcut({
         key: "o",
