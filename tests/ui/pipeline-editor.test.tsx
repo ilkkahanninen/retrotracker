@@ -279,6 +279,55 @@ describe('pipeline editor: target-note selector', () => {
   });
 });
 
+describe('pipeline editor: editing params preserves input focus', () => {
+  // Regression: every keystroke flowed through patchEffect → new chain item
+  // reference → keyed <For>/<Show>/<Match> children disposed and remounted,
+  // killing focus on each character. The structural fix (Index + non-keyed
+  // Show/Match) is observable here: the same DOM input survives many edits.
+  it('the gain input element is preserved across consecutive patches', () => {
+    setView('sample');
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: { sampleRate: 44100, channels: [new Float32Array([0, 0.25, -0.25])] },
+      sourceName: 'demo',
+      chain: [{ kind: 'gain', params: { gain: 1 } }],
+      pt: { monoMix: 'average', targetNote: null },
+    });
+    const first = container.querySelector<HTMLInputElement>('.effect-node input')!;
+    fireEvent.input(first, { target: { value: '2' } });
+    fireEvent.input(first, { target: { value: '2.5' } });
+    fireEvent.input(first, { target: { value: '3' } });
+    const after = container.querySelector<HTMLInputElement>('.effect-node input')!;
+    expect(after).toBe(first); // same DOM node — no remount, focus would survive
+    expect(getWorkbench(0)!.chain[0]).toEqual({ kind: 'gain', params: { gain: 3 } });
+  });
+
+  it('the volume metadata input is preserved when the pipeline re-runs', () => {
+    setView('sample');
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: { sampleRate: 44100, channels: [new Float32Array([0, 0.25, -0.25])] },
+      sourceName: 'demo',
+      chain: [{ kind: 'gain', params: { gain: 1 } }],
+      pt: { monoMix: 'average', targetNote: null },
+    });
+    const inputs = container.querySelectorAll<HTMLInputElement>('.samplemeta input[type="number"]');
+    let volumeBefore: HTMLInputElement | null = null;
+    for (const el of inputs) {
+      if (el.closest('label')!.textContent!.includes('Volume')) volumeBefore = el;
+    }
+    expect(volumeBefore).not.toBeNull();
+    // Trigger a pipeline patch by editing the gain.
+    const gain = container.querySelector<HTMLInputElement>('.effect-node input')!;
+    fireEvent.input(gain, { target: { value: '2' } });
+    let volumeAfter: HTMLInputElement | null = null;
+    for (const el of container.querySelectorAll<HTMLInputElement>('.samplemeta input[type="number"]')) {
+      if (el.closest('label')!.textContent!.includes('Volume')) volumeAfter = el;
+    }
+    expect(volumeAfter).toBe(volumeBefore);
+  });
+});
+
 describe('pipeline editor: re-run preserves user-set sample metadata', () => {
   it('a manual volume change is not clobbered by a subsequent pipeline edit', () => {
     setView('sample');

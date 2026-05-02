@@ -1,4 +1,4 @@
-import { For, Match, Show, Switch, createEffect, createMemo, type Component } from 'solid-js';
+import { For, Index, Match, Show, Switch, createEffect, createMemo, type Component } from 'solid-js';
 import type { Sample, Song } from '../core/mod/types';
 import { currentSample } from '../state/edit';
 import { workbenches } from '../state/sampleWorkbench';
@@ -83,111 +83,105 @@ export const SampleView: Component<Props> = (props) => {
       </header>
 
       <Show when={sample()} fallback={<p class="placeholder">Select a sample slot from the list.</p>}>
-        {(s) => (
-          <>
-            <Waveform sample={s()} />
-            <Show when={workbench()}>
-              {(wb) => (
-                <PipelineEditor
-                  wb={wb()}
-                  onAddEffect={props.onAddEffect}
-                  onRemoveEffect={props.onRemoveEffect}
-                  onMoveEffect={props.onMoveEffect}
-                  onPatchEffect={props.onPatchEffect}
-                  onSetMonoMix={props.onSetMonoMix}
-                  onSetTargetNote={props.onSetTargetNote}
-                />
-              )}
-            </Show>
-            <div class="samplemeta">
-              <label>
-                <span class="samplemeta__label">Name</span>
-                <input
-                  type="text"
-                  maxLength={SAMPLE_NAME_MAX}
-                  value={s().name}
-                  placeholder="(unnamed)"
-                  onInput={(e) => props.onPatch({ name: e.currentTarget.value })}
-                />
-              </label>
-              <label>
-                <span class="samplemeta__label">Length</span>
-                <span class="samplemeta__static">
-                  {lengthBytes()} bytes ({s().lengthWords} words)
-                </span>
-              </label>
-              <label>
-                <span class="samplemeta__label">Volume (0–{PT_VOLUME_MAX})</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={PT_VOLUME_MAX}
-                  value={s().volume}
-                  onInput={(e) => {
-                    const v = parseInt(e.currentTarget.value, 10);
-                    if (!Number.isFinite(v)) return;
-                    props.onPatch({ volume: Math.max(0, Math.min(PT_VOLUME_MAX, v)) });
-                  }}
-                />
-              </label>
-              <label>
-                <span class="samplemeta__label">
-                  Finetune ({PT_FINETUNE_MIN} to +{PT_FINETUNE_MAX})
-                </span>
-                <input
-                  type="number"
-                  min={PT_FINETUNE_MIN}
-                  max={PT_FINETUNE_MAX}
-                  value={signedFinetune(s().finetune)}
-                  onInput={(e) => {
-                    const v = parseInt(e.currentTarget.value, 10);
-                    if (!Number.isFinite(v)) return;
-                    props.onPatch({ finetune: encodeFinetune(v) });
-                  }}
-                />
-              </label>
-              <label>
-                <span class="samplemeta__label">Loop start (words)</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={s().lengthWords}
-                  value={s().loopStartWords}
-                  disabled={s().lengthWords === 0}
-                  onInput={(e) => {
-                    const v = parseInt(e.currentTarget.value, 10);
-                    if (!Number.isFinite(v)) return;
-                    props.onPatch({ loopStartWords: Math.max(0, Math.min(s().lengthWords, v)) });
-                  }}
-                />
-              </label>
-              <label>
-                <span class="samplemeta__label">
-                  Loop length (words; 1 = no loop)
-                </span>
-                <input
-                  type="number"
-                  min={1}
-                  max={Math.max(1, s().lengthWords)}
-                  value={s().loopLengthWords}
-                  disabled={s().lengthWords === 0}
-                  onInput={(e) => {
-                    const v = parseInt(e.currentTarget.value, 10);
-                    if (!Number.isFinite(v)) return;
-                    props.onPatch({
-                      loopLengthWords: Math.max(1, Math.min(Math.max(1, s().lengthWords), v)),
-                    });
-                  }}
-                />
-              </label>
-              <Show when={isLooping()}>
-                <p class="samplemeta__hint">
-                  Looping {s().loopStartWords} – {s().loopStartWords + s().loopLengthWords} (words)
-                </p>
-              </Show>
-            </div>
-          </>
-        )}
+        <Waveform sample={sample()!} />
+        <Show when={workbench()}>
+          <PipelineEditor
+            wb={workbench()!}
+            onAddEffect={props.onAddEffect}
+            onRemoveEffect={props.onRemoveEffect}
+            onMoveEffect={props.onMoveEffect}
+            onPatchEffect={props.onPatchEffect}
+            onSetMonoMix={props.onSetMonoMix}
+            onSetTargetNote={props.onSetTargetNote}
+          />
+        </Show>
+        <div class="samplemeta">
+          <label>
+            <span class="samplemeta__label">Name</span>
+            <input
+              type="text"
+              maxLength={SAMPLE_NAME_MAX}
+              value={sample()!.name}
+              placeholder="(unnamed)"
+              onInput={(e) => props.onPatch({ name: e.currentTarget.value })}
+            />
+          </label>
+          <label>
+            <span class="samplemeta__label">Length</span>
+            <span class="samplemeta__static">
+              {lengthBytes()} bytes ({sample()!.lengthWords} words)
+            </span>
+          </label>
+          <label>
+            <span class="samplemeta__label">Volume (0–{PT_VOLUME_MAX})</span>
+            <input
+              type="number"
+              min={0}
+              max={PT_VOLUME_MAX}
+              value={sample()!.volume}
+              onInput={(e) => {
+                const v = parseInt(e.currentTarget.value, 10);
+                if (!Number.isFinite(v)) return;
+                props.onPatch({ volume: Math.max(0, Math.min(PT_VOLUME_MAX, v)) });
+              }}
+            />
+          </label>
+          <label>
+            <span class="samplemeta__label">
+              Finetune ({PT_FINETUNE_MIN} to +{PT_FINETUNE_MAX})
+            </span>
+            <input
+              type="number"
+              min={PT_FINETUNE_MIN}
+              max={PT_FINETUNE_MAX}
+              value={signedFinetune(sample()!.finetune)}
+              onInput={(e) => {
+                const v = parseInt(e.currentTarget.value, 10);
+                if (!Number.isFinite(v)) return;
+                props.onPatch({ finetune: encodeFinetune(v) });
+              }}
+            />
+          </label>
+          <label>
+            <span class="samplemeta__label">Loop start (words)</span>
+            <input
+              type="number"
+              min={0}
+              max={sample()!.lengthWords}
+              value={sample()!.loopStartWords}
+              disabled={sample()!.lengthWords === 0}
+              onInput={(e) => {
+                const v = parseInt(e.currentTarget.value, 10);
+                if (!Number.isFinite(v)) return;
+                props.onPatch({ loopStartWords: Math.max(0, Math.min(sample()!.lengthWords, v)) });
+              }}
+            />
+          </label>
+          <label>
+            <span class="samplemeta__label">
+              Loop length (words; 1 = no loop)
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={Math.max(1, sample()!.lengthWords)}
+              value={sample()!.loopLengthWords}
+              disabled={sample()!.lengthWords === 0}
+              onInput={(e) => {
+                const v = parseInt(e.currentTarget.value, 10);
+                if (!Number.isFinite(v)) return;
+                props.onPatch({
+                  loopLengthWords: Math.max(1, Math.min(Math.max(1, sample()!.lengthWords), v)),
+                });
+              }}
+            />
+          </label>
+          <Show when={isLooping()}>
+            <p class="samplemeta__hint">
+              Looping {sample()!.loopStartWords} – {sample()!.loopStartWords + sample()!.loopLengthWords} (words)
+            </p>
+          </Show>
+        </div>
       </Show>
     </div>
   );
@@ -295,42 +289,46 @@ const PipelineEditor: Component<PipelineEditorProps> = (props) => {
         </span>
       </header>
       <ol class="pipeline__chain">
-        <For each={props.wb.chain}>
+        {/* Index (not For) keys by position, so editing an effect's params
+            updates the existing <li> instead of disposing and remounting it.
+            Without this, a controlled <input> loses focus on every keystroke
+            because the patch produces a new node object at the same index. */}
+        <Index each={props.wb.chain}>
           {(node, i) => (
             <li class="effect-node">
               <div class="effect-node__controls">
                 <button
                   type="button"
                   title="Move up"
-                  aria-label={`Move effect ${i() + 1} up`}
-                  disabled={i() === 0}
-                  onClick={() => props.onMoveEffect(i(), -1)}
+                  aria-label={`Move effect ${i + 1} up`}
+                  disabled={i === 0}
+                  onClick={() => props.onMoveEffect(i, -1)}
                 >↑</button>
                 <button
                   type="button"
                   title="Move down"
-                  aria-label={`Move effect ${i() + 1} down`}
-                  disabled={i() === props.wb.chain.length - 1}
-                  onClick={() => props.onMoveEffect(i(), 1)}
+                  aria-label={`Move effect ${i + 1} down`}
+                  disabled={i === props.wb.chain.length - 1}
+                  onClick={() => props.onMoveEffect(i, 1)}
                 >↓</button>
                 <button
                   type="button"
                   title="Remove effect"
-                  aria-label={`Remove effect ${i() + 1}`}
-                  onClick={() => props.onRemoveEffect(i())}
+                  aria-label={`Remove effect ${i + 1}`}
+                  onClick={() => props.onRemoveEffect(i)}
                 >×</button>
               </div>
               <div class="effect-node__body">
-                <span class="effect-node__kind">{EFFECT_LABELS[node.kind]}</span>
+                <span class="effect-node__kind">{EFFECT_LABELS[node().kind]}</span>
                 <EffectParams
-                  node={node}
+                  node={node()}
                   sourceFrames={sourceFrames()}
-                  onPatch={(next) => props.onPatchEffect(i(), next)}
+                  onPatch={(next) => props.onPatchEffect(i, next)}
                 />
               </div>
             </li>
           )}
-        </For>
+        </Index>
       </ol>
       <div class="pipeline__add">
         <select
@@ -393,26 +391,32 @@ interface EffectParamsProps {
 }
 
 const EffectParams: Component<EffectParamsProps> = (props) => {
+  // Non-keyed Match (static children, no `(n) => ...` callback) so the
+  // controlled <input>s aren't disposed every time the user types — focus
+  // would otherwise jump on every keystroke. Each Match's `when` predicate
+  // narrows the discriminated union, but TS can't see that across the
+  // children boundary, so we re-narrow with typed accessors.
+  const asGain = () => props.node as Extract<EffectNode, { kind: 'gain' }>;
+  const asCrop = () => props.node as Extract<EffectNode, { kind: 'crop' }>;
+  const asFade = () => props.node as Extract<EffectNode, { kind: 'fadeIn' | 'fadeOut' }>;
   return (
     <Switch>
-      <Match when={props.node.kind === 'gain' && props.node}>
-        {(n) => (
-          <label class="effect-node__param">
-            <span class="samplemeta__label">Gain ×</span>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              max="20"
-              value={n().params.gain}
-              onInput={(e) => {
-                const v = parseFloat(e.currentTarget.value);
-                if (!Number.isFinite(v)) return;
-                props.onPatch({ kind: 'gain', params: { gain: Math.max(0, v) } });
-              }}
-            />
-          </label>
-        )}
+      <Match when={props.node.kind === 'gain'}>
+        <label class="effect-node__param">
+          <span class="samplemeta__label">Gain ×</span>
+          <input
+            type="number"
+            step="0.1"
+            min="0"
+            max="20"
+            value={asGain().params.gain}
+            onInput={(e) => {
+              const v = parseFloat(e.currentTarget.value);
+              if (!Number.isFinite(v)) return;
+              props.onPatch({ kind: 'gain', params: { gain: Math.max(0, v) } });
+            }}
+          />
+        </label>
       </Match>
       <Match when={props.node.kind === 'normalize'}>
         <span class="effect-node__hint">Scales to peak ±1.0</span>
@@ -420,64 +424,57 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
       <Match when={props.node.kind === 'reverse'}>
         <span class="effect-node__hint">Plays backwards</span>
       </Match>
-      <Match when={props.node.kind === 'crop' && props.node}>
-        {(n) => (
-          <>
-            <label class="effect-node__param">
-              <span class="samplemeta__label">Start (frame)</span>
-              <input
-                type="number"
-                min="0"
-                max={props.sourceFrames}
-                value={n().params.startFrame}
-                onInput={(e) => {
-                  const v = parseInt(e.currentTarget.value, 10);
-                  if (!Number.isFinite(v)) return;
-                  props.onPatch({
-                    kind: 'crop',
-                    params: { startFrame: Math.max(0, v), endFrame: n().params.endFrame },
-                  });
-                }}
-              />
-            </label>
-            <label class="effect-node__param">
-              <span class="samplemeta__label">End (frame)</span>
-              <input
-                type="number"
-                min="0"
-                max={props.sourceFrames}
-                value={n().params.endFrame}
-                onInput={(e) => {
-                  const v = parseInt(e.currentTarget.value, 10);
-                  if (!Number.isFinite(v)) return;
-                  props.onPatch({
-                    kind: 'crop',
-                    params: { startFrame: n().params.startFrame, endFrame: Math.max(0, v) },
-                  });
-                }}
-              />
-            </label>
-          </>
-        )}
+      <Match when={props.node.kind === 'crop'}>
+        <label class="effect-node__param">
+          <span class="samplemeta__label">Start (frame)</span>
+          <input
+            type="number"
+            min="0"
+            max={props.sourceFrames}
+            value={asCrop().params.startFrame}
+            onInput={(e) => {
+              const v = parseInt(e.currentTarget.value, 10);
+              if (!Number.isFinite(v)) return;
+              props.onPatch({
+                kind: 'crop',
+                params: { startFrame: Math.max(0, v), endFrame: asCrop().params.endFrame },
+              });
+            }}
+          />
+        </label>
+        <label class="effect-node__param">
+          <span class="samplemeta__label">End (frame)</span>
+          <input
+            type="number"
+            min="0"
+            max={props.sourceFrames}
+            value={asCrop().params.endFrame}
+            onInput={(e) => {
+              const v = parseInt(e.currentTarget.value, 10);
+              if (!Number.isFinite(v)) return;
+              props.onPatch({
+                kind: 'crop',
+                params: { startFrame: asCrop().params.startFrame, endFrame: Math.max(0, v) },
+              });
+            }}
+          />
+        </label>
       </Match>
-      <Match when={(props.node.kind === 'fadeIn' || props.node.kind === 'fadeOut') && props.node}>
-        {(n) => (
-          <label class="effect-node__param">
-            <span class="samplemeta__label">Frames</span>
-            <input
-              type="number"
-              min="0"
-              max={props.sourceFrames}
-              value={n().params.frames}
-              onInput={(e) => {
-                const v = parseInt(e.currentTarget.value, 10);
-                if (!Number.isFinite(v)) return;
-                const kind = n().kind as 'fadeIn' | 'fadeOut';
-                props.onPatch({ kind, params: { frames: Math.max(0, v) } });
-              }}
-            />
-          </label>
-        )}
+      <Match when={props.node.kind === 'fadeIn' || props.node.kind === 'fadeOut'}>
+        <label class="effect-node__param">
+          <span class="samplemeta__label">Frames</span>
+          <input
+            type="number"
+            min="0"
+            max={props.sourceFrames}
+            value={asFade().params.frames}
+            onInput={(e) => {
+              const v = parseInt(e.currentTarget.value, 10);
+              if (!Number.isFinite(v)) return;
+              props.onPatch({ kind: asFade().kind, params: { frames: Math.max(0, v) } });
+            }}
+          />
+        </label>
       </Match>
     </Switch>
   );
