@@ -31,13 +31,14 @@ export type EffectNode =
   | { kind: 'normalize' }
   | { kind: 'reverse' }
   | { kind: 'crop'; params: { startFrame: number; endFrame: number } }
+  | { kind: 'cut';  params: { startFrame: number; endFrame: number } }
   | { kind: 'fadeIn'; params: { frames: number } }
   | { kind: 'fadeOut'; params: { frames: number } };
 
 export type EffectKind = EffectNode['kind'];
 
 export const EFFECT_KINDS: readonly EffectKind[] = [
-  'gain', 'normalize', 'reverse', 'crop', 'fadeIn', 'fadeOut',
+  'gain', 'normalize', 'reverse', 'crop', 'cut', 'fadeIn', 'fadeOut',
 ] as const;
 
 /** Human-readable names for the picker UI. */
@@ -46,6 +47,7 @@ export const EFFECT_LABELS: Readonly<Record<EffectKind, string>> = {
   normalize: 'Normalize',
   reverse:   'Reverse',
   crop:      'Crop',
+  cut:       'Cut',
   fadeIn:    'Fade in',
   fadeOut:   'Fade out',
 };
@@ -124,6 +126,23 @@ export function applyCrop(input: WavData, startFrame: number, endFrame: number):
   return mapChannels(input, (ch) => ch.slice(s, e));
 }
 
+/**
+ * Remove frames in [startFrame, endFrame) and concatenate what's left.
+ * The inverse of crop: crop keeps the selection, cut keeps the rest.
+ */
+export function applyCut(input: WavData, startFrame: number, endFrame: number): WavData {
+  const len = input.channels[0]?.length ?? 0;
+  const s = Math.max(0, Math.min(len, Math.floor(startFrame)));
+  const e = Math.max(s, Math.min(len, Math.floor(endFrame)));
+  if (s === e) return input; // empty cut → noop
+  return mapChannels(input, (ch) => {
+    const out = new Float32Array(ch.length - (e - s));
+    out.set(ch.subarray(0, s), 0);
+    out.set(ch.subarray(e), s);
+    return out;
+  });
+}
+
 export function applyFadeIn(input: WavData, frames: number): WavData {
   const n = Math.max(0, Math.floor(frames));
   if (n === 0) return input;
@@ -158,6 +177,7 @@ export function applyEffect(input: WavData, node: EffectNode): WavData {
     case 'normalize':  return applyNormalize(input);
     case 'reverse':    return applyReverse(input);
     case 'crop':       return applyCrop(input, node.params.startFrame, node.params.endFrame);
+    case 'cut':        return applyCut(input, node.params.startFrame, node.params.endFrame);
     case 'fadeIn':     return applyFadeIn(input, node.params.frames);
     case 'fadeOut':    return applyFadeOut(input, node.params.frames);
   }
@@ -282,6 +302,10 @@ export function defaultEffect(kind: EffectKind, source: WavData): EffectNode {
     case 'normalize': return { kind: 'normalize' };
     case 'reverse':   return { kind: 'reverse' };
     case 'crop':      return { kind: 'crop', params: { startFrame: 0, endFrame: len } };
+    // Default Cut is a noop (empty range) — the user fills in start/end
+    // either by editing the param fields or, in the common case, by
+    // selecting on the waveform and clicking "Cut selection".
+    case 'cut':       return { kind: 'cut',  params: { startFrame: 0, endFrame: 0 } };
     case 'fadeIn':    return { kind: 'fadeIn', params: { frames: Math.min(1024, len) } };
     case 'fadeOut':   return { kind: 'fadeOut', params: { frames: Math.min(1024, len) } };
   }

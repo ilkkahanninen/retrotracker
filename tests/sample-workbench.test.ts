@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  applyGain, applyNormalize, applyReverse, applyCrop,
+  applyGain, applyNormalize, applyReverse, applyCrop, applyCut,
   applyFadeIn, applyFadeOut, applyEffect,
   runChain, transformToPt, runPipeline,
   workbenchFromWav, defaultEffect,
@@ -68,6 +68,29 @@ describe('applyCrop', () => {
   it('returns the same reference when crop covers the whole input', () => {
     const w = mono(0, 1, 2);
     expect(applyCrop(w, 0, 3)).toBe(w);
+  });
+});
+
+describe('applyCut', () => {
+  it('removes [start, end) and concatenates the rest', () => {
+    const out = applyCut(mono(0, 1, 2, 3, 4, 5), 2, 4);
+    expect(Array.from(out.channels[0]!)).toEqual([0, 1, 4, 5]);
+  });
+
+  it('cuts each channel independently', () => {
+    const out = applyCut(stereo([0, 1, 2, 3], [10, 20, 30, 40]), 1, 3);
+    expect(Array.from(out.channels[0]!)).toEqual([0, 3]);
+    expect(Array.from(out.channels[1]!)).toEqual([10, 40]);
+  });
+
+  it('clamps out-of-range indexes', () => {
+    const out = applyCut(mono(0, 1, 2), -10, 100);
+    expect(out.channels[0]!.length).toBe(0);
+  });
+
+  it('returns the same reference when the cut is empty', () => {
+    const w = mono(0, 1, 2);
+    expect(applyCut(w, 1, 1)).toBe(w);
   });
 });
 
@@ -289,5 +312,17 @@ describe('applyEffect dispatcher', () => {
       .channels[0]).toEqual(Float32Array.from([0.5, -0.5]));
     expect(applyEffect(mono(1, 2, 3), { kind: 'reverse' })
       .channels[0]).toEqual(Float32Array.from([3, 2, 1]));
+    expect(applyEffect(mono(0, 1, 2, 3, 4), { kind: 'cut', params: { startFrame: 1, endFrame: 4 } })
+      .channels[0]).toEqual(Float32Array.from([0, 4]));
+  });
+});
+
+describe('runChain composes crop + cut', () => {
+  it('crop then cut leaves a hole in the kept range', () => {
+    const out = runChain(mono(0, 1, 2, 3, 4, 5, 6, 7, 8, 9), [
+      { kind: 'crop', params: { startFrame: 2, endFrame: 8 } }, // → 2,3,4,5,6,7
+      { kind: 'cut',  params: { startFrame: 1, endFrame: 3 } }, //   keep [2] then [5,6,7] → 2,5,6,7
+    ]);
+    expect(Array.from(out.channels[0]!)).toEqual([2, 5, 6, 7]);
   });
 });

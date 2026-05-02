@@ -30,12 +30,19 @@ function encodeFinetune(signed: number): number {
   return c < 0 ? c + 16 : c;
 }
 
+/** A user-drawn range over the int8 sample data (byte indices, half-open). */
+export interface SampleSelection { start: number; end: number; }
+
 interface Props {
   song: Song;
   /** Bytes of a `.wav` file picked by the user, plus the original file name. */
   onLoadWav: (bytes: Uint8Array, filename: string) => void;
   onClear: () => void;
   onPatch: (patch: Partial<Sample>) => void;
+  /** Replace sample.data with the [startByte, endByte) slice; loop translates accordingly. */
+  onCropToSelection: (startByte: number, endByte: number) => void;
+  /** Replace sample.data with everything OUTSIDE [startByte, endByte). */
+  onCutSelection: (startByte: number, endByte: number) => void;
   /** Pipeline editing — only meaningful when a workbench exists for the slot. */
   onAddEffect: (kind: EffectKind) => void;
   onRemoveEffect: (index: number) => void;
@@ -56,6 +63,18 @@ export const SampleView: Component<Props> = (props) => {
   const workbench = createMemo<SampleWorkbench | null>(
     () => workbenches().get(currentSample() - 1) ?? null,
   );
+
+  // Drag-selection state. Lives at SampleView level because both the Waveform
+  // (which draws the overlay and handles the drag) and the action buttons
+  // below it (Crop / Cut) need access. Selection is in BYTE indices over
+  // the int8 sample data, half-open [start, end).
+  const [selection, setSelection] = createSignal<SampleSelection | null>(null);
+  // A selection only makes sense for the slot the user drew it on; switching
+  // slots discards it.
+  createEffect(() => {
+    currentSample();
+    setSelection(null);
+  });
 
   const onPickWav = async (e: Event) => {
     const input = e.currentTarget as HTMLInputElement;
@@ -84,7 +103,44 @@ export const SampleView: Component<Props> = (props) => {
       </header>
 
       <Show when={sample()} fallback={<p class="placeholder">Select a sample slot from the list.</p>}>
-        <Waveform sample={sample()!} onPatch={props.onPatch} />
+        <Waveform
+          sample={sample()!}
+          onPatch={props.onPatch}
+          selection={selection()}
+          onSelect={setSelection}
+        />
+        <Show when={selection()}>
+          <div class="sampleview__selection">
+            <span class="sampleview__selection-info">
+              Selection: bytes {selection()!.start} – {selection()!.end} ({selection()!.end - selection()!.start} bytes)
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                const sel = selection()!;
+                props.onCropToSelection(sel.start, sel.end);
+                setSelection(null);
+              }}
+              disabled={selection()!.end - selection()!.start < 2}
+              title="Keep the selected range, discard the rest"
+            >Crop to selection</button>
+            <button
+              type="button"
+              onClick={() => {
+                const sel = selection()!;
+                props.onCutSelection(sel.start, sel.end);
+                setSelection(null);
+              }}
+              disabled={selection()!.end - selection()!.start < 2}
+              title="Remove the selected range, keep the rest"
+            >Cut selection</button>
+            <button
+              type="button"
+              onClick={() => setSelection(null)}
+              title="Clear the selection"
+            >Clear</button>
+          </div>
+        </Show>
         <Show when={workbench()}>
           <PipelineEditor
             wb={workbench()!}
@@ -183,7 +239,14 @@ export const SampleView: Component<Props> = (props) => {
 interface WaveformProps {
   sample: Sample;
   onPatch: (patch: Partial<Sample>) => void;
+  selection: SampleSelection | null;
+  onSelect: (s: SampleSelection | null) => void;
 }
+
+/** Either dragging a loop boundary, or sweeping a selection range. */
+type DragState =
+  | { kind: 'loop'; which: 'start' | 'end' }
+  | { kind: 'select'; anchorByte: number };
 
 const Waveform: Component<WaveformProps> = (props) => {
   let waveCanvas: HTMLCanvasElement | undefined;
@@ -195,7 +258,7 @@ const Waveform: Component<WaveformProps> = (props) => {
   const HANDLE_HIT_PX = 8;
 
   /** Active drag, if any. */
-  const [dragging, setDragging] = createSignal<'start' | 'end' | null>(null);
+  const [drag, setDrag] = createSignal<DragState | null>(null);
   /** Hover over a handle (drives cursor) — independent of drag because we
    *  also want the cursor while the user is grabbing. */
   const [hover, setHover] = createSignal<'start' | 'end' | null>(null);
@@ -241,49 +304,79 @@ const Waveform: Component<WaveformProps> = (props) => {
   };
 
   const onMouseDown = (e: MouseEvent) => {
-    const handle = handleAt(clientToCanvasX(e.clientX));
-    if (!handle) return;
-    setDragging(handle);
+    const x = clientToCanvasX(e.clientX);
+    const handle = handleAt(x);
+    if (handle) {
+      setDrag({ kind: 'loop', which: handle });
+      e.preventDefault();
+      return;
+    }
+    // Empty space → start a selection sweep. Anchor the start at the click
+    // and let onMouseMove extend the end as the pointer moves.
+    const dataLen = props.sample.data.length;
+    if (dataLen === 0) return;
+    const byte = Math.max(0, Math.min(dataLen, byteForX(x, dataLen)));
+    setDrag({ kind: 'select', anchorByte: byte });
+    props.onSelect({ start: byte, end: byte });
     e.preventDefault();
   };
 
   const onMouseMove = (e: MouseEvent) => {
     const x = clientToCanvasX(e.clientX);
-    const drag = dragging();
-    if (!drag) {
+    const d = drag();
+    if (!d) {
       setHover(handleAt(x));
       return;
     }
-    // Drag in progress — clamp to sample bounds and round to a word boundary
-    // (PT's loop fields are word-aligned).
     const s = props.sample;
     const dataLen = s.data.length;
-    const word = Math.max(0, Math.min(s.lengthWords, Math.round(byteForX(x, dataLen) / 2)));
-    if (drag === 'start') {
-      // Keep at least 2 words of loop so the boundaries never cross.
-      const endWord = s.loopStartWords + s.loopLengthWords;
-      const newStart = Math.max(0, Math.min(word, endWord - 2));
-      props.onPatch({
-        loopStartWords: newStart,
-        loopLengthWords: endWord - newStart,
-      });
+    if (d.kind === 'loop') {
+      // Clamp to sample bounds and round to a word boundary (PT's loop fields
+      // are word-aligned).
+      const word = Math.max(0, Math.min(s.lengthWords, Math.round(byteForX(x, dataLen) / 2)));
+      if (d.which === 'start') {
+        // Keep at least 2 words of loop so the boundaries never cross.
+        const endWord = s.loopStartWords + s.loopLengthWords;
+        const newStart = Math.max(0, Math.min(word, endWord - 2));
+        props.onPatch({
+          loopStartWords: newStart,
+          loopLengthWords: endWord - newStart,
+        });
+      } else {
+        const newEnd = Math.max(s.loopStartWords + 2, Math.min(word, s.lengthWords));
+        props.onPatch({ loopLengthWords: newEnd - s.loopStartWords });
+      }
     } else {
-      const maxEnd = s.lengthWords;
-      const newEnd = Math.max(s.loopStartWords + 2, Math.min(word, maxEnd));
-      props.onPatch({ loopLengthWords: newEnd - s.loopStartWords });
+      // Selection sweep — track the pointer in BYTE space (the user wants
+      // sample-accurate boundaries, not word-aligned ones; the crop/cut
+      // handlers are responsible for any alignment they need).
+      const byte = Math.max(0, Math.min(dataLen, byteForX(x, dataLen)));
+      props.onSelect({
+        start: Math.min(d.anchorByte, byte),
+        end:   Math.max(d.anchorByte, byte),
+      });
     }
   };
 
   const onMouseLeave = () => {
-    if (!dragging()) setHover(null);
+    if (!drag()) setHover(null);
   };
 
   // Window-level move/up while dragging, so the user can drag past the canvas
   // edge without losing the grab. Cleaned up the moment the drag ends.
   createEffect(() => {
-    if (!dragging()) return;
+    if (!drag()) return;
     const move = (e: MouseEvent) => onMouseMove(e);
-    const up = () => setDragging(null);
+    const up = () => {
+      // A click without movement (anchor === pointer) collapses the
+      // selection — clear it so the action row doesn't linger empty.
+      const d = drag();
+      if (d?.kind === 'select') {
+        const sel = props.selection;
+        if (sel && sel.start === sel.end) props.onSelect(null);
+      }
+      setDrag(null);
+    };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
     onCleanup(() => {
@@ -367,10 +460,23 @@ const Waveform: Component<WaveformProps> = (props) => {
     if (!ctx) return;
     ctx.clearRect(0, 0, W, H);
 
+    const dataLen = props.sample.data.length;
+
+    // Selection overlay (drawn under the playhead so the cursor stays
+    // legible across the highlighted band).
+    const sel = props.selection;
+    if (sel && dataLen > 0 && sel.end > sel.start) {
+      const x0 = xForByte(sel.start, dataLen);
+      const x1 = xForByte(sel.end, dataLen);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      ctx.fillRect(x0, 0, Math.max(1, x1 - x0), H);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.fillRect(Math.floor(x0), 0, 1, H);
+      ctx.fillRect(Math.max(0, Math.floor(x1) - 1), 0, 1, H);
+    }
+
     const pf = previewFrame();
     if (!pf || pf.slot !== currentSample() - 1) return;
-
-    const dataLen = props.sample.data.length;
     if (dataLen === 0) return;
 
     let x: number;
@@ -389,8 +495,8 @@ const Waveform: Component<WaveformProps> = (props) => {
       class="waveform"
       ref={(el) => (container = el)}
       classList={{
-        'waveform--grab':     hover() !== null && !dragging(),
-        'waveform--grabbing': dragging() !== null,
+        'waveform--grab':     hover() !== null && !drag(),
+        'waveform--grabbing': drag()?.kind === 'loop',
       }}
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
@@ -567,6 +673,7 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
   // children boundary, so we re-narrow with typed accessors.
   const asGain = () => props.node as Extract<EffectNode, { kind: 'gain' }>;
   const asCrop = () => props.node as Extract<EffectNode, { kind: 'crop' }>;
+  const asCut  = () => props.node as Extract<EffectNode, { kind: 'cut' }>;
   const asFade = () => props.node as Extract<EffectNode, { kind: 'fadeIn' | 'fadeOut' }>;
   return (
     <Switch>
@@ -624,6 +731,42 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
               props.onPatch({
                 kind: 'crop',
                 params: { startFrame: asCrop().params.startFrame, endFrame: Math.max(0, v) },
+              });
+            }}
+          />
+        </label>
+      </Match>
+      <Match when={props.node.kind === 'cut'}>
+        <label class="effect-node__param">
+          <span class="samplemeta__label">Start (frame)</span>
+          <input
+            type="number"
+            min="0"
+            max={props.sourceFrames}
+            value={asCut().params.startFrame}
+            onInput={(e) => {
+              const v = parseInt(e.currentTarget.value, 10);
+              if (!Number.isFinite(v)) return;
+              props.onPatch({
+                kind: 'cut',
+                params: { startFrame: Math.max(0, v), endFrame: asCut().params.endFrame },
+              });
+            }}
+          />
+        </label>
+        <label class="effect-node__param">
+          <span class="samplemeta__label">End (frame)</span>
+          <input
+            type="number"
+            min="0"
+            max={props.sourceFrames}
+            value={asCut().params.endFrame}
+            onInput={(e) => {
+              const v = parseInt(e.currentTarget.value, 10);
+              if (!Number.isFinite(v)) return;
+              props.onPatch({
+                kind: 'cut',
+                params: { startFrame: asCut().params.startFrame, endFrame: Math.max(0, v) },
               });
             }}
           />

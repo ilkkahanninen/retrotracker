@@ -24,8 +24,9 @@ import {
   insertOrder, deleteOrder, newPatternAtOrder, duplicatePatternAtOrder,
   setSample, clearSample, replaceSampleData,
 } from './core/mod/mutations';
+import { cropSample, cutSample } from './core/mod/sampleSelection';
 import {
-  workbenchFromWav, runPipeline, defaultEffect,
+  workbenchFromWav, runPipeline, runChain, defaultEffect,
   type SampleWorkbench, type EffectNode, type EffectKind, type MonoMix,
 } from './core/audio/sampleWorkbench';
 import {
@@ -479,6 +480,73 @@ export const App: Component = () => {
   };
 
   /**
+   * Map a byte-range selection (over the int8 output the user sees) into the
+   * frame-range that a NEW effect appended to the chain would receive as
+   * input. The new effect operates on the OUTPUT of the existing chain
+   * (post-effects, pre-transformer), not on the source — so we run the chain
+   * once to get its current length and proportionally scale the int8 byte
+   * positions into that frame space.
+   *
+   * Returns null when the chain output is empty or the selection collapses
+   * after rounding.
+   */
+  const selectionToChainFrames = (
+    wb: SampleWorkbench,
+    startByte: number,
+    endByte: number,
+    int8Len: number,
+  ): { startFrame: number; endFrame: number } | null => {
+    const chainOut = runChain(wb.source, wb.chain);
+    const chainLen = chainOut.channels[0]?.length ?? 0;
+    if (chainLen === 0 || int8Len === 0) return null;
+    const startFrame = Math.max(0, Math.min(chainLen, Math.round(startByte * chainLen / int8Len)));
+    const endFrame   = Math.max(startFrame, Math.min(chainLen, Math.round(endByte   * chainLen / int8Len)));
+    if (endFrame - startFrame < 1) return null;
+    return { startFrame, endFrame };
+  };
+
+  /**
+   * Crop / cut the current sample to the selection. When a workbench exists
+   * we APPEND the edit as a Crop or Cut effect on the chain — non-destructive,
+   * the user can drop the effect from the pipeline editor to undo. When no
+   * workbench is present (samples loaded from a `.mod` have no source to
+   * preserve), we fall back to direct int8 mutation via cropSample/cutSample.
+   */
+  const applySelectionEdit = (
+    kind: 'crop' | 'cut',
+    startByte: number,
+    endByte: number,
+  ) => {
+    if (transport() === 'playing') return;
+    const slot = currentSample() - 1;
+    const s = song()?.samples[slot];
+    if (!s) return;
+    const wb = getWorkbench(slot);
+    if (wb) {
+      const frames = selectionToChainFrames(wb, startByte, endByte, s.data.byteLength);
+      if (!frames) return;
+      const effect: EffectNode = { kind, params: frames };
+      updateCurrentWorkbench({ ...wb, chain: [...wb.chain, effect] });
+      return;
+    }
+    // No workbench — destructive int8 mutation, with translated loop. We
+    // intentionally drop nothing here (there's no workbench to drop).
+    const transform = kind === 'crop' ? cropSample : cutSample;
+    const result = transform(s, startByte, endByte);
+    if (!result) return;
+    commitEdit((song) => replaceSampleData(song, slot, result.data, {
+      name: s.name, volume: s.volume, finetune: s.finetune,
+      loopStartWords: result.loopStartWords,
+      loopLengthWords: result.loopLengthWords,
+    }));
+  };
+
+  const cropCurrentSampleToSelection = (start: number, end: number) =>
+    applySelectionEdit('crop', start, end);
+  const cutCurrentSampleSelection = (start: number, end: number) =>
+    applySelectionEdit('cut', start, end);
+
+  /**
    * Apply a workbench's pipeline (chain → PT transformer) and write the
    * resulting int8 into its sample slot. Stamps a sensible default name from
    * the source filename when the slot was empty before — otherwise preserves
@@ -894,6 +962,8 @@ export const App: Component = () => {
                   onLoadWav={loadWavIntoCurrentSample}
                   onClear={clearCurrentSample}
                   onPatch={patchCurrentSample}
+                  onCropToSelection={cropCurrentSampleToSelection}
+                  onCutSelection={cutCurrentSampleSelection}
                   onAddEffect={addEffect}
                   onRemoveEffect={removeEffect}
                   onMoveEffect={moveEffect}

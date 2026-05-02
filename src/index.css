@@ -371,6 +371,31 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 }
 .waveform--grab     { cursor: ew-resize; }
 .waveform--grabbing { cursor: grabbing; }
+
+.sampleview__selection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 8px 0;
+  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-size: 12px;
+}
+.sampleview__selection-info {
+  color: var(--muted);
+  margin-right: auto;
+}
+.sampleview__selection button {
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
+  padding: 4px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+.sampleview__selection button:hover:not(:disabled) { border-color: var(--accent); }
+.sampleview__selection button:disabled { color: var(--muted); cursor: not-allowed; opacity: 0.55; }
 .samplemeta__toggle {
   flex-direction: row !important;
   align-items: center;
