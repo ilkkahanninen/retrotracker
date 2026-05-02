@@ -378,6 +378,16 @@ export class Replayer {
           // pt2-clone sampleOffset (replayer.c:847-862): n_length -= newOffset
           // (in words). Pass the post-offset length so Paula doesn't read past
           // the sample end before looping.
+          //
+          // Note on the PT loopStart=0 quirk: pt2-clone only truncates
+          // n_length to (loopStart + loopLength) when loopStart > 0
+          // (replayer.c:1090-1101); when loopStart == 0, n_length stays at
+          // the full sample length, so the bytes after loopEnd play once
+          // before the loop kicks in. This is genuine Amiga DMA behavior
+          // and we preserve it bug-for-bug. To get the more intuitive
+          // "loop region only" playback, the editor truncates the int8
+          // data so loopEnd == sampleEnd before storing — see
+          // truncateSampleAtLoopEnd in core/mod/mutations.ts.
           const offsetWords = ch.pendingStartOffsetBytes >> 1;
           const initialLengthWords = Math.max(1, sample.lengthWords - offsetWords);
           this.paula.setSample(

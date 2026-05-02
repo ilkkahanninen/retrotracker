@@ -337,6 +337,24 @@ describe('setSample', () => {
     expect(setSample(s, 99, { volume: 50 })).toBe(s);
     expect(setSample(s, -1, { volume: 50 })).toBe(s);
   });
+
+  it('shrinking the loop leaves sample.data intact (truncation happens at the playback boundary, not here)', () => {
+    const s = makeSong();
+    const data = new Int8Array(32);
+    for (let i = 0; i < data.length; i++) data[i] = i;
+    s.samples[0] = {
+      name: 'demo', volume: 64, finetune: 0,
+      lengthWords: 16,
+      loopStartWords: 0, loopLengthWords: 16,
+      data,
+    };
+    const next = setSample(s, 0, { loopLengthWords: 8 });
+    // The full 32 bytes / 16 words of data are preserved — the user can
+    // drag the loop end back outward and reach the trailing portion.
+    expect(next.samples[0]!.data.byteLength).toBe(32);
+    expect(next.samples[0]!.lengthWords).toBe(16);
+    expect(next.samples[0]!.loopLengthWords).toBe(8);
+  });
 });
 
 describe('clearSample', () => {

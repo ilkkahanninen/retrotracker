@@ -383,7 +383,7 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 }
 .sampleview__selection-info {
   color: var(--muted);
-  margin-right: auto;
+  margin-left: 8px;
 }
 .sampleview__selection button {
   background: var(--panel-2);
@@ -405,9 +405,11 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .samplemeta__toggle input[type="checkbox"] { accent-color: var(--accent); }
 
 .samplemeta {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 16px;
+  margin: 8px 0;
   font-family: ui-monospace, 'SFMono-Regular', monospace;
 }
 .samplemeta label {
@@ -422,7 +424,12 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   letter-spacing: 0.06em;
   font-size: 10px;
 }
-.samplemeta__static { color: var(--fg); }
+.samplemeta__static {
+  color: var(--fg);
+  padding: 4px 0;
+  font-size: 13px;
+  white-space: nowrap;
+}
 .samplemeta input[type="text"],
 .samplemeta input[type="number"] {
   background: var(--panel);
@@ -432,7 +439,12 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   padding: 4px 8px;
   font: inherit;
   font-size: 13px;
+  /* Widths chosen so the row reads like a horizontal form: wide enough for
+     the longest plausible value, tight enough that all five fields fit on
+     one line at typical viewport widths. */
 }
+.samplemeta input[type="text"]  { width: 220px; }
+.samplemeta input[type="number"] { width: 80px; }
 .samplemeta input:focus {
   outline: none;
   border-color: var(--accent);
@@ -443,7 +455,7 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   opacity: 0.5;
 }
 .samplemeta__hint {
-  grid-column: 1 / -1;
+  flex-basis: 100%;
   color: var(--muted);
   font-size: 11px;
   margin: 0;

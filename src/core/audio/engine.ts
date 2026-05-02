@@ -1,6 +1,7 @@
 import workletUrl from './worklet?worker&url';
 import type { Sample, Song } from '../mod/types';
 import { PAULA_CLOCK_PAL } from '../mod/format';
+import { songForPlayback } from './loopTruncate';
 import type { WorkletEvent, WorkletMessage } from './worklet';
 
 /**
@@ -45,7 +46,13 @@ export class AudioEngine {
   }
 
   load(song: Song): void {
-    const msg: WorkletMessage = { type: 'load', song };
+    // Snapshot the song with trailing-after-loop bytes dropped for any
+    // looped samples — see loopTruncate.ts. Keeps the editor's stored data
+    // intact (the waveform still shows the full post-pipeline int8) while
+    // the worklet plays a version where loopEnd == sampleEnd, which
+    // sidesteps the PT loopStart=0 quirk so loops sound the way the
+    // editor's preview suggests.
+    const msg: WorkletMessage = { type: 'load', song: songForPlayback(song) };
     this.node.port.postMessage(msg);
   }
 

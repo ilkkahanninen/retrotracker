@@ -258,6 +258,14 @@ export function duplicatePatternAtOrder(song: Song, order: number): Song {
 /**
  * Replace fields on `song.samples[slot]`. Patches the named keys, leaves the
  * rest alone. Returns the same Song reference when nothing actually changed.
+ *
+ * The stored sample.data is the full post-pipeline int8 — we never drop
+ * bytes here, even when the loop ends before sampleEnd. The trailing
+ * portion stays available for the waveform UI to show and for the user to
+ * reach by extending the loop end. The PT loopStart=0 quirk is sidestepped
+ * at the playback boundary instead (see core/audio/loopTruncate.ts), so
+ * loop editing stays non-destructive: drag the loop end inward, drag it
+ * back out, the data is still there.
  */
 export function setSample(song: Song, slot: number, patch: Partial<Sample>): Song {
   if (slot < 0 || slot >= song.samples.length) return song;

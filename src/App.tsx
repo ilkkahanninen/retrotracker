@@ -465,7 +465,13 @@ export const App: Component = () => {
 
   // ─── Sample editing ──────────────────────────────────────────────────────
 
-  /** Patch metadata fields on the currently-selected sample. */
+  /**
+   * Patch metadata fields on the currently-selected sample. Gated on
+   * `transport !== 'playing'` to match commitEdit's invariant (edits during
+   * playback would diverge the on-screen state from the worklet's clone).
+   * The SampleView visually disables its meta controls while playing so
+   * users see why their click had no effect.
+   */
   const patchCurrentSample = (patch: Parameters<typeof setSample>[2]) => {
     if (transport() === 'playing') return;
     commitEdit((song) => setSample(song, currentSample() - 1, patch));

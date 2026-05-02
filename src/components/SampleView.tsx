@@ -3,6 +3,7 @@ import type { Sample, Song } from '../core/mod/types';
 import { currentSample } from '../state/edit';
 import { workbenches } from '../state/sampleWorkbench';
 import { previewFrame } from '../state/preview';
+import { transport } from '../state/song';
 import {
   EFFECT_KINDS, EFFECT_LABELS,
   type EffectKind, type EffectNode, type MonoMix, type SampleWorkbench,
@@ -64,6 +65,16 @@ export const SampleView: Component<Props> = (props) => {
     () => workbenches().get(currentSample() - 1) ?? null,
   );
 
+  // Sample-meta edits go through `commitEdit`, which is gated on
+  // `transport !== 'playing'` to keep the on-screen song in sync with what
+  // the worklet is actually rendering. We mirror that gate visually here
+  // so the user sees exactly why a click had no effect — without this,
+  // toggling Loop mid-playback would briefly flicker checked before Solid
+  // reactively reverted it, and the song would silently miss the edit
+  // (which exactly matches the "loop works in preview but not in song
+  // play" report — the user toggled while playing).
+  const editingDisabled = createMemo(() => transport() === 'playing');
+
   // Drag-selection state. Lives at SampleView level because both the Waveform
   // (which draws the overlay and handles the drag) and the action buttons
   // below it (Crop / Cut) need access. Selection is in BYTE indices over
@@ -109,49 +120,38 @@ export const SampleView: Component<Props> = (props) => {
           selection={selection()}
           onSelect={setSelection}
         />
-        <Show when={selection()}>
-          <div class="sampleview__selection">
+        {/* Selection-action row: always rendered so the buttons don't
+            shift in and out as the user drags. They disable when there's
+            nothing meaningful to crop/cut. */}
+        <div class="sampleview__selection">
+          <button
+            type="button"
+            onClick={() => {
+              const sel = selection();
+              if (!sel) return;
+              props.onCropToSelection(sel.start, sel.end);
+              setSelection(null);
+            }}
+            disabled={!selection() || selection()!.end - selection()!.start < 2}
+            title="Keep the selected range, discard the rest"
+          >Crop</button>
+          <button
+            type="button"
+            onClick={() => {
+              const sel = selection();
+              if (!sel) return;
+              props.onCutSelection(sel.start, sel.end);
+              setSelection(null);
+            }}
+            disabled={!selection() || selection()!.end - selection()!.start < 2}
+            title="Remove the selected range, keep the rest"
+          >Cut</button>
+          <Show when={selection()}>
             <span class="sampleview__selection-info">
               Selection: bytes {selection()!.start} – {selection()!.end} ({selection()!.end - selection()!.start} bytes)
             </span>
-            <button
-              type="button"
-              onClick={() => {
-                const sel = selection()!;
-                props.onCropToSelection(sel.start, sel.end);
-                setSelection(null);
-              }}
-              disabled={selection()!.end - selection()!.start < 2}
-              title="Keep the selected range, discard the rest"
-            >Crop to selection</button>
-            <button
-              type="button"
-              onClick={() => {
-                const sel = selection()!;
-                props.onCutSelection(sel.start, sel.end);
-                setSelection(null);
-              }}
-              disabled={selection()!.end - selection()!.start < 2}
-              title="Remove the selected range, keep the rest"
-            >Cut selection</button>
-            <button
-              type="button"
-              onClick={() => setSelection(null)}
-              title="Clear the selection"
-            >Clear</button>
-          </div>
-        </Show>
-        <Show when={workbench()}>
-          <PipelineEditor
-            wb={workbench()!}
-            onAddEffect={props.onAddEffect}
-            onRemoveEffect={props.onRemoveEffect}
-            onMoveEffect={props.onMoveEffect}
-            onPatchEffect={props.onPatchEffect}
-            onSetMonoMix={props.onSetMonoMix}
-            onSetTargetNote={props.onSetTargetNote}
-          />
-        </Show>
+          </Show>
+        </div>
         <div class="samplemeta">
           <label>
             <span class="samplemeta__label">Name</span>
@@ -160,6 +160,7 @@ export const SampleView: Component<Props> = (props) => {
               maxLength={SAMPLE_NAME_MAX}
               value={sample()!.name}
               placeholder="(unnamed)"
+              disabled={editingDisabled()}
               onInput={(e) => props.onPatch({ name: e.currentTarget.value })}
             />
           </label>
@@ -176,6 +177,7 @@ export const SampleView: Component<Props> = (props) => {
               min={0}
               max={PT_VOLUME_MAX}
               value={sample()!.volume}
+              disabled={editingDisabled()}
               onInput={(e) => {
                 const v = parseInt(e.currentTarget.value, 10);
                 if (!Number.isFinite(v)) return;
@@ -192,6 +194,7 @@ export const SampleView: Component<Props> = (props) => {
               min={PT_FINETUNE_MIN}
               max={PT_FINETUNE_MAX}
               value={signedFinetune(sample()!.finetune)}
+              disabled={editingDisabled()}
               onInput={(e) => {
                 const v = parseInt(e.currentTarget.value, 10);
                 if (!Number.isFinite(v)) return;
@@ -203,11 +206,27 @@ export const SampleView: Component<Props> = (props) => {
             <input
               type="checkbox"
               checked={isLooping()}
-              disabled={sample()!.lengthWords === 0}
+              disabled={sample()!.lengthWords === 0 || editingDisabled()}
               onChange={(e) => {
                 if (e.currentTarget.checked) {
-                  // Default loop = whole sample. The user fine-tunes by
-                  // dragging the loop handles on the waveform.
+                  // If the user has drawn a selection, adopt it as the loop
+                  // range and drop the selection — the loop handles take
+                  // over the same role visually. Round inward to word
+                  // boundaries (PT's loop fields are word-aligned).
+                  const sel = selection();
+                  if (sel) {
+                    const start = (sel.start + 1) & ~1;
+                    const end   = sel.end & ~1;
+                    if (end - start >= 2) {
+                      props.onPatch({
+                        loopStartWords:  start >> 1,
+                        loopLengthWords: (end - start) >> 1,
+                      });
+                      setSelection(null);
+                      return;
+                    }
+                  }
+                  // No (usable) selection — default loop = whole sample.
                   props.onPatch({ loopStartWords: 0, loopLengthWords: sample()!.lengthWords });
                 } else {
                   // PT no-loop sentinel.
@@ -223,6 +242,17 @@ export const SampleView: Component<Props> = (props) => {
             </p>
           </Show>
         </div>
+        <Show when={workbench()}>
+          <PipelineEditor
+            wb={workbench()!}
+            onAddEffect={props.onAddEffect}
+            onRemoveEffect={props.onRemoveEffect}
+            onMoveEffect={props.onMoveEffect}
+            onPatchEffect={props.onPatchEffect}
+            onSetMonoMix={props.onSetMonoMix}
+            onSetTargetNote={props.onSetTargetNote}
+          />
+        </Show>
       </Show>
     </div>
   );
