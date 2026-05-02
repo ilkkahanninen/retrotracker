@@ -30,8 +30,10 @@ describe('view switching', () => {
     expect(view()).toBe('pattern');
     // Pattern view shows the order pane.
     expect(container.querySelector('.app__order')).not.toBeNull();
-    // No sample editor.
-    expect(container.querySelector('.sampleview')).toBeNull();
+    // The sample editor stays mounted (so toggling the view doesn't
+    // rebuild its DOM), but its wrapper carries `view-hidden` while
+    // pattern view is active.
+    expect(container.querySelector('.sampleview-wrapper.view-hidden')).not.toBeNull();
   });
 
   it('clicking the Sample tab switches to the sample editor and hides the order pane', async () => {
@@ -39,7 +41,9 @@ describe('view switching', () => {
     const user = userEvent.setup();
     await user.click(container.querySelectorAll<HTMLButtonElement>('.viewtabs button')[1]!);
     expect(view()).toBe('sample');
-    expect(container.querySelector('.sampleview')).not.toBeNull();
+    // Sample wrapper is now visible, pattern wrapper carries view-hidden.
+    expect(container.querySelector('.sampleview-wrapper.view-hidden')).toBeNull();
+    expect(container.querySelector('.patternpane.view-hidden')).not.toBeNull();
     expect(container.querySelector('.app__order')).toBeNull();
   });
 

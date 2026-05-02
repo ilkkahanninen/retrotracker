@@ -25,13 +25,20 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('PatternGrid rendering', () => {
-  it('renders one row per pattern row plus a header', () => {
+  it('virtualizes: spacer reflects the full pattern, only the visible slice renders', () => {
+    // The grid renders only the buffer of rows around the viewport; the
+    // spacer's height proves it tracks all 64 rows. (jsdom reports
+    // clientHeight=0 so the slice is just the buffer's worth.)
     const { container } = render(() => (
       <PatternGrid song={songFixture()} pos={{ order: 0, row: 0 }} active={false} />
     ));
-    const rows = container.querySelectorAll('.patgrid__row');
-    expect(rows.length).toBe(64);
     expect(container.querySelector('.patgrid__header')).not.toBeNull();
+    const spacer = container.querySelector<HTMLElement>('.patgrid__rows-spacer')!;
+    // 64 rows × 19px = 1216px.
+    expect(spacer.style.height).toBe('1216px');
+    const rows = container.querySelectorAll('.patgrid__row');
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.length).toBeLessThanOrEqual(64);
   });
 
   it('marks the playhead row with --active during playback', () => {

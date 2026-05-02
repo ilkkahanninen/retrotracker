@@ -73,13 +73,47 @@ function base64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
+/**
+ * Cached base64 encoding of the most recently encoded Song. The autosave
+ * effect fires on every cursor move / view toggle / current-sample change,
+ * but the song itself rarely changes between those firings. Re-running
+ * writeModule + base64 on a 16-pattern song with samples is ~10–50 ms of
+ * synchronous work; reusing the cached string when `state.song === lastSong`
+ * keeps a Cmd+S / autosave roundtrip in the sub-millisecond range.
+ *
+ * We compare by reference because every commit produces a new Song —
+ * `commitEdit` builds the new song immutably, so reference equality is a
+ * sound proxy for "song unchanged". A direct `setSong` from outside the
+ * commit path would invalidate the cache the moment it's called.
+ */
+let lastSong: Song | null = null;
+let lastBase64: string | null = null;
+
+/** Encode the song to base64, returning the cached value when possible.
+ *  Exposed for tests via `__resetEncodeCacheForTests`. */
+function encodeSongCached(song: Song): string {
+  if (lastSong === song && lastBase64 !== null) return lastBase64;
+  const b64 = bytesToBase64(writeModule(song));
+  lastSong = song;
+  lastBase64 = b64;
+  return b64;
+}
+
+/** Test hook — reset the encode cache between tests so a song that
+ *  happens to hold the same JS reference across `setSong(null)` boundaries
+ *  doesn't return the previous encoding by mistake. */
+export function __resetEncodeCacheForTests(): void {
+  lastSong = null;
+  lastBase64 = null;
+}
+
 /** Build the on-the-wire payload — song goes through writeModule + base64
  *  so we re-use the lossless M.K. binary instead of inventing a JSON shape
  *  for the sample data.  Throws if `writeModule` rejects the song. */
 function buildPayload(state: SessionInputs): PersistedShape {
   return {
     v: 1,
-    songBase64: bytesToBase64(writeModule(state.song)),
+    songBase64: encodeSongCached(state.song),
     filename: state.filename,
     view: state.view,
     cursor: state.cursor,

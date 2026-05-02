@@ -194,7 +194,11 @@ body {
 }
 .app__main > .dropzone { place-self: center; }
 .app__main > .patternpane,
-.app__main > .sampleview { min-height: 0; }
+.app__main > .sampleview-wrapper { min-height: 0; min-width: 0; }
+/* Both panes stay mounted; the inactive one is hidden via this class so
+ * toggling the view is a single CSS swap instead of an unmount + remount
+ * of the heavy pattern grid (~2400 spans + per-cell mousedown handlers). */
+.view-hidden { display: none !important; }
 
 h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 8px; }
 
@@ -341,24 +345,39 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .patgrid__rows {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 16px;
   scroll-behavior: auto;
-  /* Make scroller the offsetParent so child.offsetTop is in the same frame
-     as scroller.scrollTop — the follow-cursor math depends on it. */
+  /* Make scroller the offsetParent so the virtualizer's translated rows
+     position against `scrollTop` correctly. */
   position: relative;
+}
+/* Inner placeholder gives the scrollbar the full virtual height (= total
+ * flat-row count × ROW_HEIGHT). Visible rows are absolutely positioned
+ * inside it by the virtualizer at top: index × ROW_HEIGHT. */
+.patgrid__rows-spacer {
+  position: relative;
+  width: 100%;
 }
 .patgrid__row {
   display: grid;
   grid-template-columns: 36px repeat(4, 1fr);
-  padding: 0 0;
+  padding: 0 16px;
   border-radius: 2px;
+  /* Locked height so the virtualizer can compute scroll positions without
+   * measuring each row. Matches font-size 13 × line-height 1.4 ≈ 19px. */
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 19px;
+  line-height: 19px;
+  box-sizing: border-box;
 }
 .patgrid__row--beat { background: rgba(255, 255, 255, 0.025); }
 .patgrid__row--bar  { background: rgba(94, 200, 255, 0.07); box-shadow: inset 2px 0 0 var(--accent); }
+/* Note: the boundary marker used to be a top border + margin; with rows
+ * absolutely positioned we render a separate ::before line within the
+ * row's own box so it stays aligned without growing the row height. */
 .patgrid__row--boundary {
   border-top: 2px dashed var(--muted);
-  margin-top: 6px;
-  padding-top: 6px;
 }
 .patgrid__part--empty { opacity: 0.3; }
 .patgrid__row--cursor { background: var(--accent-dim); }

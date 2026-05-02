@@ -167,7 +167,11 @@ describe('Open: file-input sniff routes by extension', () => {
       cursor: { order: 0, row: 11, channel: 1, field: 'sampleLo' },
       currentSample: 9, currentOctave: 3, editStep: 4,
     });
-    const file = new File([projectBytes], 'Loaded.retro', { type: 'application/json' });
+    // Copy into a fresh ArrayBuffer so the BlobPart type narrows cleanly
+    // (TS's File ctor doesn't accept ArrayBufferLike).
+    const buf = new ArrayBuffer(projectBytes.byteLength);
+    new Uint8Array(buf).set(projectBytes);
+    const file = new File([buf], 'Loaded.retro', { type: 'application/json' });
 
     const input = container.querySelector<HTMLInputElement>(
       'input[type="file"][accept*=".retro"]',

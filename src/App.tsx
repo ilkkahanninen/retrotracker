@@ -1824,26 +1824,16 @@ export const App: Component = () => {
           }
         >
           {(s) => (
-            <Show
-              when={view() === "pattern"}
-              fallback={
-                <SampleView
-                  song={s()}
-                  onLoadWav={loadWavIntoCurrentSample}
-                  onClear={clearCurrentSample}
-                  onPatch={patchCurrentSample}
-                  onCropToSelection={cropCurrentSampleToSelection}
-                  onCutSelection={cutCurrentSampleSelection}
-                  onAddEffect={addEffect}
-                  onRemoveEffect={removeEffect}
-                  onMoveEffect={moveEffect}
-                  onPatchEffect={patchEffect}
-                  onSetMonoMix={setMonoMix}
-                  onSetTargetNote={setTargetNote}
-                />
-              }
-            >
-              <div class="patternpane">
+            // Both panes stay mounted; only their visibility flips with the
+            // view signal. Toggling unmount/mount used to rebuild ~2400
+            // PatternGrid spans (and their listeners) on every switch,
+            // which the user felt as a noticeable lag — keeping the trees
+            // alive turns the toggle into a single CSS class swap.
+            <>
+              <div
+                class="patternpane"
+                classList={{ "view-hidden": view() !== "pattern" }}
+              >
                 <div class="patternpane__meta">
                   <span class="patternpane__title">
                     {s().title || <em>(untitled)</em>}
@@ -1900,7 +1890,26 @@ export const App: Component = () => {
                   onCellClick={applyCursor}
                 />
               </div>
-            </Show>
+              <div
+                class="sampleview-wrapper"
+                classList={{ "view-hidden": view() !== "sample" }}
+              >
+                <SampleView
+                  song={s()}
+                  onLoadWav={loadWavIntoCurrentSample}
+                  onClear={clearCurrentSample}
+                  onPatch={patchCurrentSample}
+                  onCropToSelection={cropCurrentSampleToSelection}
+                  onCutSelection={cutCurrentSampleSelection}
+                  onAddEffect={addEffect}
+                  onRemoveEffect={removeEffect}
+                  onMoveEffect={moveEffect}
+                  onPatchEffect={patchEffect}
+                  onSetMonoMix={setMonoMix}
+                  onSetTargetNote={setTargetNote}
+                />
+              </div>
+            </>
           )}
         </Show>
       </main>

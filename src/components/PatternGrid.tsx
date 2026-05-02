@@ -1,4 +1,4 @@
-import { For, Index, Show, createEffect, createMemo, onCleanup, untrack, type Component } from 'solid-js';
+import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack, type Component } from 'solid-js';
 import type { Note, Song } from '../core/mod/types';
 import { CHANNELS } from '../core/mod/types';
 import { PERIOD_TABLE } from '../core/mod/format';
@@ -94,17 +94,75 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
 
   let scroller: HTMLDivElement | undefined;
 
+  // ── Virtualization ─────────────────────────────────────────────────────
+  // Big songs (16+ patterns × 64 rows) used to mount all 1024 flat rows
+  // at once — ~40k DOM nodes — making load / view-toggle / new feel
+  // sluggish. We instead render only the rows currently in (or near) the
+  // viewport and absolute-position them inside a tall placeholder; the
+  // scrollbar represents the full song while only ~80 rows live in DOM.
+  //
+  // ROW_HEIGHT is locked in CSS (.patgrid__row { height: 19px }) so we can
+  // compute every row's position arithmetically without measuring.
+  const ROW_HEIGHT = 19;
+  /** Extra rows rendered above / below the viewport so quick scrolls
+   *  don't reveal blank gaps before the next viewport tick. */
+  const ROW_BUFFER = 12;
+
+  const [scrollTop, setScrollTop] = createSignal(0);
+  const [viewportHeight, setViewportHeight] = createSignal(0);
+
+  /** Half-open [start, end) of the slice currently mounted. Always
+   *  clamped to the flat list bounds. */
+  const visibleRange = createMemo(() => {
+    const total = flat().length;
+    if (total === 0) return { start: 0, end: 0 };
+    const top = scrollTop();
+    const h = viewportHeight();
+    const startIdx = Math.max(0, Math.floor(top / ROW_HEIGHT) - ROW_BUFFER);
+    const endIdx = Math.min(total, Math.ceil((top + h) / ROW_HEIGHT) + ROW_BUFFER);
+    return { start: startIdx, end: endIdx };
+  });
+
+  /** flat() limited to visibleRange. Re-rendered cheaply because we use
+   *  Index keyed by position — small slice changes only touch the diff. */
+  const visibleRows = createMemo(() => {
+    const { start, end } = visibleRange();
+    return flat().slice(start, end);
+  });
+
+  const onScroll = (e: Event) => {
+    setScrollTop((e.currentTarget as HTMLElement).scrollTop);
+  };
+
+  // Sync viewportHeight with the scroller's clientHeight. ResizeObserver
+  // covers window resize + the view-hidden CSS toggle (when the pattern
+  // pane becomes visible again, clientHeight transitions from 0 to its
+  // real value, and we need the new visibleRange right away).
+  onMount(() => {
+    if (!scroller) return;
+    setViewportHeight(scroller.clientHeight);
+    const RO = (typeof ResizeObserver !== 'undefined') ? ResizeObserver : null;
+    if (!RO) return;
+    const ro = new RO((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      setViewportHeight(entry.contentRect.height);
+    });
+    ro.observe(scroller);
+    onCleanup(() => ro.disconnect());
+  });
+
   // Center the playhead row when the song is playing. We skip this when
   // stopped because in that mode the playhead tracks the cursor — the
-  // margin-based cursor scroller below handles it more gently.
+  // margin-based cursor scroller below handles it more gently. With
+  // virtualization the row's pixel position is known arithmetically
+  // (`idx * ROW_HEIGHT`) so we don't need the row to be in the DOM.
   createEffect(() => {
     if (!props.active) return;
     const idx = activeFlatIndex();
     if (idx < 0 || !scroller) return;
-    const child = scroller.children[idx] as HTMLElement | undefined;
-    if (!child) return;
-    const target = child.offsetTop - scroller.clientHeight / 2 + child.clientHeight / 2;
-    scroller.scrollTop = target;
+    const top = idx * ROW_HEIGHT;
+    scroller.scrollTop = top - scroller.clientHeight / 2 + ROW_HEIGHT / 2;
   });
 
   // Keep the cursor visible as the user navigates with arrows. We pad the
@@ -114,12 +172,9 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
     if (props.active) return;
     const idx = cursorFlatIndex();
     if (idx < 0 || !scroller) return;
-    const child = scroller.children[idx] as HTMLElement | undefined;
-    if (!child) return;
-    const rowH = child.clientHeight;
-    const margin = rowH * 2;
-    const top = child.offsetTop;
-    const bottom = top + rowH;
+    const margin = ROW_HEIGHT * 2;
+    const top = idx * ROW_HEIGHT;
+    const bottom = top + ROW_HEIGHT;
     const viewTop = scroller.scrollTop;
     const viewBottom = viewTop + scroller.clientHeight;
     if (top - margin < viewTop) {
@@ -147,9 +202,7 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
     if (untrack(() => props.active)) return;
     const idx = untrack(cursorFlatIndex);
     if (idx < 0 || !scroller) return;
-    const child = scroller.children[idx] as HTMLElement | undefined;
-    if (!child) return;
-    scroller.scrollTop = child.offsetTop;
+    scroller.scrollTop = idx * ROW_HEIGHT;
   });
 
   /** True if the cursor is on (this row, this channel, this field). Hidden during playback. */
@@ -247,144 +300,160 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
         </For>
       </div>
       <Show when={flat().length > 0} fallback={<p class="placeholder">No pattern</p>}>
-        <div class="patgrid__rows" ref={(el) => (scroller = el)}>
-          {/* <Index> keeps row DOM mounted at each position; only the reactive
-              expressions inside re-evaluate when the row's data changes. This
-              makes column-shifting edits (Backspace / Enter, which rewrite
-              every Note[] from the cursor downward) O(changed cells) instead
-              of O(remounted rows) — the inner <For> over cells then preserves
-              the 3 unchanged channel cells per row by Note reference. */}
-          <Index each={flat()}>
-            {(item, i) => {
-              const rowIndex = createMemo(() => item().rowIndex);
-              const beat = createMemo(() => rowsPerBeat());
-              const bar = createMemo(() => beat() * beatsPerBar());
-              const isBeat = createMemo(() => beat() > 0 && rowIndex() % beat() === 0);
-              const isBar = createMemo(() => bar() > 0 && rowIndex() % bar() === 0);
-              return (
-                <div
-                  class="patgrid__row"
-                  classList={{
-                    'patgrid__row--beat': isBeat() && !isBar(),
-                    'patgrid__row--bar': isBar(),
-                    'patgrid__row--boundary': item().boundaryAbove,
-                    'patgrid__row--active': props.active && i === activeFlatIndex(),
-                    'patgrid__row--cursor': !props.active && i === activeFlatIndex(),
-                  }}
-                >
-                  <span class="patgrid__num">
-                    {rowIndex().toString(16).toUpperCase().padStart(2, '0')}
-                  </span>
-                  <For each={item().cells}>
-                    {(note, ch) => {
-                      const eff = createMemo(() => effectChars(note));
-                      const samp = createMemo(() => sampleChars(note));
-                      const blank = createMemo(() => note.effect === 0 && note.effectParam === 0);
-                      // mousedown → place the cursor at this cell's sub-field
-                      // AND open a drag anchor on this cell. The cell-level
-                      // fallback (mousedown on padding around the characters)
-                      // lands on `note`, mirroring FT2's "click anywhere on
-                      // the cell to focus its note column".
-                      const focusAndDrag = (e: MouseEvent, field: Field) => {
-                        if (e.button !== 0) return;
-                        const it = item();
-                        props.onCellClick?.({
-                          order: it.order, row: it.rowIndex,
-                          channel: ch(), field,
-                        });
-                        startDrag(it.order, it.rowIndex, ch());
-                      };
-                      // Selection highlight: ".patgrid__cell--selected" sits
-                      // on the cell wrapper so its background paints under
-                      // the field characters; the cursor-field underline
-                      // remains legible because it has its own colour.
-                      const isSelected = createMemo(() => {
-                        const sel = selection();
-                        if (!sel) return false;
-                        if (sel.order !== item().order) return false;
-                        return selectionContains(sel, item().rowIndex, ch());
-                      });
-                      return (
-                        <span
-                          class="patgrid__cell"
-                          classList={{ 'patgrid__cell--selected': isSelected() }}
-                          attr:data-order={item().order}
-                          attr:data-row={item().rowIndex}
-                          attr:data-channel={ch()}
-                          onMouseDown={(e) => focusAndDrag(e, 'note')}
-                        >
-                          <span
-                            class="patgrid__note"
-                            classList={{
-                              'patgrid__part--empty': note.period === 0,
-                              'patgrid__field--cursor': isCursorAt(i, ch(), 'note'),
-                            }}
-                            onMouseDown={(e) => { e.stopPropagation(); focusAndDrag(e, 'note'); }}
-                          >
-                            {periodToNoteName(note.period)}
-                          </span>
-                          <span class="patgrid__samp">
-                            <span
-                              class="patgrid__samp-char"
-                              classList={{
-                                'patgrid__part--empty': note.sample === 0,
-                                'patgrid__field--cursor': isCursorAt(i, ch(), 'sampleHi'),
-                              }}
-                              onMouseDown={(e) => { e.stopPropagation(); focusAndDrag(e, 'sampleHi'); }}
-                            >
-                              {samp().hi}
-                            </span>
-                            <span
-                              class="patgrid__samp-char"
-                              classList={{
-                                'patgrid__part--empty': note.sample === 0,
-                                'patgrid__field--cursor': isCursorAt(i, ch(), 'sampleLo'),
-                              }}
-                              onMouseDown={(e) => { e.stopPropagation(); focusAndDrag(e, 'sampleLo'); }}
-                            >
-                              {samp().lo}
-                            </span>
-                          </span>
-                          <span class="patgrid__eff">
-                            <span
-                              class="patgrid__eff-char"
-                              classList={{
-                                'patgrid__part--empty': blank(),
-                                'patgrid__field--cursor': isCursorAt(i, ch(), 'effectCmd'),
-                              }}
-                              onMouseDown={(e) => { e.stopPropagation(); focusAndDrag(e, 'effectCmd'); }}
-                            >
-                              {eff().cmd}
-                            </span>
-                            <span
-                              class="patgrid__eff-char"
-                              classList={{
-                                'patgrid__part--empty': blank(),
-                                'patgrid__field--cursor': isCursorAt(i, ch(), 'effectHi'),
-                              }}
-                              onMouseDown={(e) => { e.stopPropagation(); focusAndDrag(e, 'effectHi'); }}
-                            >
-                              {eff().hi}
-                            </span>
-                            <span
-                              class="patgrid__eff-char"
-                              classList={{
-                                'patgrid__part--empty': blank(),
-                                'patgrid__field--cursor': isCursorAt(i, ch(), 'effectLo'),
-                              }}
-                              onMouseDown={(e) => { e.stopPropagation(); focusAndDrag(e, 'effectLo'); }}
-                            >
-                              {eff().lo}
-                            </span>
-                          </span>
-                        </span>
-                      );
+        <div
+          class="patgrid__rows"
+          ref={(el) => (scroller = el)}
+          onScroll={onScroll}
+        >
+          {/* Spacer fills the scroll height so the scrollbar reflects the
+              full song, not just the visible slice. Visible rows are
+              absolutely positioned inside it at top: idx × ROW_HEIGHT. */}
+          <div
+            class="patgrid__rows-spacer"
+            style={{ height: `${flat().length * ROW_HEIGHT}px` }}
+          >
+            {/* <Index> over the visible slice keeps row DOM stable across
+                small slice shifts (cursor nav within the buffer). On a
+                bigger jump (PageDown / scroll) the slice diff is small
+                enough that the mount cost stays in the millisecond range. */}
+            <Index each={visibleRows()}>
+              {(item, sliceIdx) => {
+                const flatIdx = createMemo(() => visibleRange().start + sliceIdx);
+                const rowIndex = createMemo(() => item().rowIndex);
+                const isBeat = createMemo(() => {
+                  const b = rowsPerBeat();
+                  return b > 0 && rowIndex() % b === 0;
+                });
+                const isBar = createMemo(() => {
+                  const bar = rowsPerBeat() * beatsPerBar();
+                  return bar > 0 && rowIndex() % bar === 0;
+                });
+                return (
+                  <div
+                    class="patgrid__row"
+                    style={{ top: `${flatIdx() * ROW_HEIGHT}px` }}
+                    classList={{
+                      'patgrid__row--beat': isBeat() && !isBar(),
+                      'patgrid__row--bar': isBar(),
+                      'patgrid__row--boundary': item().boundaryAbove,
+                      'patgrid__row--active': props.active && flatIdx() === activeFlatIndex(),
+                      'patgrid__row--cursor': !props.active && flatIdx() === activeFlatIndex(),
                     }}
-                  </For>
-                </div>
-              );
-            }}
-          </Index>
+                  >
+                    <span class="patgrid__num">
+                      {rowIndex().toString(16).toUpperCase().padStart(2, '0')}
+                    </span>
+                    <For each={item().cells}>
+                      {(note, ch) => {
+                        const eff = createMemo(() => effectChars(note));
+                        const samp = createMemo(() => sampleChars(note));
+                        const blank = createMemo(() => note.effect === 0 && note.effectParam === 0);
+                        // mousedown → place the cursor at this cell's sub-field
+                        // AND open a drag anchor on this cell. The cell-level
+                        // fallback (mousedown on padding around the characters)
+                        // lands on `note`, mirroring FT2's "click anywhere on
+                        // the cell to focus its note column".
+                        const focusAndDrag = (e: MouseEvent, field: Field) => {
+                          if (e.button !== 0) return;
+                          const it = item();
+                          props.onCellClick?.({
+                            order: it.order, row: it.rowIndex,
+                            channel: ch(), field,
+                          });
+                          startDrag(it.order, it.rowIndex, ch());
+                        };
+                        // Selection highlight: ".patgrid__cell--selected" sits
+                        // on the cell wrapper so its background paints under
+                        // the field characters; the cursor-field underline
+                        // remains legible because it has its own colour.
+                        const isSelected = createMemo(() => {
+                          const sel = selection();
+                          if (!sel) return false;
+                          if (sel.order !== item().order) return false;
+                          return selectionContains(sel, item().rowIndex, ch());
+                        });
+                        return (
+                          <span
+                            class="patgrid__cell"
+                            classList={{ 'patgrid__cell--selected': isSelected() }}
+                            attr:data-order={item().order}
+                            attr:data-row={item().rowIndex}
+                            attr:data-channel={ch()}
+                            onMouseDown={(e) => focusAndDrag(e, 'note')}
+                          >
+                            <span
+                              class="patgrid__note"
+                              classList={{
+                                'patgrid__part--empty': note.period === 0,
+                                'patgrid__field--cursor': isCursorAt(flatIdx(), ch(), 'note'),
+                              }}
+                              onMouseDown={(e) => { e.stopPropagation(); focusAndDrag(e, 'note'); }}
+                            >
+                              {periodToNoteName(note.period)}
+                            </span>
+                            <span class="patgrid__samp">
+                              <span
+                                class="patgrid__samp-char"
+                                classList={{
+                                  'patgrid__part--empty': note.sample === 0,
+                                  'patgrid__field--cursor': isCursorAt(flatIdx(), ch(), 'sampleHi'),
+                                }}
+                                onMouseDown={(e) => { e.stopPropagation(); focusAndDrag(e, 'sampleHi'); }}
+                              >
+                                {samp().hi}
+                              </span>
+                              <span
+                                class="patgrid__samp-char"
+                                classList={{
+                                  'patgrid__part--empty': note.sample === 0,
+                                  'patgrid__field--cursor': isCursorAt(flatIdx(), ch(), 'sampleLo'),
+                                }}
+                                onMouseDown={(e) => { e.stopPropagation(); focusAndDrag(e, 'sampleLo'); }}
+                              >
+                                {samp().lo}
+                              </span>
+                            </span>
+                            <span class="patgrid__eff">
+                              <span
+                                class="patgrid__eff-char"
+                                classList={{
+                                  'patgrid__part--empty': blank(),
+                                  'patgrid__field--cursor': isCursorAt(flatIdx(), ch(), 'effectCmd'),
+                                }}
+                                onMouseDown={(e) => { e.stopPropagation(); focusAndDrag(e, 'effectCmd'); }}
+                              >
+                                {eff().cmd}
+                              </span>
+                              <span
+                                class="patgrid__eff-char"
+                                classList={{
+                                  'patgrid__part--empty': blank(),
+                                  'patgrid__field--cursor': isCursorAt(flatIdx(), ch(), 'effectHi'),
+                                }}
+                                onMouseDown={(e) => { e.stopPropagation(); focusAndDrag(e, 'effectHi'); }}
+                              >
+                                {eff().hi}
+                              </span>
+                              <span
+                                class="patgrid__eff-char"
+                                classList={{
+                                  'patgrid__part--empty': blank(),
+                                  'patgrid__field--cursor': isCursorAt(flatIdx(), ch(), 'effectLo'),
+                                }}
+                                onMouseDown={(e) => { e.stopPropagation(); focusAndDrag(e, 'effectLo'); }}
+                              >
+                                {eff().lo}
+                              </span>
+                            </span>
+                          </span>
+                        );
+                      }}
+                    </For>
+                  </div>
+                );
+              }}
+            </Index>
+          </div>
         </div>
       </Show>
     </div>
