@@ -91,20 +91,27 @@ export class AudioEngine {
       this.previewSource = null;
     }
 
+    // Store the buffer at the context's native rate (always ≥ 8 kHz, so it
+    // sails past per-browser createBuffer minima) and let `playbackRate` do
+    // the pitch shift. If we instead set the buffer's own sampleRate to the
+    // Paula rate, low notes like C-1 (~4144 Hz) trip the Web Audio floor in
+    // some browsers and the call throws — silent preview on the lowest octave.
     const paulaRate = PAULA_CLOCK_PAL / (period * 2);
-    // Browsers reject AudioBuffers outside roughly 3–96 kHz. Clamp defensively.
-    const safeRate = Math.max(3000, Math.min(192000, paulaRate));
+    const bufferRate = this.ctx.sampleRate;
 
-    const buffer = this.ctx.createBuffer(1, sample.data.byteLength, safeRate);
+    const buffer = this.ctx.createBuffer(1, sample.data.byteLength, bufferRate);
     const channel = buffer.getChannelData(0);
     for (let i = 0; i < sample.data.byteLength; i++) channel[i] = sample.data[i]! / 128;
 
     const source = this.ctx.createBufferSource();
     source.buffer = buffer;
+    source.playbackRate.value = paulaRate / bufferRate;
     if (sample.loopLengthWords > 1) {
+      // Loop boundaries are in seconds of buffer time, so they scale by
+      // bufferRate (not paulaRate) — playbackRate stretches them at playback.
       source.loop = true;
-      source.loopStart = (sample.loopStartWords * 2) / safeRate;
-      source.loopEnd = ((sample.loopStartWords + sample.loopLengthWords) * 2) / safeRate;
+      source.loopStart = (sample.loopStartWords * 2) / bufferRate;
+      source.loopEnd = ((sample.loopStartWords + sample.loopLengthWords) * 2) / bufferRate;
     }
 
     const gain = this.ctx.createGain();
