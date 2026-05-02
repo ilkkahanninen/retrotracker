@@ -73,18 +73,13 @@ function base64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
-/** Persist the inputs to localStorage. Silent on quota / SecurityErrors. */
-export function saveSession(state: SessionInputs): void {
-  let bytes: Uint8Array;
-  try {
-    bytes = writeModule(state.song);
-  } catch {
-    // Song shape unwritable (shouldn't happen with anything we built) — bail.
-    return;
-  }
-  const payload: PersistedShape = {
+/** Build the on-the-wire payload — song goes through writeModule + base64
+ *  so we re-use the lossless M.K. binary instead of inventing a JSON shape
+ *  for the sample data.  Throws if `writeModule` rejects the song. */
+function buildPayload(state: SessionInputs): PersistedShape {
+  return {
     v: 1,
-    songBase64: bytesToBase64(bytes),
+    songBase64: bytesToBase64(writeModule(state.song)),
     filename: state.filename,
     view: state.view,
     cursor: state.cursor,
@@ -92,6 +87,39 @@ export function saveSession(state: SessionInputs): void {
     currentOctave: state.currentOctave,
     editStep: state.editStep,
   };
+}
+
+/** Decode a (presumed) PersistedShape back to a LoadedSession. Returns
+ *  null on any shape / parse failure. Shared by localStorage and the
+ *  `.retro` file-import path so they validate identically. */
+function payloadToSession(parsed: unknown): LoadedSession | null {
+  if (!isPersistedShape(parsed)) return null;
+  let song: Song;
+  try {
+    const bytes = base64ToBytes(parsed.songBase64);
+    song = parseModule(bytes.buffer);
+  } catch {
+    return null;
+  }
+  return {
+    song,
+    filename: parsed.filename ?? null,
+    view: parsed.view === 'sample' ? 'sample' : 'pattern',
+    cursor: sanitiseCursor(parsed.cursor),
+    currentSample: clamp(parsed.currentSample, 1, 31, 1),
+    currentOctave: clamp(parsed.currentOctave, 1, 3, 2),
+    editStep: clamp(parsed.editStep, 0, 16, 1),
+  };
+}
+
+/** Persist the inputs to localStorage. Silent on quota / SecurityErrors. */
+export function saveSession(state: SessionInputs): void {
+  let payload: PersistedShape;
+  try {
+    payload = buildPayload(state);
+  } catch {
+    return;
+  }
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch {
@@ -109,39 +137,66 @@ export function loadSession(): LoadedSession | null {
     return null;
   }
   if (!raw) return null;
-
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
     return null;
   }
-  if (!isPersistedShape(parsed)) return null;
-
-  let song: Song;
-  try {
-    const bytes = base64ToBytes(parsed.songBase64);
-    // parseModule wants ArrayBuffer; the Uint8Array's underlying buffer is
-    // sufficient because we built it from a fresh allocation.
-    song = parseModule(bytes.buffer);
-  } catch {
-    return null;
-  }
-
-  return {
-    song,
-    filename: parsed.filename ?? null,
-    view: parsed.view === 'sample' ? 'sample' : 'pattern',
-    cursor: sanitiseCursor(parsed.cursor),
-    currentSample: clamp(parsed.currentSample, 1, 31, 1),
-    currentOctave: clamp(parsed.currentOctave, 1, 3, 2),
-    editStep: clamp(parsed.editStep, 0, 16, 1),
-  };
+  return payloadToSession(parsed);
 }
 
 /** Drop the persisted session. */
 export function clearSession(): void {
   try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+}
+
+// ── .retro project file format ────────────────────────────────────────────
+//
+// Same on-disk shape as the localStorage payload — UTF-8 JSON with the song
+// bytes embedded as base64. The two transports (localStorage / file) share
+// the validator and the build helper so a saved `.retro` can be dropped
+// straight into the autosave slot and vice versa.
+
+/** Encode a session as the bytes of a `.retro` project file. */
+export function projectToBytes(state: SessionInputs): Uint8Array {
+  const json = JSON.stringify(buildPayload(state));
+  return new TextEncoder().encode(json);
+}
+
+/** Decode `.retro` bytes to a LoadedSession; null on any parse failure. */
+export function projectFromBytes(bytes: Uint8Array): LoadedSession | null {
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  return payloadToSession(parsed);
+}
+
+/**
+ * Pick a download filename for a `.retro` project. Same heuristic as
+ * `deriveExportFilename` (loaded name → song title → "untitled"), but
+ * strips both `.mod` and `.retro` extensions on the way in so a user
+ * doesn't end up with `Demo.mod.retro`.
+ */
+export function deriveProjectFilename(
+  loadedName: string | null,
+  songTitle: string,
+): string {
+  const base = loadedName
+    ? loadedName.replace(/\.(mod|retro)$/i, '')
+    : songTitle.trim();
+  const sanitised = base.replace(/[^\w.\- ]+/g, '_').replace(/\s+/g, '_');
+  const trimmed = sanitised.slice(0, 64);
+  return `${trimmed || 'untitled'}.retro`;
 }
 
 // ── Validation helpers ────────────────────────────────────────────────────

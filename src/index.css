@@ -83,6 +83,64 @@ body {
 }
 
 .transport { display: flex; gap: 8px; align-items: center; }
+
+/* File ▾ dropdown — anchored under its trigger button. The .filemenu
+ * wrapper is `position: relative` so the absolutely-positioned menu
+ * floats just below without affecting the header's flex layout. */
+.filemenu { position: relative; }
+.filemenu__button {
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 6px;
+  padding: 4px 12px;
+  font: inherit;
+  cursor: pointer;
+  user-select: none;
+}
+.filemenu__button:hover { border-color: var(--accent); }
+.filemenu__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  background: var(--panel-2);
+  border: 1px solid var(--grid-line);
+  border-radius: 6px;
+  min-width: 200px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  z-index: 10;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+.filemenu__item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 14px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--fg);
+}
+.filemenu__item:hover { background: var(--accent-dim); }
+.filemenu__item--disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+.filemenu__item--disabled:hover { background: transparent; }
+.filemenu__hint {
+  color: var(--muted);
+  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-size: 11px;
+}
+.filemenu__separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--grid-line);
+  list-style: none;
+}
 .transport button, .file-button {
   background: var(--panel-2);
   color: var(--fg);

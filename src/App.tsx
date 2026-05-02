@@ -21,6 +21,8 @@ import {
   commitEditWithWorkbenches,
   redo,
   undo,
+  dirty,
+  setDirty,
 } from "./state/song";
 import { installShortcuts, registerShortcut } from "./state/shortcuts";
 import {
@@ -104,8 +106,12 @@ import { AudioEngine } from "./core/audio/engine";
 import { PatternGrid } from "./components/PatternGrid";
 import { SampleList } from "./components/SampleList";
 import { SampleView, type SampleSelection } from "./components/SampleView";
+import { FileMenu } from "./components/FileMenu";
 import { view, setView } from "./state/view";
-import { saveSession, loadSession } from "./state/persistence";
+import {
+  saveSession, loadSession,
+  projectToBytes, projectFromBytes, deriveProjectFilename,
+} from "./state/persistence";
 import * as preview from "./state/preview";
 
 /**
@@ -198,20 +204,59 @@ export const App: Component = () => {
   const [filename, setFilename] = createSignal<string | null>(null);
   const [dragOver, setDragOver] = createSignal(false);
 
+  /**
+   * Apply a fully-parsed session (from `.retro`, from localStorage, or from
+   * a freshly-parsed .mod with no UI overrides) to every relevant signal.
+   * Used by Open and the autosave-restore path so they go through one place.
+   */
+  const applyLoadedSession = (loaded: {
+    song: ReturnType<typeof song>;
+    filename: string | null;
+    view?: ReturnType<typeof view>;
+    cursor?: ReturnType<typeof cursor>;
+    currentSample?: number;
+    currentOctave?: number;
+    editStep?: number;
+  }) => {
+    if (!loaded.song) return;
+    setSong(loaded.song);
+    setFilename(loaded.filename);
+    if (loaded.view) setView(loaded.view);
+    if (loaded.cursor) {
+      setCursor(loaded.cursor);
+      setPlayPos({ order: loaded.cursor.order, row: loaded.cursor.row });
+    } else {
+      resetCursor();
+      setPlayPos({ order: 0, row: 0 });
+    }
+    if (typeof loaded.currentSample === 'number') setCurrentSample(loaded.currentSample);
+    if (typeof loaded.currentOctave === 'number') setCurrentOctave(loaded.currentOctave);
+    if (typeof loaded.editStep === 'number') setEditStep(loaded.editStep);
+    clearHistory();
+    // Workbenches are session-only; a fresh load gives us new int8 slots
+    // with no recipe to re-derive them. Drop any in-memory pipelines.
+    clearAllWorkbenches();
+    setTransport("ready");
+    setDirty(false);
+  };
+
+  /**
+   * Open a file the user picked / dropped. Sniffs the extension: `.retro`
+   * round-trips through the project format, anything else is parsed as
+   * a `.mod`. Errors land in the `error` signal which the dropzone shows.
+   */
   const loadFile = async (file: File) => {
     setError(null);
     try {
-      const buf = await file.arrayBuffer();
-      const mod = parseModule(buf);
-      setSong(mod);
-      clearHistory();
-      // Workbenches are session-only; a fresh .mod gives us new int8 slots
-      // with no recipe to re-derive them. Drop any in-memory pipelines.
-      clearAllWorkbenches();
-      resetCursor();
-      setFilename(file.name);
-      setPlayPos({ order: 0, row: 0 });
-      setTransport("ready");
+      const buf = new Uint8Array(await file.arrayBuffer());
+      if (/\.retro$/i.test(file.name)) {
+        const loaded = projectFromBytes(buf);
+        if (!loaded) throw new Error('Invalid .retro project');
+        applyLoadedSession(loaded);
+      } else {
+        const mod = parseModule(buf.buffer);
+        applyLoadedSession({ song: mod, filename: file.name });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setTransport("idle");
@@ -228,18 +273,59 @@ export const App: Component = () => {
     input.value = "";
   };
 
-  const openModPicker = () => fileInput?.click();
+  const openFilePicker = () => fileInput?.click();
 
   /**
-   * Serialise the current Song and trigger a browser download. No-op when
-   * no song is loaded, but otherwise works at any transport state — saving
-   * mid-playback is harmless since `writeModule` is read-only.
+   * Serialise the current Song to a `.mod` file and trigger a browser
+   * download. No-op when no song is loaded, but otherwise works at any
+   * transport state — saving mid-playback is harmless since `writeModule`
+   * is read-only.
    */
   const exportMod = () => {
     const s = song();
     if (!s) return;
     const bytes = writeModule(s);
-    io.download(deriveExportFilename(filename(), s.title), bytes);
+    io.download(deriveExportFilename(filename(), s.title), bytes, 'audio/x-mod');
+  };
+
+  /**
+   * Serialise the current Song + UI state to a `.retro` project file. This
+   * is the format that round-trips losslessly — Save .mod loses the cursor
+   * position, current sample, edit step, etc.
+   */
+  const saveProject = () => {
+    const s = song();
+    if (!s) return;
+    const bytes = projectToBytes({
+      song: s,
+      filename: filename(),
+      view: view(),
+      cursor: cursor(),
+      currentSample: currentSample(),
+      currentOctave: currentOctave(),
+      editStep: editStep(),
+    });
+    io.download(
+      deriveProjectFilename(filename(), s.title),
+      bytes,
+      'application/json',
+    );
+    setDirty(false);
+  };
+
+  /**
+   * Reset to a blank "M.K." song. Confirms with the user first if the
+   * current project has unsaved changes — the prompt uses the browser's
+   * native `confirm`, which jsdom stubs to true (so tests don't hang).
+   */
+  const newProject = () => {
+    if (dirty()) {
+      const ok = typeof window !== 'undefined' && window.confirm
+        ? window.confirm('Discard unsaved changes?')
+        : true;
+      if (!ok) return;
+    }
+    applyLoadedSession({ song: emptySong(), filename: null });
   };
 
   const onDrop = (e: DragEvent) => {
@@ -1144,16 +1230,16 @@ export const App: Component = () => {
       registerShortcut({
         key: "o",
         mod: true,
-        description: "Open .mod",
-        run: openModPicker,
+        description: "Open project / .mod",
+        run: openFilePicker,
       }),
     );
     cleanups.push(
       registerShortcut({
         key: "s",
         mod: true,
-        description: "Save .mod",
-        run: exportMod,
+        description: "Save project (.retro)",
+        run: saveProject,
       }),
     );
     // Range selection / clipboard. Pattern view only — sample view has its
@@ -1676,24 +1762,23 @@ export const App: Component = () => {
           </button>
         </div>
         <div class="transport">
-          <label class="file-button" title="Open .mod (⌘O)">
-            <input
-              type="file"
-              accept=".mod"
-              onChange={onPickFile}
-              hidden
-              ref={fileInput}
-            />
-            Open .mod…
-          </label>
-          <button
-            onClick={exportMod}
-            disabled={!song()}
-            title="Save .mod (⌘S)"
-            aria-label="Save .mod"
-          >
-            Save .mod…
-          </button>
+          {/* Hidden file input — both the File menu's "Open…" item and the
+              Cmd+O shortcut click it. accept covers both formats; the
+              actual sniff happens in loadFile via the filename suffix. */}
+          <input
+            type="file"
+            accept=".retro,.mod"
+            onChange={onPickFile}
+            hidden
+            ref={fileInput}
+          />
+          <FileMenu
+            hasSong={!!song()}
+            onNew={newProject}
+            onOpen={openFilePicker}
+            onSave={saveProject}
+            onExportMod={exportMod}
+          />
           <button
             onClick={() => void togglePlay()}
             disabled={!song()}

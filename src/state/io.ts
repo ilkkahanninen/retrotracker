@@ -35,15 +35,18 @@ export const io = {
   /**
    * Push `bytes` to the user as a download named `filename`. Uses the
    * standard hidden-anchor technique; revokes the object URL after click
-   * so we don't leak.
+   * so we don't leak. `mimeType` defaults to `application/octet-stream`
+   * — the browser doesn't really care, the extension drives what the OS
+   * does with the file. .mod / .retro callers can pass a more specific
+   * type if they like.
    */
-  download(filename: string, bytes: Uint8Array): void {
+  download(filename: string, bytes: Uint8Array, mimeType: string = 'application/octet-stream'): void {
     // Copy into a fresh ArrayBuffer so we never hand a SharedArrayBuffer to
     // Blob (TS narrows Uint8Array.buffer to ArrayBufferLike, which Blob's
     // BlobPart parameter doesn't accept).
     const buf = new ArrayBuffer(bytes.byteLength);
     new Uint8Array(buf).set(bytes);
-    const blob = new Blob([buf], { type: 'audio/x-mod' });
+    const blob = new Blob([buf], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

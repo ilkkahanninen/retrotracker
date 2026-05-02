@@ -19,6 +19,19 @@ export const [transport, setTransport] = createSignal<Transport>('idle');
 export const [playPos, setPlayPos] = createSignal<{ order: number; row: number }>({ order: 0, row: 0 });
 
 /**
+ * "Has the song been edited since the last save / load?" Drives the
+ * confirm-before-discard prompt on File → New. We set this from any
+ * commit / undo / redo (i.e. any path that mutates the song through
+ * the history machinery), and File → New / Open / Save clear it.
+ *
+ * Conservative by design: undo back to the saved state still flips
+ * dirty=true here. We'd need to compare against a saved snapshot to
+ * detect "back to clean", which isn't worth the bookkeeping vs. an
+ * occasional unnecessary prompt.
+ */
+export const [dirty, setDirty] = createSignal(false);
+
+/**
  * Edit history.
  *
  * Snapshot-based: each commit pushes a `{ song, workbenches }` tuple onto
@@ -74,6 +87,7 @@ function applyCommit(next: EditState): void {
   setFuture([]);
   setSong(next.song);
   if (next.workbenches !== currentWb) setWorkbenchesRaw(next.workbenches);
+  setDirty(true);
 }
 
 /**
@@ -130,6 +144,7 @@ export function undo(): void {
   }
   setSong(previous.song);
   if (previous.workbenches !== currentWb) setWorkbenchesRaw(previous.workbenches);
+  setDirty(true);
 }
 
 /** Replay the most recently undone edit. No-op while playing. */
@@ -146,6 +161,7 @@ export function redo(): void {
   }
   setSong(next.song);
   if (next.workbenches !== currentWb) setWorkbenchesRaw(next.workbenches);
+  setDirty(true);
 }
 
 /** Drop both stacks. Call after loading a new file. */
