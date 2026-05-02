@@ -123,6 +123,22 @@ function matchesKeyOnly(e: KeyboardEvent, s: Shortcut): boolean {
 }
 
 /**
+ * True when document.activeElement is something that natively consumes
+ * keystrokes (a text-like input, textarea, select, or contenteditable). Used
+ * to skip plain-key shortcuts so the user can type into inputs without their
+ * 'a' / 'z' / digits being intercepted as piano notes / octave / hex entry.
+ * Mod-key shortcuts (⌘S, ⌘Z, …) still fire so global app actions stay reachable.
+ */
+function isFocusInEditable(): boolean {
+  const el = typeof document === 'undefined' ? null : document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (el instanceof HTMLElement && el.isContentEditable) return true;
+  return false;
+}
+
+/**
  * Install window-level keydown + keyup listeners that run matching shortcuts.
  * Returns a cleanup function. We always call `preventDefault` on a match so
  * the browser's own action doesn't fight ours.
@@ -135,8 +151,13 @@ function matchesKeyOnly(e: KeyboardEvent, s: Shortcut): boolean {
 export function installShortcuts(target: Window = window): () => void {
   const downHandler = (ev: Event) => {
     const e = ev as KeyboardEvent;
+    const inEditable = isFocusInEditable();
     for (const s of registered) {
       if (!matchesShortcut(e, s)) continue;
+      // Skip plain-key shortcuts when the user is typing into an input. Mod
+      // shortcuts (⌘+letter etc.) still fire — e.g. ⌘S to save while focused
+      // on the sample-name field.
+      if (inEditable && !s.mod) continue;
       e.preventDefault();
       if (s.runUp && e.repeat) return;
       s.run();

@@ -63,25 +63,48 @@ const PIANO_KEYS: Readonly<Record<string, number>> = {
 
 let engine: AudioEngine | null = null;
 
-async function ensureEngine(): Promise<AudioEngine> {
+/**
+ * Lazy-create the AudioEngine. Returns null when the AudioContext can't be
+ * constructed (e.g. in jsdom, or in browsers that gate it behind a user
+ * gesture we haven't received yet). Callers must handle null — they treat
+ * "no engine" as "no audio side-effect" rather than crashing.
+ *
+ * This is hit not just by Play, but by every preview path now (note entry,
+ * piano-key sample preview), so the user gets sound from the very first
+ * keypress without having to press Play first to bootstrap the engine.
+ */
+async function ensureEngine(): Promise<AudioEngine | null> {
   if (engine) return engine;
-  engine = await AudioEngine.create();
-  engine.onPosition = (order, row) => setPlayPos({ order, row });
-  return engine;
+  try {
+    engine = await AudioEngine.create();
+    engine.onPosition = (order, row) => setPlayPos({ order, row });
+    return engine;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Ensure the engine exists and push the current Song into it before play.
  * The worklet keeps its own copy of the song, so without this every edit
  * would only show up in the UI — the user would press Play and hear the
- * pre-edit version. Returns null if no song is loaded.
+ * pre-edit version. Returns null if no song is loaded or the engine
+ * couldn't be created.
  */
 async function prepareEngine(): Promise<AudioEngine | null> {
   const eng = await ensureEngine();
+  if (!eng) return null;
   const s = song();
   if (!s) return null;
   eng.load(s);
   return eng;
+}
+
+/** Fire-and-forget audition: lazy-creates the engine if needed, no-ops on failure. */
+function triggerPreview(sample: import('./core/mod/types').Sample, period: number): void {
+  void ensureEngine().then((eng) => {
+    if (eng) void eng.previewNote(sample, period);
+  }).catch(() => { /* silent — preview is a best-effort side-effect */ });
 }
 
 export const App: Component = () => {
@@ -237,7 +260,36 @@ export const App: Component = () => {
     advanceCursor();
 
     const sample = s.samples[sampleNum - 1];
-    if (sample && engine) void engine.previewNote(sample, period);
+    if (sample) triggerPreview(sample, period);
+  };
+
+  /**
+   * Audition the current sample at the keyboard-mapped pitch — used in the
+   * sample view to preview without touching the song. No commit, no cursor
+   * advance, no period write. Out-of-range notes (offsets that fall outside
+   * PT's 3-octave table) silently no-op.
+   */
+  const previewSampleAtPitch = (semitoneOffset: number) => {
+    if (transport() === 'playing') return;
+    const s = song();
+    if (!s) return;
+    const noteIdx = (currentOctave() - 1) * 12 + semitoneOffset;
+    if (noteIdx < 0 || noteIdx >= 36) return;
+    const period = PERIOD_TABLE[0]![noteIdx]!;
+    const sample = s.samples[currentSample() - 1];
+    if (sample) triggerPreview(sample, period);
+  };
+
+  /**
+   * Single piano-key handler that does the right thing per view: write+audition
+   * a cell in pattern view, audition-only in sample view. The shortcut's
+   * `when` predicate keeps it gated to the appropriate cursor state in pattern
+   * view, but in sample view the cursor field doesn't matter — the user just
+   * wants to hear notes.
+   */
+  const onPianoKey = (semitoneOffset: number) => {
+    if (view() === 'sample') previewSampleAtPitch(semitoneOffset);
+    else enterNote(semitoneOffset);
   };
 
   /**
@@ -428,11 +480,14 @@ export const App: Component = () => {
     const data = runPipeline(wb);
     commitEdit((song) => {
       const old = song.samples[slot];
-      const meta: Parameters<typeof replaceSampleData>[3] = { volume: 64, finetune: 0 };
-      // First write into this slot — adopt the source name. Subsequent edits
-      // (re-running the pipeline) leave the user's name alone.
-      if (!old || old.lengthWords === 0) meta.name = wb.sourceName.slice(0, 22);
-      else meta.name = old.name;
+      // First write into a fresh slot adopts the source name and full volume.
+      // Re-runs (pipeline edits on an already-populated slot) leave the user's
+      // name / volume / finetune alone — otherwise dragging a gain slider
+      // would silently clobber any volume the user had dialed in by hand.
+      const isFirstWrite = !old || old.lengthWords === 0;
+      const meta: Parameters<typeof replaceSampleData>[3] = isFirstWrite
+        ? { volume: 64, finetune: 0, name: wb.sourceName.slice(0, 22) }
+        : { volume: old.volume, finetune: old.finetune, name: old.name };
       return replaceSampleData(song, slot, data, meta);
     });
   };
@@ -590,8 +645,13 @@ export const App: Component = () => {
       cleanups.push(registerShortcut({
         key: k,
         description: `Note (offset ${offset})`,
-        when: () => transport() !== 'playing' && cursor().field === 'note',
-        run: () => enterNote(offset),
+        // Pattern view: only fire on the note field (so A/D/E/F can act as
+        // hex digits when the cursor is on a sample / effect nibble).
+        // Sample view: always fire (cursor field is irrelevant when we're
+        // just auditioning the current slot).
+        when: () => transport() !== 'playing'
+          && (view() === 'sample' || cursor().field === 'note'),
+        run: () => onPianoKey(offset),
         runUp: () => engine?.stopPreview(),
       }));
     }
@@ -628,26 +688,31 @@ export const App: Component = () => {
       cleanups.push(registerShortcut({
         key: k,
         description: `Select sample ${n}`,
-        when: () => transport() !== 'playing' && !isHexField(cursor().field),
+        // Suppress in sample view so digits flow into the sample-editor's
+        // numeric inputs (volume / finetune / loop / effect params) instead
+        // of preventDefault'ing into a sample-select.
+        when: () => transport() !== 'playing'
+          && view() !== 'sample'
+          && !isHexField(cursor().field),
         run: () => selectSample(n),
       }));
       cleanups.push(registerShortcut({
         key: k, shift: true,
         description: `Select sample ${n + 10}`,
-        when: () => transport() !== 'playing',
+        when: () => transport() !== 'playing' && view() !== 'sample',
         run: () => selectSample(n + 10),
       }));
     }
     cleanups.push(registerShortcut({
       key: '-',
       description: 'Previous sample',
-      when: () => transport() !== 'playing',
+      when: () => transport() !== 'playing' && view() !== 'sample',
       run: prevSample,
     }));
     cleanups.push(registerShortcut({
       key: '=',
       description: 'Next sample',
-      when: () => transport() !== 'playing',
+      when: () => transport() !== 'playing' && view() !== 'sample',
       run: nextSample,
     }));
     // Order-list editing. The cursor's `order` field is the target slot.

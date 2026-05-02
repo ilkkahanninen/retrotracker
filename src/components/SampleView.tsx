@@ -279,7 +279,7 @@ const PipelineEditor: Component<PipelineEditorProps> = (props) => {
   return (
     <section class="pipeline">
       <header class="pipeline__header">
-        <h3>Pipeline</h3>
+        <h3>Effects</h3>
         <span class="pipeline__source">
           {props.wb.sourceName} · {props.wb.source.sampleRate} Hz ·{' '}
           {channels() === 1 ? 'mono' : channels() === 2 ? 'stereo' : `${channels()} ch`} ·{' '}

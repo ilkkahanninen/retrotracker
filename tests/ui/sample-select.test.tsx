@@ -5,6 +5,7 @@ import { App } from '../../src/App';
 import { setCursor, INITIAL_CURSOR, cursor } from '../../src/state/cursor';
 import { setSong, setTransport, setPlayPos, clearHistory, song } from '../../src/state/song';
 import { currentSample, setCurrentSample, setCurrentOctave } from '../../src/state/edit';
+import { setView } from '../../src/state/view';
 
 function resetState() {
   setSong(null);
@@ -14,6 +15,7 @@ function resetState() {
   setCursor({ ...INITIAL_CURSOR });
   setCurrentSample(1);
   setCurrentOctave(2);
+  setView('pattern');
 }
 
 beforeEach(resetState);
@@ -141,5 +143,38 @@ describe('quick-select is suppressed during playback', () => {
     setTransport('playing');
     await user.keyboard('5');
     expect(currentSample()).toBe(1);
+  });
+});
+
+describe('quick-select is suppressed in the sample view', () => {
+  // The sample editor has number/text inputs that need to receive raw digit
+  // keystrokes; if quick-select preventDefault'd them, you couldn't type
+  // into volume / finetune / loop / effect-param fields.
+
+  it('plain digits do not change currentSample when view is "sample"', async () => {
+    render(() => <App />);
+    const user = userEvent.setup();
+    setView('sample');
+    await user.keyboard('5');
+    expect(currentSample()).toBe(1);
+  });
+
+  it('Shift+digit does not change currentSample when view is "sample"', async () => {
+    render(() => <App />);
+    const user = userEvent.setup();
+    setView('sample');
+    await user.keyboard('{Shift>}3{/Shift}');
+    expect(currentSample()).toBe(1);
+  });
+
+  it("'-' / '=' do not step the sample when view is \"sample\"", async () => {
+    render(() => <App />);
+    const user = userEvent.setup();
+    setCurrentSample(5);
+    setView('sample');
+    await user.keyboard('=');
+    expect(currentSample()).toBe(5);
+    await user.keyboard('-');
+    expect(currentSample()).toBe(5);
   });
 });

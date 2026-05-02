@@ -106,6 +106,18 @@ describe('pipeline editor: visibility', () => {
     expect(container.querySelector('.pipeline')).not.toBeNull();
   });
 
+  it('the section heading reads "Effects"', () => {
+    setView('sample');
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: { sampleRate: 44100, channels: [new Float32Array([0])] },
+      sourceName: 'demo',
+      chain: [],
+      pt: { monoMix: 'average' },
+    });
+    expect(container.querySelector('.pipeline__header h3')!.textContent).toBe('Effects');
+  });
+
   it('the source line shows rate / channel count / frame count', () => {
     setView('sample');
     const { container } = render(() => <App />);
@@ -222,6 +234,34 @@ describe('pipeline editor: live param updates re-run the pipeline', () => {
     expect(Array.from(song()!.samples[0]!.data)).toEqual([127, 127]);
     fireEvent.change(monoSelect, { target: { value: 'right' } });
     expect(Array.from(song()!.samples[0]!.data)).toEqual([-127, -127]);
+  });
+});
+
+describe('pipeline editor: re-run preserves user-set sample metadata', () => {
+  it('a manual volume change is not clobbered by a subsequent pipeline edit', () => {
+    setView('sample');
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: { sampleRate: 44100, channels: [new Float32Array([0, 0.5, -0.5])] },
+      sourceName: 'demo',
+      chain: [],
+      pt: { monoMix: 'average' },
+    });
+    // Tweak the volume by hand via the metadata UI.
+    const inputs = container.querySelectorAll<HTMLInputElement>('.samplemeta input[type="number"]');
+    let volume: HTMLInputElement | null = null;
+    for (const el of inputs) {
+      if (el.closest('label')!.textContent!.includes('Volume')) volume = el;
+    }
+    fireEvent.input(volume!, { target: { value: '32' } });
+    expect(song()!.samples[0]!.volume).toBe(32);
+
+    // Now add a Gain effect — pipeline re-runs.
+    const select = container.querySelector<HTMLSelectElement>('.pipeline__add select')!;
+    fireEvent.change(select, { target: { value: 'gain' } });
+
+    // Volume should still be 32, not reset to 64.
+    expect(song()!.samples[0]!.volume).toBe(32);
   });
 });
 
