@@ -36,6 +36,7 @@ import { PatternGrid } from './components/PatternGrid';
 import { SampleList } from './components/SampleList';
 import { SampleView } from './components/SampleView';
 import { view, setView } from './state/view';
+import * as preview from './state/preview';
 
 /**
  * Piano-row key mapping → semitone offset from the current octave's C.
@@ -100,8 +101,15 @@ async function prepareEngine(): Promise<AudioEngine | null> {
   return eng;
 }
 
-/** Fire-and-forget audition: lazy-creates the engine if needed, no-ops on failure. */
-function triggerPreview(sample: import('./core/mod/types').Sample, period: number): void {
+/**
+ * Fire-and-forget audition: lazy-creates the engine if needed, no-ops on
+ * failure. Also kicks off the visual playhead tracker so the waveform can
+ * draw a position cursor — that runs off performance.now() and doesn't
+ * depend on the engine resolving, so the cursor appears immediately even
+ * if the AudioContext is still warming up.
+ */
+function triggerPreview(slot: number, sample: import('./core/mod/types').Sample, period: number): void {
+  preview.startPreview(slot, sample, period);
   void ensureEngine().then((eng) => {
     if (eng) void eng.previewNote(sample, period);
   }).catch(() => { /* silent — preview is a best-effort side-effect */ });
@@ -260,7 +268,7 @@ export const App: Component = () => {
     advanceCursor();
 
     const sample = s.samples[sampleNum - 1];
-    if (sample) triggerPreview(sample, period);
+    if (sample) triggerPreview(sampleNum - 1, sample, period);
   };
 
   /**
@@ -277,7 +285,7 @@ export const App: Component = () => {
     if (noteIdx < 0 || noteIdx >= 36) return;
     const period = PERIOD_TABLE[0]![noteIdx]!;
     const sample = s.samples[currentSample() - 1];
-    if (sample) triggerPreview(sample, period);
+    if (sample) triggerPreview(currentSample() - 1, sample, period);
   };
 
   /**
@@ -658,7 +666,7 @@ export const App: Component = () => {
         when: () => transport() !== 'playing'
           && (view() === 'sample' || cursor().field === 'note'),
         run: () => onPianoKey(offset),
-        runUp: () => engine?.stopPreview(),
+        runUp: () => { engine?.stopPreview(); preview.stopPreview(); },
       }));
     }
     // Hex-digit entry — fills sample/effect nibbles. Same physical keys as
@@ -774,6 +782,7 @@ export const App: Component = () => {
   });
   onCleanup(() => {
     for (const c of cleanups) c();
+    preview.stopPreview();
     void engine?.dispose();
     engine = null;
   });

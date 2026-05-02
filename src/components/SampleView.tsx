@@ -2,6 +2,7 @@ import { For, Index, Match, Show, Switch, createEffect, createMemo, type Compone
 import type { Sample, Song } from '../core/mod/types';
 import { currentSample } from '../state/edit';
 import { workbenches } from '../state/sampleWorkbench';
+import { previewFrame } from '../state/preview';
 import {
   EFFECT_KINDS, EFFECT_LABELS,
   type EffectKind, type EffectNode, type MonoMix, type SampleWorkbench,
@@ -187,59 +188,127 @@ export const SampleView: Component<Props> = (props) => {
   );
 };
 
-/** Min/max-bucketed PCM rendering. Re-runs whenever the input sample changes. */
+/**
+ * Min/max-bucketed PCM rendering. Two stacked canvases: the bottom one is
+ * the waveform (repainted only when `props.sample` changes), the top one is
+ * a transparent overlay that holds just the playhead (repainted on every
+ * `previewFrame` tick). Splitting the layers keeps the heavy bucket loop
+ * out of the 60 Hz update path and side-steps the "redraw the whole wave
+ * to move the cursor" problem.
+ */
 const Waveform: Component<{ sample: Sample }> = (props) => {
-  let canvas: HTMLCanvasElement | undefined;
+  let waveCanvas: HTMLCanvasElement | undefined;
+  let playheadCanvas: HTMLCanvasElement | undefined;
+  const W = 1024;
+  const H = 160;
 
+  // Waveform layer: redrawn only when the underlying sample changes.
   createEffect(() => {
-    const c = canvas;
+    const c = waveCanvas;
     if (!c) return;
     const ctx = c.getContext('2d');
     if (!ctx) return;
-    const w = c.width;
-    const h = c.height;
 
     // Background.
     ctx.fillStyle = '#1c1e26';
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillRect(0, 0, W, H);
 
     // Center line.
     ctx.fillStyle = '#2a2d38';
-    ctx.fillRect(0, h / 2, w, 1);
+    ctx.fillRect(0, H / 2, W, 1);
 
     const data = props.sample.data;
     if (data.byteLength === 0) return;
 
-    // Bucket-and-fill: for each pixel column, find min/max across the slice
-    // of samples that map to it and draw a vertical bar. Cheap, looks right.
     ctx.fillStyle = '#5ec8ff';
-    const samplesPerPixel = Math.max(1, data.length / w);
-    for (let x = 0; x < w; x++) {
-      const start = Math.floor(x * samplesPerPixel);
-      const end = Math.min(data.length, Math.floor((x + 1) * samplesPerPixel));
-      let mn = 127;
-      let mx = -128;
-      for (let i = start; i < end; i++) {
-        const v = data[i]!;
-        if (v < mn) mn = v;
-        if (v > mx) mx = v;
+    ctx.strokeStyle = '#5ec8ff';
+    ctx.lineWidth = 1;
+    const yFor = (v: number) => H / 2 - (v / 128) * (H / 2 - 1);
+
+    if (data.length <= W) {
+      // Short sample: every byte gets its own (possibly sub-pixel) x and we
+      // trace a polyline through them. Stretches the wave to fill the canvas
+      // and keeps adjacent samples visually connected.
+      ctx.beginPath();
+      const span = Math.max(1, data.length - 1);
+      for (let i = 0; i < data.length; i++) {
+        const x = (i / span) * (W - 1);
+        const y = yFor(data[i]!);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
       }
-      const yMax = h / 2 - (mx / 128) * (h / 2 - 1);
-      const yMin = h / 2 - (mn / 128) * (h / 2 - 1);
-      ctx.fillRect(x, Math.min(yMax, yMin), 1, Math.max(1, Math.abs(yMax - yMin)));
+      ctx.stroke();
+    } else {
+      // More samples than pixels: bucket each column to its sample range and
+      // fill a min/max bar. Bridge each bar to the previous column's last
+      // sample so columns whose bucket holds only one sample still connect
+      // visually to their neighbour.
+      const samplesPerPixel = data.length / W;
+      let prev: number | null = null;
+      for (let x = 0; x < W; x++) {
+        const start = Math.floor(x * samplesPerPixel);
+        const end = Math.min(data.length, Math.floor((x + 1) * samplesPerPixel));
+        if (start >= end) continue;
+        let mn = 127;
+        let mx = -128;
+        if (prev !== null) { if (prev < mn) mn = prev; if (prev > mx) mx = prev; }
+        for (let i = start; i < end; i++) {
+          const v = data[i]!;
+          if (v < mn) mn = v;
+          if (v > mx) mx = v;
+        }
+        prev = data[end - 1]!;
+        const yMax = yFor(mx);
+        const yMin = yFor(mn);
+        ctx.fillRect(x, Math.min(yMax, yMin), 1, Math.max(1, Math.abs(yMax - yMin)));
+      }
     }
 
-    // (loop overlay below)
-    drawLoopOverlay(ctx, props.sample, w, h, data.length);
+    drawLoopOverlay(ctx, props.sample, W, H, data.length);
+  });
+
+  // Playhead layer: redrawn on every previewFrame tick. The whole canvas is
+  // cleared first because we don't keep track of the previous cursor x —
+  // clearing 1024×160 transparent pixels is cheaper than diff-painting.
+  createEffect(() => {
+    const c = playheadCanvas;
+    if (!c) return;
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, W, H);
+
+    const pf = previewFrame();
+    if (!pf || pf.slot !== currentSample() - 1) return;
+
+    const dataLen = props.sample.data.length;
+    if (dataLen === 0) return;
+
+    let x: number;
+    if (dataLen <= W) {
+      const span = Math.max(1, dataLen - 1);
+      x = (pf.frame / span) * (W - 1);
+    } else {
+      x = (pf.frame * W) / dataLen;
+    }
+    ctx.fillStyle = '#ff7a59';
+    ctx.fillRect(Math.floor(x), 0, 1, H);
   });
 
   return (
-    <canvas
-      class="waveform"
-      ref={(el) => (canvas = el)}
-      width={1024}
-      height={160}
-    />
+    <div class="waveform">
+      <canvas
+        class="waveform__layer"
+        ref={(el) => (waveCanvas = el)}
+        width={W}
+        height={H}
+      />
+      <canvas
+        class="waveform__layer waveform__playhead"
+        ref={(el) => (playheadCanvas = el)}
+        width={W}
+        height={H}
+      />
+    </div>
   );
 };
 
