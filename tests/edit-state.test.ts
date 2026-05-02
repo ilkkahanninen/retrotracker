@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   MAX_OCTAVE, MIN_OCTAVE, clearFieldPatch, currentOctave, octaveDown, octaveUp, setCurrentOctave,
+  MAX_EDIT_STEP, MIN_EDIT_STEP, editStep, incEditStep, decEditStep, setEditStep,
 } from '../src/state/edit';
 import type { Note } from '../src/core/mod/types';
 
@@ -30,6 +31,36 @@ describe('octave state', () => {
     octaveUp();
     octaveUp();
     expect(currentOctave()).toBe(3);
+  });
+});
+
+describe('edit-step state', () => {
+  afterEach(() => setEditStep(1));
+
+  it('defaults to 1', () => {
+    expect(editStep()).toBe(1);
+  });
+
+  it('incEditStep clamps at MAX_EDIT_STEP', () => {
+    setEditStep(MAX_EDIT_STEP);
+    incEditStep();
+    expect(editStep()).toBe(MAX_EDIT_STEP);
+  });
+
+  it('decEditStep clamps at MIN_EDIT_STEP (0)', () => {
+    setEditStep(MIN_EDIT_STEP);
+    decEditStep();
+    expect(editStep()).toBe(MIN_EDIT_STEP);
+    expect(MIN_EDIT_STEP).toBe(0);
+  });
+
+  it('incEditStep / decEditStep move by one', () => {
+    setEditStep(3);
+    incEditStep();
+    expect(editStep()).toBe(4);
+    decEditStep();
+    decEditStep();
+    expect(editStep()).toBe(2);
   });
 });
 

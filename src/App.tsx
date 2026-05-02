@@ -42,6 +42,10 @@ import {
   clearFieldPatch,
   currentOctave,
   currentSample,
+  editStep,
+  incEditStep,
+  decEditStep,
+  resetEditStep,
   octaveDown,
   octaveUp,
   selectSample,
@@ -331,7 +335,7 @@ export const App: Component = () => {
         sample: sampleNum,
       }),
     );
-    advanceCursor();
+    advanceByEditStep();
 
     const sample = s.samples[sampleNum - 1];
     if (sample) triggerPreview(sampleNum - 1, sample, period);
@@ -425,11 +429,14 @@ export const App: Component = () => {
     if (stepsRight) {
       applyCursor(moveRight(cursor()));
     } else {
-      advanceCursor();
+      // Last sub-field of a column → advance by the edit step. At step 0
+      // the cursor stays put so the user can keep stamping the same cell.
+      advanceByEditStep();
       // After completing a 3-nibble effect, rewind the column to effectCmd
       // on the new row so a follow-up effect can be typed without manually
-      // moving the cursor back left.
-      if (c.field === "effectLo") {
+      // moving the cursor back left. Skip the rewind at edit step 0 — there
+      // we WANT the cursor to stay on effectLo for chord-style overwrites.
+      if (c.field === "effectLo" && editStep() > 0) {
         applyCursor({ ...cursor(), field: "effectCmd" });
       }
     }
@@ -450,7 +457,7 @@ export const App: Component = () => {
     if (!note) return;
     const patch = clearFieldPatch(note, c.field);
     commitEdit((song) => setCell(song, c.order, c.row, c.channel, patch));
-    advanceCursor();
+    advanceByEditStep();
   };
 
   /**
@@ -480,14 +487,35 @@ export const App: Component = () => {
     if (!copy) return;
     const patch = copy;
     commitEdit((song) => setCell(song, c.order, c.row, c.channel, patch));
-    advanceCursor();
+    advanceByEditStep();
   };
 
-  /** Step the cursor one row down on the post-edit song. Called after note entry / clear. */
+  /**
+   * Step the cursor one row down on the post-edit song. Used by structural
+   * actions (Backspace pull-up, Enter push-down) where we always want to
+   * track the inserted/deleted row by exactly one — edit step doesn't apply.
+   */
   const advanceCursor = () => {
     const s = song();
     if (!s) return;
     applyCursor(moveDown(cursor(), s));
+  };
+
+  /**
+   * FT2-style row jump after a content entry: advance by `editStep()` rows.
+   * 0 leaves the cursor put (useful for stamping chords or overwriting the
+   * same cell). Used by note entry, hex entry (when stepping to the next
+   * row), clear, and the "repeat last effect" key — anywhere the user has
+   * just *added* something to the cell, as opposed to restructuring rows.
+   */
+  const advanceByEditStep = () => {
+    const s = song();
+    if (!s) return;
+    const step = editStep();
+    if (step <= 0) return;
+    let next = cursor();
+    for (let i = 0; i < step; i++) next = moveDown(next, s);
+    applyCursor(next);
   };
 
   /**
@@ -1085,6 +1113,34 @@ export const App: Component = () => {
         run: octaveUp,
       }),
     );
+    // Edit step adjust — plain `[` / `]`. The shortcut matcher routes
+    // bracket presses by event.code so US, German, Nordic etc. layouts
+    // all hit the same binding regardless of where the brackets actually
+    // live on the user's keyboard.
+    cleanups.push(
+      registerShortcut({
+        key: "[",
+        description: "Decrease edit step",
+        when: () => transport() !== "playing",
+        run: decEditStep,
+      }),
+    );
+    cleanups.push(
+      registerShortcut({
+        key: "]",
+        description: "Increase edit step",
+        when: () => transport() !== "playing",
+        run: incEditStep,
+      }),
+    );
+    cleanups.push(
+      registerShortcut({
+        key: "\\",
+        description: "Reset edit step to 1",
+        when: () => transport() !== "playing",
+        run: resetEditStep,
+      }),
+    );
     // Sample quick-select.
     //   1..9, 0          → samples 1..10 (only when cursor is on the note
     //                      field — on hex fields these keys type hex digits)
@@ -1394,6 +1450,30 @@ export const App: Component = () => {
                   <span>oct {currentOctave()}</span>
                   <span class="patternpane__sep">·</span>
                   <span>smp {String(currentSample()).padStart(2, "0")}</span>
+                  <span class="patternpane__sep">·</span>
+                  <span class="patternpane__editstep">
+                    step
+                    <button
+                      type="button"
+                      class="patternpane__editstep-btn"
+                      onClick={decEditStep}
+                      disabled={transport() === "playing"}
+                      title="Decrease edit step ([)"
+                      aria-label="Decrease edit step"
+                    >−</button>
+                    <span
+                      class="patternpane__editstep-value"
+                      aria-label="Edit step"
+                    >{editStep()}</span>
+                    <button
+                      type="button"
+                      class="patternpane__editstep-btn"
+                      onClick={incEditStep}
+                      disabled={transport() === "playing"}
+                      title="Increase edit step (])"
+                      aria-label="Increase edit step"
+                    >+</button>
+                  </span>
                 </div>
                 <PatternGrid
                   song={s()}

@@ -229,6 +229,35 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 }
 .patternpane__title { color: var(--fg); font-weight: 600; }
 .patternpane__sep { opacity: 0.5; }
+.patternpane__editstep {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.patternpane__editstep-btn {
+  font: inherit;
+  padding: 0 6px;
+  min-width: 18px;
+  line-height: 1.4;
+  border: 1px solid var(--grid-line);
+  background: transparent;
+  color: var(--fg);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.patternpane__editstep-btn:hover:not(:disabled) {
+  background: var(--grid-line);
+}
+.patternpane__editstep-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.patternpane__editstep-value {
+  color: var(--fg);
+  min-width: 1.5ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
 
 .patgrid {
   flex: 1;

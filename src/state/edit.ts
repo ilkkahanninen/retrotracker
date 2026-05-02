@@ -17,8 +17,21 @@ export const MAX_OCTAVE = 3;
 export const MIN_SAMPLE = 1;
 export const MAX_SAMPLE = 31;
 
+/**
+ * FT2-style "edit step": the number of rows the cursor advances after a
+ * note/sample/effect entry. 0 keeps the cursor on the same row (useful for
+ * stamping chords or overwriting); 16 jumps a 4/4 bar. Defaults to 1.
+ *
+ * Backspace / Insert blank-line are STRUCTURAL edits and always move by 1
+ * regardless of this setting — they're moving the cursor relative to
+ * inserted/deleted content, not advancing past entered content.
+ */
+export const MIN_EDIT_STEP = 0;
+export const MAX_EDIT_STEP = 16;
+
 export const [currentOctave, setCurrentOctave] = createSignal<number>(2);
 export const [currentSample, setCurrentSample] = createSignal<number>(1);
+export const [editStep, setEditStep] = createSignal<number>(1);
 
 export function octaveUp(): void {
   setCurrentOctave((o) => Math.min(MAX_OCTAVE, o + 1));
@@ -39,6 +52,19 @@ export function nextSample(): void {
 
 export function prevSample(): void {
   setCurrentSample((s) => Math.max(MIN_SAMPLE, s - 1));
+}
+
+export function incEditStep(): void {
+  setEditStep((s) => Math.min(MAX_EDIT_STEP, s + 1));
+}
+
+export function decEditStep(): void {
+  setEditStep((s) => Math.max(MIN_EDIT_STEP, s - 1));
+}
+
+/** Snap the edit step back to its default of 1. */
+export function resetEditStep(): void {
+  setEditStep(1);
 }
 
 /**

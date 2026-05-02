@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { App } from '../../src/App';
 import { setCursor, INITIAL_CURSOR, cursor } from '../../src/state/cursor';
 import { setSong, setTransport, setPlayPos, clearHistory, song } from '../../src/state/song';
-import { setCurrentSample, setCurrentOctave } from '../../src/state/edit';
+import { setCurrentSample, setCurrentOctave, setEditStep, editStep } from '../../src/state/edit';
 
 function resetState() {
   setSong(null);
@@ -14,6 +14,7 @@ function resetState() {
   setCursor({ ...INITIAL_CURSOR });
   setCurrentSample(1);
   setCurrentOctave(2);
+  setEditStep(1);
 }
 
 beforeEach(resetState);
@@ -265,5 +266,185 @@ describe('effect entry: respects the "no edit while playing" rule', () => {
     await user.keyboard('c');
     expect(cellAt(0).effect).toBe(0);
     expect(cellAt(0).effectParam).toBe(0);
+  });
+});
+
+describe('edit step: keyboard shortcuts', () => {
+  it('] increases edit step; [ decreases it (no shift required)', () => {
+    render(() => <App />);
+    expect(editStep()).toBe(1);
+    // Drive raw KeyboardEvents — the shortcut matcher routes bracket
+    // presses via event.code so users on any layout hit the binding.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', code: 'BracketRight' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', code: 'BracketRight' }));
+    expect(editStep()).toBe(3);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '[', code: 'BracketLeft'  }));
+    expect(editStep()).toBe(2);
+  });
+
+  it('] / [ are no-ops while playing', () => {
+    render(() => <App />);
+    setEditStep(4);
+    setTransport('playing');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', code: 'BracketRight' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '[', code: 'BracketLeft'  }));
+    expect(editStep()).toBe(4);
+  });
+
+  it('Shift+] / Shift+[ no longer fire (shift is not part of the binding)', () => {
+    // Regression: an earlier version required shift, which is awkward — the
+    // user wants the bare keys. The shortcut matcher checks shift exactly,
+    // so a press WITH shift should now miss and leave the step alone.
+    render(() => <App />);
+    setEditStep(2);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', code: 'BracketRight', shiftKey: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '[', code: 'BracketLeft',  shiftKey: true }));
+    expect(editStep()).toBe(2);
+  });
+
+  it('\\ resets the edit step to 1', () => {
+    render(() => <App />);
+    setEditStep(7);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '\\', code: 'Backslash' }));
+    expect(editStep()).toBe(1);
+  });
+
+  it('\\ is a no-op while playing', () => {
+    render(() => <App />);
+    setEditStep(5);
+    setTransport('playing');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '\\', code: 'Backslash' }));
+    expect(editStep()).toBe(5);
+  });
+});
+
+describe('edit step: pattern metapane UI', () => {
+  // The +/- buttons in the metapane are the same handlers the keyboard
+  // shortcuts call; this test just verifies they're wired and respond.
+  it('clicking the + button increments and the − button decrements', async () => {
+    const { container } = render(() => <App />);
+    const user = userEvent.setup();
+    setEditStep(2);
+    const buttons = container.querySelectorAll<HTMLButtonElement>(
+      '.patternpane__editstep-btn',
+    );
+    expect(buttons).toHaveLength(2); // [−, +]
+    await user.click(buttons[1]!);   // +
+    expect(editStep()).toBe(3);
+    await user.click(buttons[0]!);   // −
+    expect(buttons[0]!);
+    expect(editStep()).toBe(2);
+  });
+
+  it('the metapane displays the current edit step value', () => {
+    const { container } = render(() => <App />);
+    setEditStep(7);
+    const value = container.querySelector('.patternpane__editstep-value')!;
+    expect(value.textContent).toBe('7');
+  });
+
+  it('the +/- buttons disable while playing', () => {
+    const { container } = render(() => <App />);
+    setTransport('playing');
+    const buttons = container.querySelectorAll<HTMLButtonElement>(
+      '.patternpane__editstep-btn',
+    );
+    expect(buttons[0]!.disabled).toBe(true);
+    expect(buttons[1]!.disabled).toBe(true);
+  });
+});
+
+describe('edit step: cursor advance after note / hex / clear / repeat-effect', () => {
+  it('note entry with editStep=2 jumps the cursor 2 rows down', async () => {
+    render(() => <App />);
+    const user = userEvent.setup();
+    setEditStep(2);
+    placeCursor('note');
+    await user.keyboard('a'); // enters C of currentOctave (=2) → C-2
+    // Cursor was on row 0; with edit step 2 it ends up on row 2.
+    expect(cursor()).toMatchObject({ row: 2, field: 'note' });
+  });
+
+  it('note entry with editStep=0 keeps the cursor on the same row', async () => {
+    render(() => <App />);
+    const user = userEvent.setup();
+    setEditStep(0);
+    placeCursor('note');
+    await user.keyboard('a');
+    expect(cellAt(0).period).toBeGreaterThan(0); // note WAS written
+    expect(cursor()).toMatchObject({ row: 0, field: 'note' });
+  });
+
+  it('completing a 3-nibble effect with editStep=2 advances 2 rows AND rewinds to effectCmd', async () => {
+    render(() => <App />);
+    const user = userEvent.setup();
+    setEditStep(2);
+    placeCursor('effectCmd');
+    await user.keyboard('c40');
+    // c40 wrote row 0; cursor advances 2 rows down then rewinds the column
+    // to effectCmd so the next effect can be typed in place.
+    expect(cellAt(0).effect).toBe(0xC);
+    expect(cellAt(0).effectParam).toBe(0x40);
+    expect(cursor()).toMatchObject({ row: 2, field: 'effectCmd' });
+  });
+
+  it('completing a 3-nibble effect with editStep=0 keeps the cursor on effectLo (no rewind)', async () => {
+    // The rewind to effectCmd only fires when the cursor actually advanced
+    // — at edit step 0 the user is in "stamp the same cell" mode and we
+    // shouldn't tug the column back to cmd, otherwise typing the next
+    // digit would overwrite the cmd nibble of the same row.
+    render(() => <App />);
+    const user = userEvent.setup();
+    setEditStep(0);
+    placeCursor('effectCmd');
+    await user.keyboard('c40');
+    expect(cellAt(0).effect).toBe(0xC);
+    expect(cellAt(0).effectParam).toBe(0x40);
+    expect(cursor()).toMatchObject({ row: 0, field: 'effectLo' });
+  });
+
+  it('clear (".") with editStep=3 jumps the cursor 3 rows', async () => {
+    render(() => <App />);
+    const user = userEvent.setup();
+    placeCursor('effectCmd');
+    await user.keyboard('c40');           // stamp something to clear
+    setEditStep(3);
+    placeCursor('effectCmd');
+    await user.keyboard('.');
+    expect(cellAt(0).effect).toBe(0);
+    expect(cursor()).toMatchObject({ row: 3 });
+  });
+
+  it('repeat-last-effect (",") respects the edit step', async () => {
+    render(() => <App />);
+    const user = userEvent.setup();
+    placeCursor('effectCmd');
+    await user.keyboard('c40');           // row 0: C40
+    setEditStep(2);
+    setCursorAtRow(3, 'effectCmd');
+    await user.keyboard(',');
+    expect(cellAt(3).effect).toBe(0xC);
+    expect(cellAt(3).effectParam).toBe(0x40);
+    expect(cursor()).toMatchObject({ row: 5 });
+  });
+
+  it('Insert blank line (Enter) ALWAYS advances exactly one row, ignoring edit step', async () => {
+    // Structural ops don't honour edit step — Enter inserts a row and the
+    // cursor follows it down by exactly one regardless of the setting.
+    render(() => <App />);
+    const user = userEvent.setup();
+    setEditStep(5);
+    placeCursor('note');
+    await user.keyboard('{Enter}');
+    expect(cursor()).toMatchObject({ row: 1 });
+  });
+
+  it('Backspace ALWAYS moves up exactly one row, ignoring edit step', async () => {
+    render(() => <App />);
+    const user = userEvent.setup();
+    setEditStep(5);
+    setCursorAtRow(3, 'note');
+    await user.keyboard('{Backspace}');
+    expect(cursor()).toMatchObject({ row: 2 });
   });
 });
