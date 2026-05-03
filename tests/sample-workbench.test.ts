@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyGain, applyNormalize, applyReverse, applyCrop, applyCut,
-  applyFadeIn, applyFadeOut, applyFilter, applyEffect,
+  applyFadeIn, applyFadeOut, applyFilter, applyCrossfade, applyEffect,
   runChain, transformToPt, runPipeline,
   workbenchFromWav, workbenchFromChiptune, workbenchToAlt, defaultEffect,
   resampleLinear, rateForTargetNote, DEFAULT_TARGET_NOTE,
@@ -205,6 +205,57 @@ describe('applyFilter', () => {
         expect(Number.isFinite(v)).toBe(true);
       }
     }
+  });
+});
+
+describe('applyCrossfade', () => {
+  it('rewrites the loop tail so the wrap matches the pre-loop sample', () => {
+    // Arrange a recognisable input: 12 frames where the "pre-loop" region
+    // [0, 4) is the marker bytes 1..4, the loop is [4, 12) filled with
+    // distinct values 10..17. With xfade length 4 covering the last 4
+    // frames of the loop, those frames should fade from the original loop
+    // tail (14, 15, 16, 17) toward the pre-loop tail (1, 2, 3, 4) so that
+    // out[11] === pre-loop[3] === 4 — making the 11→4 wrap continuous.
+    const ch = Float32Array.from([1, 2, 3, 4, 10, 11, 12, 13, 14, 15, 16, 17]);
+    const out = applyCrossfade(
+      { sampleRate: 44100, channels: [ch] },
+      4,    // length
+      4,    // loopStart
+      12,   // loopEnd
+    ).channels[0]!;
+    // Frames before the fade region are untouched.
+    expect(Array.from(out.subarray(0, 8))).toEqual([1, 2, 3, 4, 10, 11, 12, 13]);
+    // Linear ramp: t = i/3 across the 4-frame fade. At i=3 (frame 11):
+    // t = 1, so out[11] = pre-loop[3] = 4 — the loop wrap is now continuous.
+    expect(out[11]!).toBeCloseTo(4, 6);
+    // First xfade frame (i=0, frame 8): t = 0 → original value 14.
+    expect(out[8]!).toBeCloseTo(14, 6);
+    // Mid-fade (i=1, frame 9, t=1/3): blend of original 15 and pre-loop[1]=2.
+    expect(out[9]!).toBeCloseTo((1 - 1 / 3) * 15 + (1 / 3) * 2, 6);
+  });
+
+  it('clamps to the smaller of length / loopStart / loop length', () => {
+    // Loop is too short for a 100-frame fade — should clamp to 4.
+    const ch = Float32Array.from([1, 2, 3, 4, 10, 11, 12, 13]);
+    const out = applyCrossfade(
+      { sampleRate: 44100, channels: [ch] },
+      100, // requested length way more than loop has
+      4, 8,
+    ).channels[0]!;
+    // out[7] (last loop frame) should match pre-loop[3] = 4.
+    expect(out[7]!).toBeCloseTo(4, 6);
+    // No NaN, no out-of-bounds reads.
+    for (const v of out) expect(Number.isFinite(v)).toBe(true);
+  });
+
+  it('is a no-op when there is no pre-loop tail', () => {
+    // loopStart === 0 → can't read any pre-loop content.
+    const ch = Float32Array.from([10, 20, 30, 40]);
+    const out = applyCrossfade(
+      { sampleRate: 44100, channels: [ch] },
+      2, 0, 4,
+    );
+    expect(Array.from(out.channels[0]!)).toEqual([10, 20, 30, 40]);
   });
 });
 

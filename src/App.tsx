@@ -1189,8 +1189,26 @@ export const App: Component = () => {
     wb: SampleWorkbench,
     loopOverride?: { loopStartWords: number; loopLengthWords: number },
   ): import("./core/mod/types").Song => {
-    const data = runPipeline(wb);
     const old = song.samples[slot];
+    // Build a chain run-context that carries the slot's current loop into
+    // chain-input frame space, so loop-aware effects (crossfade) can act
+    // on it without each effect needing its own copy of the loop fields.
+    // Mapping: int8 byte position → source-frame position via the ratio
+    // sourceFrames / int8Length. Holds when no length-changing chain
+    // effects (crop / cut) precede the loop-aware effect.
+    const ctx = (() => {
+      if (!old || old.loopLengthWords <= 1 || old.data.length <= 0) return null;
+      const sourceFrames = materializeSource(wb.source).channels[0]?.length ?? 0;
+      if (sourceFrames <= 0) return null;
+      const ratio = sourceFrames / old.data.length;
+      const loopStartByte = old.loopStartWords * 2;
+      const loopEndByte = (old.loopStartWords + old.loopLengthWords) * 2;
+      return {
+        loopStartFrame: loopStartByte * ratio,
+        loopEndFrame: loopEndByte * ratio,
+      };
+    })();
+    const data = runPipeline(wb, ctx);
     const isFirstWrite = !old || old.lengthWords === 0;
     const fullLoop =
       sourceWantsFullLoop(wb.source) && data.length >= 2

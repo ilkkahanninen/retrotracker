@@ -355,6 +355,13 @@ function parseEffectNode(v: unknown): EffectNode | null {
       },
     };
   }
+  if (kind === 'crossfade') {
+    if (typeof params['length'] !== 'number') return null;
+    return {
+      kind: 'crossfade',
+      params: { length: Math.max(1, Math.floor(params['length'])) },
+    };
+  }
   return null;
 }
 

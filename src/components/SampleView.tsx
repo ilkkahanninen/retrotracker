@@ -42,6 +42,7 @@ const EFFECT_BUTTON_KINDS: readonly EffectKind[] = [
   "gain",
   "normalize",
   "filter",
+  "crossfade",
 ] as const;
 
 /** Hover hint that hints at selection-aware vs always-whole behaviour. */
@@ -397,31 +398,45 @@ export const SampleView: Component<Props> = (props) => {
               Delete
             </button>
             <For each={EFFECT_BUTTON_KINDS}>
-              {(kind) => (
-                <button
-                  type="button"
-                  onClick={() => {
-                    // For range-aware kinds (reverse / fadeIn / fadeOut) the
-                    // selection scopes the effect; pass it through whether or
-                    // not it's present and let the App handler decide. Don't
-                    // clear the selection — unlike Crop/Cut these don't change
-                    // the data shape, so the user may want to apply more than
-                    // one effect to the same region.
-                    props.onAddEffect(kind, selection());
-                  }}
-                  // Also gate on `lengthWords === 0` so the empty-Sampler
-                  // state (just-toggled-from-Chiptune with no WAV loaded)
-                  // doesn't let the user append effects to a 0-byte source.
-                  disabled={
-                    !workbench() ||
-                    editingDisabled() ||
-                    (sample()?.lengthWords ?? 0) === 0
-                  }
-                  title={titleForEffectButton(kind, selection() !== null)}
-                >
-                  {EFFECT_LABELS[kind]}
-                </button>
-              )}
+              {(kind) => {
+                // Crossfade is a loop-fix: it only makes sense when the slot
+                // already has a real loop (PT's no-loop sentinel is
+                // loopLengthWords === 1). Disable the button outside that
+                // state so the user can't append a chain entry that would
+                // silently no-op.
+                const loopActive = () => (sample()?.loopLengthWords ?? 0) > 1;
+                const requiresLoop = kind === "crossfade";
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // For range-aware kinds (reverse / fadeIn / fadeOut) the
+                      // selection scopes the effect; pass it through whether or
+                      // not it's present and let the App handler decide. Don't
+                      // clear the selection — unlike Crop/Cut these don't change
+                      // the data shape, so the user may want to apply more than
+                      // one effect to the same region.
+                      props.onAddEffect(kind, selection());
+                    }}
+                    // Also gate on `lengthWords === 0` so the empty-Sampler
+                    // state (just-toggled-from-Chiptune with no WAV loaded)
+                    // doesn't let the user append effects to a 0-byte source.
+                    disabled={
+                      !workbench() ||
+                      editingDisabled() ||
+                      (sample()?.lengthWords ?? 0) === 0 ||
+                      (requiresLoop && !loopActive())
+                    }
+                    title={
+                      requiresLoop && !loopActive()
+                        ? "Enable looping first — Crossfade smooths the loop join"
+                        : titleForEffectButton(kind, selection() !== null)
+                    }
+                  >
+                    {EFFECT_LABELS[kind]}
+                  </button>
+                );
+              }}
             </For>
             <Show when={selection()}>
               <span class="sampleview__selection-info">

@@ -66,12 +66,19 @@ export type EffectNode =
         /** Resonance / quality factor. ~0.707 ≈ Butterworth (no peak), higher resonates. */
         q: number;
       };
+    }
+  | {
+      kind: 'crossfade';
+      params: {
+        /** Crossfade window length in source-frame units. */
+        length: number;
+      };
     };
 
 export type EffectKind = EffectNode['kind'];
 
 export const EFFECT_KINDS: readonly EffectKind[] = [
-  'gain', 'normalize', 'reverse', 'crop', 'cut', 'fadeIn', 'fadeOut', 'filter',
+  'gain', 'normalize', 'reverse', 'crop', 'cut', 'fadeIn', 'fadeOut', 'filter', 'crossfade',
 ] as const;
 
 /** Human-readable names for the picker UI. */
@@ -84,7 +91,24 @@ export const EFFECT_LABELS: Readonly<Record<EffectKind, string>> = {
   fadeIn:    'Fade in',
   fadeOut:   'Fade out',
   filter:    'Filter',
+  crossfade: 'Crossfade',
 };
+
+/**
+ * Loop info threaded through the chain so loop-aware effects (currently
+ * just crossfade) can reach the slot's loop boundaries without each effect
+ * carrying its own copy. Frames are in the chain's INPUT space (the
+ * source's frame count) — `writeWorkbenchToSongPure` derives them by
+ * scaling the slot's int8-byte loop fields with `sourceFrames / int8Len`.
+ *
+ * The mapping is exact only when no length-changing chain effects (crop,
+ * cut) ran before the loop-aware effect. With those, the loop frames may
+ * point past the current intermediate's end; loop-aware effects clamp.
+ */
+export interface RunContext {
+  loopStartFrame: number;
+  loopEndFrame: number;
+}
 
 export const FILTER_TYPE_LABELS: Readonly<Record<FilterType, string>> = {
   lowpass:  'Low-pass',
@@ -366,7 +390,54 @@ export function applyFilter(
   });
 }
 
-export function applyEffect(input: WavData, node: EffectNode): WavData {
+/**
+ * FT2-style loop crossfade. Replaces the last `length` frames of the loop
+ * with a fade between the original loop tail (fading out) and the audio
+ * just before `loopStart` (fading in). At the wrap point (`loopEnd-1`),
+ * the audio has fully transitioned to "what comes just before loopStart",
+ * so when DMA wraps from `loopEnd-1` to `loopStart` the next frame is the
+ * naturally-adjacent original sample — no click.
+ *
+ * Length is clamped to fit the available room: at most `loopStart` (need
+ * that many pre-loop samples), at most `loopEnd - loopStart` (must fit
+ * inside the loop). With either constraint at zero the effect is a no-op.
+ */
+export function applyCrossfade(
+  input: WavData,
+  length: number,
+  loopStartFrame: number,
+  loopEndFrame: number,
+): WavData {
+  const len = input.channels[0]?.length ?? 0;
+  const ls = Math.max(0, Math.min(len, Math.floor(loopStartFrame)));
+  const le = Math.max(ls, Math.min(len, Math.floor(loopEndFrame)));
+  const requested = Math.max(0, Math.floor(length));
+  // Available room: pre-loop tail length AND loop length. We fade across
+  // min of the three so the indices stay in-bounds and the loop content
+  // outside the fade is preserved.
+  const usable = Math.min(requested, ls, le - ls);
+  if (usable <= 0) return input;
+  return mapChannels(input, (ch) => {
+    const out = new Float32Array(ch.length);
+    out.set(ch);
+    for (let i = 0; i < usable; i++) {
+      // t = 0 at the start of the fade window (audio still close to
+      // original loop end); t = 1 at the very last frame of the loop
+      // (audio matches `ch[ls - 1]`, so the wrap to `ch[ls]` is smooth).
+      const t = usable > 1 ? i / (usable - 1) : 1;
+      const targetIdx = le - usable + i;
+      const sourceIdx = ls - usable + i;
+      out[targetIdx] = (1 - t) * ch[targetIdx]! + t * ch[sourceIdx]!;
+    }
+    return out;
+  });
+}
+
+export function applyEffect(
+  input: WavData,
+  node: EffectNode,
+  ctx?: RunContext | null,
+): WavData {
   switch (node.kind) {
     case 'gain':       return applyGain(input, node.params.gain);
     case 'normalize':  return applyNormalize(input);
@@ -376,12 +447,22 @@ export function applyEffect(input: WavData, node: EffectNode): WavData {
     case 'fadeIn':     return applyFadeIn(input, node.params.startFrame, node.params.endFrame);
     case 'fadeOut':    return applyFadeOut(input, node.params.startFrame, node.params.endFrame);
     case 'filter':     return applyFilter(input, node.params.type, node.params.cutoff, node.params.q);
+    case 'crossfade':
+      // Loop info comes from the run context — without it (slot has no
+      // loop, or the chain ran outside `writeWorkbenchToSongPure`) the
+      // effect is a pass-through.
+      if (!ctx) return input;
+      return applyCrossfade(input, node.params.length, ctx.loopStartFrame, ctx.loopEndFrame);
   }
 }
 
-export function runChain(source: WavData, chain: EffectNode[]): WavData {
+export function runChain(
+  source: WavData,
+  chain: EffectNode[],
+  ctx?: RunContext | null,
+): WavData {
   let cur = source;
-  for (const node of chain) cur = applyEffect(cur, node);
+  for (const node of chain) cur = applyEffect(cur, node, ctx);
   return cur;
 }
 
@@ -471,8 +552,14 @@ export function transformToPt(audio: WavData, pt: PtTransformerParams): Int8Arra
 }
 
 /** End-to-end: source → chain → PT transformer → Int8. */
-export function runPipeline(workbench: SampleWorkbench): Int8Array {
-  return transformToPt(runChain(materializeSource(workbench.source), workbench.chain), workbench.pt);
+export function runPipeline(
+  workbench: SampleWorkbench,
+  ctx?: RunContext | null,
+): Int8Array {
+  return transformToPt(
+    runChain(materializeSource(workbench.source), workbench.chain, ctx),
+    workbench.pt,
+  );
 }
 
 // ─── Construction ─────────────────────────────────────────────────────────
@@ -562,5 +649,10 @@ export function defaultEffect(kind: EffectKind, input: WavData): EffectNode {
     // default that gives the user something to hear when they dial Q up
     // or sweep cutoff.
     case 'filter':    return { kind: 'filter',  params: { type: 'lowpass', cutoff: 1000, q: 0.707 } };
+    // Default crossfade window: a small fraction of the chain output, capped
+    // at 4096 frames so it stays musical on long samples and tiny on short
+    // ones. The actual cap is tightened at apply time by `applyCrossfade`
+    // (≤ loopStart and ≤ loop length).
+    case 'crossfade': return { kind: 'crossfade', params: { length: Math.min(4096, Math.max(1, Math.floor(len / 16))) } };
   }
 }

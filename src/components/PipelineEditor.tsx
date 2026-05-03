@@ -191,6 +191,8 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
   const asGain = () => props.node as Extract<EffectNode, { kind: "gain" }>;
   const asRange = () => props.node as Extract<EffectNode, { kind: RangeKind }>;
   const asFilter = () => props.node as Extract<EffectNode, { kind: "filter" }>;
+  const asCrossfade = () =>
+    props.node as Extract<EffectNode, { kind: "crossfade" }>;
   return (
     <Switch>
       <Match when={props.node.kind === "gain"}>
@@ -208,6 +210,26 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
       </Match>
       <Match when={props.node.kind === "normalize"}>
         <span class="effect-node__hint">Scales to peak ±1.0</span>
+      </Match>
+      <Match when={props.node.kind === "crossfade"}>
+        <Slider
+          label="Length (frames)"
+          min={1}
+          // Cap at half the source so the slider stays in a useful band —
+          // applyCrossfade clamps to (loopStart, loopLength) anyway, so the
+          // visible max only needs to be roughly the right ballpark.
+          max={Math.max(1, Math.floor(props.sourceFrames / 2))}
+          step={1}
+          value={asCrossfade().params.length}
+          snap={(v) => Math.max(1, Math.round(v))}
+          format={(v) => `${Math.round(v)}`}
+          onInput={(v) =>
+            props.onPatch({
+              kind: "crossfade",
+              params: { length: Math.max(1, Math.round(v)) },
+            })
+          }
+        />
       </Match>
       <Match when={props.node.kind === "filter"}>
         <label class="effect-node__param">
