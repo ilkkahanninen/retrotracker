@@ -401,12 +401,18 @@ export function runPipeline(workbench: SampleWorkbench): Int8Array {
 
 /** Decode a WAV file into a fresh workbench with an empty effect chain. */
 export function workbenchFromWav(bytes: Uint8Array, filename: string): SampleWorkbench {
+  return workbenchFromWavData(readWav(bytes), deriveSampleName(filename) || filename);
+}
+
+/**
+ * Same as `workbenchFromWav` but for already-decoded `WavData`. Used by the
+ * `.retro` restore path, where the persistence layer has already decoded the
+ * WAV bytes — re-running `readWav` would be wasted work and would also lose
+ * the source name we stored separately.
+ */
+export function workbenchFromWavData(wav: WavData, sourceName: string): SampleWorkbench {
   return {
-    source: {
-      kind: 'sampler',
-      wav: readWav(bytes),
-      sourceName: deriveSampleName(filename) || filename,
-    },
+    source: { kind: 'sampler', wav, sourceName },
     chain: [],
     // Default to C-2: when the user triggers C-2 in a pattern, the sample
     // plays at its original speed. They can change the target (or set null

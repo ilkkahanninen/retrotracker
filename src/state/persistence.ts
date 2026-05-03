@@ -5,6 +5,8 @@ import { FIELDS, type Cursor, type Field } from './cursor';
 import type { View } from './view';
 import type { ChiptuneParams } from '../core/audio/chiptune';
 import { chiptuneFromJson } from '../core/audio/chiptune';
+import type { WavData } from '../core/audio/wav';
+import { readWav, writeWav } from '../core/audio/wav';
 
 /**
  * Local-storage session persistence.
@@ -18,11 +20,15 @@ import { chiptuneFromJson } from '../core/audio/chiptune';
  * The handful of UI signals (cursor, view, current sample / octave / edit
  * step, filename) are bundled around the song bytes as plain JSON.
  *
- * Chiptune-source workbenches DO persist: the params are tiny JSON, the
- * synth is deterministic, and re-running the pipeline on load reproduces
- * the slot's int8 exactly. Sampler-source workbenches do NOT persist —
- * their WAV bytes can be MB-sized and don't fit comfortably in
- * localStorage / a `.retro` JSON file.
+ * Source workbenches persist (chain + PT params don't — those reset to
+ * defaults on load, but the int8 in the song bytes plays back identically):
+ *   - Chiptune sources persist as their tiny `ChiptuneParams` JSON; the
+ *     synth is deterministic so re-running it reproduces the int8 exactly.
+ *   - Sampler sources persist as 16-bit PCM WAV bytes (base64). 16-bit is
+ *     well above the int8 PT quantizer downstream, so storing wider buys
+ *     no audible quality. They're heavy — large enough that an autosave
+ *     can blow the localStorage quota; saveSession swallows that silently
+ *     and the user falls back to explicit Save.
  *
  * Other things we don't persist:
  *   - History stacks — a fresh session starts with no undo, matching the
@@ -32,13 +38,33 @@ import { chiptuneFromJson } from '../core/audio/chiptune';
  *
  * Schema versions: the storage key is `retrotracker:session:v1` (kept for
  * backward compat with already-saved sessions). The `v` field bumped to 2
- * when chiptuneSources was added — v=1 payloads still load (just without
- * any chiptune params), and v=2 payloads write the same key.
+ * when chiptuneSources was added, then to 3 for samplerSources. Older
+ * payloads still load (without the missing maps); newer writes use the
+ * lowest version that fits the data so a project that uses neither field
+ * stays bit-identical to the original v=1 format.
  */
 
 const STORAGE_KEY = 'retrotracker:session:v1';
 
-type SchemaVersion = 1 | 2;
+type SchemaVersion = 1 | 2 | 3;
+
+/**
+ * On-disk shape for one persisted sampler source. Only `source` round-trips
+ * (matching how chiptuneSources work) — the chain and PT params reset to
+ * defaults on load. The slot's int8 is in the song bytes either way, so
+ * playback restores identically; the user just gets a fresh chain UI.
+ */
+interface PersistedSamplerSource {
+  /** Display name shown in the pipeline header. */
+  sourceName: string;
+  /**
+   * 16-bit PCM WAV file bytes, base64-encoded. Round-trips through
+   * `writeWav` / `readWav` so the format is self-describing — sample rate
+   * and channel count are recoverable from the chunk headers without
+   * inventing a parallel JSON shape.
+   */
+  wavBase64: string;
+}
 
 interface PersistedShape {
   v: SchemaVersion;
@@ -52,11 +78,26 @@ interface PersistedShape {
   currentOctave: number;
   editStep: number;
   /**
-   * v≥2 only: per-slot chiptune source params. Slot index → params. Sampler
-   * workbenches aren't persisted (WAV bytes are too large for this transport).
+   * v≥2 only: per-slot chiptune source params. Slot index → params.
    * Optional so v=1 payloads still validate.
    */
   chiptuneSources?: Record<number, ChiptuneParams>;
+  /**
+   * v≥3 only: per-slot sampler source WAVs. Slot index → encoded source.
+   * Optional so v<3 payloads still validate.
+   */
+  samplerSources?: Record<number, PersistedSamplerSource>;
+}
+
+/**
+ * Input shape for one sampler source the App wants to persist. The App owns
+ * `WavData`; the persistence layer encodes it to bytes (via `writeWav`) and
+ * base64s the result. Keeping the encoding inside this module means callers
+ * never touch base64 / RIFF directly.
+ */
+export interface SamplerSourceInputs {
+  sourceName: string;
+  wav: WavData;
 }
 
 export interface SessionInputs {
@@ -71,15 +112,22 @@ export interface SessionInputs {
   editStep: number;
   /** Per-slot chiptune source params (slot index → params). Optional. */
   chiptuneSources?: Record<number, ChiptuneParams>;
+  /** Per-slot sampler source WAVs (slot index → source). Optional. */
+  samplerSources?: Record<number, SamplerSourceInputs>;
 }
 
 /** A session that has been read back: same shape as SessionInputs, but
  *  `infoText` is always materialised (never undefined) so the App can
  *  `setInfoText` without a fallback at every call site. */
-export type LoadedSession = Omit<SessionInputs, 'infoText' | 'chiptuneSources'> & {
+export type LoadedSession = Omit<
+  SessionInputs,
+  'infoText' | 'chiptuneSources' | 'samplerSources'
+> & {
   infoText: string;
   /** Always materialised on load — empty record when none persisted. */
   chiptuneSources: Record<number, ChiptuneParams>;
+  /** Always materialised on load — empty record when none persisted. */
+  samplerSources: Record<number, SamplerSourceInputs>;
 };
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -140,11 +188,14 @@ export function __resetEncodeCacheForTests(): void {
  *  so we re-use the lossless M.K. binary instead of inventing a JSON shape
  *  for the sample data.  Throws if `writeModule` rejects the song. */
 function buildPayload(state: SessionInputs): PersistedShape {
-  const hasChiptune = state.chiptuneSources && Object.keys(state.chiptuneSources).length > 0;
+  const hasChiptune = !!state.chiptuneSources && Object.keys(state.chiptuneSources).length > 0;
+  const hasSampler  = !!state.samplerSources  && Object.keys(state.samplerSources).length > 0;
+  // Lowest version that fits the data — keeps a chiptune/sampler-free
+  // session bit-identical to the original v=1 format and lets older
+  // builds keep loading anything they can still understand.
+  const v: SchemaVersion = hasSampler ? 3 : hasChiptune ? 2 : 1;
   return {
-    // Bump to v=2 only when actually carrying chiptune params, so a session
-    // that has none stays bit-identical to the older format.
-    v: hasChiptune ? 2 : 1,
+    v,
     songBase64: encodeSongCached(state.song),
     filename: state.filename,
     infoText: state.infoText ?? '',
@@ -154,7 +205,24 @@ function buildPayload(state: SessionInputs): PersistedShape {
     currentOctave: state.currentOctave,
     editStep: state.editStep,
     ...(hasChiptune ? { chiptuneSources: state.chiptuneSources } : {}),
+    ...(hasSampler  ? { samplerSources:  encodeSamplerSources(state.samplerSources!) } : {}),
   };
+}
+
+/** Encode each sampler source's WavData as 16-bit PCM bytes → base64.
+ *  Slot keys are preserved verbatim (numeric strings) so the JSON map
+ *  parses back symmetrically. */
+function encodeSamplerSources(
+  src: Record<number, SamplerSourceInputs>,
+): Record<number, PersistedSamplerSource> {
+  const out: Record<number, PersistedSamplerSource> = {};
+  for (const [k, v] of Object.entries(src)) {
+    out[Number(k)] = {
+      sourceName: v.sourceName,
+      wavBase64: bytesToBase64(writeWav(v.wav, { bitsPerSample: 16 })),
+    };
+  }
+  return out;
 }
 
 /** Decode a (presumed) PersistedShape back to a LoadedSession. Returns
@@ -182,7 +250,36 @@ function payloadToSession(parsed: unknown): LoadedSession | null {
     currentOctave: clamp(parsed.currentOctave, 1, 3, 2),
     editStep: clamp(parsed.editStep, 0, 16, 1),
     chiptuneSources: parseChiptuneSources(parsed.chiptuneSources),
+    samplerSources: parseSamplerSources(parsed.samplerSources),
   };
+}
+
+/**
+ * Validate a `samplerSources` map. Each entry must have a string sourceName
+ * and a base64 WAV payload that `readWav` accepts; bad entries are silently
+ * dropped (better than failing the whole load over a single corrupt slot).
+ * Slot indices are clamped to [0, 30] — anything outside can't refer to a
+ * real PT sample slot.
+ */
+function parseSamplerSources(raw: unknown): Record<number, SamplerSourceInputs> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<number, SamplerSourceInputs> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const slot = parseInt(k, 10);
+    if (!Number.isFinite(slot) || slot < 0 || slot > 30) continue;
+    if (!v || typeof v !== 'object') continue;
+    const entry = v as Record<string, unknown>;
+    const sourceName = typeof entry['sourceName'] === 'string' ? entry['sourceName'] : '';
+    const wavBase64  = typeof entry['wavBase64']  === 'string' ? entry['wavBase64']  : null;
+    if (!wavBase64) continue;
+    try {
+      const wav = readWav(base64ToBytes(wavBase64));
+      out[slot] = { sourceName, wav };
+    } catch {
+      // Corrupt WAV bytes — drop this slot and continue.
+    }
+  }
+  return out;
 }
 
 /**
@@ -295,11 +392,11 @@ export function deriveProjectFilename(
 function isPersistedShape(v: unknown): v is PersistedShape {
   if (!v || typeof v !== 'object') return false;
   const x = v as Record<string, unknown>;
-  // Accept both v=1 (older sessions, no chiptune support) and v=2 (with
-  // `chiptuneSources`). The chiptuneSources field is validated entry-by-entry
-  // in `parseChiptuneSources` rather than here — a single corrupt slot
-  // shouldn't fail the whole load.
-  return (x['v'] === 1 || x['v'] === 2)
+  // Accept v=1 (oldest, no source maps), v=2 (chiptuneSources added) and
+  // v=3 (samplerSources added). Per-slot maps are validated entry-by-entry
+  // in their parse helpers so a single corrupt slot doesn't fail the whole
+  // load.
+  return (x['v'] === 1 || x['v'] === 2 || x['v'] === 3)
     && typeof x['songBase64'] === 'string'
     && (x['filename'] === null || typeof x['filename'] === 'string')
     && (x['infoText'] === undefined || typeof x['infoText'] === 'string')
