@@ -22,13 +22,24 @@ import { Paula } from './paula';
 import type { PreviewMsg } from './preview-worklet-types';
 
 /** Replayer's NORM_FACTOR (2) / PAULA_VOICES (4). Single-voice headroom. */
-const SCALE = 0.5;
+const NORM_SCALE = 0.5;
+
+/**
+ * Mid/side stereo separation factor — matches the Replayer's default
+ * `stereoSeparation: 20` (sideFactor = sep/100 * 0.5 = 0.1). Applied to
+ * Paula's voice-0-on-L output so a previewed sample lands at the same
+ * per-channel amplitude that song playback would produce. Without this,
+ * the worklet was just centring `paula_L` on both output channels —
+ * mono down-mix was 2× the song's, so users heard the preview as ~6 dB
+ * louder than the same sample played from a pattern.
+ */
+const SIDE_FACTOR = 0.1;
 
 /**
  * Voice channel used for preview. Voice 0 in Paula's LRRL panning is a
- * left channel, but we copy its mix to both output channels for a
- * centred mono audition (same amplitude perception as song playback at
- * full stereo width).
+ * left channel; the right channel stays silent at Paula's stereo bus.
+ * We then run the Replayer's mid/side formula across both channels so
+ * the preview's loudness curve matches a pattern-triggered note exactly.
  */
 const PREVIEW_CH = 0;
 
@@ -110,13 +121,17 @@ class PreviewProcessor extends AudioWorkletProcessor {
     const sR = this.scratchR;
     this.paula.generate(sL, sR, frames, 0);
 
-    // Voice 0 is panned to L; sR is silent. Copy L to both output
-    // channels with the same NORM/voices scaling the Replayer applies,
-    // so preview loudness matches song playback for the same sample.
+    // Same mid/side + NORM scaling the Replayer's mixChunk applies. Voice 0
+    // is on L (sR is silent), so this collapses to L = paula·0.3,
+    // R = paula·0.2 at the default 20% separation — matching what a
+    // pattern-triggered voice-0 note produces in song playback.
     for (let i = 0; i < frames; i++) {
-      const v = sL[i]! * SCALE;
-      left[i] = v;
-      if (right !== left) right[i] = v;
+      const dL = sL[i]!;
+      const dR = sR[i]!;
+      const mid = (dL + dR) * 0.5;
+      const side = (dL - dR) * SIDE_FACTOR;
+      left[i] = (mid + side) * NORM_SCALE;
+      if (right !== left) right[i] = (mid - side) * NORM_SCALE;
     }
     return true;
   }
