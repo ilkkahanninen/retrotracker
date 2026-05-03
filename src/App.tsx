@@ -1406,7 +1406,33 @@ export const App: Component = () => {
     if (!wb) return;
     if (wb.source.kind !== "sampler") return;
     if (wb.chain.length === 0) return;
-    const burned = runChain(materializeSource(wb.source), wb.chain);
+
+    let burned = runChain(materializeSource(wb.source), wb.chain, runContextForSlot(slot, wb));
+
+    // Auto-truncate at loop end. The bytes past `loopEnd` are never heard
+    // (live worklet already plays through `songForPlayback` which truncates
+    // for the same reason), so dropping them from the source on Apply
+    // shrinks the .retro project without changing anything the user hears.
+    // Skipped when the slot has no real loop or when the loop already
+    // covers the whole sample.
+    const sample = song()?.samples[slot];
+    if (sample && sample.loopLengthWords > 1 && sample.data.length > 0) {
+      const sourceFrames = burned.channels[0]?.length ?? 0;
+      if (sourceFrames > 0) {
+        // Map slot int8-byte loopEnd into burned-WAV frame space — same
+        // ratio writeWorkbenchToSongPure uses for its run-context.
+        const ratio = sourceFrames / sample.data.length;
+        const loopEndByte = (sample.loopStartWords + sample.loopLengthWords) * 2;
+        const loopEndFrame = Math.min(sourceFrames, Math.floor(loopEndByte * ratio));
+        if (loopEndFrame > 0 && loopEndFrame < sourceFrames) {
+          burned = {
+            sampleRate: burned.sampleRate,
+            channels: burned.channels.map((ch) => ch.slice(0, loopEndFrame)),
+          };
+        }
+      }
+    }
+
     updateCurrentWorkbench({
       ...wb,
       source: {
@@ -1416,6 +1442,29 @@ export const App: Component = () => {
       },
       chain: [],
     });
+  };
+
+  /**
+   * Build the same chain run-context `writeWorkbenchToSongPure` uses, so
+   * the burn-time `runChain` sees the loop info that loop-aware chain
+   * effects (crossfade) need. Returns `null` when the slot has no real
+   * loop or no int8 yet.
+   */
+  const runContextForSlot = (
+    slot: number,
+    wb: SampleWorkbench,
+  ): { loopStartFrame: number; loopEndFrame: number } | null => {
+    const sample = song()?.samples[slot];
+    if (!sample || sample.loopLengthWords <= 1 || sample.data.length <= 0) return null;
+    const sourceFrames = materializeSource(wb.source).channels[0]?.length ?? 0;
+    if (sourceFrames <= 0) return null;
+    const ratio = sourceFrames / sample.data.length;
+    const loopStartByte = sample.loopStartWords * 2;
+    const loopEndByte = (sample.loopStartWords + sample.loopLengthWords) * 2;
+    return {
+      loopStartFrame: loopStartByte * ratio,
+      loopEndFrame: loopEndByte * ratio,
+    };
   };
 
   const setMonoMix = (monoMix: MonoMix) => {
