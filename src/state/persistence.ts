@@ -185,22 +185,12 @@ function base64ToBytes(b64: string): Uint8Array {
 let lastSong: Song | null = null;
 let lastBase64: string | null = null;
 
-/** Encode the song to base64, returning the cached value when possible.
- *  Exposed for tests via `__resetEncodeCacheForTests`. */
 function encodeSongCached(song: Song): string {
   if (lastSong === song && lastBase64 !== null) return lastBase64;
   const b64 = bytesToBase64(writeModule(song));
   lastSong = song;
   lastBase64 = b64;
   return b64;
-}
-
-/** Test hook — reset the encode cache between tests so a song that
- *  happens to hold the same JS reference across `setSong(null)` boundaries
- *  doesn't return the previous encoding by mistake. */
-export function __resetEncodeCacheForTests(): void {
-  lastSong = null;
-  lastBase64 = null;
 }
 
 /** Build the on-the-wire payload — song goes through writeModule + base64
