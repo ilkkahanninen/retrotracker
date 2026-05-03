@@ -70,12 +70,19 @@ import {
 } from "./core/mod/mutations";
 import { cropSample, cutSample } from "./core/mod/sampleSelection";
 import {
-  readSlice, clearRange, pasteSlice, type PatternRange,
+  readSlice,
+  clearRange,
+  pasteSlice,
+  type PatternRange,
 } from "./core/mod/clipboardOps";
 import { CHANNELS, ROWS_PER_PATTERN } from "./core/mod/types";
 import {
-  selection, setSelection, setSelectionAnchor, selectionAnchor,
-  makeSelection, clearSelection,
+  selection,
+  setSelection,
+  setSelectionAnchor,
+  selectionAnchor,
+  makeSelection,
+  clearSelection,
 } from "./state/selection";
 import { clipboardSlice, setClipboardSlice } from "./state/clipboard";
 import {
@@ -129,13 +136,19 @@ import { InfoView } from "./components/InfoView";
 import { Menu, type MenuItem } from "./components/Menu";
 import { view, setView } from "./state/view";
 import {
-  infoText, setInfoText,
-  wrapInfoText, infoTextFromSampleNames,
-  INFO_LINE_WIDTH, INFO_MAX_LINES,
+  infoText,
+  setInfoText,
+  wrapInfoText,
+  infoTextFromSampleNames,
+  INFO_LINE_WIDTH,
+  INFO_MAX_LINES,
 } from "./state/info";
 import {
-  saveSession, loadSession,
-  projectToBytes, projectFromBytes, deriveProjectFilename,
+  saveSession,
+  loadSession,
+  projectToBytes,
+  projectFromBytes,
+  deriveProjectFilename,
   type SamplerSourceInputs,
 } from "./state/persistence";
 import * as preview from "./state/preview";
@@ -148,8 +161,8 @@ const PROJECT_SIZE_WARN_BYTES = 4 * 1024 * 1024;
 /** Format a byte count for the header size indicator: KB under 1 MB,
  *  MB with two decimals otherwise. */
 function formatProjectSize(bytes: number): string {
-  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
-  return Math.max(0, Math.round(bytes / 1024)) + ' KB';
+  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+  return Math.max(0, Math.round(bytes / 1024)) + " KB";
 }
 
 export const App: Component = () => {
@@ -192,9 +205,11 @@ export const App: Component = () => {
       resetCursor();
       setPlayPos({ order: 0, row: 0 });
     }
-    if (typeof loaded.currentSample === 'number') setCurrentSample(loaded.currentSample);
-    if (typeof loaded.currentOctave === 'number') setCurrentOctave(loaded.currentOctave);
-    if (typeof loaded.editStep === 'number') setEditStep(loaded.editStep);
+    if (typeof loaded.currentSample === "number")
+      setCurrentSample(loaded.currentSample);
+    if (typeof loaded.currentOctave === "number")
+      setCurrentOctave(loaded.currentOctave);
+    if (typeof loaded.editStep === "number") setEditStep(loaded.editStep);
     clearHistory();
     // Both chiptune and sampler workbenches survive a session boundary now:
     // chiptune via tiny `ChiptuneParams` JSON (synth is deterministic), sampler
@@ -236,7 +251,7 @@ export const App: Component = () => {
       const buf = new Uint8Array(await file.arrayBuffer());
       if (/\.retro$/i.test(file.name)) {
         const loaded = projectFromBytes(buf);
-        if (!loaded) throw new Error('Invalid .retro project');
+        if (!loaded) throw new Error("Invalid .retro project");
         applyLoadedSession(loaded);
       } else {
         const mod = parseModule(buf.buffer);
@@ -275,7 +290,11 @@ export const App: Component = () => {
     if (!s) return;
     const stamped = withInfoTextAsSampleNames(s, infoText());
     const bytes = writeModule(stamped);
-    io.download(deriveExportFilename(filename(), s.title), bytes, 'audio/x-mod');
+    io.download(
+      deriveExportFilename(filename(), s.title),
+      bytes,
+      "audio/x-mod",
+    );
   };
 
   /**
@@ -285,13 +304,16 @@ export const App: Component = () => {
    * touch). Per-line truncation to 22 chars matches the .mod sample-name
    * field width — writeModule's writeAscii would otherwise drop the tail.
    */
-  function withInfoTextAsSampleNames(s: ReturnType<typeof song>, text: string): NonNullable<ReturnType<typeof song>> {
-    if (!s) throw new Error('withInfoTextAsSampleNames: no song');
+  function withInfoTextAsSampleNames(
+    s: ReturnType<typeof song>,
+    text: string,
+  ): NonNullable<ReturnType<typeof song>> {
+    if (!s) throw new Error("withInfoTextAsSampleNames: no song");
     if (text.length === 0) return s;
     const lines = wrapInfoText(text, INFO_LINE_WIDTH, INFO_MAX_LINES);
     const samples = s.samples.map((sample, i) => ({
       ...sample,
-      name: lines[i] ?? '',
+      name: lines[i] ?? "",
     }));
     return { ...s, samples };
   }
@@ -302,7 +324,7 @@ export const App: Component = () => {
   const chiptuneSourcesSnapshot = (): Record<number, ChiptuneParams> => {
     const out: Record<number, ChiptuneParams> = {};
     for (const [slot, wb] of workbenches()) {
-      if (wb.source.kind === 'chiptune') out[slot] = wb.source.params;
+      if (wb.source.kind === "chiptune") out[slot] = wb.source.params;
     }
     return out;
   };
@@ -317,7 +339,7 @@ export const App: Component = () => {
   const samplerSourcesSnapshot = (): Record<number, SamplerSourceInputs> => {
     const out: Record<number, SamplerSourceInputs> = {};
     for (const [slot, wb] of workbenches()) {
-      if (wb.source.kind !== 'sampler') continue;
+      if (wb.source.kind !== "sampler") continue;
       const hasAudio = wb.source.wav.channels.some((ch) => ch.length > 0);
       if (!hasAudio) continue;
       out[slot] = {
@@ -353,7 +375,7 @@ export const App: Component = () => {
     io.download(
       deriveProjectFilename(filename(), s.title),
       bytes,
-      'application/json',
+      "application/json",
     );
     setDirty(false);
   };
@@ -365,9 +387,10 @@ export const App: Component = () => {
    */
   const newProject = () => {
     if (dirty()) {
-      const ok = typeof window !== 'undefined' && window.confirm
-        ? window.confirm('Discard unsaved changes?')
-        : true;
+      const ok =
+        typeof window !== "undefined" && window.confirm
+          ? window.confirm("Discard unsaved changes?")
+          : true;
       if (!ok) return;
     }
     applyLoadedSession({ song: emptySong(), filename: null });
@@ -420,22 +443,34 @@ export const App: Component = () => {
     const before = cursor();
     let anchor = selectionAnchor();
     if (!anchor) {
-      anchor = { order: before.order, row: before.row, channel: before.channel };
+      anchor = {
+        order: before.order,
+        row: before.row,
+        channel: before.channel,
+      };
       setSelectionAnchor(anchor);
     }
     setCursor(next);
     setPlayPos({ order: next.order, row: next.row });
     if (next.order !== anchor.order) {
-      const reAnchor = { order: next.order, row: next.row, channel: next.channel };
+      const reAnchor = {
+        order: next.order,
+        row: next.row,
+        channel: next.channel,
+      };
       setSelectionAnchor(reAnchor);
       setSelection(null);
       return;
     }
-    setSelection(makeSelection(
-      anchor.order,
-      anchor.row, anchor.channel,
-      next.row, next.channel,
-    ));
+    setSelection(
+      makeSelection(
+        anchor.order,
+        anchor.row,
+        anchor.channel,
+        next.row,
+        next.channel,
+      ),
+    );
   };
 
   /** Same as applyCursor but for movement functions that need the Song. */
@@ -459,18 +494,30 @@ export const App: Component = () => {
   // user's mental model. Shift+up/down/page step rows. All of these stay
   // within the cursor's current pattern; the selection rectangle is
   // single-pattern by design (see PatternSelection in state/selection.ts).
-  const stepChannelLeft = (c: ReturnType<typeof cursor>) =>
-    ({ ...c, channel: Math.max(0, c.channel - 1) });
-  const stepChannelRight = (c: ReturnType<typeof cursor>) =>
-    ({ ...c, channel: Math.min(CHANNELS - 1, c.channel + 1) });
-  const stepRowUp = (c: ReturnType<typeof cursor>) =>
-    ({ ...c, row: Math.max(0, c.row - 1) });
-  const stepRowDown = (c: ReturnType<typeof cursor>) =>
-    ({ ...c, row: Math.min(ROWS_PER_PATTERN - 1, c.row + 1) });
-  const stepRowPageUp = (c: ReturnType<typeof cursor>, n: number) =>
-    ({ ...c, row: Math.max(0, c.row - Math.max(1, n)) });
-  const stepRowPageDown = (c: ReturnType<typeof cursor>, n: number) =>
-    ({ ...c, row: Math.min(ROWS_PER_PATTERN - 1, c.row + Math.max(1, n)) });
+  const stepChannelLeft = (c: ReturnType<typeof cursor>) => ({
+    ...c,
+    channel: Math.max(0, c.channel - 1),
+  });
+  const stepChannelRight = (c: ReturnType<typeof cursor>) => ({
+    ...c,
+    channel: Math.min(CHANNELS - 1, c.channel + 1),
+  });
+  const stepRowUp = (c: ReturnType<typeof cursor>) => ({
+    ...c,
+    row: Math.max(0, c.row - 1),
+  });
+  const stepRowDown = (c: ReturnType<typeof cursor>) => ({
+    ...c,
+    row: Math.min(ROWS_PER_PATTERN - 1, c.row + 1),
+  });
+  const stepRowPageUp = (c: ReturnType<typeof cursor>, n: number) => ({
+    ...c,
+    row: Math.max(0, c.row - Math.max(1, n)),
+  });
+  const stepRowPageDown = (c: ReturnType<typeof cursor>, n: number) => ({
+    ...c,
+    row: Math.min(ROWS_PER_PATTERN - 1, c.row + Math.max(1, n)),
+  });
 
   /**
    * Write a note at the cursor and audition it. No-op if the cursor isn't on
@@ -695,34 +742,32 @@ export const App: Component = () => {
     if (!s) return;
     const c = cursor();
     const sel = selection();
-    const isWholePattern = !!sel
-      && sel.order === c.order
-      && sel.startRow === 0
-      && sel.endRow === ROWS_PER_PATTERN - 1
-      && sel.startChannel === 0
-      && sel.endChannel === CHANNELS - 1;
+    const isWholePattern =
+      !!sel &&
+      sel.order === c.order &&
+      sel.startRow === 0 &&
+      sel.endRow === ROWS_PER_PATTERN - 1 &&
+      sel.startChannel === 0 &&
+      sel.endChannel === CHANNELS - 1;
     if (isWholePattern) return; // step 3+ — already maximal, no-op
-    const isWholeChannel = !!sel
-      && sel.order === c.order
-      && sel.startRow === 0
-      && sel.endRow === ROWS_PER_PATTERN - 1
-      && sel.startChannel === c.channel
-      && sel.endChannel === c.channel;
+    const isWholeChannel =
+      !!sel &&
+      sel.order === c.order &&
+      sel.startRow === 0 &&
+      sel.endRow === ROWS_PER_PATTERN - 1 &&
+      sel.startChannel === c.channel &&
+      sel.endChannel === c.channel;
     if (isWholeChannel) {
       // Step 2: expand to the whole pattern.
-      setSelection(makeSelection(
-        c.order,
-        0, 0,
-        ROWS_PER_PATTERN - 1, CHANNELS - 1,
-      ));
+      setSelection(
+        makeSelection(c.order, 0, 0, ROWS_PER_PATTERN - 1, CHANNELS - 1),
+      );
       return;
     }
     // Step 1 (default): select the whole current channel.
-    setSelection(makeSelection(
-      c.order,
-      0, c.channel,
-      ROWS_PER_PATTERN - 1, c.channel,
-    ));
+    setSelection(
+      makeSelection(c.order, 0, c.channel, ROWS_PER_PATTERN - 1, c.channel),
+    );
   };
 
   /**
@@ -733,16 +778,21 @@ export const App: Component = () => {
   const rangeForClipboard = (): PatternRange | null => {
     if (!song()) return null;
     const sel = selection();
-    if (sel) return {
-      order: sel.order,
-      startRow: sel.startRow, endRow: sel.endRow,
-      startChannel: sel.startChannel, endChannel: sel.endChannel,
-    };
+    if (sel)
+      return {
+        order: sel.order,
+        startRow: sel.startRow,
+        endRow: sel.endRow,
+        startChannel: sel.startChannel,
+        endChannel: sel.endChannel,
+      };
     const c = cursor();
     return {
       order: c.order,
-      startRow: c.row, endRow: c.row,
-      startChannel: c.channel, endChannel: c.channel,
+      startRow: c.row,
+      endRow: c.row,
+      startChannel: c.channel,
+      endChannel: c.channel,
     };
   };
 
@@ -810,14 +860,18 @@ export const App: Component = () => {
     const s = song();
     if (!s) return;
     const sel = selection();
-    const range = sel ?? (() => {
-      const c = cursor();
-      return {
-        order: c.order,
-        startRow: c.row, endRow: c.row,
-        startChannel: c.channel, endChannel: c.channel,
-      };
-    })();
+    const range =
+      sel ??
+      (() => {
+        const c = cursor();
+        return {
+          order: c.order,
+          startRow: c.row,
+          endRow: c.row,
+          startChannel: c.channel,
+          endChannel: c.channel,
+        };
+      })();
     commitEdit((song) => transposeRange(song, range, deltaSemitones));
   };
 
@@ -961,7 +1015,10 @@ export const App: Component = () => {
    * the slots PT actually addresses (0..30); slot index here is 0-based,
    * the UI labels them 1..31.
    */
-  const nextFreeSlot = (s: ReturnType<typeof song>, from: number): number | null => {
+  const nextFreeSlot = (
+    s: ReturnType<typeof song>,
+    from: number,
+  ): number | null => {
     if (!s) return null;
     for (let i = from + 1; i < s.samples.length; i++) {
       if (s.samples[i]!.lengthWords === 0) return i;
@@ -998,15 +1055,19 @@ export const App: Component = () => {
       const newSong = { ...song, samples };
       const wb = workbenches.get(slot);
       const newWorkbenches = wb
-        // Workbenches are deep-immutable; shallow-clone the top level so
-        // future edits on slot N don't mutate the duplicate at slot M
-        // through a shared chain reference.
-        ? withWorkbench(workbenches, target, {
+        ? // Workbenches are deep-immutable; shallow-clone the top level so
+          // future edits on slot N don't mutate the duplicate at slot M
+          // through a shared chain reference.
+          withWorkbench(workbenches, target, {
             source: wb.source,
             chain: [...wb.chain],
             pt: { ...wb.pt },
             alt: wb.alt
-              ? { source: wb.alt.source, chain: [...wb.alt.chain], pt: { ...wb.alt.pt } }
+              ? {
+                  source: wb.alt.source,
+                  chain: [...wb.alt.chain],
+                  pt: { ...wb.alt.pt },
+                }
               : null,
           })
         : workbenches;
@@ -1131,9 +1192,10 @@ export const App: Component = () => {
     const data = runPipeline(wb);
     const old = song.samples[slot];
     const isFirstWrite = !old || old.lengthWords === 0;
-    const fullLoop = sourceWantsFullLoop(wb.source) && data.length >= 2
-      ? { loopStartWords: 0, loopLengthWords: data.length >> 1 }
-      : null;
+    const fullLoop =
+      sourceWantsFullLoop(wb.source) && data.length >= 2
+        ? { loopStartWords: 0, loopLengthWords: data.length >> 1 }
+        : null;
     // Explicit override wins; otherwise chiptune's full-loop wins; otherwise
     // we fall through to first-write defaults (no loop) or preserve old.
     const loopFields = loopOverride ?? fullLoop;
@@ -1319,7 +1381,11 @@ export const App: Component = () => {
     const burned = runChain(materializeSource(wb.source), wb.chain);
     updateCurrentWorkbench({
       ...wb,
-      source: { kind: "sampler", wav: burned, sourceName: wb.source.sourceName },
+      source: {
+        kind: "sampler",
+        wav: burned,
+        sourceName: wb.source.sourceName,
+      },
       chain: [],
     });
   };
@@ -1450,9 +1516,12 @@ export const App: Component = () => {
         setCurrentSample(restored.currentSample);
         setCurrentOctave(restored.currentOctave);
         setEditStep(restored.editStep);
-        for (const [slotStr, params] of Object.entries(restored.chiptuneSources)) {
+        for (const [slotStr, params] of Object.entries(
+          restored.chiptuneSources,
+        )) {
           const slot = parseInt(slotStr, 10);
-          if (Number.isFinite(slot)) setWorkbench(slot, workbenchFromChiptune(params));
+          if (Number.isFinite(slot))
+            setWorkbench(slot, workbenchFromChiptune(params));
         }
         for (const [slotStr, src] of Object.entries(restored.samplerSources)) {
           const slot = parseInt(slotStr, 10);
@@ -1495,8 +1564,14 @@ export const App: Component = () => {
       if (saveTimer !== null) window.clearTimeout(saveTimer);
       saveTimer = window.setTimeout(() => {
         saveSession({
-          song: s, filename: fname, infoText: info, view: v, cursor: c,
-          currentSample: samp, currentOctave: oct, editStep: step,
+          song: s,
+          filename: fname,
+          infoText: info,
+          view: v,
+          cursor: c,
+          currentSample: samp,
+          currentOctave: oct,
+          editStep: step,
           chiptuneSources: chiptuneSourcesSnapshot(),
           samplerSources: samplerSourcesSnapshot(),
         });
@@ -1535,7 +1610,8 @@ export const App: Component = () => {
       clearAtCursor,
       backspaceCell,
       insertEmptyCell,
-    })) cleanups.push(c);
+    }))
+      cleanups.push(c);
   });
   onCleanup(() => {
     for (const c of cleanups) c();
@@ -1546,26 +1622,52 @@ export const App: Component = () => {
   // Menu items for the header dropdowns. Functions so the disabled flags
   // re-evaluate reactively each time the Menu reads `props.items`.
   const fileMenuItems = (): MenuItem[] => [
-    { label: "New",           onClick: newProject },
-    { label: "Open…",         hint: "⌘O", onClick: openFilePicker },
+    { label: "New", onClick: newProject },
+    { label: "Open…", hint: "⌘O", onClick: openFilePicker },
     { separator: true, label: "" },
-    { label: "Save…",         hint: "⌘S", onClick: saveProject,  disabled: !song() },
-    { label: "Export .mod…",              onClick: exportMod,     disabled: !song() },
+    { label: "Save…", hint: "⌘S", onClick: saveProject, disabled: !song() },
+    { label: "Export .mod…", onClick: exportMod, disabled: !song() },
   ];
 
   const editMenuItems = (): MenuItem[] => {
     const playing = transport() === "playing";
     return [
-      { label: "Undo",  hint: "⌘Z",  onClick: undo, disabled: !canUndo() || playing },
-      { label: "Redo",  hint: "⇧⌘Z", onClick: redo, disabled: !canRedo() || playing },
+      {
+        label: "Undo",
+        hint: "⌘Z",
+        onClick: undo,
+        disabled: !canUndo() || playing,
+      },
+      {
+        label: "Redo",
+        hint: "⇧⌘Z",
+        onClick: redo,
+        disabled: !canRedo() || playing,
+      },
       { separator: true, label: "" },
       // Copy / Cut / Paste live here for discoverability — same handlers
       // the Cmd+C / X / V shortcuts call. Disabled checks mirror the
       // shortcut `when` predicates so the menu and keyboard agree on
       // when the action is reachable.
-      { label: "Cut",   hint: "⌘X", onClick: cutSelection,  disabled: playing || view() === "sample" || !song() },
-      { label: "Copy",  hint: "⌘C", onClick: copySelection, disabled: view() === "sample" || !song() },
-      { label: "Paste", hint: "⌘V", onClick: pasteAtCursor, disabled: playing || view() === "sample" || !song() || !clipboardSlice() },
+      {
+        label: "Cut",
+        hint: "⌘X",
+        onClick: cutSelection,
+        disabled: playing || view() === "sample" || !song(),
+      },
+      {
+        label: "Copy",
+        hint: "⌘C",
+        onClick: copySelection,
+        disabled: view() === "sample" || !song(),
+      },
+      {
+        label: "Paste",
+        hint: "⌘V",
+        onClick: pasteAtCursor,
+        disabled:
+          playing || view() === "sample" || !song() || !clipboardSlice(),
+      },
     ];
   };
 
@@ -1595,8 +1697,8 @@ export const App: Component = () => {
       song: s,
       filename: filename(),
       infoText: infoText(),
-      view: 'pattern',
-      cursor: { order: 0, row: 0, channel: 0, field: 'note' },
+      view: "pattern",
+      cursor: { order: 0, row: 0, channel: 0, field: "note" },
       currentSample: 1,
       currentOctave: 1,
       editStep: 1,
@@ -1631,14 +1733,8 @@ export const App: Component = () => {
             hidden
             ref={fileInput}
           />
-          <Menu
-            label="File"
-            items={fileMenuItems()}
-          />
-          <Menu
-            label="Edit"
-            items={editMenuItems()}
-          />
+          <Menu label="File" items={fileMenuItems()} />
+          <Menu label="Edit" items={editMenuItems()} />
           <Show when={song()}>
             <span class="filesize" title=".mod file size">
               .mod {formatProjectSize(modByteSize())}
@@ -1653,7 +1749,8 @@ export const App: Component = () => {
               }}
               title={`Estimated .retro project file size — limit ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}`}
             >
-              .retro {formatProjectSize(projectByteSize())} / {formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}
+              .retro {formatProjectSize(projectByteSize())} /{" "}
+              {formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}
             </span>
           </Show>
         </div>
@@ -1718,7 +1815,9 @@ export const App: Component = () => {
               disabled={!song()}
               title="Play pattern (Option+Space)"
               aria-label="Play pattern"
-              aria-pressed={transport() === "playing" && playMode() === "pattern"}
+              aria-pressed={
+                transport() === "playing" && playMode() === "pattern"
+              }
             >
               Pattern
             </button>
@@ -1767,20 +1866,40 @@ export const App: Component = () => {
                   <span>{sampleCount()} samples</span>
                   <span class="patternpane__sep">·</span>
                   <span>
-                    order {playPos().order.toString(16).toUpperCase().padStart(2, "0")}/
-                    {(s().songLength - 1).toString(16).toUpperCase().padStart(2, "0")}
+                    order{" "}
+                    {playPos()
+                      .order.toString(16)
+                      .toUpperCase()
+                      .padStart(2, "0")}
+                    /
+                    {(s().songLength - 1)
+                      .toString(16)
+                      .toUpperCase()
+                      .padStart(2, "0")}
                   </span>
                   <span class="patternpane__sep">·</span>
                   <span>
                     pat{" "}
-                    {(s().orders[playPos().order] ?? 0).toString(16).toUpperCase().padStart(2, "0")}
+                    {(s().orders[playPos().order] ?? 0)
+                      .toString(16)
+                      .toUpperCase()
+                      .padStart(2, "0")}
                   </span>
                   <span class="patternpane__sep">·</span>
-                  <span>row {playPos().row.toString(16).toUpperCase().padStart(2, "0")}</span>
+                  <span>
+                    row{" "}
+                    {playPos().row.toString(16).toUpperCase().padStart(2, "0")}
+                  </span>
                   <span class="patternpane__sep">·</span>
                   <span>oct {currentOctave()}</span>
                   <span class="patternpane__sep">·</span>
-                  <span>smp {currentSample().toString(16).toUpperCase().padStart(2, "0")}</span>
+                  <span>
+                    smp{" "}
+                    {currentSample()
+                      .toString(16)
+                      .toUpperCase()
+                      .padStart(2, "0")}
+                  </span>
                   <span class="patternpane__sep">·</span>
                   <span class="patternpane__editstep">
                     step
@@ -1791,11 +1910,15 @@ export const App: Component = () => {
                       disabled={transport() === "playing"}
                       title="Decrease edit step ([)"
                       aria-label="Decrease edit step"
-                    >−</button>
+                    >
+                      −
+                    </button>
                     <span
                       class="patternpane__editstep-value"
                       aria-label="Edit step"
-                    >{editStep()}</span>
+                    >
+                      {editStep()}
+                    </span>
                     <button
                       type="button"
                       class="patternpane__editstep-btn"
@@ -1803,7 +1926,9 @@ export const App: Component = () => {
                       disabled={transport() === "playing"}
                       title="Increase edit step (])"
                       aria-label="Increase edit step"
-                    >+</button>
+                    >
+                      +
+                    </button>
                   </span>
                 </div>
                 <PatternGrid
@@ -1826,7 +1951,7 @@ export const App: Component = () => {
                   canDuplicate={nextFreeSlot(s(), currentSample() - 1) !== null}
                   onPatch={patchCurrentSample}
                   onCropToSelection={cropCurrentSampleToSelection}
-                  onCutSelection={cutCurrentSampleSelection}
+                  onDeleteSelection={cutCurrentSampleSelection}
                   onAddEffect={addEffect}
                   onRemoveEffect={removeEffect}
                   onMoveEffect={moveEffect}
@@ -1947,8 +2072,12 @@ export const App: Component = () => {
                           onClick={() => jumpToOrder(i)}
                           title={`Jump to order ${i.toString(16).toUpperCase().padStart(2, "0")}`}
                         >
-                          <span class="num">{i.toString(16).toUpperCase().padStart(2, "0")}</span>
-                          <span class="pat">{p.toString(16).toUpperCase().padStart(2, "0")}</span>
+                          <span class="num">
+                            {i.toString(16).toUpperCase().padStart(2, "0")}
+                          </span>
+                          <span class="pat">
+                            {p.toString(16).toUpperCase().padStart(2, "0")}
+                          </span>
                         </li>
                       ))}
                   </ol>

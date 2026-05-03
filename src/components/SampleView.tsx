@@ -83,7 +83,7 @@ interface Props {
   /** Replace sample.data with the [startByte, endByte) slice; loop translates accordingly. */
   onCropToSelection: (startByte: number, endByte: number) => void;
   /** Replace sample.data with everything OUTSIDE [startByte, endByte). */
-  onCutSelection: (startByte: number, endByte: number) => void;
+  onDeleteSelection: (startByte: number, endByte: number) => void;
   /**
    * Append an effect to the workbench chain. For range-aware kinds the
    * caller can use the user's current waveform selection (passed through)
@@ -216,7 +216,12 @@ export const SampleView: Component<Props> = (props) => {
           <button
             type="button"
             onClick={props.onDuplicate}
-            disabled={!sample() || sample()!.lengthWords === 0 || !props.canDuplicate || editingDisabled()}
+            disabled={
+              !sample() ||
+              sample()!.lengthWords === 0 ||
+              !props.canDuplicate ||
+              editingDisabled()
+            }
             title={
               !sample() || sample()!.lengthWords === 0
                 ? "Nothing to duplicate"
@@ -365,65 +370,82 @@ export const SampleView: Component<Props> = (props) => {
             either be wiped on the next param change or just confuse the
             mental model. Edit the synth params instead. */}
         <Show when={workbench()?.source.kind !== "chiptune"}>
-        <div class="sampleview__selection">
-          <button
-            type="button"
-            onClick={() => {
-              const sel = selection();
-              if (!sel) return;
-              props.onCropToSelection(sel.start, sel.end);
-              setSelection(null);
-            }}
-            disabled={!selection() || selection()!.end - selection()!.start < 2}
-            title="Keep the selected range, discard the rest"
-          >
-            Crop
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const sel = selection();
-              if (!sel) return;
-              props.onCutSelection(sel.start, sel.end);
-              setSelection(null);
-            }}
-            disabled={!selection() || selection()!.end - selection()!.start < 2}
-            title="Remove the selected range, keep the rest"
-          >
-            Cut
-          </button>
-          <For each={EFFECT_BUTTON_KINDS}>
-            {(kind) => (
-              <button
-                type="button"
-                onClick={() => {
-                  // For range-aware kinds (reverse / fadeIn / fadeOut) the
-                  // selection scopes the effect; pass it through whether or
-                  // not it's present and let the App handler decide. Don't
-                  // clear the selection — unlike Crop/Cut these don't change
-                  // the data shape, so the user may want to apply more than
-                  // one effect to the same region.
-                  props.onAddEffect(kind, selection());
-                }}
-                disabled={!workbench() || editingDisabled()}
-                title={titleForEffectButton(kind, selection() !== null)}
-              >
-                {EFFECT_LABELS[kind]}
-              </button>
-            )}
-          </For>
-          <Show when={selection()}>
-            <span class="sampleview__selection-info">
-              Selection: bytes {selection()!.start} – {selection()!.end} (
-              {selection()!.end - selection()!.start} bytes)
-            </span>
-          </Show>
-        </div>
+          <div class="sampleview__selection">
+            <button
+              type="button"
+              onClick={() => {
+                const sel = selection();
+                if (!sel) return;
+                props.onCropToSelection(sel.start, sel.end);
+                setSelection(null);
+              }}
+              disabled={
+                !selection() || selection()!.end - selection()!.start < 2
+              }
+              title="Keep the selected range, discard the rest"
+            >
+              Crop
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const sel = selection();
+                if (!sel) return;
+                props.onDeleteSelection(sel.start, sel.end);
+                setSelection(null);
+              }}
+              disabled={
+                !selection() || selection()!.end - selection()!.start < 2
+              }
+              title="Remove the selected range, keep the rest"
+            >
+              Delete
+            </button>
+            <For each={EFFECT_BUTTON_KINDS}>
+              {(kind) => (
+                <button
+                  type="button"
+                  onClick={() => {
+                    // For range-aware kinds (reverse / fadeIn / fadeOut) the
+                    // selection scopes the effect; pass it through whether or
+                    // not it's present and let the App handler decide. Don't
+                    // clear the selection — unlike Crop/Cut these don't change
+                    // the data shape, so the user may want to apply more than
+                    // one effect to the same region.
+                    props.onAddEffect(kind, selection());
+                  }}
+                  // Also gate on `lengthWords === 0` so the empty-Sampler
+                  // state (just-toggled-from-Chiptune with no WAV loaded)
+                  // doesn't let the user append effects to a 0-byte source.
+                  disabled={
+                    !workbench() ||
+                    editingDisabled() ||
+                    (sample()?.lengthWords ?? 0) === 0
+                  }
+                  title={titleForEffectButton(kind, selection() !== null)}
+                >
+                  {EFFECT_LABELS[kind]}
+                </button>
+              )}
+            </For>
+            <Show when={selection()}>
+              <span class="sampleview__selection-info">
+                Selection: bytes {selection()!.start} – {selection()!.end} (
+                {selection()!.end - selection()!.start} bytes)
+              </span>
+            </Show>
+          </div>
         </Show>
-        <Show when={workbench()?.source.kind === "chiptune" ? workbench()!.source : null}>
+        <Show
+          when={
+            workbench()?.source.kind === "chiptune" ? workbench()!.source : null
+          }
+        >
           {(src) => (
             <ChiptuneEditor
-              params={(src() as Extract<SampleSource, { kind: "chiptune" }>).params}
+              params={
+                (src() as Extract<SampleSource, { kind: "chiptune" }>).params
+              }
               disabled={editingDisabled()}
               onUpdate={props.onUpdateChiptune}
             />
@@ -448,4 +470,3 @@ export const SampleView: Component<Props> = (props) => {
     </div>
   );
 };
-
