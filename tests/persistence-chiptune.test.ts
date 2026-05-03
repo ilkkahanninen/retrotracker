@@ -25,8 +25,8 @@ describe('persistence: chiptune source round-trip', () => {
       ...defaultChiptuneParams(),
       cycleFrames: 128,
       amplitude: 0.7,
-      osc1: { shapeIndex: 1.5, phaseSplit: 0.3 },
-      osc2: { shapeIndex: 2.75, phaseSplit: 0.6 },
+      osc1: { shapeIndex: 1.5, phaseSplit: 0.3, ratio: 2 },
+      osc2: { shapeIndex: 2.75, phaseSplit: 0.6, ratio: 1 },
       combineMode: 'fm' as const,
       combineAmount: 0.4,
     };

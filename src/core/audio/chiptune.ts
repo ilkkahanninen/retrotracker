@@ -29,6 +29,14 @@ export interface Oscillator {
    * triangle, asymmetric sine).
    */
   phaseSplit: number;
+  /**
+   * Cycles per base-cycle: how many full revolutions of THIS oscillator fit
+   * into the workbench's `cycleFrames`. Each doubling moves the osc one
+   * octave up (1=fundamental, 2=+1 oct, 4=+2 oct, 8=+3 oct). Restricted to
+   * powers of two so the shorter-cycle osc wraps cleanly inside the longer
+   * one and the final sample length stays octave-aligned.
+   */
+  ratio: number;
 }
 
 export type CombineMode =
@@ -74,6 +82,25 @@ export const SHAPE_INDEX_MIN = 0;
 export const SHAPE_INDEX_MAX = 3;
 export const PHASE_SPLIT_MIN = 0.05;
 export const PHASE_SPLIT_MAX = 0.95;
+export const RATIO_MIN = 1;
+export const RATIO_MAX = 8;
+
+/** Power-of-two ratios — each step is an octave up from the fundamental. */
+export const MUSICAL_RATIOS: readonly number[] = [1, 2, 4, 8];
+
+/** Snap an arbitrary slider value to the nearest power-of-two ratio. */
+export function snapRatioToMusical(v: number): number {
+  if (!Number.isFinite(v)) return RATIO_MIN;
+  const list = MUSICAL_RATIOS;
+  const clamped = Math.max(list[0]!, Math.min(list[list.length - 1]!, v));
+  let best = list[0]!;
+  let bestDist = Math.abs(clamped - best);
+  for (let i = 1; i < list.length; i++) {
+    const d = Math.abs(clamped - list[i]!);
+    if (d < bestDist) { best = list[i]!; bestDist = d; }
+  }
+  return best;
+}
 
 /**
  * Cycle-frame values that the synth snaps to — each step is an octave.
@@ -110,15 +137,15 @@ export function snapCycleFramesToMusical(v: number): number {
 // ─── Defaults ────────────────────────────────────────────────────────────
 
 export function defaultOscillator(): Oscillator {
-  return { shapeIndex: 0, phaseSplit: 0.5 };
+  return { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 };
 }
 
 export function defaultChiptuneParams(): ChiptuneParams {
   return {
     cycleFrames: 64, // a power-of-2, so musical from the start
     amplitude: 1,
-    osc1: { shapeIndex: 2, phaseSplit: 0.5 }, // square — distinctly chip-y
-    osc2: { shapeIndex: 0, phaseSplit: 0.5 }, // sine
+    osc1: { shapeIndex: 2, phaseSplit: 0.5, ratio: 1 }, // square — distinctly chip-y
+    osc2: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 }, // sine
     combineMode: 'morph',
     combineAmount: 0,                          // default to "osc1 only"
   };
@@ -196,56 +223,73 @@ function xorInt8(a: number, b: number): number {
  * the rate Paula reads at C-2 (PAL) just so the WavData is well-formed —
  * pitch in PT comes from the period applied to the cycle length, not from
  * the sample rate, so this number is informational.
+ *
+ * Multi-cycle behaviour: each oscillator's `ratio` decides how many of its
+ * cycles fit into the workbench's `cycleFrames`. The final sample length
+ * is the LONGEST individual cycle (cycleFrames / min(r1, r2)) — i.e. the
+ * lowest-pitch oscillator's period — and the higher-pitch (shorter-cycle)
+ * oscillator wraps inside that span. With both ratios at 1 the output is
+ * identical to the single-cycle path.
  */
 export function generateChiptuneCycle(p: ChiptuneParams): WavData {
   const N = Math.max(2, Math.floor(p.cycleFrames));
-  const out = new Float32Array(N);
+  const r1 = Math.max(RATIO_MIN, Math.floor(p.osc1.ratio));
+  const r2 = Math.max(RATIO_MIN, Math.floor(p.osc2.ratio));
+  const minR = Math.min(r1, r2);
+  // Output length = longest individual cycle in samples. cycleFrames is
+  // power-of-2 and ratios are too, so this stays integer + word-aligned.
+  const L = Math.max(2, Math.floor(N / minR));
+  const out = new Float32Array(L);
   const amp = clamp(p.amplitude, 0, 1);
   const amount = p.combineAmount;
-  for (let i = 0; i < N; i++) {
-    const t = i / N;
-    const o2 = oscSample(t, p.osc2);
+  for (let i = 0; i < L; i++) {
+    // Each osc's natural phase at sample i: osc with ratio R has cycle
+    // length N/R, so phase = ((i * R) % N) / N. The shorter-cycle osc
+    // (higher R) wraps multiple times across the output span.
+    const phase1 = ((i * r1) / N) % 1;
+    const phase2 = ((i * r2) / N) % 1;
+    const o2 = oscSample(phase2, p.osc2);
     let s: number;
     switch (p.combineMode) {
       case 'sum': {
-        const o1 = oscSample(t, p.osc1);
+        const o1 = oscSample(phase1, p.osc1);
         s = o1 + amount * o2;
         break;
       }
       case 'morph': {
-        const o1 = oscSample(t, p.osc1);
+        const o1 = oscSample(phase1, p.osc1);
         s = (1 - amount) * o1 + amount * o2;
         break;
       }
       case 'ring': {
-        const o1 = oscSample(t, p.osc1);
+        const o1 = oscSample(phase1, p.osc1);
         s = (1 - amount) * o1 + amount * (o1 * o2);
         break;
       }
       case 'am': {
-        const o1 = oscSample(t, p.osc1);
+        const o1 = oscSample(phase1, p.osc1);
         s = o1 * (1 + amount * o2);
         break;
       }
       case 'fm': {
-        // Modulate osc1's time by osc2's instantaneous output. Wrap into
+        // Modulate osc1's phase by osc2's instantaneous output. Wrap into
         // [0,1) so the warp / shape-morph stages see a normal phase.
-        const modT = ((t + amount * o2) % 1 + 1) % 1;
-        s = oscSample(modT, p.osc1);
+        const modPhase = ((phase1 + amount * o2) % 1 + 1) % 1;
+        s = oscSample(modPhase, p.osc1);
         break;
       }
       case 'min': {
-        const o1 = oscSample(t, p.osc1);
+        const o1 = oscSample(phase1, p.osc1);
         s = (1 - amount) * o1 + amount * Math.min(o1, o2);
         break;
       }
       case 'max': {
-        const o1 = oscSample(t, p.osc1);
+        const o1 = oscSample(phase1, p.osc1);
         s = (1 - amount) * o1 + amount * Math.max(o1, o2);
         break;
       }
       case 'xor': {
-        const o1 = oscSample(t, p.osc1);
+        const o1 = oscSample(phase1, p.osc1);
         s = (1 - amount) * o1 + amount * xorInt8(o1, o2);
         break;
       }
@@ -277,9 +321,14 @@ export function chiptuneFromJson(v: unknown): ChiptuneParams | null {
     if (!o || typeof o !== 'object') return null;
     const oo = o as Record<string, unknown>;
     if (typeof oo['shapeIndex'] !== 'number' || typeof oo['phaseSplit'] !== 'number') return null;
+    // `ratio` is optional for back-compat with v=2 chiptune payloads saved
+    // before the multi-cycle rewrite — those are restored at ratio=1, the
+    // single-cycle behaviour they were authored against.
+    const rawRatio = typeof oo['ratio'] === 'number' ? oo['ratio'] : 1;
     return {
       shapeIndex: clamp(oo['shapeIndex'], SHAPE_INDEX_MIN, SHAPE_INDEX_MAX),
       phaseSplit: clamp(oo['phaseSplit'], PHASE_SPLIT_MIN, PHASE_SPLIT_MAX),
+      ratio: snapRatioToMusical(rawRatio),
     };
   };
   const o1 = osc('osc1');

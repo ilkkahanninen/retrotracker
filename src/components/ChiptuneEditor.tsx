@@ -4,7 +4,8 @@ import {
   CYCLE_FRAMES_MIN, CYCLE_FRAMES_MAX,
   SHAPE_INDEX_MIN, SHAPE_INDEX_MAX,
   PHASE_SPLIT_MIN, PHASE_SPLIT_MAX,
-  snapCycleFramesToMusical,
+  RATIO_MIN, RATIO_MAX,
+  snapCycleFramesToMusical, snapRatioToMusical,
   type ChiptuneParams, type Oscillator,
 } from "../core/audio/chiptune";
 import { Slider } from "./Slider";
@@ -127,6 +128,20 @@ const OscillatorSliders: Component<OscillatorSlidersProps> = (props) => (
         value={props.osc.phaseSplit}
         disabled={props.disabled}
         onInput={(v) => props.onUpdate({ phaseSplit: v })}
+      />
+      <Slider
+        label="Ratio"
+        min={RATIO_MIN}
+        max={RATIO_MAX}
+        step={1}
+        value={props.osc.ratio}
+        disabled={props.disabled}
+        // Snap to powers of two so the cycle stays octave-aligned and the
+        // shorter cycle wraps cleanly inside the longer one.
+        snap={snapRatioToMusical}
+        format={(v) => `${v}×`}
+        hint="1× ─ 2× ─ 4× ─ 8×"
+        onInput={(v) => props.onUpdate({ ratio: v })}
       />
     </div>
   </div>

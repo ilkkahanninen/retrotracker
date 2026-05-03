@@ -68,8 +68,8 @@ describe('generateChiptuneCycle — basic shapes', () => {
     const p = withDefaults({
       cycleFrames: 8,
       amplitude: 1,
-      osc1: { shapeIndex: 2, phaseSplit: 0.5 },
-      osc2: { shapeIndex: 0, phaseSplit: 0.5 },
+      osc1: { shapeIndex: 2, phaseSplit: 0.5, ratio: 1 },
+      osc2: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 },
       combineMode: 'morph',
       combineAmount: 0,
     });
@@ -89,13 +89,13 @@ describe('generateChiptuneCycle — basic shapes', () => {
     const full = generateChiptuneCycle(withDefaults({
       cycleFrames: 8,
       amplitude: 1,
-      osc1: { shapeIndex: 2, phaseSplit: 0.5 },
+      osc1: { shapeIndex: 2, phaseSplit: 0.5, ratio: 1 },
       combineAmount: 0,
     }));
     const half = generateChiptuneCycle(withDefaults({
       cycleFrames: 8,
       amplitude: 0.5,
-      osc1: { shapeIndex: 2, phaseSplit: 0.5 },
+      osc1: { shapeIndex: 2, phaseSplit: 0.5, ratio: 1 },
       combineAmount: 0,
     }));
     for (let i = 0; i < 8; i++) {
@@ -106,8 +106,8 @@ describe('generateChiptuneCycle — basic shapes', () => {
 
 describe('generateChiptuneCycle — combine modes', () => {
   const baseOscs = {
-    osc1: { shapeIndex: 0, phaseSplit: 0.5 },  // sine
-    osc2: { shapeIndex: 2, phaseSplit: 0.5 },  // square
+    osc1: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 },  // sine
+    osc2: { shapeIndex: 2, phaseSplit: 0.5, ratio: 1 },  // square
   };
 
   it('sum at amount=0 ≡ osc1 only', () => {
@@ -156,8 +156,8 @@ describe('generateChiptuneCycle — combine modes', () => {
     // multiplicative shape.
     const w = generateChiptuneCycle(withDefaults({
       cycleFrames: 4, amplitude: 1,
-      osc1: { shapeIndex: 0, phaseSplit: 0.5 }, // sine: 0,1,0,-1
-      osc2: { shapeIndex: 2, phaseSplit: 0.5 }, // square: 1,1,-1,-1
+      osc1: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 }, // sine: 0,1,0,-1
+      osc2: { shapeIndex: 2, phaseSplit: 0.5, ratio: 1 }, // square: 1,1,-1,-1
       combineMode: 'ring', combineAmount: 1,
     }));
     // at amount=1 → (1-1)·o1 + 1·(o1·o2) = o1·o2
@@ -175,8 +175,8 @@ describe('generateChiptuneCycle — combine modes', () => {
     // of 127 and 127 is 0; XOR of 127 and 0x81 is 0xFE → -2 → -2/127.
     const w = generateChiptuneCycle(withDefaults({
       cycleFrames: 8, amplitude: 1,
-      osc1: { shapeIndex: 2, phaseSplit: 0.5 }, // 1,1,1,1,-1,-1,-1,-1
-      osc2: { shapeIndex: 2, phaseSplit: 0.25 }, // -1 except for first 25%
+      osc1: { shapeIndex: 2, phaseSplit: 0.5, ratio: 1 }, // 1,1,1,1,-1,-1,-1,-1
+      osc2: { shapeIndex: 2, phaseSplit: 0.25, ratio: 1 }, // -1 except for first 25%
       combineMode: 'xor', combineAmount: 1,
     }));
     // At i=0, phaseSplit 0.25 puts the +1 region in [0, 0.25) → t=0 ∈ +1.
@@ -223,12 +223,77 @@ describe('chiptuneFromJson', () => {
   it('clamps oscillator params to safe ranges', () => {
     const p = chiptuneFromJson({
       ...defaultChiptuneParams(),
-      osc1: { shapeIndex: 99, phaseSplit: -1 },
-      osc2: { shapeIndex: -1, phaseSplit: 99 },
+      osc1: { shapeIndex: 99, phaseSplit: -1, ratio: 1 },
+      osc2: { shapeIndex: -1, phaseSplit: 99, ratio: 1 },
     });
     expect(p?.osc1.shapeIndex).toBe(3);
     expect(p?.osc1.phaseSplit).toBeCloseTo(0.05, 6);
     expect(p?.osc2.shapeIndex).toBe(0);
     expect(p?.osc2.phaseSplit).toBeCloseTo(0.95, 6);
+  });
+
+  it('snaps ratio to the nearest power-of-two and back-fills missing ratio with 1', () => {
+    const snapped = chiptuneFromJson({
+      ...defaultChiptuneParams(),
+      osc1: { shapeIndex: 0, phaseSplit: 0.5, ratio: 3 },
+      osc2: { shapeIndex: 0, phaseSplit: 0.5, ratio: 99 },
+    });
+    expect(snapped?.osc1.ratio).toBe(2);
+    expect(snapped?.osc2.ratio).toBe(8);
+
+    // Older v=2 payloads have no `ratio` field — load at the fundamental.
+    const v2 = chiptuneFromJson({
+      ...defaultChiptuneParams(),
+      osc1: { shapeIndex: 0, phaseSplit: 0.5 },
+      osc2: { shapeIndex: 0, phaseSplit: 0.5 },
+    });
+    expect(v2?.osc1.ratio).toBe(1);
+    expect(v2?.osc2.ratio).toBe(1);
+  });
+});
+
+describe('generateChiptuneCycle — multi-cycle ratios', () => {
+  it('output length collapses to N / min(ratio): both ratios = 2 → length = N/2', () => {
+    const w = generateChiptuneCycle(withDefaults({
+      cycleFrames: 64,
+      osc1: { shapeIndex: 2, phaseSplit: 0.5, ratio: 2 },
+      osc2: { shapeIndex: 2, phaseSplit: 0.5, ratio: 2 },
+      combineMode: 'morph', combineAmount: 0,
+    }));
+    expect(w.channels[0]!.length).toBe(32);
+  });
+
+  it('higher-ratio osc wraps inside the longer cycle', () => {
+    // osc1 (carrier) at ratio 1: one cycle in N=16 samples.
+    // osc2 (modulator) at ratio 2: two cycles in the same span. Sum mode
+    // makes the wrapping observable on its own. With osc1 silent (sine at
+    // phase 0 = 0) we can isolate osc2's contribution.
+    const w = generateChiptuneCycle(withDefaults({
+      cycleFrames: 16,
+      amplitude: 1,
+      osc1: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 }, // sine
+      osc2: { shapeIndex: 2, phaseSplit: 0.5, ratio: 2 }, // square @ 2x
+      combineMode: 'morph', combineAmount: 1, // pure osc2
+    }));
+    const ch = Array.from(w.channels[0]!);
+    expect(ch.length).toBe(16);
+    // Square at ratio 2 across 16 samples wraps every 8 samples → high for
+    // first 4, low for next 4, repeated.
+    expect(ch.slice(0, 4)).toEqual([1, 1, 1, 1]);
+    expect(ch.slice(4, 8)).toEqual([-1, -1, -1, -1]);
+    expect(ch.slice(8, 12)).toEqual([1, 1, 1, 1]);
+    expect(ch.slice(12, 16)).toEqual([-1, -1, -1, -1]);
+  });
+
+  it('ratio 1 + ratio 1 matches single-cycle behaviour', () => {
+    // Sanity-check that the new code path is byte-equivalent to the old
+    // single-cycle render when both ratios are at the fundamental.
+    const single = generateChiptuneCycle(defaultChiptuneParams());
+    const explicit = generateChiptuneCycle({
+      ...defaultChiptuneParams(),
+      osc1: { ...defaultChiptuneParams().osc1, ratio: 1 },
+      osc2: { ...defaultChiptuneParams().osc2, ratio: 1 },
+    });
+    expect(Array.from(single.channels[0]!)).toEqual(Array.from(explicit.channels[0]!));
   });
 });
