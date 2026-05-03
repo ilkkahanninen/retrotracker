@@ -4,12 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { App } from '../../src/App';
 import { setCursor, INITIAL_CURSOR, cursor } from '../../src/state/cursor';
 import {
-  setSong, setTransport, setPlayPos, clearHistory, song, dirty, setDirty,
+  setSong, setTransport, setPlayMode, setPlayPos, clearHistory, song, dirty, setDirty,
 } from '../../src/state/song';
 import {
   setCurrentSample, setCurrentOctave, setEditStep, currentSample, editStep,
 } from '../../src/state/edit';
 import { setView, view } from '../../src/state/view';
+import { setClipboardSlice } from '../../src/state/clipboard';
 import { io } from '../../src/state/io';
 import {
   clearSession, projectToBytes,
@@ -21,6 +22,7 @@ function resetState() {
   setSong(null);
   setPlayPos({ order: 0, row: 0 });
   setTransport('idle');
+  setPlayMode(null);
   clearHistory();
   setCursor({ ...INITIAL_CURSOR });
   setCurrentSample(1);
@@ -43,38 +45,48 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function clickItem(container: HTMLElement, label: string): void {
-  const trigger = container.querySelector<HTMLButtonElement>('.filemenu__button')!;
-  fireEvent.click(trigger);
-  for (const item of container.querySelectorAll<HTMLElement>('.filemenu__item')) {
+/** Find the trigger of one of the header dropdown menus by its label. */
+function menuTrigger(container: HTMLElement, label: 'File' | 'Edit'): HTMLButtonElement {
+  for (const btn of container.querySelectorAll<HTMLButtonElement>('.menu__button')) {
+    if (btn.textContent?.startsWith(label)) return btn;
+  }
+  throw new Error(`${label} menu button not found`);
+}
+
+/** Open one of the header dropdowns and click an item by its visible label. */
+function clickItem(
+  container: HTMLElement, menu: 'File' | 'Edit', label: string,
+): void {
+  fireEvent.click(menuTrigger(container, menu));
+  for (const item of container.querySelectorAll<HTMLElement>('.menu__item')) {
     if (item.textContent?.includes(label)) {
       fireEvent.click(item);
       return;
     }
   }
-  throw new Error(`No file-menu item labelled "${label}"`);
+  throw new Error(`No ${menu}-menu item labelled "${label}"`);
 }
 
 describe('FileMenu: dropdown behaviour', () => {
   it('opens on click and closes when an item fires', () => {
     const { container } = render(() => <App />);
-    const trigger = container.querySelector<HTMLButtonElement>('.filemenu__button')!;
-    expect(container.querySelector('.filemenu__menu')).toBeNull();
+    const trigger = menuTrigger(container, 'File');
+    expect(container.querySelector('.menu__list')).toBeNull();
     fireEvent.click(trigger);
-    expect(container.querySelector('.filemenu__menu')).not.toBeNull();
+    expect(container.querySelector('.menu__list')).not.toBeNull();
     // Click the New item — menu should close after the action.
     const newItem = Array.from(
-      container.querySelectorAll<HTMLElement>('.filemenu__item'),
+      container.querySelectorAll<HTMLElement>('.menu__item'),
     ).find((i) => i.textContent?.includes('New'))!;
     fireEvent.click(newItem);
-    expect(container.querySelector('.filemenu__menu')).toBeNull();
+    expect(container.querySelector('.menu__list')).toBeNull();
   });
 
   it('lists New, Open…, Save…, Export .mod… in order', () => {
     const { container } = render(() => <App />);
-    fireEvent.click(container.querySelector<HTMLButtonElement>('.filemenu__button')!);
+    fireEvent.click(menuTrigger(container, 'File'));
     const labels = Array.from(
-      container.querySelectorAll<HTMLElement>('.filemenu__item .filemenu__label'),
+      container.querySelectorAll<HTMLElement>('.menu__item .menu__label'),
     ).map((el) => el.textContent);
     expect(labels).toEqual(['New', 'Open…', 'Save…', 'Export .mod…']);
   });
@@ -87,7 +99,7 @@ describe('File menu: New', () => {
     setSong(s);
     setDirty(false);
     const { container } = render(() => <App />);
-    clickItem(container, 'New');
+    clickItem(container, 'File', 'New');
     expect(song()!.title).toBe('');
     expect(dirty()).toBe(false);
   });
@@ -99,7 +111,7 @@ describe('File menu: New', () => {
     commitEdit((s) => ({ ...s, title: 'edited' }));
     expect(dirty()).toBe(true);
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    clickItem(container, 'New');
+    clickItem(container, 'File', 'New');
     expect(confirmSpy).toHaveBeenCalled();
     // User said no → song stays.
     expect(song()!.title).toBe('edited');
@@ -110,7 +122,7 @@ describe('File menu: New', () => {
     const { container } = render(() => <App />);
     commitEdit((s) => ({ ...s, title: 'edited' }));
     vi.spyOn(window, 'confirm').mockReturnValue(true);
-    clickItem(container, 'New');
+    clickItem(container, 'File', 'New');
     expect(song()!.title).toBe('');
     expect(dirty()).toBe(false);
   });
@@ -126,7 +138,7 @@ describe('File menu: Save… (.retro)', () => {
     setEditStep(3);
     setView('sample');
     const { container } = render(() => <App />);
-    clickItem(container, 'Save…');
+    clickItem(container, 'File', 'Save…');
     expect(io.download).toHaveBeenCalledTimes(1);
     const [name, bytes, mime] = (io.download as ReturnType<typeof vi.fn>).mock.calls[0]!;
     expect(name).toBe('Demo.retro');
@@ -146,7 +158,7 @@ describe('File menu: Save… (.retro)', () => {
     const { container } = render(() => <App />);
     commitEdit((s) => ({ ...s, title: 'x' }));
     expect(dirty()).toBe(true);
-    clickItem(container, 'Save…');
+    clickItem(container, 'File', 'Save…');
     expect(dirty()).toBe(false);
   });
 });
@@ -186,5 +198,124 @@ describe('Open: file-input sniff routes by extension', () => {
     expect(cursor()).toEqual({ order: 0, row: 11, channel: 1, field: 'sampleLo' });
     expect(currentSample()).toBe(9);
     expect(editStep()).toBe(4);
+  });
+});
+
+describe('EditMenu: dropdown contents and actions', () => {
+  it('lists Undo, Redo, Cut, Copy, Paste in order with a separator after Redo', () => {
+    setSong(emptySong());
+    const { container } = render(() => <App />);
+    fireEvent.click(menuTrigger(container, 'Edit'));
+    const labels = Array.from(
+      container.querySelectorAll<HTMLElement>('.menu__list .menu__label'),
+    ).map((el) => el.textContent);
+    expect(labels).toEqual(['Undo', 'Redo', 'Cut', 'Copy', 'Paste']);
+    // Separator is the third <li> in the list (after Undo and Redo).
+    const items = container.querySelectorAll<HTMLElement>('.menu__list > li');
+    expect(items[2]!.classList.contains('menu__separator')).toBe(true);
+  });
+
+  it('Undo and Redo are disabled at boot (empty history) but enabled after an edit', () => {
+    setSong(emptySong());
+    const { container } = render(() => <App />);
+    fireEvent.click(menuTrigger(container, 'Edit'));
+    const undoItem = Array.from(
+      container.querySelectorAll<HTMLElement>('.menu__item'),
+    ).find((i) => i.textContent?.startsWith('Undo'))!;
+    expect(undoItem.getAttribute('aria-disabled')).toBe('true');
+    // Make an edit so canUndo() flips.
+    commitEdit((s) => ({ ...s, title: 'edited' }));
+    // Re-open to refresh the rendered disabled state. (The menu list
+    // tears down + remounts on each open.)
+    fireEvent.click(menuTrigger(container, 'Edit')); // close
+    fireEvent.click(menuTrigger(container, 'Edit')); // re-open
+    const undoAfter = Array.from(
+      container.querySelectorAll<HTMLElement>('.menu__item'),
+    ).find((i) => i.textContent?.startsWith('Undo'))!;
+    expect(undoAfter.getAttribute('aria-disabled')).toBe('false');
+  });
+
+  it('clicking Undo reverts the most recent edit', () => {
+    setSong(emptySong());
+    const { container } = render(() => <App />);
+    commitEdit((s) => ({ ...s, title: 'edited' }));
+    expect(song()!.title).toBe('edited');
+    clickItem(container, 'Edit', 'Undo');
+    expect(song()!.title).toBe('');
+  });
+
+  it('Paste is disabled when the clipboard is empty', () => {
+    setSong(emptySong());
+    setClipboardSlice(null);
+    const { container } = render(() => <App />);
+    fireEvent.click(menuTrigger(container, 'Edit'));
+    const pasteItem = Array.from(
+      container.querySelectorAll<HTMLElement>('.menu__item'),
+    ).find((i) => i.textContent?.startsWith('Paste'))!;
+    expect(pasteItem.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('Cut / Copy / Paste are all disabled in the sample view', () => {
+    setSong(emptySong());
+    setView('sample');
+    setClipboardSlice({ rows: [[{ period: 0, sample: 0, effect: 0, effectParam: 0 }]] });
+    const { container } = render(() => <App />);
+    fireEvent.click(menuTrigger(container, 'Edit'));
+    for (const label of ['Cut', 'Copy', 'Paste']) {
+      const item = Array.from(
+        container.querySelectorAll<HTMLElement>('.menu__item'),
+      ).find((i) => i.textContent?.startsWith(label))!;
+      expect(item.getAttribute('aria-disabled')).toBe('true');
+    }
+  });
+});
+
+describe('Header: Play song / Play pattern buttons', () => {
+  it('the Play song button is labelled "Song" when stopped', () => {
+    setSong(emptySong());
+    const { container } = render(() => <App />);
+    const btn = container.querySelector<HTMLButtonElement>('button[aria-label="Play song"]')!;
+    expect(btn.textContent).toBe('Song');
+  });
+
+  it('the Play pattern button is rendered alongside Play song', () => {
+    setSong(emptySong());
+    const { container } = render(() => <App />);
+    const btn = container.querySelector<HTMLButtonElement>('button[aria-label="Play pattern"]')!;
+    expect(btn).not.toBeNull();
+    expect(btn.textContent).toBe('Pattern');
+  });
+
+  it('renders a "Play" label in front of the segmented buttons', () => {
+    setSong(emptySong());
+    const { container } = render(() => <App />);
+    const label = container.querySelector('.transport .transport__label');
+    expect(label?.textContent).toBe('Play');
+  });
+
+  it('labels stay the same while playing — the active mode is highlighted instead', () => {
+    setSong(emptySong());
+    setTransport('playing');
+    setPlayMode('song');
+    const { container } = render(() => <App />);
+    const songBtn = container.querySelector<HTMLButtonElement>('button[aria-label="Play song"]')!;
+    const patBtn = container.querySelector<HTMLButtonElement>('button[aria-label="Play pattern"]')!;
+    expect(songBtn.textContent).toBe('Song');
+    expect(patBtn.textContent).toBe('Pattern');
+    expect(songBtn.classList.contains('transport__btn--active')).toBe(true);
+    expect(patBtn.classList.contains('transport__btn--active')).toBe(false);
+    expect(songBtn.getAttribute('aria-pressed')).toBe('true');
+    expect(patBtn.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('highlights Play pattern when the pattern playmode is active', () => {
+    setSong(emptySong());
+    setTransport('playing');
+    setPlayMode('pattern');
+    const { container } = render(() => <App />);
+    const songBtn = container.querySelector<HTMLButtonElement>('button[aria-label="Play song"]')!;
+    const patBtn = container.querySelector<HTMLButtonElement>('button[aria-label="Play pattern"]')!;
+    expect(songBtn.classList.contains('transport__btn--active')).toBe(false);
+    expect(patBtn.classList.contains('transport__btn--active')).toBe(true);
   });
 });

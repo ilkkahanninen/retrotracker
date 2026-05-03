@@ -15,6 +15,14 @@ export const [song, setSong] = createSignal<Song | null>(null);
 export type Transport = 'idle' | 'ready' | 'playing';
 export const [transport, setTransport] = createSignal<Transport>('idle');
 
+/**
+ * Which mode the transport is currently in. The header's combined Play
+ * button reads this to highlight the active mode without changing its
+ * label. `null` when stopped.
+ */
+export type PlayMode = 'song' | 'pattern';
+export const [playMode, setPlayMode] = createSignal<PlayMode | null>(null);
+
 /** Last (order, row) reported by the worklet — drives the pattern grid cursor. */
 export const [playPos, setPlayPos] = createSignal<{ order: number; row: number }>({ order: 0, row: 0 });
 

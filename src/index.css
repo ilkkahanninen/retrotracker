@@ -82,13 +82,28 @@ body {
   border-color: var(--accent);
 }
 
-.transport { display: flex; gap: 8px; align-items: center; }
+.transport { display: inline-flex; align-items: center; gap: 8px; }
+.transport__label {
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
 
-/* File ▾ dropdown — anchored under its trigger button. The .filemenu
- * wrapper is `position: relative` so the absolutely-positioned menu
- * floats just below without affecting the header's flex layout. */
-.filemenu { position: relative; }
-.filemenu__button {
+/* Left-aligned title + dropdowns group. The dropdown menus (File, Edit)
+ * live next to the RetroTracker label so the user can hop between them
+ * without moving the pointer across the header. */
+.app__header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Generic dropdown menu — used by File ▾ and Edit ▾. The wrapper is
+ * `position: relative` so the absolutely-positioned list floats just
+ * below the trigger without affecting the header's flex layout. */
+.menu { position: relative; }
+.menu__button {
   background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--grid-line);
@@ -98,8 +113,8 @@ body {
   cursor: pointer;
   user-select: none;
 }
-.filemenu__button:hover { border-color: var(--accent); }
-.filemenu__menu {
+.menu__button:hover { border-color: var(--accent); }
+.menu__list {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
@@ -114,7 +129,7 @@ body {
   z-index: 10;
   font-family: 'Inter', system-ui, sans-serif;
 }
-.filemenu__item {
+.menu__item {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -124,24 +139,24 @@ body {
   user-select: none;
   color: var(--fg);
 }
-.filemenu__item:hover { background: var(--accent-dim); }
-.filemenu__item--disabled {
+.menu__item:hover { background: var(--accent-dim); }
+.menu__item--disabled {
   color: var(--muted);
   cursor: not-allowed;
 }
-.filemenu__item--disabled:hover { background: transparent; }
-.filemenu__hint {
+.menu__item--disabled:hover { background: transparent; }
+.menu__hint {
   color: var(--muted);
   font-family: ui-monospace, 'SFMono-Regular', monospace;
   font-size: 11px;
 }
-.filemenu__separator {
+.menu__separator {
   height: 1px;
   margin: 4px 0;
   background: var(--grid-line);
   list-style: none;
 }
-.transport button, .file-button {
+.file-button {
   background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--grid-line);
@@ -151,9 +166,45 @@ body {
   cursor: pointer;
   user-select: none;
 }
-.transport button:hover:not(:disabled),
 .file-button:hover { border-color: var(--accent); }
-.transport button:disabled { color: var(--muted); cursor: not-allowed; opacity: 0.6; }
+
+/* Segmented Play song / Play pattern group: a single visual control with
+ * a shared border. The two halves butt up against each other (no gap, no
+ * inner radii) and the active half is tinted with the accent colour to
+ * show which playmode is currently running. */
+.transport__group { display: inline-flex; align-items: center; }
+.transport__btn {
+  border-radius: 0;
+  border: 1px solid var(--grid-line);
+  background: var(--panel-2);
+  color: var(--fg);
+  font: inherit;
+  position: relative;
+  padding: 4px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.transport__group .transport__btn:first-child {
+  border-top-left-radius: 6px;
+  border-bottom-left-radius: 6px;
+}
+.transport__group .transport__btn:last-child {
+  border-top-right-radius: 6px;
+  border-bottom-right-radius: 6px;
+}
+.transport__btn:hover:not(:disabled) {
+  background: var(--accent-dim, var(--accent));
+  color: var(--fg);
+  border-color: var(--accent);
+  z-index: 1;
+}
+.transport__btn:disabled { color: var(--muted); cursor: not-allowed; opacity: 0.6; }
+.transport__btn--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #061119;
+  z-index: 1;
+}
 
 .app__samples, .app__order { background: var(--panel); padding: 12px; overflow: auto; }
 .app__samples { grid-area: samples; }

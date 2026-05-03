@@ -12,6 +12,8 @@ import {
   setSong,
   transport,
   setTransport,
+  playMode,
+  setPlayMode,
   playPos,
   setPlayPos,
   canRedo,
@@ -106,7 +108,7 @@ import { AudioEngine } from "./core/audio/engine";
 import { PatternGrid } from "./components/PatternGrid";
 import { SampleList } from "./components/SampleList";
 import { SampleView, type SampleSelection } from "./components/SampleView";
-import { FileMenu } from "./components/FileMenu";
+import { Menu, type MenuItem } from "./components/Menu";
 import { view, setView } from "./state/view";
 import {
   saveSession, loadSession,
@@ -345,6 +347,7 @@ export const App: Component = () => {
   const stopPlayback = () => {
     engine?.stop();
     setTransport("ready");
+    setPlayMode(null);
     // Snap the playhead to the cursor so the row tint jumps back to where
     // the user is editing, instead of freezing wherever the song happened
     // to be when stop fired.
@@ -357,6 +360,7 @@ export const App: Component = () => {
     if (!eng) return;
     await eng.playFrom(0, 0);
     setTransport("playing");
+    setPlayMode("song");
   };
 
   const playFromCursor = async () => {
@@ -365,6 +369,7 @@ export const App: Component = () => {
     if (!eng) return;
     await eng.playFrom(c.order, c.row);
     setTransport("playing");
+    setPlayMode("song");
   };
 
   const playPatternFromStart = async () => {
@@ -373,6 +378,7 @@ export const App: Component = () => {
     if (!eng) return;
     await eng.playFrom(c.order, 0, { loopPattern: true });
     setTransport("playing");
+    setPlayMode("pattern");
   };
 
   const playPatternFromCursor = async () => {
@@ -381,11 +387,23 @@ export const App: Component = () => {
     if (!eng) return;
     await eng.playFrom(c.order, c.row, { loopPattern: true });
     setTransport("playing");
+    setPlayMode("pattern");
   };
 
-  const togglePlay = async () => {
-    if (transport() === "playing") stopPlayback();
+  /** Header "Play song" button: starts the song from order 0 / row 0 when
+   *  stopped or already playing the pattern; stops when already in song
+   *  mode. Mirrors the bare Space shortcut. */
+  const togglePlaySong = async () => {
+    if (transport() === "playing" && playMode() === "song") stopPlayback();
     else await playFromStart();
+  };
+
+  /** Header "Play pattern" button: loops the cursor's pattern from row 0
+   *  when stopped or playing the whole song; stops when already looping
+   *  the pattern. Mirrors Option+Space. */
+  const togglePlayPattern = async () => {
+    if (transport() === "playing" && playMode() === "pattern") stopPlayback();
+    else await playPatternFromStart();
   };
 
   /**
@@ -1719,6 +1737,32 @@ export const App: Component = () => {
     engine = null;
   });
 
+  // Menu items for the header dropdowns. Functions so the disabled flags
+  // re-evaluate reactively each time the Menu reads `props.items`.
+  const fileMenuItems = (): MenuItem[] => [
+    { label: "New",           onClick: newProject },
+    { label: "Open…",         hint: "⌘O", onClick: openFilePicker },
+    { separator: true, label: "" },
+    { label: "Save…",         hint: "⌘S", onClick: saveProject,  disabled: !song() },
+    { label: "Export .mod…",              onClick: exportMod,     disabled: !song() },
+  ];
+
+  const editMenuItems = (): MenuItem[] => {
+    const playing = transport() === "playing";
+    return [
+      { label: "Undo",  hint: "⌘Z",  onClick: undo, disabled: !canUndo() || playing },
+      { label: "Redo",  hint: "⇧⌘Z", onClick: redo, disabled: !canRedo() || playing },
+      { separator: true, label: "" },
+      // Copy / Cut / Paste live here for discoverability — same handlers
+      // the Cmd+C / X / V shortcuts call. Disabled checks mirror the
+      // shortcut `when` predicates so the menu and keyboard agree on
+      // when the action is reachable.
+      { label: "Cut",   hint: "⌘X", onClick: cutSelection,  disabled: playing || view() === "sample" || !song() },
+      { label: "Copy",  hint: "⌘C", onClick: copySelection, disabled: view() === "sample" || !song() },
+      { label: "Paste", hint: "⌘V", onClick: pasteAtCursor, disabled: playing || view() === "sample" || !song() || !clipboardSlice() },
+    ];
+  };
+
   const sampleCount = createMemo(() => {
     const s = song();
     if (!s) return 0;
@@ -1738,7 +1782,27 @@ export const App: Component = () => {
       onDrop={onDrop}
     >
       <header class="app__header">
-        <h1>RetroTracker</h1>
+        <div class="app__header-left">
+          <h1>RetroTracker</h1>
+          {/* Hidden file input — both the File menu's "Open…" item and the
+              Cmd+O shortcut click it. accept covers both formats; the
+              actual sniff happens in loadFile via the filename suffix. */}
+          <input
+            type="file"
+            accept=".retro,.mod"
+            onChange={onPickFile}
+            hidden
+            ref={fileInput}
+          />
+          <Menu
+            label="File"
+            items={fileMenuItems()}
+          />
+          <Menu
+            label="Edit"
+            items={editMenuItems()}
+          />
+        </div>
         <div class="viewtabs" role="tablist" aria-label="View">
           <button
             type="button"
@@ -1761,45 +1825,40 @@ export const App: Component = () => {
             Sample
           </button>
         </div>
-        <div class="transport">
-          {/* Hidden file input — both the File menu's "Open…" item and the
-              Cmd+O shortcut click it. accept covers both formats; the
-              actual sniff happens in loadFile via the filename suffix. */}
-          <input
-            type="file"
-            accept=".retro,.mod"
-            onChange={onPickFile}
-            hidden
-            ref={fileInput}
-          />
-          <FileMenu
-            hasSong={!!song()}
-            onNew={newProject}
-            onOpen={openFilePicker}
-            onSave={saveProject}
-            onExportMod={exportMod}
-          />
-          <button
-            onClick={() => void togglePlay()}
-            disabled={!song()}
-            title="Play / Stop (Space)"
-          >
-            {transport() === "playing" ? "Stop" : "Play"}
-          </button>
-          <button
-            onClick={undo}
-            disabled={!canUndo() || transport() === "playing"}
-            title="Undo (⌘Z)"
-          >
-            Undo
-          </button>
-          <button
-            onClick={redo}
-            disabled={!canRedo() || transport() === "playing"}
-            title="Redo (⇧⌘Z)"
-          >
-            Redo
-          </button>
+        <div class="transport" role="group" aria-label="Transport">
+          <span class="transport__label">Play</span>
+          <div class="transport__group">
+            <button
+              type="button"
+              class="transport__btn"
+              classList={{
+                "transport__btn--active":
+                  transport() === "playing" && playMode() === "song",
+              }}
+              onClick={() => void togglePlaySong()}
+              disabled={!song()}
+              title="Play song / Stop (Space)"
+              aria-label="Play song"
+              aria-pressed={transport() === "playing" && playMode() === "song"}
+            >
+              Song
+            </button>
+            <button
+              type="button"
+              class="transport__btn"
+              classList={{
+                "transport__btn--active":
+                  transport() === "playing" && playMode() === "pattern",
+              }}
+              onClick={() => void togglePlayPattern()}
+              disabled={!song()}
+              title="Play pattern (Option+Space)"
+              aria-label="Play pattern"
+              aria-pressed={transport() === "playing" && playMode() === "pattern"}
+            >
+              Pattern
+            </button>
+          </div>
         </div>
       </header>
 

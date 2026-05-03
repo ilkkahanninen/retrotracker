@@ -35,18 +35,23 @@ afterEach(() => {
   resetState();
 });
 
-/** Open the File ▾ menu and find an item by its visible label. */
-function clickFileMenuItem(container: HTMLElement, label: string): void {
-  const trigger = container.querySelector<HTMLButtonElement>('.filemenu__button');
-  if (!trigger) throw new Error('File menu button not found');
+/** Open a header dropdown by its trigger label and click an item. The
+ *  page now has two menu triggers (File / Edit), so callers must say
+ *  which one they want. */
+function clickMenuItem(container: HTMLElement, menu: 'File' | 'Edit', label: string): void {
+  let trigger: HTMLButtonElement | null = null;
+  for (const btn of container.querySelectorAll<HTMLButtonElement>('.menu__button')) {
+    if (btn.textContent?.startsWith(menu)) { trigger = btn; break; }
+  }
+  if (!trigger) throw new Error(`${menu} menu button not found`);
   fireEvent.click(trigger);
-  for (const item of container.querySelectorAll<HTMLElement>('.filemenu__item')) {
+  for (const item of container.querySelectorAll<HTMLElement>('.menu__item')) {
     if (item.textContent?.includes(label)) {
       fireEvent.click(item);
       return;
     }
   }
-  throw new Error(`No file-menu item labelled "${label}"`);
+  throw new Error(`No ${menu}-menu item labelled "${label}"`);
 }
 
 describe('export: File ▾ → Export .mod… item', () => {
@@ -55,7 +60,7 @@ describe('export: File ▾ → Export .mod… item', () => {
     s.title = 'Demo';
     setSong(s);
     const { container } = render(() => <App />);
-    clickFileMenuItem(container, 'Export .mod');
+    clickMenuItem(container, 'File', 'Export .mod');
     expect(io.download).toHaveBeenCalledTimes(1);
     const [name, bytes, mime] = (io.download as ReturnType<typeof vi.fn>).mock.calls[0]!;
     expect(name).toBe('Demo.mod');
@@ -70,7 +75,7 @@ describe('export: File ▾ → Export .mod… item', () => {
     s.title = 'Round Trip';
     setSong(s);
     const { container } = render(() => <App />);
-    clickFileMenuItem(container, 'Export .mod');
+    clickMenuItem(container, 'File', 'Export .mod');
     const [, bytes] = (io.download as ReturnType<typeof vi.fn>).mock.calls[0]!;
     const { parseModule } = await import('../../src/core/mod/parser');
     const parsed = parseModule(bytes as Uint8Array);
@@ -82,7 +87,7 @@ describe('export: File ▾ → Export .mod… item', () => {
     setSong(emptySong());
     const { container } = render(() => <App />);
     setTransport('playing');
-    clickFileMenuItem(container, 'Export .mod');
+    clickMenuItem(container, 'File', 'Export .mod');
     expect(io.download).toHaveBeenCalledTimes(1);
   });
 

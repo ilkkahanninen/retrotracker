@@ -178,6 +178,27 @@ function findEffectButton(
   throw new Error(`No effect button labelled "${label}"`);
 }
 
+/**
+ * Open the Edit ▾ dropdown in the header and click the item that starts
+ * with `label` (e.g. "Undo", "Redo"). Used in place of the old
+ * `button[title="Undo (⌘Z)"]` query — those buttons moved into the menu.
+ */
+function clickEditMenu(container: HTMLElement, label: string): void {
+  let trigger: HTMLButtonElement | null = null;
+  for (const btn of container.querySelectorAll<HTMLButtonElement>(".menu__button")) {
+    if (btn.textContent?.startsWith("Edit")) { trigger = btn; break; }
+  }
+  if (!trigger) throw new Error("Edit menu button not found");
+  fireEvent.click(trigger);
+  for (const item of container.querySelectorAll<HTMLElement>(".menu__item")) {
+    if (item.textContent?.startsWith(label)) {
+      fireEvent.click(item);
+      return;
+    }
+  }
+  throw new Error(`No edit-menu item labelled "${label}"`);
+}
+
 describe("pipeline editor: add / remove / reorder", () => {
   it("clicking the Gain button appends a default-param node", async () => {
     setView("sample");
@@ -540,13 +561,10 @@ describe("pipeline editor: undo/redo restores chain alongside song", () => {
     await userEvent.setup().click(findEffectButton(container, "Gain"));
     expect(getWorkbench(0)!.chain).toHaveLength(1);
 
-    // Click the Undo transport button. (We could call `undo()` directly, but
-    // routing through the button confirms the keyboard/header path works
-    // end-to-end too.)
-    const undoBtn = container.querySelector<HTMLButtonElement>(
-      'button[title="Undo (⌘Z)"]',
-    )!;
-    await userEvent.setup().click(undoBtn);
+    // Drive Undo through the Edit ▾ menu — the buttons moved out of the
+    // header into the dropdown, so this also exercises the live-disabled
+    // state of the menu item.
+    clickEditMenu(container, "Undo");
 
     expect(getWorkbench(0)!.chain).toHaveLength(0);
   });
@@ -565,16 +583,10 @@ describe("pipeline editor: undo/redo restores chain alongside song", () => {
     });
 
     await userEvent.setup().click(findEffectButton(container, "Gain"));
-    const undoBtn = container.querySelector<HTMLButtonElement>(
-      'button[title="Undo (⌘Z)"]',
-    )!;
-    await userEvent.setup().click(undoBtn);
+    clickEditMenu(container, "Undo");
     expect(getWorkbench(0)!.chain).toHaveLength(0);
 
-    const redoBtn = container.querySelector<HTMLButtonElement>(
-      'button[title="Redo (⇧⌘Z)"]',
-    )!;
-    await userEvent.setup().click(redoBtn);
+    clickEditMenu(container, "Redo");
 
     expect(getWorkbench(0)!.chain).toHaveLength(1);
     expect(getWorkbench(0)!.chain[0]!.kind).toBe("gain");
@@ -600,10 +612,7 @@ describe("pipeline editor: undo/redo restores chain alongside song", () => {
     await userEvent.setup().click(clearBtn);
     expect(getWorkbench(0)).toBeUndefined();
 
-    const undoBtn = container.querySelector<HTMLButtonElement>(
-      'button[title="Undo (⌘Z)"]',
-    )!;
-    await userEvent.setup().click(undoBtn);
+    clickEditMenu(container, "Undo");
 
     expect(getWorkbench(0)).toBeDefined();
     expect(getWorkbench(0)!.chain).toHaveLength(1);
