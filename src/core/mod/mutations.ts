@@ -1,6 +1,6 @@
 import type { Note, Pattern, Sample, Song } from './types';
 import { MAX_ORDERS } from './types';
-import { emptyNote, emptyPattern, emptySample } from './format';
+import { emptyNote, emptyPattern, emptySample, PERIOD_TABLE } from './format';
 
 /**
  * Return a new Song with one cell's fields overridden, sharing every other
@@ -344,4 +344,83 @@ export function replaceSampleData(
     loopStartWords: loopStart,
     loopLengthWords: loopLen,
   });
+}
+
+/**
+ * Shift a stored Paula period by `deltaSemitones`, snapping to PT's
+ * 36-slot finetune-0 grid. Returns null when:
+ *   - the period is 0 (empty cell — caller should leave the cell alone)
+ *   - the period is too far off the table to be located (PT-clamped 113..856
+ *     covers everything we ship, but a malformed mod could carry oddballs)
+ *
+ * We always read & write through finetune row 0. Finetune information is
+ * carried by the sample, not the period — re-quantising into the
+ * canonical row preserves the user's "transpose by N semitones" mental
+ * model and avoids needing to scan back for the active sample on the
+ * channel just to keep an exotic finetune intact across a transpose.
+ */
+function transposePeriod(period: number, deltaSemitones: number): number | null {
+  if (period === 0) return null;
+  const row = PERIOD_TABLE[0]!;
+  // PT's `setPeriod` algorithm: first slot whose period is <= the stored
+  // value (table is descending — slot 0 = C-1 = 856, slot 35 = B-3 = 113).
+  let slot = -1;
+  for (let i = 0; i < row.length; i++) {
+    if (period >= row[i]!) { slot = i; break; }
+  }
+  if (slot < 0) return null;
+  // Clamp at the edges instead of refusing the whole transpose. A user
+  // shifting a phrase up that contains one already-top-note still
+  // transposes the rest; the boundary cell stays put. Mirrors how every
+  // mainstream tracker handles transpose-out-of-range.
+  const target = Math.max(0, Math.min(row.length - 1, slot + deltaSemitones));
+  return row[target]!;
+}
+
+/**
+ * Transpose every non-empty note inside a rectangular range by the given
+ * number of semitones. Empty cells (period = 0) are skipped — transpose
+ * never introduces a note where there wasn't one. Range is given in
+ * pattern-relative coordinates (resolved through `song.orders[order]`).
+ *
+ * Returns the same Song reference when nothing changed (the range was
+ * empty, all cells were already at the clamp edge, etc.) so commitEdit's
+ * "no-op" guard skips a redundant history entry.
+ */
+export function transposeRange(
+  song: Song,
+  range: {
+    order: number;
+    startRow: number; endRow: number;
+    startChannel: number; endChannel: number;
+  },
+  deltaSemitones: number,
+): Song {
+  if (deltaSemitones === 0) return song;
+  if (range.order < 0 || range.order >= song.songLength) return song;
+  const patNum = song.orders[range.order];
+  if (patNum === undefined) return song;
+  const pattern = song.patterns[patNum];
+  if (!pattern) return song;
+
+  let patternChanged = false;
+  const newRows: Note[][] = pattern.rows.map((row, rowIdx) => {
+    if (rowIdx < range.startRow || rowIdx > range.endRow) return row;
+    let rowChanged = false;
+    const newRow: Note[] = row.map((cell, chIdx) => {
+      if (chIdx < range.startChannel || chIdx > range.endChannel) return cell;
+      const newPeriod = transposePeriod(cell.period, deltaSemitones);
+      if (newPeriod === null || newPeriod === cell.period) return cell;
+      rowChanged = true;
+      return { ...cell, period: newPeriod };
+    });
+    if (!rowChanged) return row;
+    patternChanged = true;
+    return newRow;
+  });
+
+  if (!patternChanged) return song;
+  const newPatterns: Pattern[] = [...song.patterns];
+  newPatterns[patNum] = { rows: newRows };
+  return { ...song, patterns: newPatterns };
 }

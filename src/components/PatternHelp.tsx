@@ -231,6 +231,17 @@ const EFFECT_TIPS: TipSection[] = [
   },
 ];
 
+/** Transpose works on a single cell or a whole selection — it's relevant
+ *  in both the note-column and selection contexts, so we show it in
+ *  either mode rather than burying it inside one of them. */
+const TRANSPOSE_TIPS: TipSection = {
+  title: 'Transpose',
+  items: [
+    { keys: 'Shift + − / =', action: 'transpose −/+ 1 semitone' },
+    { keys: `${MOD_LABEL} + Shift + − / =`, action: 'transpose −/+ 1 octave' },
+  ],
+};
+
 const SELECTION_TIPS: TipSection = {
   title: 'Selection',
   items: [
@@ -286,14 +297,15 @@ export const PatternHelp: Component<Props> = (props) => {
   });
 
   const tipSections = (): TipSection[] => {
-    // Selection active → only selection tips. The user is in selection-
-    // management mode; everything else is noise on top of the actual job.
-    if (selection() !== null) return [SELECTION_TIPS];
+    // Selection active → selection management + transpose. Transpose
+    // operates on the selection rectangle, so it earns a slot here even
+    // though everything else collapses away to keep the user focused.
+    if (selection() !== null) return [SELECTION_TIPS, TRANSPOSE_TIPS];
     // No selection: show context tips for the field. The note column
-    // also gets the selection tips so the user discovers Shift+arrows /
-    // Cmd+C/V before they've made a first selection.
+    // also gets transpose + selection tips so the user discovers
+    // Shift+arrows / Cmd+C/V / transpose before making a first selection.
     if (isEffectField(props.cursor.field)) return [...EFFECT_TIPS];
-    return [...NOTE_TIPS, SELECTION_TIPS];
+    return [...NOTE_TIPS, TRANSPOSE_TIPS, SELECTION_TIPS];
   };
 
   const showEffectList = () =>

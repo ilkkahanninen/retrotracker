@@ -77,6 +77,7 @@ import {
   setSample,
   clearSample,
   replaceSampleData,
+  transposeRange,
 } from "./core/mod/mutations";
 import { cropSample, cutSample } from "./core/mod/sampleSelection";
 import {
@@ -936,6 +937,32 @@ export const App: Component = () => {
     commitEdit((song) =>
       pasteSlice(song, slice.rows, c.order, c.row, c.channel),
     );
+  };
+
+  /**
+   * Transpose the cell under the cursor — or every cell inside the active
+   * selection — by `deltaSemitones`. Empty cells (no period stored) are
+   * left alone; non-empty cells re-snap to PT's finetune-0 grid via
+   * `transposeRange`. No-op while playing or with no song loaded.
+   *
+   * Scope rules mirror copy/paste: a selection wins, otherwise the cursor
+   * cell is the implicit one-cell range. Selection is preserved across
+   * the operation so the user can chord ⇧− ⇧− ⇧− to walk a phrase down.
+   */
+  const transposeAtCursor = (deltaSemitones: number) => {
+    if (transport() === "playing") return;
+    const s = song();
+    if (!s) return;
+    const sel = selection();
+    const range = sel ?? (() => {
+      const c = cursor();
+      return {
+        order: c.order,
+        startRow: c.row, endRow: c.row,
+        startChannel: c.channel, endChannel: c.channel,
+      };
+    })();
+    commitEdit((song) => transposeRange(song, range, deltaSemitones));
   };
 
   /**
@@ -2028,6 +2055,48 @@ export const App: Component = () => {
         description: "Next sample",
         when: () => transport() !== "playing" && view() !== "sample",
         run: nextSample,
+      }),
+    );
+    // Transpose. Layered onto the prev/next sample shortcuts: Shift turns
+    // sample-cycling into note-cycling, Cmd extends the step from semitone
+    // to octave. Operates on the selection when one exists, otherwise on
+    // the cell at the cursor — same scope rule as copy/paste.
+    cleanups.push(
+      registerShortcut({
+        key: "-",
+        shift: true,
+        description: "Transpose down 1 semitone",
+        when: () => transport() !== "playing" && view() !== "sample",
+        run: () => transposeAtCursor(-1),
+      }),
+    );
+    cleanups.push(
+      registerShortcut({
+        key: "=",
+        shift: true,
+        description: "Transpose up 1 semitone",
+        when: () => transport() !== "playing" && view() !== "sample",
+        run: () => transposeAtCursor(1),
+      }),
+    );
+    cleanups.push(
+      registerShortcut({
+        key: "-",
+        mod: true,
+        shift: true,
+        description: "Transpose down 1 octave",
+        when: () => transport() !== "playing" && view() !== "sample",
+        run: () => transposeAtCursor(-12),
+      }),
+    );
+    cleanups.push(
+      registerShortcut({
+        key: "=",
+        mod: true,
+        shift: true,
+        description: "Transpose up 1 octave",
+        when: () => transport() !== "playing" && view() !== "sample",
+        run: () => transposeAtCursor(12),
       }),
     );
     // Order-list editing. The cursor's `order` field is the target slot.

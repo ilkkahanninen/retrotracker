@@ -220,7 +220,7 @@ describe('PatternHelp: context-sensitive tips', () => {
     expect(titles).not.toContain('Play');
   });
 
-  it('with an active selection, shows only the Selection section regardless of cursor field', () => {
+  it('with an active selection, shows Selection + Transpose sections regardless of cursor field', () => {
     setSong(emptySong());
     setCursor({ order: 0, row: 0, channel: 0, field: 'note' });
     setSelection(makeSelection(0, 0, 0, 3, 1));
@@ -230,11 +230,12 @@ describe('PatternHelp: context-sensitive tips', () => {
     const titles = Array.from(
       container.querySelectorAll('.patternhelp__tip-title'),
     ).map((el) => el.textContent);
-    expect(titles).toEqual(['Selection']);
+    expect(titles).toEqual(['Selection', 'Transpose']);
 
-    const selSection = container.querySelector('.patternhelp__tip-section')!;
-    expect(selSection.textContent).toMatch(new RegExp(`${MOD_LABEL} \\+ C`));
-    expect(selSection.textContent).toMatch(new RegExp(`${MOD_LABEL} \\+ V`));
+    const sections = container.querySelectorAll('.patternhelp__tip-section');
+    expect(sections[0]!.textContent).toMatch(new RegExp(`${MOD_LABEL} \\+ C`));
+    expect(sections[0]!.textContent).toMatch(new RegExp(`${MOD_LABEL} \\+ V`));
+    expect(sections[1]!.textContent).toMatch(/Shift \+ − \/ =/);
   });
 
   it('with an active selection on the effect column, the effect grid is hidden', () => {
@@ -248,6 +249,6 @@ describe('PatternHelp: context-sensitive tips', () => {
     const titles = Array.from(
       container.querySelectorAll('.patternhelp__tip-title'),
     ).map((el) => el.textContent);
-    expect(titles).toEqual(['Selection']);
+    expect(titles).toEqual(['Selection', 'Transpose']);
   });
 });

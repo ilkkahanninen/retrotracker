@@ -3,9 +3,9 @@ import {
   deleteCellPullUp, insertCellPushDown, setCell,
   setOrderPattern, nextPatternAtOrder, prevPatternAtOrder,
   insertOrder, deleteOrder, newPatternAtOrder, duplicatePatternAtOrder,
-  setSample, clearSample, replaceSampleData,
+  setSample, clearSample, replaceSampleData, transposeRange,
 } from '../src/core/mod/mutations';
-import { emptyPattern, emptySong } from '../src/core/mod/format';
+import { emptyPattern, emptySong, PERIOD_TABLE } from '../src/core/mod/format';
 import { MAX_ORDERS } from '../src/core/mod/types';
 import type { Song } from '../src/core/mod/types';
 
@@ -409,5 +409,86 @@ describe('replaceSampleData', () => {
     const next = replaceSampleData(s, 0, big);
     expect(next.samples[0]!.lengthWords).toBe(65535);
     expect(next.samples[0]!.data.byteLength).toBe(65535 * 2);
+  });
+});
+
+describe('transposeRange', () => {
+  // PERIOD_TABLE row 0 — slot 0 is C-1 (856), slot 12 is C-2 (428),
+  // slot 24 is C-3 (214), slot 35 is B-3 (113).
+  const F0 = PERIOD_TABLE[0]!;
+
+  function rangeAt(order: number, row: number, channel: number) {
+    return { order, startRow: row, endRow: row, startChannel: channel, endChannel: channel };
+  }
+
+  it('shifts a single cell up 1 semitone (C-2 → C#-2)', () => {
+    const s = makeSong();
+    s.patterns[0]!.rows[3]![1]!.period = F0[12]!; // C-2
+    const next = transposeRange(s, rangeAt(0, 3, 1), 1);
+    expect(next.patterns[0]!.rows[3]![1]!.period).toBe(F0[13]!); // C#-2
+  });
+
+  it('shifts a single cell down 1 octave (C-2 → C-1)', () => {
+    const s = makeSong();
+    s.patterns[0]!.rows[3]![1]!.period = F0[12]!; // C-2
+    const next = transposeRange(s, rangeAt(0, 3, 1), -12);
+    expect(next.patterns[0]!.rows[3]![1]!.period).toBe(F0[0]!); // C-1
+  });
+
+  it('leaves empty cells alone — does not introduce a note from a 0 period', () => {
+    const s = makeSong();
+    // Cell at (0, 3, 1) starts as period=0.
+    const next = transposeRange(s, rangeAt(0, 3, 1), 1);
+    expect(next).toBe(s); // no-op returns same reference
+  });
+
+  it('clamps at the top of the table — B-3 stays B-3 when transposing up', () => {
+    const s = makeSong();
+    s.patterns[0]!.rows[3]![1]!.period = F0[35]!; // B-3, top of range
+    const next = transposeRange(s, rangeAt(0, 3, 1), 5);
+    expect(next.patterns[0]!.rows[3]![1]!.period).toBe(F0[35]!);
+  });
+
+  it('clamps at the bottom of the table — C-1 stays C-1 when transposing down', () => {
+    const s = makeSong();
+    s.patterns[0]!.rows[3]![1]!.period = F0[0]!; // C-1, bottom of range
+    const next = transposeRange(s, rangeAt(0, 3, 1), -5);
+    expect(next.patterns[0]!.rows[3]![1]!.period).toBe(F0[0]!);
+  });
+
+  it('walks every cell inside a multi-channel, multi-row selection', () => {
+    const s = makeSong();
+    s.patterns[0]!.rows[2]![0]!.period = F0[12]!; // C-2 ch0
+    s.patterns[0]!.rows[2]![1]!.period = F0[14]!; // D-2 ch1
+    s.patterns[0]!.rows[3]![0]!.period = F0[16]!; // E-2 ch0
+    s.patterns[0]!.rows[3]![2]!.period = F0[18]!; // F#-2 ch2 — outside range
+    const range = { order: 0, startRow: 2, endRow: 3, startChannel: 0, endChannel: 1 };
+    const next = transposeRange(s, range, 2); // up 2 semitones
+
+    expect(next.patterns[0]!.rows[2]![0]!.period).toBe(F0[14]!);
+    expect(next.patterns[0]!.rows[2]![1]!.period).toBe(F0[16]!);
+    expect(next.patterns[0]!.rows[3]![0]!.period).toBe(F0[18]!);
+    // ch2 was outside the rectangle — untouched.
+    expect(next.patterns[0]!.rows[3]![2]!.period).toBe(F0[18]!);
+  });
+
+  it('preserves the sample / effect / effectParam fields on transposed cells', () => {
+    const s = makeSong();
+    const cell = s.patterns[0]!.rows[3]![1]!;
+    cell.period = F0[12]!;
+    cell.sample = 7;
+    cell.effect = 0xa;
+    cell.effectParam = 0x42;
+    const next = transposeRange(s, rangeAt(0, 3, 1), 3);
+    const after = next.patterns[0]!.rows[3]![1]!;
+    expect(after.period).toBe(F0[15]!); // up 3 semitones
+    expect(after.sample).toBe(7);
+    expect(after.effect).toBe(0xa);
+    expect(after.effectParam).toBe(0x42);
+  });
+
+  it('returns the same Song reference when nothing changed (delta=0 / all empty)', () => {
+    const s = makeSong();
+    expect(transposeRange(s, rangeAt(0, 3, 1), 0)).toBe(s);
   });
 });
