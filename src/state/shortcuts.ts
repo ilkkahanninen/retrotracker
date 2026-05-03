@@ -19,6 +19,18 @@ export interface Shortcut {
   mod?: boolean;
   shift?: boolean;
   alt?: boolean;
+  /**
+   * Match by physical key position (`event.code`) instead of produced
+   * character (`event.key`). Use for ergonomically-positioned keys whose
+   * meaning is "the key on the home row, third from the left" rather than
+   * "the letter F" — piano keys, Z/X for octave. A user on AZERTY pressing
+   * the QWERTY-A position gets the same shortcut despite their keycap
+   * showing 'Q', which is what the user wants for piano-row ergonomics.
+   *
+   * Character-mode shortcuts (default) keep matching by the produced
+   * letter, so `Cmd+S` finds S wherever it lives on the user's keyboard.
+   */
+  position?: boolean;
   description: string;
   run: () => void;
   /**
@@ -64,7 +76,7 @@ export function getShortcuts(): readonly Shortcut[] {
  * and ignores modifiers. We still match printable letters by `key` so users
  * with non-QWERTY layouts get Cmd+Z at the right glyph.
  */
-const KEY_CODE_MAP: Readonly<Record<string, string>> = {
+export const KEY_CODE_MAP: Readonly<Record<string, string>> = {
   ' ':          'Space',
   tab:          'Tab',
   enter:        'Enter',
@@ -103,14 +115,46 @@ const KEY_CODE_MAP: Readonly<Record<string, string>> = {
   ']':          'BracketRight',
   '\\':         'Backslash',
   '`':          'Backquote',
+  // Letter keys — only consulted in position-mode (`position: true`).
+  // Default-mode matching deliberately ignores these via `isLetterKey`,
+  // so an AZERTY user pressing the Q letter doesn't fire a Cmd+A
+  // shortcut just because Q sits at the QWERTY-A physical position.
+  a: 'KeyA', b: 'KeyB', c: 'KeyC', d: 'KeyD', e: 'KeyE', f: 'KeyF',
+  g: 'KeyG', h: 'KeyH', i: 'KeyI', j: 'KeyJ', k: 'KeyK', l: 'KeyL',
+  m: 'KeyM', n: 'KeyN', o: 'KeyO', p: 'KeyP', q: 'KeyQ', r: 'KeyR',
+  s: 'KeyS', t: 'KeyT', u: 'KeyU', v: 'KeyV', w: 'KeyW', x: 'KeyX',
+  y: 'KeyY', z: 'KeyZ',
 };
+
+/** True for single-letter shortcut keys (`a`..`z`). The matcher uses
+ *  this to suppress the code-fallback in default mode — see KEY_CODE_MAP. */
+function isLetterKey(k: string): boolean {
+  return k.length === 1 && k >= 'a' && k <= 'z';
+}
+
+/**
+ * Does `e` (the keyboard event) carry the key requested by `s`? Two modes:
+ *  - Position-mode (`s.position === true`): match `event.code` against the
+ *    QWERTY mapping in KEY_CODE_MAP, ignore the produced character. Used
+ *    for piano keys and octave Z/X so non-QWERTY users keep the same
+ *    physical-position ergonomics.
+ *  - Default mode: match the produced character (`event.key`). Code is
+ *    accepted as a fallback for layout-stable keys (digits, punctuation,
+ *    arrows, function keys) but NOT for letters — see the AZERTY note.
+ */
+function keyMatches(e: KeyboardEvent, s: Shortcut): boolean {
+  const expectedCode = KEY_CODE_MAP[s.key];
+  if (s.position) {
+    return expectedCode !== undefined && e.code === expectedCode;
+  }
+  if (e.key.toLowerCase() === s.key) return true;
+  if (isLetterKey(s.key)) return false;
+  return expectedCode !== undefined && e.code === expectedCode;
+}
 
 /** True iff every modifier on `s` matches the event's modifier state exactly. */
 export function matchesShortcut(e: KeyboardEvent, s: Shortcut): boolean {
-  const expectedCode = KEY_CODE_MAP[s.key];
-  const keyMatches = e.key.toLowerCase() === s.key;
-  const codeMatches = expectedCode !== undefined && e.code === expectedCode;
-  if (!keyMatches && !codeMatches) return false;
+  if (!keyMatches(e, s)) return false;
   const mod = e.metaKey || e.ctrlKey;
   if (!!s.mod !== mod) return false;
   if (!!s.shift !== e.shiftKey) return false;
@@ -125,10 +169,7 @@ export function matchesShortcut(e: KeyboardEvent, s: Shortcut): boolean {
  * the user still expects the release action to fire.
  */
 function matchesKeyOnly(e: KeyboardEvent, s: Shortcut): boolean {
-  const expectedCode = KEY_CODE_MAP[s.key];
-  const keyMatches = e.key.toLowerCase() === s.key;
-  const codeMatches = expectedCode !== undefined && e.code === expectedCode;
-  return keyMatches || codeMatches;
+  return keyMatches(e, s);
 }
 
 /**

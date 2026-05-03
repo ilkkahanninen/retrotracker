@@ -5,6 +5,7 @@ import type { Cursor, Field } from '../state/cursor';
 import { selection } from '../state/selection';
 import { registerShortcut } from '../state/shortcuts';
 import { view } from '../state/view';
+import { remapPositionKeys } from '../state/keyboardLayout';
 
 const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'] as const;
 
@@ -116,16 +117,27 @@ function effectCellText(note: Note): string {
 // runtime registry to query, but the shortcut list is small enough that a
 // small drift in the help text is preferable to building one.
 
-interface Tip { keys: string; action: string; }
+interface Tip {
+  keys: string;
+  action: string;
+  /**
+   * When true the `keys` string is a sequence of QWERTY-position glyphs
+   * — render-time `remapPositionKeys` rewrites each letter / mapped
+   * punctuation to the user's actual keycap label. Use for piano keys
+   * and Z/X octave; leave false for character-named shortcuts (Cmd+S)
+   * and pure punctuation (`[`, `]`, `,`).
+   */
+  position?: boolean;
+}
 interface TipSection { title: string; items: Tip[]; }
 
 const NOTE_TIPS: TipSection[] = [
   {
     title: 'Note entry',
     items: [
-      { keys: 'A W S E D F T G Y H U J', action: 'piano (current octave)' },
-      { keys: 'K O L P ;', action: 'piano (octave + 1)' },
-      { keys: 'Z / X', action: 'octave − / +' },
+      { keys: 'A W S E D F T G Y H U J', action: 'piano (current octave)', position: true },
+      { keys: 'K O L P ;',               action: 'piano (octave + 1)',     position: true },
+      { keys: 'Z / X',                   action: 'octave − / +',           position: true },
       { keys: '.', action: 'clear field under cursor' },
       { keys: 'Backspace', action: 'delete row above (pull channel up)' },
     ],
@@ -405,7 +417,9 @@ export const PatternHelp: Component<Props> = (props) => {
                   <For each={section.items}>
                     {(item) => (
                       <li class="patternhelp__tip">
-                        <kbd class="patternhelp__kbd">{item.keys}</kbd>
+                        <kbd class="patternhelp__kbd">
+                          {item.position ? remapPositionKeys(item.keys) : item.keys}
+                        </kbd>
                         <span class="patternhelp__tip-action">{item.action}</span>
                       </li>
                     )}

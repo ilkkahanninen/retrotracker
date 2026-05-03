@@ -48,6 +48,38 @@ describe('matchesShortcut', () => {
   });
 });
 
+describe('position-based shortcuts (event.code matching)', () => {
+  // Piano-row "A" registered as position-based: matches the QWERTY-A
+  // physical key (KeyA), regardless of what character that key produces.
+  const pianoA: Shortcut = { key: 'a', position: true, description: 'piano A', run: () => {} };
+
+  it('matches by event.code on a QWERTY layout (event.key === event.code-letter)', () => {
+    expect(matchesShortcut(ev({ key: 'a', code: 'KeyA' }), pianoA)).toBe(true);
+  });
+
+  it('matches the same physical key on AZERTY (event.key="q", event.code="KeyA")', () => {
+    // AZERTY user pressing the QWERTY-A position: keycap shows Q, but
+    // event.code is still 'KeyA' — position-based dispatch must fire.
+    expect(matchesShortcut(ev({ key: 'q', code: 'KeyA' }), pianoA)).toBe(true);
+  });
+
+  it('does NOT match the AZERTY user pressing the letter A (event.code="KeyQ")', () => {
+    // Their physical-A is at QWERTY-Q position, where the piano shortcut
+    // does NOT live — position is the only thing that counts.
+    expect(matchesShortcut(ev({ key: 'a', code: 'KeyQ' }), pianoA)).toBe(false);
+  });
+
+  it('default-mode letter shortcut (Cmd+A) does NOT fire from QWERTY-A position on AZERTY', () => {
+    // Cmd+A is character-mode: it should fire ONLY when the user pressed
+    // the letter A, not when they pressed the QWERTY-A physical position
+    // on a layout where Q sits there.
+    const cmdA: Shortcut = { key: 'a', mod: true, description: 'select all', run: () => {} };
+    expect(matchesShortcut(ev({ key: 'q', code: 'KeyA', metaKey: true }), cmdA)).toBe(false);
+    // It does still fire when the user types A on any layout.
+    expect(matchesShortcut(ev({ key: 'a', code: 'KeyQ', metaKey: true }), cmdA)).toBe(true);
+  });
+});
+
 describe('shortcut registry', () => {
   it('ships with Undo and Redo bindings', () => {
     const descriptions = getShortcuts().map(s => s.description);

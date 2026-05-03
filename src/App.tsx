@@ -1875,6 +1875,13 @@ export const App: Component = () => {
       cleanups.push(
         registerShortcut({
           key: k,
+          // Position-based: match by physical key (`event.code`), not the
+          // produced letter. AZERTY / Dvorak / Colemak users get the same
+          // home-row + black-key-row ergonomics as QWERTY because they're
+          // pressing the same physical positions even though their keycap
+          // labels differ. The piano `when` gate still routes to hex-digit
+          // entry on hex fields — those shortcuts stay character-based.
+          position: true,
           description: `Note (offset ${offset})`,
           // Pattern view: only fire on the note field (so A/D/E/F can act as
           // hex digits when the cursor is on a sample / effect nibble).
@@ -1924,6 +1931,7 @@ export const App: Component = () => {
     cleanups.push(
       registerShortcut({
         key: "z",
+        position: true,
         description: "Octave down",
         run: octaveDown,
       }),
@@ -1931,6 +1939,7 @@ export const App: Component = () => {
     cleanups.push(
       registerShortcut({
         key: "x",
+        position: true,
         description: "Octave up",
         run: octaveUp,
       }),
