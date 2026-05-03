@@ -26,23 +26,16 @@ import {
   dirty,
   setDirty,
 } from "./state/song";
-import { installShortcuts, registerShortcut } from "./state/shortcuts";
+import { installShortcuts } from "./state/shortcuts";
 import {
   cursor,
   setCursor,
   resetCursor,
-  isHexField,
   moveDown,
-  moveLeft,
   moveRight,
   moveUp,
-  pageDown,
-  pageUp,
-  tabNext,
-  tabPrev,
   requestJumpToTop,
 } from "./state/cursor";
-import { beatsPerBar, rowsPerBeat } from "./state/gridConfig";
 import {
   clearFieldPatch,
   currentOctave,
@@ -50,16 +43,12 @@ import {
   editStep,
   incEditStep,
   decEditStep,
-  resetEditStep,
-  octaveDown,
-  octaveUp,
   selectSample,
   setCurrentSample,
   setCurrentOctave,
   setEditStep,
-  nextSample,
-  prevSample,
 } from "./state/edit";
+import { registerAppKeybinds } from "./state/appKeybinds";
 import { parseModule } from "./core/mod/parser";
 import { writeModule } from "./core/mod/writer";
 import { deriveExportFilename, io } from "./state/io";
@@ -117,7 +106,20 @@ import {
   withWorkbench,
   withoutWorkbench,
 } from "./state/sampleWorkbench";
-import { AudioEngine } from "./core/audio/engine";
+import {
+  ensureEngine,
+  triggerPreview,
+  stopPlayback,
+  playFromStart,
+  playFromCursor,
+  playPatternFromStart,
+  playPatternFromCursor,
+  togglePlaySong,
+  togglePlayPattern,
+  stopEngine,
+  stopEnginePreview,
+  disposeEngine,
+} from "./state/playback";
 import { PatternGrid } from "./components/PatternGrid";
 import { PatternHelp } from "./components/PatternHelp";
 import { SampleList } from "./components/SampleList";
@@ -137,30 +139,6 @@ import {
 } from "./state/persistence";
 import * as preview from "./state/preview";
 
-/**
- * Piano-row key mapping → semitone offset from the current octave's C.
- *   row 1 (white keys A S D F G H J K L ;)  + row 0 sharps (W E   T Y U   O P)
- */
-const PIANO_KEYS: Readonly<Record<string, number>> = {
-  a: 0, // C
-  w: 1, // C#
-  s: 2, // D
-  e: 3, // D#
-  d: 4, // E
-  f: 5, // F
-  t: 6, // F#
-  g: 7, // G
-  y: 8, // G#
-  h: 9, // A
-  u: 10, // A#
-  j: 11, // B
-  k: 12, // C +1 octave
-  o: 13, // C# +1
-  l: 14, // D +1
-  p: 15, // D# +1
-  ";": 16, // E +1
-};
-
 /** Hard cap on the `.retro` project file size. The header indicator turns
  *  yellow at the warning threshold and red once the limit is exceeded. */
 const PROJECT_SIZE_LIMIT_BYTES = 5 * 1024 * 1024;
@@ -171,67 +149,6 @@ const PROJECT_SIZE_WARN_BYTES = 4 * 1024 * 1024;
 function formatProjectSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
   return Math.max(0, Math.round(bytes / 1024)) + ' KB';
-}
-
-let engine: AudioEngine | null = null;
-
-/**
- * Lazy-create the AudioEngine. Returns null when the AudioContext can't be
- * constructed (e.g. in jsdom, or in browsers that gate it behind a user
- * gesture we haven't received yet). Callers must handle null — they treat
- * "no engine" as "no audio side-effect" rather than crashing.
- *
- * This is hit not just by Play, but by every preview path now (note entry,
- * piano-key sample preview), so the user gets sound from the very first
- * keypress without having to press Play first to bootstrap the engine.
- */
-async function ensureEngine(): Promise<AudioEngine | null> {
-  if (engine) return engine;
-  try {
-    engine = await AudioEngine.create();
-    engine.onPosition = (order, row) => setPlayPos({ order, row });
-    return engine;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Ensure the engine exists and push the current Song into it before play.
- * The worklet keeps its own copy of the song, so without this every edit
- * would only show up in the UI — the user would press Play and hear the
- * pre-edit version. Returns null if no song is loaded or the engine
- * couldn't be created.
- */
-async function prepareEngine(): Promise<AudioEngine | null> {
-  const eng = await ensureEngine();
-  if (!eng) return null;
-  const s = song();
-  if (!s) return null;
-  eng.load(s);
-  return eng;
-}
-
-/**
- * Fire-and-forget audition: lazy-creates the engine if needed, no-ops on
- * failure. Also kicks off the visual playhead tracker so the waveform can
- * draw a position cursor — that runs off performance.now() and doesn't
- * depend on the engine resolving, so the cursor appears immediately even
- * if the AudioContext is still warming up.
- */
-function triggerPreview(
-  slot: number,
-  sample: import("./core/mod/types").Sample,
-  period: number,
-): void {
-  preview.startPreview(slot, sample, period);
-  void ensureEngine()
-    .then((eng) => {
-      if (eng) void eng.previewNote(sample, period);
-    })
-    .catch(() => {
-      /* silent — preview is a best-effort side-effect */
-    });
 }
 
 export const App: Component = () => {
@@ -261,7 +178,7 @@ export const App: Component = () => {
     if (!loaded.song) return;
     // Halt any in-flight playback before swapping the song — otherwise the
     // worklet keeps mixing the old song under the new UI state.
-    engine?.stop();
+    stopEngine();
     setPlayMode(null);
     setSong(loaded.song);
     setFilename(loaded.filename);
@@ -468,68 +385,6 @@ export const App: Component = () => {
   };
 
   const onDragLeave = () => setDragOver(false);
-
-  const stopPlayback = () => {
-    engine?.stop();
-    setTransport("ready");
-    setPlayMode(null);
-    // Snap the playhead to the cursor so the row tint jumps back to where
-    // the user is editing, instead of freezing wherever the song happened
-    // to be when stop fired.
-    const c = cursor();
-    setPlayPos({ order: c.order, row: c.row });
-  };
-
-  const playFromStart = async () => {
-    const eng = await prepareEngine();
-    if (!eng) return;
-    await eng.playFrom(0, 0);
-    setTransport("playing");
-    setPlayMode("song");
-  };
-
-  const playFromCursor = async () => {
-    const c = cursor();
-    const eng = await prepareEngine();
-    if (!eng) return;
-    await eng.playFrom(c.order, c.row);
-    setTransport("playing");
-    setPlayMode("song");
-  };
-
-  const playPatternFromStart = async () => {
-    const c = cursor();
-    const eng = await prepareEngine();
-    if (!eng) return;
-    await eng.playFrom(c.order, 0, { loopPattern: true });
-    setTransport("playing");
-    setPlayMode("pattern");
-  };
-
-  const playPatternFromCursor = async () => {
-    const c = cursor();
-    const eng = await prepareEngine();
-    if (!eng) return;
-    await eng.playFrom(c.order, c.row, { loopPattern: true });
-    setTransport("playing");
-    setPlayMode("pattern");
-  };
-
-  /** Header "Play song" button: starts the song from order 0 / row 0 when
-   *  stopped or already playing the pattern; stops when already in song
-   *  mode. Mirrors the bare Space shortcut. */
-  const togglePlaySong = async () => {
-    if (transport() === "playing" && playMode() === "song") stopPlayback();
-    else await playFromStart();
-  };
-
-  /** Header "Play pattern" button: loops the cursor's pattern from row 0
-   *  when stopped or playing the whole song; stops when already looping
-   *  the pattern. Mirrors Option+Space. */
-  const togglePlayPattern = async () => {
-    if (transport() === "playing" && playMode() === "pattern") stopPlayback();
-    else await playPatternFromStart();
-  };
 
   /**
    * Move the cursor to `next`. Disabled during playback (the cursor is also
@@ -1649,555 +1504,41 @@ export const App: Component = () => {
       if (saveTimer !== null) window.clearTimeout(saveTimer);
     });
 
-    cleanups.push(
-      registerShortcut({
-        key: "o",
-        mod: true,
-        description: "Open project / .mod",
-        run: openFilePicker,
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "s",
-        mod: true,
-        description: "Save project (.retro)",
-        run: saveProject,
-      }),
-    );
-    // Range selection / clipboard. Pattern view only — sample view has its
-    // own clipboard story (none yet). All four are gated on transport so
-    // mid-playback presses don't desync the on-screen song from the worklet.
-    cleanups.push(
-      registerShortcut({
-        key: "a",
-        mod: true,
-        description: "Select all rows of channel / pattern",
-        when: () => transport() !== "playing" && view() !== "sample",
-        run: selectAllStep,
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "c",
-        mod: true,
-        description: "Copy selection to clipboard",
-        when: () => transport() !== "playing" && view() !== "sample",
-        run: copySelection,
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "x",
-        mod: true,
-        description: "Cut selection to clipboard",
-        when: () => transport() !== "playing" && view() !== "sample",
-        run: cutSelection,
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "v",
-        mod: true,
-        description: "Paste clipboard at cursor",
-        when: () => transport() !== "playing" && view() !== "sample",
-        run: pasteAtCursor,
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "f2",
-        description: "Pattern view",
-        run: () => setView("pattern"),
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "f3",
-        description: "Sample view",
-        run: () => setView("sample"),
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "f4",
-        description: "Info view",
-        run: () => setView("info"),
-      }),
-    );
-    // Transport (Space-based chords; Option used instead of Cmd to avoid the
-    // macOS Spotlight conflict on ⌘+Space).
-    //   Space               → toggle: stop if playing, otherwise play song from start
-    //   Option + Space      → play pattern (loop) from start of cursor's pattern
-    //   Shift + Space       → play song from cursor
-    //   Option + Shift + Space → play pattern (loop) from cursor row
-    cleanups.push(
-      registerShortcut({
-        key: " ",
-        description: "Play / Stop",
-        run: () => {
-          if (transport() === "playing") stopPlayback();
-          else void playFromStart();
-        },
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: " ",
-        alt: true,
-        description: "Play pattern (loop)",
-        run: () => {
-          void playPatternFromStart();
-        },
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: " ",
-        shift: true,
-        description: "Play song from cursor",
-        run: () => {
-          void playFromCursor();
-        },
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: " ",
-        alt: true,
-        shift: true,
-        description: "Play pattern from cursor (loop)",
-        run: () => {
-          void playPatternFromCursor();
-        },
-      }),
-    );
-    // Cursor navigation (no-op while playing — handled inside applyCursor)
-    cleanups.push(
-      registerShortcut({
-        key: "arrowleft",
-        description: "Cursor left",
-        run: () => applyCursor(moveLeft(cursor())),
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "arrowright",
-        description: "Cursor right",
-        run: () => applyCursor(moveRight(cursor())),
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "arrowup",
-        description: "Cursor up",
-        run: () => applyCursorWithSong(moveUp),
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "arrowdown",
-        description: "Cursor down",
-        run: () => applyCursorWithSong(moveDown),
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "tab",
-        description: "Next channel",
-        run: () => applyCursor(tabNext(cursor())),
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "tab",
-        shift: true,
-        description: "Previous channel",
-        run: () => applyCursor(tabPrev(cursor())),
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "pageup",
-        description: "Page up",
-        run: () =>
-          applyCursorWithSong((c, s) =>
-            pageUp(c, s, rowsPerBeat() * beatsPerBar()),
-          ),
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "pagedown",
-        description: "Page down",
-        run: () =>
-          applyCursorWithSong((c, s) =>
-            pageDown(c, s, rowsPerBeat() * beatsPerBar()),
-          ),
-      }),
-    );
-    // Shift+arrow: extend the range selection. Left/right hop a whole
-    // channel (skipping per-cell sub-fields, which are irrelevant for
-    // selection rectangles); up/down/page step rows. All gated to pattern
-    // view — the cursor signal is shared with sample view but doesn't
-    // address a pattern cell there.
-    const shiftNav = (mover: (c: ReturnType<typeof cursor>) => ReturnType<typeof cursor>) =>
-      () => extendSelection(mover(cursor()));
-    cleanups.push(
-      registerShortcut({
-        key: "arrowleft", shift: true,
-        description: "Extend selection left",
-        when: () => transport() !== "playing" && view() !== "sample",
-        run: shiftNav(stepChannelLeft),
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "arrowright", shift: true,
-        description: "Extend selection right",
-        when: () => transport() !== "playing" && view() !== "sample",
-        run: shiftNav(stepChannelRight),
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "arrowup", shift: true,
-        description: "Extend selection up",
-        when: () => transport() !== "playing" && view() !== "sample",
-        run: shiftNav(stepRowUp),
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "arrowdown", shift: true,
-        description: "Extend selection down",
-        when: () => transport() !== "playing" && view() !== "sample",
-        run: shiftNav(stepRowDown),
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "pageup", shift: true,
-        description: "Extend selection by a page up",
-        when: () => transport() !== "playing" && view() !== "sample",
-        run: () => extendSelection(stepRowPageUp(cursor(), rowsPerBeat() * beatsPerBar())),
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "pagedown", shift: true,
-        description: "Extend selection by a page down",
-        when: () => transport() !== "playing" && view() !== "sample",
-        run: () => extendSelection(stepRowPageDown(cursor(), rowsPerBeat() * beatsPerBar())),
-      }),
-    );
-    // Note entry — piano-row keys when the cursor is on the note field.
-    // `runUp` stops the audition preview when the key is released, so held
-    // notes (especially looping samples) don't keep ringing forever.
-    //
-    // The `when` gate matters because A/D/E/F (and others) double as hex
-    // digits when the cursor is on a hex-editable field; without it, the
-    // piano shortcut would shadow the hex shortcut on those overlapping keys.
-    for (const [k, offset] of Object.entries(PIANO_KEYS)) {
-      cleanups.push(
-        registerShortcut({
-          key: k,
-          // Position-based: match by physical key (`event.code`), not the
-          // produced letter. AZERTY / Dvorak / Colemak users get the same
-          // home-row + black-key-row ergonomics as QWERTY because they're
-          // pressing the same physical positions even though their keycap
-          // labels differ. The piano `when` gate still routes to hex-digit
-          // entry on hex fields — those shortcuts stay character-based.
-          position: true,
-          description: `Note (offset ${offset})`,
-          // Pattern view: only fire on the note field (so A/D/E/F can act as
-          // hex digits when the cursor is on a sample / effect nibble).
-          // Sample view: always fire (cursor field is irrelevant when we're
-          // just auditioning the current slot).
-          when: () =>
-            transport() !== "playing" &&
-            (view() === "sample" || cursor().field === "note"),
-          run: () => onPianoKey(offset),
-          runUp: () => {
-            engine?.stopPreview();
-            preview.stopPreview();
-          },
-        }),
-      );
-    }
-    // Hex-digit entry — fills sample/effect nibbles. Same physical keys as
-    // the piano-row letters (A..F) but the `when` gate routes by cursor field.
-    const HEX_KEYS: Readonly<Record<string, number>> = {
-      "0": 0,
-      "1": 1,
-      "2": 2,
-      "3": 3,
-      "4": 4,
-      "5": 5,
-      "6": 6,
-      "7": 7,
-      "8": 8,
-      "9": 9,
-      a: 10,
-      b: 11,
-      c: 12,
-      d: 13,
-      e: 14,
-      f: 15,
-    };
-    for (const [k, val] of Object.entries(HEX_KEYS)) {
-      cleanups.push(
-        registerShortcut({
-          key: k,
-          description: `Hex digit ${val.toString(16).toUpperCase()}`,
-          when: () => transport() !== "playing" && isHexField(cursor().field),
-          run: () => enterHexDigit(val),
-        }),
-      );
-    }
-    cleanups.push(
-      registerShortcut({
-        key: "z",
-        position: true,
-        description: "Octave down",
-        run: octaveDown,
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "x",
-        position: true,
-        description: "Octave up",
-        run: octaveUp,
-      }),
-    );
-    // Edit step adjust — plain `[` / `]`. The shortcut matcher routes
-    // bracket presses by event.code so US, German, Nordic etc. layouts
-    // all hit the same binding regardless of where the brackets actually
-    // live on the user's keyboard.
-    cleanups.push(
-      registerShortcut({
-        key: "[",
-        description: "Decrease edit step",
-        when: () => transport() !== "playing",
-        run: decEditStep,
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "]",
-        description: "Increase edit step",
-        when: () => transport() !== "playing",
-        run: incEditStep,
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "\\",
-        description: "Reset edit step to 1",
-        when: () => transport() !== "playing",
-        run: resetEditStep,
-      }),
-    );
-    // Sample quick-select.
-    //   1..9, 0          → samples 1..10 (only when cursor is on the note
-    //                      field — on hex fields these keys type hex digits)
-    //   Shift+1..9, 0    → samples 11..20 (always; hex entry doesn't use shift)
-    //   -, =             → previous / next sample
-    const SAMPLE_QUICK: Readonly<Record<string, number>> = {
-      "1": 1,
-      "2": 2,
-      "3": 3,
-      "4": 4,
-      "5": 5,
-      "6": 6,
-      "7": 7,
-      "8": 8,
-      "9": 9,
-      "0": 10,
-    };
-    for (const [k, n] of Object.entries(SAMPLE_QUICK)) {
-      cleanups.push(
-        registerShortcut({
-          key: k,
-          description: `Select sample ${n}`,
-          // Suppress in sample view so digits flow into the sample-editor's
-          // numeric inputs (volume / finetune / loop / effect params) instead
-          // of preventDefault'ing into a sample-select.
-          when: () =>
-            transport() !== "playing" &&
-            view() !== "sample" &&
-            !isHexField(cursor().field),
-          run: () => selectSample(n),
-        }),
-      );
-      cleanups.push(
-        registerShortcut({
-          key: k,
-          shift: true,
-          description: `Select sample ${n + 10}`,
-          when: () => transport() !== "playing" && view() !== "sample",
-          run: () => selectSample(n + 10),
-        }),
-      );
-    }
-    cleanups.push(
-      registerShortcut({
-        key: "-",
-        description: "Previous sample",
-        when: () => transport() !== "playing" && view() !== "sample",
-        run: prevSample,
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "=",
-        description: "Next sample",
-        when: () => transport() !== "playing" && view() !== "sample",
-        run: nextSample,
-      }),
-    );
-    // Transpose. Layered onto the prev/next sample shortcuts: Shift turns
-    // sample-cycling into note-cycling, Cmd extends the step from semitone
-    // to octave. Operates on the selection when one exists, otherwise on
-    // the cell at the cursor — same scope rule as copy/paste.
-    cleanups.push(
-      registerShortcut({
-        key: "-",
-        shift: true,
-        description: "Transpose down 1 semitone",
-        when: () => transport() !== "playing" && view() !== "sample",
-        run: () => transposeAtCursor(-1),
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "=",
-        shift: true,
-        description: "Transpose up 1 semitone",
-        when: () => transport() !== "playing" && view() !== "sample",
-        run: () => transposeAtCursor(1),
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "-",
-        mod: true,
-        shift: true,
-        description: "Transpose down 1 octave",
-        when: () => transport() !== "playing" && view() !== "sample",
-        run: () => transposeAtCursor(-12),
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "=",
-        mod: true,
-        shift: true,
-        description: "Transpose up 1 octave",
-        when: () => transport() !== "playing" && view() !== "sample",
-        run: () => transposeAtCursor(12),
-      }),
-    );
-    // Order-list editing. The cursor's `order` field is the target slot.
-    //   < / >          → step the slot's pattern number ±1 (auto-grows on >)
-    //   Cmd/Ctrl + I   → insert a new slot at the cursor (duplicates current)
-    //   Cmd/Ctrl + D   → delete the slot at the cursor
-    //   Cmd/Ctrl + B   → assign a fresh empty pattern to the current slot
-    // Plain `,` (without shift, which is the order-step `<`): copy the
-    // most recent non-empty effect on the cursor's channel from any row
-    // above and advance. Pattern-view only — the cursor signal is shared
-    // with the sample view but doesn't address a pattern cell there.
-    cleanups.push(
-      registerShortcut({
-        key: ",",
-        description: "Repeat last effect from above on this channel",
-        when: () => transport() !== "playing" && view() !== "sample",
-        run: repeatLastEffectFromAbove,
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: ",",
-        shift: true,
-        description: "Previous pattern at slot",
-        when: () => transport() !== "playing",
-        run: stepPrevPattern,
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: ".",
-        shift: true,
-        description: "Next pattern at slot",
-        when: () => transport() !== "playing",
-        run: stepNextPattern,
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "i",
-        mod: true,
-        description: "Insert order slot",
-        when: () => transport() !== "playing",
-        run: insertOrderSlot,
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "d",
-        mod: true,
-        description: "Delete order slot",
-        when: () => transport() !== "playing",
-        run: deleteOrderSlot,
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "b",
-        mod: true,
-        description: "New blank pattern at slot",
-        when: () => transport() !== "playing",
-        run: newBlankPatternAtOrder,
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "b",
-        mod: true,
-        shift: true,
-        description: "Duplicate pattern at slot",
-        when: () => transport() !== "playing",
-        run: duplicateCurrentPattern,
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: ".",
-        description: "Clear field under cursor",
-        run: clearAtCursor,
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "backspace",
-        description: "Delete cell above (pull channel up)",
-        run: backspaceCell,
-      }),
-    );
-    cleanups.push(
-      registerShortcut({
-        key: "enter",
-        description: "Insert empty cell (push channel down)",
-        run: insertEmptyCell,
-      }),
-    );
+    for (const c of registerAppKeybinds({
+      openFilePicker,
+      saveProject,
+      selectAllStep,
+      copySelection,
+      cutSelection,
+      pasteAtCursor,
+      applyCursor,
+      applyCursorWithSong,
+      extendSelection,
+      stepChannelLeft,
+      stepChannelRight,
+      stepRowUp,
+      stepRowDown,
+      stepRowPageUp,
+      stepRowPageDown,
+      onPianoKey,
+      enterHexDigit,
+      transposeAtCursor,
+      repeatLastEffectFromAbove,
+      stepPrevPattern,
+      stepNextPattern,
+      insertOrderSlot,
+      deleteOrderSlot,
+      newBlankPatternAtOrder,
+      duplicateCurrentPattern,
+      clearAtCursor,
+      backspaceCell,
+      insertEmptyCell,
+    })) cleanups.push(c);
   });
   onCleanup(() => {
     for (const c of cleanups) c();
     preview.stopPreview();
-    void engine?.dispose();
-    engine = null;
+    void disposeEngine();
   });
 
   // Menu items for the header dropdowns. Functions so the disabled flags
