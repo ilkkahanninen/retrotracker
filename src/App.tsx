@@ -1298,6 +1298,16 @@ export const App: Component = () => {
       song: writeWorkbenchToSongPure(song, slot, next, loopOverride),
       workbenches: withWorkbench(workbenches, slot, next),
     }));
+    // If a piano-key audition is in flight on this slot, hand the freshly
+    // re-rendered int8 to the preview voice so the user hears the edit
+    // immediately. Covers every workbench-driven edit — chiptune param
+    // sliders, sampler chain effects, PT mono-mix / target-note swaps —
+    // without each handler having to remember to call `livePreviewSwap`.
+    const ap = preview.activePreview();
+    if (ap && ap.slot === slot) {
+      const updatedSample = song()?.samples[slot];
+      if (updatedSample) livePreviewSwap(slot, updatedSample, ap.period);
+    }
   };
 
   /** PT no-loop sentinel: loopLengthWords === 1 (a single word, two bytes). */
@@ -1484,10 +1494,8 @@ export const App: Component = () => {
 
   /**
    * Patch the chiptune source params on the current slot. No-op if the slot
-   * isn't a chiptune workbench. Re-runs the pipeline through the same
-   * single-history-entry path the rest of the workbench edits use, and
-   * live-restarts any active preview so the user hears the slider edit
-   * immediately while still holding the piano key.
+   * isn't a chiptune workbench. The single-history-entry commit + live
+   * preview swap both happen inside `updateCurrentWorkbench`.
    */
   const updateChiptune = (patch: Partial<ChiptuneParams>) => {
     if (transport() === "playing") return;
@@ -1499,16 +1507,6 @@ export const App: Component = () => {
       ...wb,
       source: { kind: "chiptune", params },
     });
-    // The commit above ran synchronously — `song()` now returns the new int8.
-    // If the user is auditioning this slot via a held piano key, swap the
-    // playing audio over to the new buffer in-place: the engine crossfades
-    // BufferSources (no click), and the visual playhead just retargets its
-    // data without resetting its start time (no cursor jump).
-    const ap = preview.activePreview();
-    if (ap && ap.slot === slot) {
-      const updatedSample = song()?.samples[slot];
-      if (updatedSample) livePreviewSwap(slot, updatedSample, ap.period);
-    }
   };
 
   const cleanups: Array<() => void> = [];
