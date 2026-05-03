@@ -426,6 +426,49 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   font-variant-numeric: tabular-nums;
 }
 
+/* Inline help strip below the pattern grid — describes the cell under
+ * the edit cursor (note / sample / effect-nibble breakdown). Mirrors the
+ * meta bar's typography but with a top border so the panel reads as a
+ * footer to the grid rather than a header. */
+.patternhelp {
+  background: var(--panel);
+  border-top: 1px solid var(--grid-line);
+  padding: 6px 16px;
+  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-size: 12px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.patternhelp__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  align-items: baseline;
+}
+.patternhelp__seg {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.patternhelp__seg--wide { flex: 1 1 320px; }
+.patternhelp__label {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+  color: var(--muted);
+}
+.patternhelp__value {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.patternhelp__mono { color: var(--accent); }
+.patternhelp__sub  { color: var(--muted); }
+.patternhelp__muted { color: var(--muted); }
+
 .patgrid {
   flex: 1;
   display: flex;

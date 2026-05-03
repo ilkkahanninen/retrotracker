@@ -118,6 +118,7 @@ import {
 } from "./state/sampleWorkbench";
 import { AudioEngine } from "./core/audio/engine";
 import { PatternGrid } from "./components/PatternGrid";
+import { PatternHelp } from "./components/PatternHelp";
 import { SampleList } from "./components/SampleList";
 import { SampleView, type SampleSelection } from "./components/SampleView";
 import { InfoView } from "./components/InfoView";
@@ -2390,6 +2391,7 @@ export const App: Component = () => {
                   active={transport() === "playing"}
                   onCellClick={applyCursor}
                 />
+                <PatternHelp song={s()} cursor={cursor()} />
               </div>
               <div
                 class="sampleview-wrapper"
