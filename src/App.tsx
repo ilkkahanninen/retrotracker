@@ -228,6 +228,10 @@ export const App: Component = () => {
     editStep?: number;
   }) => {
     if (!loaded.song) return;
+    // Halt any in-flight playback before swapping the song — otherwise the
+    // worklet keeps mixing the old song under the new UI state.
+    engine?.stop();
+    setPlayMode(null);
     setSong(loaded.song);
     setFilename(loaded.filename);
     setInfoText(loaded.infoText ?? "");
