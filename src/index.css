@@ -59,11 +59,18 @@ body {
 .app__header {
   grid-area: header;
   background: var(--panel);
-  display: flex;
+  /* Three equal-width columns so the view tabs sit in the visual centre
+     regardless of how wide the left (RetroTracker + File / Edit / size
+     readouts) or right (transport) groups grow. `space-between` would
+     just put the tabs wherever space happened to remain. */
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   padding: 0 16px;
 }
+.app__header > .app__header-left { justify-self: start; }
+.app__header > .viewtabs        { justify-self: center; }
+.app__header > .transport       { justify-self: end; }
 
 .app__header h1 {
   font-size: 14px;
@@ -200,7 +207,7 @@ body {
 .filesize {
   color: var(--muted);
   font-family: ui-monospace, 'SFMono-Regular', monospace;
-  font-size: 11px;
+  font-size: 70%;
   padding: 4px 10px;
   border: 1px solid var(--grid-line);
   border-radius: 6px;
