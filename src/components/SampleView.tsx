@@ -259,83 +259,10 @@ export const SampleView: Component<Props> = (props) => {
           <p class="placeholder">Select a sample slot from the list.</p>
         }
       >
-        <Waveform
-          sample={sample()!}
-          onPatch={props.onPatch}
-          selection={selection()}
-          onSelect={setSelection}
-          // Chiptune samples are always fully looped — the synth re-renders
-          // the cycle on every param edit, so the user can't move the
-          // boundaries anyway. Hide the overlay and disable handle drag.
-          showLoop={workbench()?.source.kind !== "chiptune"}
-        />
-        {/* Selection-action row: Crop/Cut act on the selection (and require
-            one); the remaining effect buttons append to the workbench chain
-            — range-aware kinds adopt the selection if present, gain /
-            normalize ignore it. All workbench-only buttons disable when the
-            slot has no workbench (e.g. a sample loaded from a `.mod`).
-
-            Hidden in chiptune mode: the synth's output is one cycle that's
-            re-rendered from params on every edit, so destructive ops (crop /
-            cut) and chain effects (reverse / gain / normalize / …) would
-            either be wiped on the next param change or just confuse the
-            mental model. Edit the synth params instead. */}
-        <Show when={workbench()?.source.kind !== "chiptune"}>
-        <div class="sampleview__selection">
-          <button
-            type="button"
-            onClick={() => {
-              const sel = selection();
-              if (!sel) return;
-              props.onCropToSelection(sel.start, sel.end);
-              setSelection(null);
-            }}
-            disabled={!selection() || selection()!.end - selection()!.start < 2}
-            title="Keep the selected range, discard the rest"
-          >
-            Crop
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const sel = selection();
-              if (!sel) return;
-              props.onCutSelection(sel.start, sel.end);
-              setSelection(null);
-            }}
-            disabled={!selection() || selection()!.end - selection()!.start < 2}
-            title="Remove the selected range, keep the rest"
-          >
-            Cut
-          </button>
-          <For each={EFFECT_BUTTON_KINDS}>
-            {(kind) => (
-              <button
-                type="button"
-                onClick={() => {
-                  // For range-aware kinds (reverse / fadeIn / fadeOut) the
-                  // selection scopes the effect; pass it through whether or
-                  // not it's present and let the App handler decide. Don't
-                  // clear the selection — unlike Crop/Cut these don't change
-                  // the data shape, so the user may want to apply more than
-                  // one effect to the same region.
-                  props.onAddEffect(kind, selection());
-                }}
-                disabled={!workbench() || editingDisabled()}
-                title={titleForEffectButton(kind, selection() !== null)}
-              >
-                {EFFECT_LABELS[kind]}
-              </button>
-            )}
-          </For>
-          <Show when={selection()}>
-            <span class="sampleview__selection-info">
-              Selection: bytes {selection()!.start} – {selection()!.end} (
-              {selection()!.end - selection()!.start} bytes)
-            </span>
-          </Show>
-        </div>
-        </Show>
+        {/* Sample-meta row sits above the waveform so the user's eye lands
+            on the editable fields (Name / Length / Volume / Finetune /
+            Loop) before the visual area below — matches how the rest of
+            the app reads top-down. */}
         <div class="samplemeta">
           <label>
             <span class="samplemeta__label">Name</span>
@@ -432,6 +359,83 @@ export const SampleView: Component<Props> = (props) => {
             </label>
           </Show>
         </div>
+        <Waveform
+          sample={sample()!}
+          onPatch={props.onPatch}
+          selection={selection()}
+          onSelect={setSelection}
+          // Chiptune samples are always fully looped — the synth re-renders
+          // the cycle on every param edit, so the user can't move the
+          // boundaries anyway. Hide the overlay and disable handle drag.
+          showLoop={workbench()?.source.kind !== "chiptune"}
+        />
+        {/* Selection-action row: Crop/Cut act on the selection (and require
+            one); the remaining effect buttons append to the workbench chain
+            — range-aware kinds adopt the selection if present, gain /
+            normalize ignore it. All workbench-only buttons disable when the
+            slot has no workbench (e.g. a sample loaded from a `.mod`).
+
+            Hidden in chiptune mode: the synth's output is one cycle that's
+            re-rendered from params on every edit, so destructive ops (crop /
+            cut) and chain effects (reverse / gain / normalize / …) would
+            either be wiped on the next param change or just confuse the
+            mental model. Edit the synth params instead. */}
+        <Show when={workbench()?.source.kind !== "chiptune"}>
+        <div class="sampleview__selection">
+          <button
+            type="button"
+            onClick={() => {
+              const sel = selection();
+              if (!sel) return;
+              props.onCropToSelection(sel.start, sel.end);
+              setSelection(null);
+            }}
+            disabled={!selection() || selection()!.end - selection()!.start < 2}
+            title="Keep the selected range, discard the rest"
+          >
+            Crop
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const sel = selection();
+              if (!sel) return;
+              props.onCutSelection(sel.start, sel.end);
+              setSelection(null);
+            }}
+            disabled={!selection() || selection()!.end - selection()!.start < 2}
+            title="Remove the selected range, keep the rest"
+          >
+            Cut
+          </button>
+          <For each={EFFECT_BUTTON_KINDS}>
+            {(kind) => (
+              <button
+                type="button"
+                onClick={() => {
+                  // For range-aware kinds (reverse / fadeIn / fadeOut) the
+                  // selection scopes the effect; pass it through whether or
+                  // not it's present and let the App handler decide. Don't
+                  // clear the selection — unlike Crop/Cut these don't change
+                  // the data shape, so the user may want to apply more than
+                  // one effect to the same region.
+                  props.onAddEffect(kind, selection());
+                }}
+                disabled={!workbench() || editingDisabled()}
+                title={titleForEffectButton(kind, selection() !== null)}
+              >
+                {EFFECT_LABELS[kind]}
+              </button>
+            )}
+          </For>
+          <Show when={selection()}>
+            <span class="sampleview__selection-info">
+              Selection: bytes {selection()!.start} – {selection()!.end} (
+              {selection()!.end - selection()!.start} bytes)
+            </span>
+          </Show>
+        </div>
+        </Show>
         <Show when={workbench()?.source.kind === "chiptune" ? workbench()!.source : null}>
           {(src) => (
             <ChiptuneEditor
@@ -873,16 +877,19 @@ const PipelineEditor: Component<PipelineEditorProps> = (props) => {
           )}
         </Index>
       </ol>
-      <div class="pipeline__chain-actions">
-        <button
-          type="button"
-          onClick={() => props.onApplyChain()}
-          disabled={props.wb.chain.length === 0}
-          title="Run the chain into the source and clear it. Useful after a Crop — the trimmed source shrinks the project file size, but playback stays identical."
-        >
-          Apply changes
-        </button>
-      </div>
+      {/* Hide the row entirely when there's nothing to apply — a disabled
+          button is just visual clutter when the chain is empty. */}
+      <Show when={props.wb.chain.length > 0}>
+        <div class="pipeline__chain-actions">
+          <button
+            type="button"
+            onClick={() => props.onApplyChain()}
+            title="Run the chain into the source and clear it. Useful after a Crop — the trimmed source shrinks the project file size, but playback stays identical."
+          >
+            Apply changes
+          </button>
+        </div>
+      </Show>
       <div class="pipeline__transformer">
         <Show when={channels() > 1}>
           <label>

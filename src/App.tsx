@@ -1171,11 +1171,18 @@ export const App: Component = () => {
    * when looped, the UI hides the Loop toggle so the user can't intervene,
    * and changing `cycleFrames` would otherwise leave a stale loop length
    * pointing into nothing.
+   *
+   * `loopOverride` lets the caller pin the slot's loop fields explicitly —
+   * highest priority, beats both the chiptune full-loop rule and the
+   * preserve-old fallback. Used by source-kind swaps and fresh-WAV loads
+   * so a sampler doesn't inherit the chiptune loop the slot held a moment
+   * earlier.
    */
   const writeWorkbenchToSongPure = (
     song: import("./core/mod/types").Song,
     slot: number,
     wb: SampleWorkbench,
+    loopOverride?: { loopStartWords: number; loopLengthWords: number },
   ): import("./core/mod/types").Song => {
     const data = runPipeline(wb);
     const old = song.samples[slot];
@@ -1183,20 +1190,21 @@ export const App: Component = () => {
     const fullLoop = sourceWantsFullLoop(wb.source) && data.length >= 2
       ? { loopStartWords: 0, loopLengthWords: data.length >> 1 }
       : null;
+    // Explicit override wins; otherwise chiptune's full-loop wins; otherwise
+    // we fall through to first-write defaults (no loop) or preserve old.
+    const loopFields = loopOverride ?? fullLoop;
     const meta: Parameters<typeof replaceSampleData>[3] = isFirstWrite
       ? {
           volume: 64,
           finetune: 0,
           name: sourceDisplayName(wb.source).slice(0, 22),
-          ...(fullLoop ?? {}),
+          ...(loopFields ?? {}),
         }
       : {
           volume: old.volume,
           finetune: old.finetune,
           name: old.name,
-          // Force the loop to track the current data length for chiptune;
-          // preserve whatever the user set otherwise.
-          ...(fullLoop ?? {
+          ...(loopFields ?? {
             loopStartWords: old.loopStartWords,
             loopLengthWords: old.loopLengthWords,
           }),
@@ -1238,8 +1246,11 @@ export const App: Component = () => {
       }
     }
     const wbToCommit = wb;
+    // A fresh sampler starts with no loop — passing the explicit override
+    // also clears any chiptune-era full-loop the slot might still hold from
+    // a previous source-kind toggle.
     commitEditWithWorkbenches(({ song, workbenches }) => ({
-      song: writeWorkbenchToSongPure(song, slot, wbToCommit),
+      song: writeWorkbenchToSongPure(song, slot, wbToCommit, NO_LOOP),
       workbenches: withWorkbench(workbenches, slot, wbToCommit),
     }));
   };
@@ -1248,15 +1259,25 @@ export const App: Component = () => {
    * Replace the workbench at the current slot and re-run the pipeline. Both
    * halves (the workbench map and the int8 in the song) move together inside
    * one history entry — undo reverts the chain UI alongside the waveform.
+   *
+   * `loopOverride` is forwarded to `writeWorkbenchToSongPure` — pass it on
+   * source-kind transitions where the slot's old loop fields shouldn't
+   * survive (e.g. switching back to sampler after chiptune full-looped it).
    */
-  const updateCurrentWorkbench = (next: SampleWorkbench) => {
+  const updateCurrentWorkbench = (
+    next: SampleWorkbench,
+    loopOverride?: { loopStartWords: number; loopLengthWords: number },
+  ) => {
     if (transport() === "playing") return;
     const slot = currentSample() - 1;
     commitEditWithWorkbenches(({ song, workbenches }) => ({
-      song: writeWorkbenchToSongPure(song, slot, next),
+      song: writeWorkbenchToSongPure(song, slot, next, loopOverride),
       workbenches: withWorkbench(workbenches, slot, next),
     }));
   };
+
+  /** PT no-loop sentinel: loopLengthWords === 1 (a single word, two bytes). */
+  const NO_LOOP = { loopStartWords: 0, loopLengthWords: 1 };
 
   /**
    * Append an effect to the chain. For range-aware kinds (reverse / fadeIn /
@@ -1396,15 +1417,23 @@ export const App: Component = () => {
     if (wb.source.kind === kind) return;
 
     const stash = workbenchToAlt(wb);
+    // Whenever we transition INTO a sampler half, force the slot's loop
+    // back to the no-loop sentinel — chiptune's full-loop must not bleed
+    // into sampler's int8. Chiptune transitions handle their own loop via
+    // the `sourceWantsFullLoop` rule in writeWorkbenchToSongPure.
+    const samplerLoopReset = kind === "sampler" ? NO_LOOP : undefined;
 
     // Restore from alt when it matches the requested kind.
     if (wb.alt && wb.alt.source.kind === kind) {
-      updateCurrentWorkbench({
-        source: wb.alt.source,
-        chain: wb.alt.chain,
-        pt: wb.alt.pt,
-        alt: stash,
-      });
+      updateCurrentWorkbench(
+        {
+          source: wb.alt.source,
+          chain: wb.alt.chain,
+          pt: wb.alt.pt,
+          alt: stash,
+        },
+        samplerLoopReset,
+      );
       return;
     }
 
@@ -1419,7 +1448,10 @@ export const App: Component = () => {
     // "empty sampler" view — same UX as a fresh slot, with the Load WAV
     // button waiting. The current chiptune half is stashed as alt so
     // toggling back restores it untouched.
-    updateCurrentWorkbench({ ...emptySamplerWorkbench(), alt: stash });
+    updateCurrentWorkbench(
+      { ...emptySamplerWorkbench(), alt: stash },
+      samplerLoopReset,
+    );
   };
 
   /**

@@ -662,6 +662,33 @@ describe("pipeline editor: workbench is cleared on .mod load", () => {
 });
 
 describe("source picker: alt-stash round-trip", () => {
+  it("Chiptune's full-loop doesn't bleed into the sampler when toggling back", async () => {
+    // Repro: Load WAV → Chiptune (full-loop applied) → Sampler.
+    // Before the fix, the slot's loop fields stayed at the chiptune full-loop
+    // because writeWorkbenchToSongPure's else branch preserved old.loop.
+    setView("sample");
+    setCurrentSample(1);
+    const { container } = render(() => <App />);
+
+    const fileInput = container.querySelector<HTMLInputElement>(
+      '.sampleview__actions input[type="file"]',
+    )!;
+    await userEvent.setup().upload(fileInput, makeStereoWav());
+    // Fresh sampler has no loop — loopLengthWords sentinel is 1.
+    expect(song()!.samples[0]!.loopLengthWords).toBe(1);
+
+    const pickerButtons = () =>
+      Array.from(container.querySelectorAll<HTMLButtonElement>(".source-picker button"));
+    await userEvent.setup().click(pickerButtons().find((b) => b.textContent === "Chiptune")!);
+    // Chiptune fully looped.
+    expect(song()!.samples[0]!.loopLengthWords).toBeGreaterThan(1);
+
+    await userEvent.setup().click(pickerButtons().find((b) => b.textContent === "Sampler")!);
+    // Sampler half restored — loop should be back to the no-loop sentinel,
+    // not the chiptune full-loop value.
+    expect(song()!.samples[0]!.loopLengthWords).toBe(1);
+  });
+
   it("Sampler → Chiptune stashes the WAV; Chiptune → Sampler restores it", async () => {
     setView("sample");
     setCurrentSample(1);
