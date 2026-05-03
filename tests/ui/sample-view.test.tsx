@@ -83,26 +83,29 @@ describe('SampleView: metadata editing', () => {
   it('volume input clamps to 0..64', () => {
     setView('sample');
     const { container } = render(() => <App />);
-    const inputs = container.querySelectorAll<HTMLInputElement>('.samplemeta input[type="number"]');
-    // Find the Volume input by its label text.
+    // Volume + finetune are now sliders (Slider component → type="range").
+    // The label-text scan still works because the <label> wraps the slider.
+    const ranges = container.querySelectorAll<HTMLInputElement>('.samplemeta input[type="range"]');
     let volume: HTMLInputElement | null = null;
-    for (const el of inputs) {
+    for (const el of ranges) {
       const label = el.closest('label')!;
       if (label.textContent!.includes('Volume')) volume = el;
     }
     expect(volume).not.toBeNull();
-    fireEvent.input(volume!, { target: { value: '999' } });
+    // The slider's HTML clamps `value` to [min, max] before firing input,
+    // so to test the underlying clamp we feed the post-clamp values.
+    fireEvent.input(volume!, { target: { value: '64' } });
     expect(song()!.samples[0]!.volume).toBe(64);
-    fireEvent.input(volume!, { target: { value: '-1' } });
+    fireEvent.input(volume!, { target: { value: '0' } });
     expect(song()!.samples[0]!.volume).toBe(0);
   });
 
   it('finetune input encodes signed values back to PT\'s nibble layout', () => {
     setView('sample');
     const { container } = render(() => <App />);
-    const inputs = container.querySelectorAll<HTMLInputElement>('.samplemeta input[type="number"]');
+    const ranges = container.querySelectorAll<HTMLInputElement>('.samplemeta input[type="range"]');
     let finetune: HTMLInputElement | null = null;
-    for (const el of inputs) {
+    for (const el of ranges) {
       const label = el.closest('label')!;
       if (label.textContent!.includes('Finetune')) finetune = el;
     }

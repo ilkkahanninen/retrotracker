@@ -26,6 +26,7 @@ import { truncateSampleAtLoopEnd } from "../core/audio/loopTruncate";
 import { Waveform, type SampleSelection } from "./Waveform";
 import { PipelineEditor } from "./PipelineEditor";
 import { ChiptuneEditor } from "./ChiptuneEditor";
+import { Slider } from "./Slider";
 
 export type { SampleSelection };
 
@@ -271,40 +272,33 @@ export const SampleView: Component<Props> = (props) => {
               {exportedLengthWords() * 2} bytes ({exportedLengthWords()} words)
             </span>
           </label>
-          <label>
-            <span class="samplemeta__label">Volume (0–{PT_VOLUME_MAX})</span>
-            <input
-              type="number"
-              min={0}
-              max={PT_VOLUME_MAX}
-              value={sample()!.volume}
-              disabled={editingDisabled()}
-              onInput={(e) => {
-                const v = parseInt(e.currentTarget.value, 10);
-                if (!Number.isFinite(v)) return;
-                props.onPatch({
-                  volume: Math.max(0, Math.min(PT_VOLUME_MAX, v)),
-                });
-              }}
-            />
-          </label>
-          <label>
-            <span class="samplemeta__label">
-              Finetune ({PT_FINETUNE_MIN} to +{PT_FINETUNE_MAX})
-            </span>
-            <input
-              type="number"
-              min={PT_FINETUNE_MIN}
-              max={PT_FINETUNE_MAX}
-              value={signedFinetune(sample()!.finetune)}
-              disabled={editingDisabled()}
-              onInput={(e) => {
-                const v = parseInt(e.currentTarget.value, 10);
-                if (!Number.isFinite(v)) return;
-                props.onPatch({ finetune: encodeFinetune(v) });
-              }}
-            />
-          </label>
+          <Slider
+            label={`Volume (0–${PT_VOLUME_MAX})`}
+            min={0}
+            max={PT_VOLUME_MAX}
+            step={1}
+            value={sample()!.volume}
+            disabled={editingDisabled()}
+            snap={(v) => Math.max(0, Math.min(PT_VOLUME_MAX, Math.round(v)))}
+            format={(v) => `${Math.round(v)}`}
+            onInput={(v) => props.onPatch({ volume: v })}
+          />
+          <Slider
+            label={`Finetune (${PT_FINETUNE_MIN} to +${PT_FINETUNE_MAX})`}
+            min={PT_FINETUNE_MIN}
+            max={PT_FINETUNE_MAX}
+            step={1}
+            value={signedFinetune(sample()!.finetune)}
+            disabled={editingDisabled()}
+            snap={(v) =>
+              Math.max(PT_FINETUNE_MIN, Math.min(PT_FINETUNE_MAX, Math.round(v)))
+            }
+            format={(v) => {
+              const n = Math.round(v);
+              return n > 0 ? `+${n}` : `${n}`;
+            }}
+            onInput={(v) => props.onPatch({ finetune: encodeFinetune(v) })}
+          />
           {/* Chiptune samples are loops by design — the synth produces a
               single cycle that `writeWorkbenchToSongPure` keeps fully
               looped on every re-run. Hide the toggle so the user can't

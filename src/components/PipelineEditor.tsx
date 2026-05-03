@@ -17,6 +17,7 @@ import {
   type MonoMix,
   type SampleWorkbench,
 } from "../core/audio/sampleWorkbench";
+import { Slider } from "./Slider";
 
 const NOTE_NAMES = [
   "C-",
@@ -193,21 +194,17 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
   return (
     <Switch>
       <Match when={props.node.kind === "gain"}>
-        <label class="effect-node__param">
-          <span class="samplemeta__label">Gain ×</span>
-          <input
-            type="number"
-            step="0.1"
-            min="0"
-            max="20"
-            value={asGain().params.gain}
-            onInput={(e) => {
-              const v = parseFloat(e.currentTarget.value);
-              if (!Number.isFinite(v)) return;
-              props.onPatch({ kind: "gain", params: { gain: Math.max(0, v) } });
-            }}
-          />
-        </label>
+        <Slider
+          label="Gain ×"
+          min={0}
+          max={4}
+          step={0.01}
+          value={asGain().params.gain}
+          format={(v) => v.toFixed(2)}
+          onInput={(v) =>
+            props.onPatch({ kind: "gain", params: { gain: Math.max(0, v) } })
+          }
+        />
       </Match>
       <Match when={props.node.kind === "normalize"}>
         <span class="effect-node__hint">Scales to peak ±1.0</span>
@@ -233,52 +230,47 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
             <option value="highpass">{FILTER_TYPE_LABELS.highpass}</option>
           </select>
         </label>
-        <label class="effect-node__param">
-          <span class="samplemeta__label">Cutoff (Hz)</span>
-          <input
-            type="number"
-            min="10"
-            max="22050"
-            step="10"
-            value={asFilter().params.cutoff}
-            onInput={(e) => {
-              const v = parseFloat(e.currentTarget.value);
-              if (!Number.isFinite(v)) return;
-              const node = asFilter();
-              props.onPatch({
-                kind: "filter",
-                params: {
-                  type: node.params.type,
-                  cutoff: Math.max(10, v),
-                  q: node.params.q,
-                },
-              });
-            }}
-          />
-        </label>
-        <label class="effect-node__param">
-          <span class="samplemeta__label">Q</span>
-          <input
-            type="number"
-            min="0.1"
-            max="20"
-            step="0.1"
-            value={asFilter().params.q}
-            onInput={(e) => {
-              const v = parseFloat(e.currentTarget.value);
-              if (!Number.isFinite(v)) return;
-              const node = asFilter();
-              props.onPatch({
-                kind: "filter",
-                params: {
-                  type: node.params.type,
-                  cutoff: node.params.cutoff,
-                  q: Math.max(0.05, v),
-                },
-              });
-            }}
-          />
-        </label>
+        {/* Cutoff slider works in LOG space (slider value = ln(cutoff)) so
+            the resolution is even across the audible spectrum. The patch
+            stores the linear Hz value as before. */}
+        <Slider
+          label="Cutoff (Hz)"
+          min={Math.log(10)}
+          max={Math.log(22050)}
+          step={0.005}
+          value={Math.log(Math.max(10, asFilter().params.cutoff))}
+          format={(v) => `${Math.round(Math.exp(v))}`}
+          onInput={(v) => {
+            const node = asFilter();
+            props.onPatch({
+              kind: "filter",
+              params: {
+                type: node.params.type,
+                cutoff: Math.max(10, Math.exp(v)),
+                q: node.params.q,
+              },
+            });
+          }}
+        />
+        <Slider
+          label="Q"
+          min={0.1}
+          max={20}
+          step={0.05}
+          value={asFilter().params.q}
+          format={(v) => v.toFixed(2)}
+          onInput={(v) => {
+            const node = asFilter();
+            props.onPatch({
+              kind: "filter",
+              params: {
+                type: node.params.type,
+                cutoff: node.params.cutoff,
+                q: Math.max(0.05, v),
+              },
+            });
+          }}
+        />
       </Match>
       <Match
         when={
@@ -289,48 +281,44 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
           props.node.kind === "fadeOut"
         }
       >
-        <label class="effect-node__param">
-          <span class="samplemeta__label">Start (frame)</span>
-          <input
-            type="number"
-            min="0"
-            max={props.sourceFrames}
-            value={asRange().params.startFrame}
-            onInput={(e) => {
-              const v = parseInt(e.currentTarget.value, 10);
-              if (!Number.isFinite(v)) return;
-              const node = asRange();
-              props.onPatch({
-                kind: node.kind,
-                params: {
-                  startFrame: Math.max(0, v),
-                  endFrame: node.params.endFrame,
-                },
-              });
-            }}
-          />
-        </label>
-        <label class="effect-node__param">
-          <span class="samplemeta__label">End (frame)</span>
-          <input
-            type="number"
-            min="0"
-            max={props.sourceFrames}
-            value={asRange().params.endFrame}
-            onInput={(e) => {
-              const v = parseInt(e.currentTarget.value, 10);
-              if (!Number.isFinite(v)) return;
-              const node = asRange();
-              props.onPatch({
-                kind: node.kind,
-                params: {
-                  startFrame: node.params.startFrame,
-                  endFrame: Math.max(0, v),
-                },
-              });
-            }}
-          />
-        </label>
+        <Slider
+          label="Start (frame)"
+          min={0}
+          max={Math.max(1, props.sourceFrames)}
+          step={1}
+          value={asRange().params.startFrame}
+          snap={(v) => Math.max(0, Math.round(v))}
+          format={(v) => `${Math.round(v)}`}
+          onInput={(v) => {
+            const node = asRange();
+            props.onPatch({
+              kind: node.kind,
+              params: {
+                startFrame: v,
+                endFrame: node.params.endFrame,
+              },
+            });
+          }}
+        />
+        <Slider
+          label="End (frame)"
+          min={0}
+          max={Math.max(1, props.sourceFrames)}
+          step={1}
+          value={asRange().params.endFrame}
+          snap={(v) => Math.max(0, Math.round(v))}
+          format={(v) => `${Math.round(v)}`}
+          onInput={(v) => {
+            const node = asRange();
+            props.onPatch({
+              kind: node.kind,
+              params: {
+                startFrame: node.params.startFrame,
+                endFrame: v,
+              },
+            });
+          }}
+        />
       </Match>
     </Switch>
   );

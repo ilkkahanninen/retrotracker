@@ -1069,6 +1069,19 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .slider--disabled { opacity: 0.55; cursor: not-allowed; }
 .slider--disabled .slider__range { cursor: not-allowed; }
 
+/* When two sliders sit side-by-side in a horizontal row (sample meta,
+   chain effect params), the right-aligned read-out of the first slider
+   ends up visually closer to the next slider's track than to its own
+   thumb — reads as if the number labels the wrong slider. A subtle
+   vertical separator + extra left padding pulls each slider into its
+   own visual group. The chiptune editor stacks vertically so its own
+   `border-top` rule covers the sibling case there. */
+.samplemeta > .slider + .slider,
+.effect-node__body > .slider + .slider {
+  border-left: 1px solid var(--grid-line);
+  padding-left: 16px;
+}
+
 /* ── Source picker (Sampler / Chiptune) ─────────────────────────────── */
 
 .source-picker {

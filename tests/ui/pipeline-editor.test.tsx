@@ -417,7 +417,7 @@ describe("pipeline editor: editing params preserves input focus", () => {
       pt: { monoMix: "average", targetNote: null },
     });
     const inputs = container.querySelectorAll<HTMLInputElement>(
-      '.samplemeta input[type="number"]',
+      '.samplemeta input[type="range"]',
     );
     let volumeBefore: HTMLInputElement | null = null;
     for (const el of inputs) {
@@ -431,7 +431,7 @@ describe("pipeline editor: editing params preserves input focus", () => {
     fireEvent.input(gain, { target: { value: "2" } });
     let volumeAfter: HTMLInputElement | null = null;
     for (const el of container.querySelectorAll<HTMLInputElement>(
-      '.samplemeta input[type="number"]',
+      '.samplemeta input[type="range"]',
     )) {
       if (el.closest("label")!.textContent!.includes("Volume"))
         volumeAfter = el;
@@ -455,7 +455,7 @@ describe("pipeline editor: re-run preserves user-set sample metadata", () => {
     });
     // Tweak the volume by hand via the metadata UI.
     const inputs = container.querySelectorAll<HTMLInputElement>(
-      '.samplemeta input[type="number"]',
+      '.samplemeta input[type="range"]',
     );
     let volume: HTMLInputElement | null = null;
     for (const el of inputs) {
