@@ -6,6 +6,7 @@ import { selection } from '../state/selection';
 import { registerShortcut } from '../state/shortcuts';
 import { view } from '../state/view';
 import { remapPositionKeys } from '../state/keyboardLayout';
+import { ALT_LABEL, MOD_LABEL } from '../state/platform';
 
 const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'] as const;
 
@@ -161,9 +162,9 @@ const NOTE_TIPS: TipSection[] = [
     title: 'Play',
     items: [
       { keys: 'Space', action: 'play song / stop' },
-      { keys: 'Option + Space', action: 'play pattern (loop)' },
+      { keys: `${ALT_LABEL} + Space`, action: 'play pattern (loop)' },
       { keys: 'Shift + Space', action: 'play song from cursor' },
-      { keys: 'Option + Shift + Space', action: 'play pattern from cursor' },
+      { keys: `${ALT_LABEL} + Shift + Space`, action: 'play pattern from cursor' },
     ],
   },
 ];
@@ -233,10 +234,10 @@ const EFFECT_TIPS: TipSection[] = [
 const SELECTION_TIPS: TipSection = {
   title: 'Selection',
   items: [
-    { keys: 'Cmd + C', action: 'copy' },
-    { keys: 'Cmd + X', action: 'cut' },
-    { keys: 'Cmd + V', action: 'paste at cursor' },
-    { keys: 'Cmd + A', action: 'select all (channel, then pattern)' },
+    { keys: `${MOD_LABEL} + C`, action: 'copy' },
+    { keys: `${MOD_LABEL} + X`, action: 'cut' },
+    { keys: `${MOD_LABEL} + V`, action: 'paste at cursor' },
+    { keys: `${MOD_LABEL} + A`, action: 'select all (channel, then pattern)' },
     { keys: 'Shift + arrows', action: 'extend selection' },
   ],
 };

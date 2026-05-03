@@ -10,6 +10,7 @@ import { setInfoText } from '../../src/state/info';
 import { emptySong, PERIOD_TABLE } from '../../src/core/mod/format';
 import { clearSession } from '../../src/state/persistence';
 import { setSelection, makeSelection } from '../../src/state/selection';
+import { MOD_LABEL } from '../../src/state/platform';
 
 function resetState() {
   setSong(null);
@@ -232,8 +233,8 @@ describe('PatternHelp: context-sensitive tips', () => {
     expect(titles).toEqual(['Selection']);
 
     const selSection = container.querySelector('.patternhelp__tip-section')!;
-    expect(selSection.textContent).toMatch(/Cmd \+ C/);
-    expect(selSection.textContent).toMatch(/Cmd \+ V/);
+    expect(selSection.textContent).toMatch(new RegExp(`${MOD_LABEL} \\+ C`));
+    expect(selSection.textContent).toMatch(new RegExp(`${MOD_LABEL} \\+ V`));
   });
 
   it('with an active selection on the effect column, the effect grid is hidden', () => {
