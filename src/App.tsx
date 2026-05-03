@@ -1072,6 +1072,66 @@ export const App: Component = () => {
   };
 
   /**
+   * Find the lowest empty sample slot strictly after `from`, or null if none.
+   * "Empty" matches `clearSample`'s definition: lengthWords === 0. We scan
+   * the slots PT actually addresses (0..30); slot index here is 0-based,
+   * the UI labels them 1..31.
+   */
+  const nextFreeSlot = (s: ReturnType<typeof song>, from: number): number | null => {
+    if (!s) return null;
+    for (let i = from + 1; i < s.samples.length; i++) {
+      if (s.samples[i]!.lengthWords === 0) return i;
+    }
+    return null;
+  };
+
+  /**
+   * Copy the current sample (data + meta) to the next empty slot, taking
+   * the workbench along so the duplicate keeps its source kind, chain and
+   * pt — including the alt half. Both halves move in one history entry so
+   * undo reverts to a single state. Selection follows the new slot, so the
+   * user is immediately editing the copy.
+   *
+   * No-op when the current slot is empty (nothing to duplicate) or every
+   * subsequent slot is occupied.
+   */
+  const duplicateCurrentSample = () => {
+    if (transport() === "playing") return;
+    const s = song();
+    if (!s) return;
+    const slot = currentSample() - 1;
+    const sample = s.samples[slot];
+    if (!sample || sample.lengthWords === 0) return;
+    const target = nextFreeSlot(s, slot);
+    if (target === null) return;
+
+    commitEditWithWorkbenches(({ song, workbenches }) => {
+      const samples = [...song.samples];
+      // Shallow-copy the Sample record; `data` is an Int8Array we share by
+      // reference — the song treats it as immutable, so a referential copy
+      // is safe and avoids the cost of cloning multi-KB buffers.
+      samples[target] = { ...samples[slot]! };
+      const newSong = { ...song, samples };
+      const wb = workbenches.get(slot);
+      const newWorkbenches = wb
+        // Workbenches are deep-immutable; shallow-clone the top level so
+        // future edits on slot N don't mutate the duplicate at slot M
+        // through a shared chain reference.
+        ? withWorkbench(workbenches, target, {
+            source: wb.source,
+            chain: [...wb.chain],
+            pt: { ...wb.pt },
+            alt: wb.alt
+              ? { source: wb.alt.source, chain: [...wb.alt.chain], pt: { ...wb.alt.pt } }
+              : null,
+          })
+        : workbenches;
+      return { song: newSong, workbenches: newWorkbenches };
+    });
+    setCurrentSample(target + 1);
+  };
+
+  /**
    * Map a byte-range selection (over the int8 output the user sees) into the
    * frame-range that a NEW effect appended to the chain would receive as
    * input. The new effect operates on the OUTPUT of the existing chain
@@ -2339,6 +2399,8 @@ export const App: Component = () => {
                   song={s()}
                   onLoadWav={loadWavIntoCurrentSample}
                   onClear={clearCurrentSample}
+                  onDuplicate={duplicateCurrentSample}
+                  canDuplicate={nextFreeSlot(s(), currentSample() - 1) !== null}
                   onPatch={patchCurrentSample}
                   onCropToSelection={cropCurrentSampleToSelection}
                   onCutSelection={cutCurrentSampleSelection}

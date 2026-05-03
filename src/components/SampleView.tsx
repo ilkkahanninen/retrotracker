@@ -109,6 +109,10 @@ interface Props {
   /** Bytes of a `.wav` file picked by the user, plus the original file name. */
   onLoadWav: (bytes: Uint8Array, filename: string) => void;
   onClear: () => void;
+  /** Copy the current sample (data + workbench) to the next empty slot. */
+  onDuplicate: () => void;
+  /** True iff there is a free slot after the current one. */
+  canDuplicate: boolean;
   onPatch: (patch: Partial<Sample>) => void;
   /** Replace sample.data with the [startByte, endByte) slice; loop translates accordingly. */
   onCropToSelection: (startByte: number, endByte: number) => void;
@@ -243,6 +247,20 @@ export const SampleView: Component<Props> = (props) => {
               Load WAV…
             </button>
           </Show>
+          <button
+            type="button"
+            onClick={props.onDuplicate}
+            disabled={!sample() || sample()!.lengthWords === 0 || !props.canDuplicate || editingDisabled()}
+            title={
+              !sample() || sample()!.lengthWords === 0
+                ? "Nothing to duplicate"
+                : !props.canDuplicate
+                  ? "No empty sample slot after this one"
+                  : "Copy this sample (and its workbench) into the next empty slot"
+            }
+          >
+            Duplicate sample
+          </button>
           <button
             type="button"
             onClick={props.onClear}

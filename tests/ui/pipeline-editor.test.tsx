@@ -10,7 +10,7 @@ import {
   clearHistory,
   song,
 } from "../../src/state/song";
-import { setCurrentSample, setCurrentOctave } from "../../src/state/edit";
+import { currentSample, setCurrentSample, setCurrentOctave } from "../../src/state/edit";
 import { setView } from "../../src/state/view";
 import {
   setWorkbench,
@@ -658,6 +658,36 @@ describe("pipeline editor: workbench is cleared on .mod load", () => {
     expect(getWorkbench(0)).toBeDefined();
     clearAllWorkbenches();
     expect(getWorkbench(0)).toBeUndefined();
+  });
+});
+
+describe("duplicate sample", () => {
+  it("copies sample data + workbench to the next empty slot and selects it", async () => {
+    setView("sample");
+    setCurrentSample(1);
+    const { container } = render(() => <App />);
+
+    // Load a WAV into slot 1.
+    const fileInput = container.querySelector<HTMLInputElement>(
+      '.sampleview__actions input[type="file"]',
+    )!;
+    await userEvent.setup().upload(fileInput, makeStereoWav());
+    expect(song()!.samples[0]!.lengthWords).toBeGreaterThan(0);
+    expect(song()!.samples[1]!.lengthWords).toBe(0);
+
+    // Click Duplicate sample (the actions row holds Load WAV + Duplicate +
+    // Clear; pick by accessible label).
+    const dupBtn = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".sampleview__actions button"),
+    ).find((b) => b.textContent === "Duplicate sample")!;
+    await userEvent.setup().click(dupBtn);
+
+    // Slot 2 (index 1) now has the same data and a copied workbench.
+    expect(song()!.samples[1]!.data).toBe(song()!.samples[0]!.data);
+    expect(getWorkbench(1)).toBeDefined();
+    expect(getWorkbench(1)!.source.kind).toBe("sampler");
+    // Selection follows the new slot — UI labels are 1-based.
+    expect(currentSample()).toBe(2);
   });
 });
 
