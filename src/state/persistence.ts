@@ -34,6 +34,8 @@ interface PersistedShape {
   v: 1;
   songBase64: string;
   filename: string | null;
+  /** Optional in v=1: older snapshots predate the Info view and load with ''. */
+  infoText?: string;
   view: View;
   cursor: Cursor;
   currentSample: number;
@@ -44,6 +46,8 @@ interface PersistedShape {
 export interface SessionInputs {
   song: Song;
   filename: string | null;
+  /** Optional — defaults to '' when omitted. */
+  infoText?: string;
   view: View;
   cursor: Cursor;
   currentSample: number;
@@ -51,7 +55,10 @@ export interface SessionInputs {
   editStep: number;
 }
 
-export interface LoadedSession extends SessionInputs {}
+/** A session that has been read back: same shape as SessionInputs, but
+ *  `infoText` is always materialised (never undefined) so the App can
+ *  `setInfoText` without a fallback at every call site. */
+export type LoadedSession = Omit<SessionInputs, 'infoText'> & { infoText: string };
 
 function bytesToBase64(bytes: Uint8Array): string {
   // The CharCode-loop / btoa pair is the smallest reliable Uint8Array→base64
@@ -115,6 +122,7 @@ function buildPayload(state: SessionInputs): PersistedShape {
     v: 1,
     songBase64: encodeSongCached(state.song),
     filename: state.filename,
+    infoText: state.infoText ?? '',
     view: state.view,
     cursor: state.cursor,
     currentSample: state.currentSample,
@@ -138,7 +146,11 @@ function payloadToSession(parsed: unknown): LoadedSession | null {
   return {
     song,
     filename: parsed.filename ?? null,
-    view: parsed.view === 'sample' ? 'sample' : 'pattern',
+    infoText: typeof parsed.infoText === 'string' ? parsed.infoText : '',
+    view:
+      parsed.view === 'sample' ? 'sample'
+      : parsed.view === 'info' ? 'info'
+      : 'pattern',
     cursor: sanitiseCursor(parsed.cursor),
     currentSample: clamp(parsed.currentSample, 1, 31, 1),
     currentOctave: clamp(parsed.currentOctave, 1, 3, 2),
@@ -241,7 +253,8 @@ function isPersistedShape(v: unknown): v is PersistedShape {
   return x['v'] === 1
     && typeof x['songBase64'] === 'string'
     && (x['filename'] === null || typeof x['filename'] === 'string')
-    && (x['view'] === 'pattern' || x['view'] === 'sample')
+    && (x['infoText'] === undefined || typeof x['infoText'] === 'string')
+    && (x['view'] === 'pattern' || x['view'] === 'sample' || x['view'] === 'info')
     && typeof x['cursor'] === 'object' && x['cursor'] !== null
     && typeof x['currentSample'] === 'number'
     && typeof x['currentOctave'] === 'number'

@@ -46,6 +46,14 @@ body {
     "header header"
     "samples main";
 }
+/* Info view drops both side panes — the form is a single form column,
+ * so the sample list and order pane would just be empty noise. */
+.app--view-info {
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "header"
+    "main";
+}
 .app--drag { outline-color: var(--accent); }
 
 .app__header {
@@ -64,22 +72,40 @@ body {
   letter-spacing: 0.04em;
 }
 
-.viewtabs { display: flex; gap: 4px; }
+/* Pattern / Sample view tabs share the same segmented look as the
+ * transport's Play song / Play pattern group — one visual control split
+ * into two halves, with the active half tinted in accent. */
+.viewtabs { display: inline-flex; align-items: center; }
 .viewtabs button {
-  background: transparent;
-  color: var(--muted);
-  border: 1px solid transparent;
-  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 0;
   padding: 4px 12px;
   font: inherit;
   cursor: pointer;
   user-select: none;
+  position: relative;
 }
-.viewtabs button:hover { color: var(--fg); border-color: var(--grid-line); }
-.viewtabs button.viewtab--active {
-  background: var(--panel-2);
+.viewtabs button:first-child {
+  border-top-left-radius: 6px;
+  border-bottom-left-radius: 6px;
+}
+.viewtabs button:last-child {
+  border-top-right-radius: 6px;
+  border-bottom-right-radius: 6px;
+}
+.viewtabs button:hover {
+  background: var(--accent-dim);
   color: var(--fg);
   border-color: var(--accent);
+  z-index: 1;
+}
+.viewtabs button.viewtab--active {
+  background: var(--accent);
+  color: #061119;
+  border-color: var(--accent);
+  z-index: 1;
 }
 
 .transport { display: inline-flex; align-items: center; gap: 8px; }
@@ -209,6 +235,9 @@ body {
 .app__samples, .app__order { background: var(--panel); padding: 12px; overflow: auto; }
 .app__samples { grid-area: samples; }
 .app__order   { grid-area: order; }
+/* Info view doesn't reserve the samples column in its grid — keep the
+ * always-rendered aside out of an implicit cell with display:none. */
+.app--view-info .app__samples { display: none; }
 
 .ordertools {
   position: sticky;
@@ -245,7 +274,9 @@ body {
 }
 .app__main > .dropzone { place-self: center; }
 .app__main > .patternpane,
-.app__main > .sampleview-wrapper { min-height: 0; min-width: 0; }
+.app__main > .sampleview-wrapper,
+.app__main > .infoview-wrapper { min-height: 0; min-width: 0; }
+.app__main > .infoview-wrapper { overflow: auto; padding: 24px 32px; }
 /* Both panes stay mounted; the inactive one is hidden via this class so
  * toggling the view is a single CSS swap instead of an unmount + remount
  * of the heavy pattern grid (~2400 spans + per-cell mousedown handlers). */
@@ -766,4 +797,62 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   flex-direction: column;
   gap: 2px;
   font-size: 12px;
+}
+
+/* Info view — song-level metadata form (title / filename / info text).
+ * Single-column, max-width clamp so long lines stay readable on a
+ * widescreen, monospace textarea so the 22-char per-line limit is
+ * visually obvious to the user as they type. */
+.infoview {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+.infoview h2 { margin-bottom: 0; }
+.infoview__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.infoview__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.infoview__input,
+.infoview__textarea {
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font: inherit;
+}
+.infoview__input:focus,
+.infoview__textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.infoview__input:disabled,
+.infoview__textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.infoview__textarea {
+  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  resize: vertical;
+  min-height: 200px;
+  /* The 22-char per-line cap is invisible without a monospace font and a
+   * width hint; cap the textarea at roughly 22 ch + padding so a wrapping
+   * line is a strong visual cue that the user has overrun the slot. */
+  max-width: calc(22ch + 24px);
+}
+.infoview__hint {
+  font-size: 11px;
+  color: var(--muted);
 }

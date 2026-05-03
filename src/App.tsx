@@ -108,8 +108,14 @@ import { AudioEngine } from "./core/audio/engine";
 import { PatternGrid } from "./components/PatternGrid";
 import { SampleList } from "./components/SampleList";
 import { SampleView, type SampleSelection } from "./components/SampleView";
+import { InfoView } from "./components/InfoView";
 import { Menu, type MenuItem } from "./components/Menu";
 import { view, setView } from "./state/view";
+import {
+  infoText, setInfoText,
+  wrapInfoText, infoTextFromSampleNames,
+  INFO_LINE_WIDTH, INFO_MAX_LINES,
+} from "./state/info";
 import {
   saveSession, loadSession,
   projectToBytes, projectFromBytes, deriveProjectFilename,
@@ -214,6 +220,7 @@ export const App: Component = () => {
   const applyLoadedSession = (loaded: {
     song: ReturnType<typeof song>;
     filename: string | null;
+    infoText?: string;
     view?: ReturnType<typeof view>;
     cursor?: ReturnType<typeof cursor>;
     currentSample?: number;
@@ -223,6 +230,7 @@ export const App: Component = () => {
     if (!loaded.song) return;
     setSong(loaded.song);
     setFilename(loaded.filename);
+    setInfoText(loaded.infoText ?? "");
     if (loaded.view) setView(loaded.view);
     if (loaded.cursor) {
       setCursor(loaded.cursor);
@@ -257,7 +265,11 @@ export const App: Component = () => {
         applyLoadedSession(loaded);
       } else {
         const mod = parseModule(buf.buffer);
-        applyLoadedSession({ song: mod, filename: file.name });
+        applyLoadedSession({
+          song: mod,
+          filename: file.name,
+          infoText: infoTextFromSampleNames(mod.samples.map((sm) => sm.name)),
+        });
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -286,9 +298,28 @@ export const App: Component = () => {
   const exportMod = () => {
     const s = song();
     if (!s) return;
-    const bytes = writeModule(s);
+    const stamped = withInfoTextAsSampleNames(s, infoText());
+    const bytes = writeModule(stamped);
     io.download(deriveExportFilename(filename(), s.title), bytes, 'audio/x-mod');
   };
+
+  /**
+   * Stamp `text` into the sample-name slots of `song`, one line per slot.
+   * Pure: returns the same Song reference when `text` is empty (we don't
+   * want exporting to silently rewrite samples a user didn't ask to
+   * touch). Per-line truncation to 22 chars matches the .mod sample-name
+   * field width — writeModule's writeAscii would otherwise drop the tail.
+   */
+  function withInfoTextAsSampleNames(s: ReturnType<typeof song>, text: string): NonNullable<ReturnType<typeof song>> {
+    if (!s) throw new Error('withInfoTextAsSampleNames: no song');
+    if (text.length === 0) return s;
+    const lines = wrapInfoText(text, INFO_LINE_WIDTH, INFO_MAX_LINES);
+    const samples = s.samples.map((sample, i) => ({
+      ...sample,
+      name: lines[i] ?? '',
+    }));
+    return { ...s, samples };
+  }
 
   /**
    * Serialise the current Song + UI state to a `.retro` project file. This
@@ -301,6 +332,7 @@ export const App: Component = () => {
     const bytes = projectToBytes({
       song: s,
       filename: filename(),
+      infoText: infoText(),
       view: view(),
       cursor: cursor(),
       currentSample: currentSample(),
@@ -1202,6 +1234,7 @@ export const App: Component = () => {
       if (restored) {
         setSong(restored.song);
         setFilename(restored.filename);
+        setInfoText(restored.infoText);
         setView(restored.view);
         setCursor(restored.cursor);
         setPlayPos({ order: restored.cursor.order, row: restored.cursor.row });
@@ -1226,6 +1259,7 @@ export const App: Component = () => {
       const s = song();
       // Track the rest of the persisted signals so the effect re-runs.
       const fname = filename();
+      const info = infoText();
       const v = view();
       const c = cursor();
       const samp = currentSample();
@@ -1235,7 +1269,7 @@ export const App: Component = () => {
       if (saveTimer !== null) window.clearTimeout(saveTimer);
       saveTimer = window.setTimeout(() => {
         saveSession({
-          song: s, filename: fname, view: v, cursor: c,
+          song: s, filename: fname, infoText: info, view: v, cursor: c,
           currentSample: samp, currentOctave: oct, editStep: step,
         });
       }, 250);
@@ -1311,6 +1345,13 @@ export const App: Component = () => {
         key: "f3",
         description: "Sample view",
         run: () => setView("sample"),
+      }),
+    );
+    cleanups.push(
+      registerShortcut({
+        key: "f4",
+        description: "Info view",
+        run: () => setView("info"),
       }),
     );
     // Transport (Space-based chords; Option used instead of Cmd to avoid the
@@ -1776,6 +1817,7 @@ export const App: Component = () => {
         "app--drag": dragOver(),
         "app--view-pattern": view() === "pattern",
         "app--view-sample": view() === "sample",
+        "app--view-info": view() === "info",
       }}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
@@ -1823,6 +1865,16 @@ export const App: Component = () => {
             title="Sample view (F3)"
           >
             Sample
+          </button>
+          <button
+            type="button"
+            role="tab"
+            classList={{ "viewtab--active": view() === "info" }}
+            aria-selected={view() === "info"}
+            onClick={() => setView("info")}
+            title="Info view (F4)"
+          >
+            Info
           </button>
         </div>
         <div class="transport" role="group" aria-label="Transport">
@@ -1966,6 +2018,23 @@ export const App: Component = () => {
                   onPatchEffect={patchEffect}
                   onSetMonoMix={setMonoMix}
                   onSetTargetNote={setTargetNote}
+                />
+              </div>
+              <div
+                class="infoview-wrapper"
+                classList={{ "view-hidden": view() !== "info" }}
+              >
+                <InfoView
+                  song={s()}
+                  filename={filename()}
+                  infoText={infoText()}
+                  onTitleChange={(title) =>
+                    commitEdit((song) =>
+                      song.title === title ? song : { ...song, title },
+                    )
+                  }
+                  onFilenameChange={(name) => setFilename(name || null)}
+                  onInfoTextChange={setInfoText}
                 />
               </div>
             </>
