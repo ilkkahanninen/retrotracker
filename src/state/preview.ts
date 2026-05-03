@@ -108,3 +108,17 @@ export function activePreview(): { slot: number; period: number } | null {
   if (!active) return null;
   return { slot: active.slot, period: PAULA_CLOCK_PAL / (active.paulaRate * 2) };
 }
+
+/**
+ * Swap the data backing the currently-active preview without resetting its
+ * start time. Used on slider-driven edits so the visual playhead keeps
+ * advancing smoothly while the engine crossfades to the new audio buffer.
+ * No-op when nothing is playing or the slot doesn't match.
+ */
+export function updatePreviewData(slot: number, sample: Sample): void {
+  if (!active || active.slot !== slot) return;
+  active.data = sample.data;
+  active.loopStart = sample.loopStartWords * 2;
+  active.loopLen = sample.loopLengthWords * 2;
+  active.loops = sample.loopLengthWords > 1;
+}

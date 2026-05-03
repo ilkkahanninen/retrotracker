@@ -74,6 +74,24 @@ export function triggerPreview(
     });
 }
 
+/**
+ * Smoothly swap the audio + visual data of the in-flight preview on
+ * `slot` to reflect a fresh sample. No-op if nothing is currently
+ * previewing that slot. Used during synth slider drags so the user hears
+ * the edit without the click of a stop+restart.
+ *
+ * The visual playhead retargets its data without resetting its start
+ * time (no cursor jump); the engine crossfades AudioBufferSource voices
+ * over a few ms (no pop).
+ */
+export function livePreviewSwap(slot: number, sample: Sample, period: number): void {
+  preview.updatePreviewData(slot, sample);
+  // The engine is created lazily, but if we're swapping a live preview
+  // it must already exist. No need to await — slider drags fire many
+  // updates per second and we want them queued, not awaited.
+  if (engine) void engine.previewNote(sample, period);
+}
+
 export function stopPlayback(): void {
   engine?.stop();
   setTransport("ready");

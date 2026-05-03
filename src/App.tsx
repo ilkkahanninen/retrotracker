@@ -109,6 +109,7 @@ import {
 import {
   ensureEngine,
   triggerPreview,
+  livePreviewSwap,
   stopPlayback,
   playFromStart,
   playFromCursor,
@@ -1415,13 +1416,14 @@ export const App: Component = () => {
       source: { kind: "chiptune", params },
     });
     // The commit above ran synchronously — `song()` now returns the new int8.
-    // If the user is auditioning this slot via a held piano key, restart the
-    // preview so they hear the edit. No-op when nothing is playing or the
-    // active preview is on a different slot.
+    // If the user is auditioning this slot via a held piano key, swap the
+    // playing audio over to the new buffer in-place: the engine crossfades
+    // BufferSources (no click), and the visual playhead just retargets its
+    // data without resetting its start time (no cursor jump).
     const ap = preview.activePreview();
     if (ap && ap.slot === slot) {
       const updatedSample = song()?.samples[slot];
-      if (updatedSample) triggerPreview(slot, updatedSample, ap.period);
+      if (updatedSample) livePreviewSwap(slot, updatedSample, ap.period);
     }
   };
 
