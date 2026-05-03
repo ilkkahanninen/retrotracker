@@ -9,9 +9,11 @@ import {
 } from "solid-js";
 import {
   EFFECT_LABELS,
+  FILTER_TYPE_LABELS,
   materializeSource,
   sourceDisplayName,
   type EffectNode,
+  type FilterType,
   type MonoMix,
   type SampleWorkbench,
 } from "../core/audio/sampleWorkbench";
@@ -187,6 +189,7 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
   // children boundary, so we re-narrow with typed accessors.
   const asGain = () => props.node as Extract<EffectNode, { kind: "gain" }>;
   const asRange = () => props.node as Extract<EffectNode, { kind: RangeKind }>;
+  const asFilter = () => props.node as Extract<EffectNode, { kind: "filter" }>;
   return (
     <Switch>
       <Match when={props.node.kind === "gain"}>
@@ -208,6 +211,74 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
       </Match>
       <Match when={props.node.kind === "normalize"}>
         <span class="effect-node__hint">Scales to peak ±1.0</span>
+      </Match>
+      <Match when={props.node.kind === "filter"}>
+        <label class="effect-node__param">
+          <span class="samplemeta__label">Type</span>
+          <select
+            value={asFilter().params.type}
+            onChange={(e) => {
+              const node = asFilter();
+              props.onPatch({
+                kind: "filter",
+                params: {
+                  type: e.currentTarget.value as FilterType,
+                  cutoff: node.params.cutoff,
+                  q: node.params.q,
+                },
+              });
+            }}
+          >
+            <option value="lowpass">{FILTER_TYPE_LABELS.lowpass}</option>
+            <option value="highpass">{FILTER_TYPE_LABELS.highpass}</option>
+          </select>
+        </label>
+        <label class="effect-node__param">
+          <span class="samplemeta__label">Cutoff (Hz)</span>
+          <input
+            type="number"
+            min="10"
+            max="22050"
+            step="10"
+            value={asFilter().params.cutoff}
+            onInput={(e) => {
+              const v = parseFloat(e.currentTarget.value);
+              if (!Number.isFinite(v)) return;
+              const node = asFilter();
+              props.onPatch({
+                kind: "filter",
+                params: {
+                  type: node.params.type,
+                  cutoff: Math.max(10, v),
+                  q: node.params.q,
+                },
+              });
+            }}
+          />
+        </label>
+        <label class="effect-node__param">
+          <span class="samplemeta__label">Q</span>
+          <input
+            type="number"
+            min="0.1"
+            max="20"
+            step="0.1"
+            value={asFilter().params.q}
+            onInput={(e) => {
+              const v = parseFloat(e.currentTarget.value);
+              if (!Number.isFinite(v)) return;
+              const node = asFilter();
+              props.onPatch({
+                kind: "filter",
+                params: {
+                  type: node.params.type,
+                  cutoff: node.params.cutoff,
+                  q: Math.max(0.05, v),
+                },
+              });
+            }}
+          />
+        </label>
       </Match>
       <Match
         when={

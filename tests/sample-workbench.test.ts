@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyGain, applyNormalize, applyReverse, applyCrop, applyCut,
-  applyFadeIn, applyFadeOut, applyEffect,
+  applyFadeIn, applyFadeOut, applyFilter, applyEffect,
   runChain, transformToPt, runPipeline,
   workbenchFromWav, workbenchFromChiptune, workbenchToAlt, defaultEffect,
   resampleLinear, rateForTargetNote, DEFAULT_TARGET_NOTE,
@@ -145,6 +145,66 @@ describe('applyFadeIn / applyFadeOut', () => {
     const w = mono(1, 1, 1);
     expect(applyFadeIn(w, 0, 0)).toBe(w);
     expect(applyFadeOut(w, 1, 1)).toBe(w);
+  });
+});
+
+describe('applyFilter', () => {
+  // Quick smoke test — drive a sine at fc/4 (well below cutoff) through a
+  // low-pass and confirm the output stays close to the input. With a Q of
+  // 0.707 the response at fc/4 is essentially flat (-0.05 dB), so post-
+  // settling RMS should match the input within a percent or so.
+  it('low-pass at high cutoff barely attenuates a low-frequency sine', () => {
+    const sr = 44100;
+    const N = 2048;
+    const sig = new Float32Array(N);
+    for (let i = 0; i < N; i++) sig[i] = Math.sin(2 * Math.PI * 1000 * i / sr);
+    const out = applyFilter({ sampleRate: sr, channels: [sig] }, 'lowpass', 8000, 0.707);
+    // Skip the first ~200 samples where the biquad is still settling from
+    // its zero initial state.
+    let ein = 0, eout = 0;
+    for (let i = 200; i < N; i++) {
+      ein  += sig[i]! * sig[i]!;
+      eout += out.channels[0]![i]! * out.channels[0]![i]!;
+    }
+    const ratio = Math.sqrt(eout / ein);
+    expect(ratio).toBeGreaterThan(0.95);
+    expect(ratio).toBeLessThan(1.05);
+  });
+
+  it('low-pass at low cutoff strongly attenuates a high-frequency sine', () => {
+    const sr = 44100;
+    const N = 2048;
+    const sig = new Float32Array(N);
+    for (let i = 0; i < N; i++) sig[i] = Math.sin(2 * Math.PI * 8000 * i / sr);
+    const out = applyFilter({ sampleRate: sr, channels: [sig] }, 'lowpass', 500, 0.707);
+    let ein = 0, eout = 0;
+    for (let i = 200; i < N; i++) {
+      ein  += sig[i]! * sig[i]!;
+      eout += out.channels[0]![i]! * out.channels[0]![i]!;
+    }
+    expect(Math.sqrt(eout / ein)).toBeLessThan(0.05);
+  });
+
+  it('high-pass at high cutoff suppresses DC / very low content', () => {
+    // Constant signal — pure DC. A high-pass should eat it.
+    const sr = 44100;
+    const N = 2048;
+    const dc = new Float32Array(N).fill(0.5);
+    const out = applyFilter({ sampleRate: sr, channels: [dc] }, 'highpass', 1000, 0.707);
+    // After settling, output should be near zero.
+    expect(Math.abs(out.channels[0]![N - 1]!)).toBeLessThan(0.01);
+  });
+
+  it('clamps absurd cutoff / Q values without producing NaN', () => {
+    const w = mono(1, 0, -1, 0, 1, 0, -1, 0);
+    const veryHigh = applyFilter(w, 'lowpass', 999_999, 0.5);
+    const veryLow = applyFilter(w, 'lowpass', -100, 0.5);
+    const huge = applyFilter(w, 'lowpass', 1000, 9999);
+    for (const r of [veryHigh, veryLow, huge]) {
+      for (const v of r.channels[0]!) {
+        expect(Number.isFinite(v)).toBe(true);
+      }
+    }
   });
 });
 

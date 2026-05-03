@@ -40,6 +40,7 @@ const EFFECT_BUTTON_KINDS: readonly EffectKind[] = [
   "fadeOut",
   "gain",
   "normalize",
+  "filter",
 ] as const;
 
 /** Hover hint that hints at selection-aware vs always-whole behaviour. */

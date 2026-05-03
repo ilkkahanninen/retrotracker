@@ -46,6 +46,8 @@ export const DEFAULT_TARGET_NOTE = 12;
  *
  * gain / normalize don't take a range — they apply to the whole input.
  */
+export type FilterType = 'lowpass' | 'highpass';
+
 export type EffectNode =
   | { kind: 'gain'; params: { gain: number } }
   | { kind: 'normalize' }
@@ -53,12 +55,23 @@ export type EffectNode =
   | { kind: 'crop';     params: { startFrame: number; endFrame: number } }
   | { kind: 'cut';      params: { startFrame: number; endFrame: number } }
   | { kind: 'fadeIn';   params: { startFrame: number; endFrame: number } }
-  | { kind: 'fadeOut';  params: { startFrame: number; endFrame: number } };
+  | { kind: 'fadeOut';  params: { startFrame: number; endFrame: number } }
+  | {
+      kind: 'filter';
+      params: {
+        /** 'lowpass' attenuates above cutoff, 'highpass' attenuates below. */
+        type: FilterType;
+        /** Cutoff in Hz — clamped to [10, sourceRate/2). */
+        cutoff: number;
+        /** Resonance / quality factor. ~0.707 ≈ Butterworth (no peak), higher resonates. */
+        q: number;
+      };
+    };
 
 export type EffectKind = EffectNode['kind'];
 
 export const EFFECT_KINDS: readonly EffectKind[] = [
-  'gain', 'normalize', 'reverse', 'crop', 'cut', 'fadeIn', 'fadeOut',
+  'gain', 'normalize', 'reverse', 'crop', 'cut', 'fadeIn', 'fadeOut', 'filter',
 ] as const;
 
 /** Human-readable names for the picker UI. */
@@ -70,6 +83,12 @@ export const EFFECT_LABELS: Readonly<Record<EffectKind, string>> = {
   cut:       'Cut',
   fadeIn:    'Fade in',
   fadeOut:   'Fade out',
+  filter:    'Filter',
+};
+
+export const FILTER_TYPE_LABELS: Readonly<Record<FilterType, string>> = {
+  lowpass:  'Low-pass',
+  highpass: 'High-pass',
 };
 
 export type MonoMix = 'average' | 'left' | 'right';
@@ -289,6 +308,64 @@ export function applyFadeOut(input: WavData, startFrame: number, endFrame: numbe
   });
 }
 
+/**
+ * RBJ-cookbook biquad filter applied per-channel in Direct Form I. The
+ * coefficients are baked once from `(type, cutoff, q, sampleRate)`; each
+ * channel runs its own pair of unit-delay states so cross-channel content
+ * can't leak.
+ *
+ * Cutoff is clamped to (10, Nyquist - 1) Hz; Q to (0.05, 30). At Q=0.707
+ * the response is Butterworth (no resonant peak); higher Q rings near
+ * the cutoff. Out-of-range params don't blow up — they just clamp to a
+ * sane edge.
+ */
+export function applyFilter(
+  input: WavData,
+  type: FilterType,
+  cutoff: number,
+  q: number,
+): WavData {
+  const sr = input.sampleRate;
+  const f0 = Math.max(10, Math.min(sr * 0.5 - 1, cutoff));
+  const Q = Math.max(0.05, Math.min(30, q));
+
+  const w0 = (2 * Math.PI * f0) / sr;
+  const cosW = Math.cos(w0);
+  const alpha = Math.sin(w0) / (2 * Q);
+
+  // RBJ cookbook coefficients (https://www.w3.org/TR/audio-eq-cookbook/).
+  let b0: number, b1: number, b2: number;
+  if (type === 'lowpass') {
+    b0 = (1 - cosW) * 0.5;
+    b1 =  1 - cosW;
+    b2 = (1 - cosW) * 0.5;
+  } else {
+    // highpass
+    b0 =  (1 + cosW) * 0.5;
+    b1 = -(1 + cosW);
+    b2 =  (1 + cosW) * 0.5;
+  }
+  const a0 = 1 + alpha;
+  const a1 = -2 * cosW;
+  const a2 = 1 - alpha;
+  // Normalise so a0 = 1; saves a divide per sample.
+  const nb0 = b0 / a0, nb1 = b1 / a0, nb2 = b2 / a0;
+  const na1 = a1 / a0, na2 = a2 / a0;
+
+  return mapChannels(input, (ch) => {
+    const out = new Float32Array(ch.length);
+    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    for (let i = 0; i < ch.length; i++) {
+      const x0 = ch[i]!;
+      const y0 = nb0 * x0 + nb1 * x1 + nb2 * x2 - na1 * y1 - na2 * y2;
+      out[i] = y0;
+      x2 = x1; x1 = x0;
+      y2 = y1; y1 = y0;
+    }
+    return out;
+  });
+}
+
 export function applyEffect(input: WavData, node: EffectNode): WavData {
   switch (node.kind) {
     case 'gain':       return applyGain(input, node.params.gain);
@@ -298,6 +375,7 @@ export function applyEffect(input: WavData, node: EffectNode): WavData {
     case 'cut':        return applyCut(input, node.params.startFrame, node.params.endFrame);
     case 'fadeIn':     return applyFadeIn(input, node.params.startFrame, node.params.endFrame);
     case 'fadeOut':    return applyFadeOut(input, node.params.startFrame, node.params.endFrame);
+    case 'filter':     return applyFilter(input, node.params.type, node.params.cutoff, node.params.q);
   }
 }
 
@@ -480,5 +558,9 @@ export function defaultEffect(kind: EffectKind, input: WavData): EffectNode {
     case 'cut':       return { kind: 'cut',     params: { startFrame: 0, endFrame: 0 } };
     case 'fadeIn':    return { kind: 'fadeIn',  params: { startFrame: 0, endFrame: Math.min(1024, len) } };
     case 'fadeOut':   return { kind: 'fadeOut', params: { startFrame: Math.max(0, len - 1024), endFrame: len } };
+    // 1 kHz / Q=0.707 — Butterworth-flat low-pass. Audible but tame
+    // default that gives the user something to hear when they dial Q up
+    // or sweep cutoff.
+    case 'filter':    return { kind: 'filter',  params: { type: 'lowpass', cutoff: 1000, q: 0.707 } };
   }
 }

@@ -339,6 +339,22 @@ function parseEffectNode(v: unknown): EffectNode | null {
       },
     };
   }
+  if (kind === 'filter') {
+    const type = params['type'];
+    if (type !== 'lowpass' && type !== 'highpass') return null;
+    if (typeof params['cutoff'] !== 'number') return null;
+    if (typeof params['q']      !== 'number') return null;
+    return {
+      kind: 'filter',
+      params: {
+        type,
+        // Soft-clamp here mirrors the runtime guards in `applyFilter`; an
+        // out-of-range payload still loads, just snapped to a sane edge.
+        cutoff: Math.max(10, params['cutoff']),
+        q:      Math.max(0.05, Math.min(30, params['q'])),
+      },
+    };
+  }
   return null;
 }
 
