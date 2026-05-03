@@ -195,6 +195,10 @@ export const SampleView: Component<Props> = (props) => {
     () => workbench()?.source.kind ?? "sampler",
   );
 
+  // The hidden file input — clicked by the visible Load WAV button. Always
+  // in the DOM so it's reachable regardless of which source kind is active.
+  let wavInput: HTMLInputElement | undefined;
+
   return (
     <div class="sampleview">
       <header class="sampleview__header">
@@ -215,19 +219,22 @@ export const SampleView: Component<Props> = (props) => {
           ))}
         </div>
         <div class="sampleview__actions">
+          <input
+            ref={(el) => (wavInput = el)}
+            type="file"
+            accept=".wav,audio/wav,audio/x-wav"
+            hidden
+            onChange={onPickWav}
+          />
           <Show when={activeSourceKind() === "sampler"}>
-            <label
+            <button
+              type="button"
               class="file-button"
               title="Load a WAV file into this sample slot"
+              onClick={() => wavInput?.click()}
             >
-              <input
-                type="file"
-                accept=".wav,audio/wav,audio/x-wav"
-                hidden
-                onChange={onPickWav}
-              />
               Load WAV…
-            </label>
+            </button>
           </Show>
           <button
             type="button"

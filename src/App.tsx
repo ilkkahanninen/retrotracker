@@ -91,6 +91,8 @@ import { clipboardSlice, setClipboardSlice } from "./state/clipboard";
 import {
   workbenchFromWav,
   workbenchFromChiptune,
+  emptySamplerWorkbench,
+  workbenchToAlt,
   runPipeline,
   runChain,
   defaultEffect,
@@ -1172,9 +1174,23 @@ export const App: Component = () => {
     }
     setError(null);
     const slot = currentSample() - 1;
+    // Preserve any active chiptune as the alt stash so the user can toggle
+    // back to it without losing their synth params. If the slot already had
+    // a sampler, keep its alt (the chiptune side, if any) so it survives the
+    // overwrite — otherwise toggling kinds after re-loading a WAV would
+    // forget the chiptune the user previously had.
+    const existing = getWorkbench(slot);
+    if (existing) {
+      if (existing.source.kind === "chiptune") {
+        wb = { ...wb, alt: workbenchToAlt(existing) };
+      } else if (existing.alt) {
+        wb = { ...wb, alt: existing.alt };
+      }
+    }
+    const wbToCommit = wb;
     commitEditWithWorkbenches(({ song, workbenches }) => ({
-      song: writeWorkbenchToSongPure(song, slot, wb),
-      workbenches: withWorkbench(workbenches, slot, wb),
+      song: writeWorkbenchToSongPure(song, slot, wbToCommit),
+      workbenches: withWorkbench(workbenches, slot, wbToCommit),
     }));
   };
 
@@ -1277,33 +1293,54 @@ export const App: Component = () => {
   };
 
   /**
-   * Switch the current slot's source kind (Sampler ↔ Chiptune). Going to
-   * Chiptune from nothing creates a fresh chiptune workbench. Going to
-   * Sampler when no WAV has been loaded is a no-op — the user has to pick
-   * a file via the Load WAV button. Switching kinds drops the chain (its
-   * range-aware effects were sized to the previous source), but keeps `pt`.
+   * Switch the current slot's source kind (Sampler ↔ Chiptune). The switch
+   * is non-destructive: the active half is stashed in `wb.alt` and the
+   * target half is restored from `wb.alt` if it was previously stashed
+   * there. So the user can flip back and forth without losing the WAV they
+   * loaded or the synth params they dialed in.
+   *
+   * When no alt of the target kind exists:
+   *   - target = chiptune: create a fresh chiptune workbench (default params).
+   *   - target = sampler:  no-op — Sampler has no useful "fresh" state
+   *     without a WAV, so the user must click Load WAV to enter sampler mode.
    */
   const setSourceKind = (kind: SourceKind) => {
     if (transport() === "playing") return;
     const slot = currentSample() - 1;
     const wb = getWorkbench(slot);
-    if (kind === "chiptune") {
-      if (wb && wb.source.kind === "chiptune") return;
-      const fresh = workbenchFromChiptune();
-      const next: SampleWorkbench = wb
-        ? { ...fresh, pt: wb.pt }
-        : fresh;
-      updateCurrentWorkbench(next);
+
+    // No workbench yet — only chiptune is creatable from nothing.
+    if (!wb) {
+      if (kind === "chiptune") updateCurrentWorkbench(workbenchFromChiptune());
       return;
     }
-    // kind === 'sampler' — only meaningful if the slot already has a sampler
-    // workbench underneath (e.g. user toggled to Chiptune and wants to go
-    // back). With nothing to revert to, ignore the click — the Load WAV
-    // button is the entry point for a fresh Sampler.
-    if (!wb || wb.source.kind === "sampler") return;
-    // No previous sampler source on hand — fall through to the "no-op" path.
-    // (Future: persist the prior sampler source on the workbench so we can
-    // restore it. For now the user re-loads the WAV.)
+    if (wb.source.kind === kind) return;
+
+    const stash = workbenchToAlt(wb);
+
+    // Restore from alt when it matches the requested kind.
+    if (wb.alt && wb.alt.source.kind === kind) {
+      updateCurrentWorkbench({
+        source: wb.alt.source,
+        chain: wb.alt.chain,
+        pt: wb.alt.pt,
+        alt: stash,
+      });
+      return;
+    }
+
+    if (kind === "chiptune") {
+      // First-time entry into chiptune for this slot — fresh defaults,
+      // current sampler half goes to alt for restore-on-toggle-back.
+      updateCurrentWorkbench({ ...workbenchFromChiptune(), alt: stash });
+      return;
+    }
+
+    // kind === 'sampler' with no alt-sampler on file. Drop into the
+    // "empty sampler" view — same UX as a fresh slot, with the Load WAV
+    // button waiting. The current chiptune half is stashed as alt so
+    // toggling back restores it untouched.
+    updateCurrentWorkbench({ ...emptySamplerWorkbench(), alt: stash });
   };
 
   /**

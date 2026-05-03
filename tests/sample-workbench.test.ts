@@ -3,7 +3,7 @@ import {
   applyGain, applyNormalize, applyReverse, applyCrop, applyCut,
   applyFadeIn, applyFadeOut, applyEffect,
   runChain, transformToPt, runPipeline,
-  workbenchFromWav, workbenchFromChiptune, defaultEffect,
+  workbenchFromWav, workbenchFromChiptune, workbenchToAlt, defaultEffect,
   resampleLinear, rateForTargetNote, DEFAULT_TARGET_NOTE,
   materializeSource, sourceDisplayName, sourceWantsFullLoop,
   type SampleWorkbench,
@@ -192,6 +192,7 @@ describe('runPipeline (end-to-end)', () => {
       source: { kind: 'sampler', wav: stereo([0.5, 0.5], [-0.5, -0.5]), sourceName: 'demo' },
       chain: [{ kind: 'gain', params: { gain: 2 } }], // → 1, 1 / -1, -1
       pt: { monoMix: 'average', targetNote: null },                      // → 0, 0
+      alt: null,
     };
     const out = runPipeline(wb);
     expect(Array.from(out)).toEqual([0, 0]);
@@ -202,6 +203,7 @@ describe('runPipeline (end-to-end)', () => {
       source: { kind: 'sampler', wav: mono(0, 1, -1), sourceName: 'demo' },
       chain: [],
       pt: { monoMix: 'average', targetNote: null },
+      alt: null,
     };
     expect(Array.from(runPipeline(wb))).toEqual([0, 127, -127]);
   });
@@ -268,6 +270,25 @@ describe('SampleSource', () => {
     const wb = workbenchFromChiptune({ ...defaultChiptuneParams(), cycleFrames: 32 });
     const data = runPipeline(wb);
     expect(data.length).toBe(32);
+  });
+
+  it('workbenchFromWav and workbenchFromChiptune both default `alt` to null', () => {
+    const wav = writeWav(
+      { sampleRate: 22050, channels: [new Float32Array([0, 0.5])] },
+      { bitsPerSample: 16 },
+    );
+    expect(workbenchFromWav(wav, 'beep.wav').alt).toBeNull();
+    expect(workbenchFromChiptune().alt).toBeNull();
+  });
+
+  it('workbenchToAlt copies the active source/chain/pt without the alt itself', () => {
+    const wb = workbenchFromChiptune();
+    const alt = workbenchToAlt(wb);
+    expect(alt.source).toBe(wb.source);
+    expect(alt.chain).toBe(wb.chain);
+    expect(alt.pt).toBe(wb.pt);
+    // No `alt` field on the alt — that's the recursion guard.
+    expect((alt as unknown as { alt?: unknown }).alt).toBeUndefined();
   });
 });
 

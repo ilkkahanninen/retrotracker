@@ -43,6 +43,7 @@ function fixtureToWorkbench(f: LegacyWorkbenchFixture): SampleWorkbench {
     source: { kind: "sampler", wav: f.source, sourceName: f.sourceName },
     chain: f.chain,
     pt: f.pt,
+    alt: null,
   };
 }
 
@@ -629,9 +630,12 @@ describe("pipeline editor: undo/redo restores chain alongside song", () => {
     });
     expect(getWorkbench(0)).toBeDefined();
 
-    const clearBtn = container.querySelector<HTMLButtonElement>(
-      ".sampleview__actions button",
-    )!;
+    // The actions row now holds two buttons (Load WAV + Clear sample) when
+    // a sampler workbench is active. Pick by accessible label so we don't
+    // accidentally click the loader.
+    const clearBtn = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".sampleview__actions button"),
+    ).find((b) => b.textContent === "Clear sample")!;
     await userEvent.setup().click(clearBtn);
     expect(getWorkbench(0)).toBeUndefined();
 
@@ -654,5 +658,79 @@ describe("pipeline editor: workbench is cleared on .mod load", () => {
     expect(getWorkbench(0)).toBeDefined();
     clearAllWorkbenches();
     expect(getWorkbench(0)).toBeUndefined();
+  });
+});
+
+describe("source picker: alt-stash round-trip", () => {
+  it("Sampler → Chiptune stashes the WAV; Chiptune → Sampler restores it", async () => {
+    setView("sample");
+    setCurrentSample(1);
+    const { container } = render(() => <App />);
+
+    // Load a WAV → sampler workbench.
+    const fileInput = container.querySelector<HTMLInputElement>(
+      '.sampleview__actions input[type="file"]',
+    )!;
+    await userEvent.setup().upload(fileInput, makeStereoWav());
+    const samplerWb = getWorkbench(0)!;
+    expect(samplerWb.source.kind).toBe("sampler");
+    expect(samplerWb.alt).toBeNull();
+
+    // Click Chiptune in the source picker.
+    const pickerButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".source-picker button"),
+    );
+    const chiptuneBtn = pickerButtons.find((b) => b.textContent === "Chiptune")!;
+    await userEvent.setup().click(chiptuneBtn);
+    const chiptuneWb = getWorkbench(0)!;
+    expect(chiptuneWb.source.kind).toBe("chiptune");
+    // The previous sampler half is now the alt stash.
+    expect(chiptuneWb.alt?.source.kind).toBe("sampler");
+
+    // Click Sampler — should restore the original WAV.
+    const samplerBtn = pickerButtons.find((b) => b.textContent === "Sampler")!;
+    await userEvent.setup().click(samplerBtn);
+    const restoredWb = getWorkbench(0)!;
+    expect(restoredWb.source.kind).toBe("sampler");
+    if (restoredWb.source.kind !== "sampler") throw new Error("expected sampler");
+    expect(restoredWb.source.sourceName).toBe("stereo-test");
+    // And the chiptune we just left is now the alt.
+    expect(restoredWb.alt?.source.kind).toBe("chiptune");
+  });
+
+  it("Chiptune → Sampler with no remembered WAV switches to an empty sampler view (chiptune kept as alt)", async () => {
+    setView("sample");
+    setCurrentSample(1);
+    const { container } = render(() => <App />);
+
+    // Start in chiptune (no prior sampler).
+    const pickerButtons = () =>
+      Array.from(container.querySelectorAll<HTMLButtonElement>(".source-picker button"));
+    const chiptuneBtn = pickerButtons().find((b) => b.textContent === "Chiptune")!;
+    await userEvent.setup().click(chiptuneBtn);
+    expect(getWorkbench(0)?.source.kind).toBe("chiptune");
+
+    // Clicking Sampler with no alt-sampler drops into empty-sampler view —
+    // same UX as a fresh slot — and stashes the chiptune as alt.
+    const samplerBtn = pickerButtons().find((b) => b.textContent === "Sampler")!;
+    await userEvent.setup().click(samplerBtn);
+    const wb = getWorkbench(0)!;
+    expect(wb.source.kind).toBe("sampler");
+    expect(wb.alt?.source.kind).toBe("chiptune");
+    // Empty source: no audio data, no name yet.
+    if (wb.source.kind !== "sampler") throw new Error("expected sampler");
+    expect(wb.source.wav.channels[0]!.length).toBe(0);
+    expect(wb.source.sourceName).toBe("");
+
+    // Loading a WAV now populates the source; alt-chiptune carries over.
+    const fileInput = container.querySelector<HTMLInputElement>(
+      '.sampleview__actions input[type="file"]',
+    )!;
+    await userEvent.setup().upload(fileInput, makeStereoWav());
+    const populated = getWorkbench(0)!;
+    expect(populated.source.kind).toBe("sampler");
+    expect(populated.alt?.source.kind).toBe("chiptune");
+    if (populated.source.kind !== "sampler") throw new Error("expected sampler");
+    expect(populated.source.wav.channels[0]!.length).toBeGreaterThan(0);
   });
 });

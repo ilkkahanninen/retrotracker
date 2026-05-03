@@ -138,6 +138,17 @@ export function sourceWantsFullLoop(src: SampleSource): boolean {
   return src.kind === 'chiptune';
 }
 
+/**
+ * Frozen snapshot of one half of a workbench (the "off" side after a
+ * source-kind toggle). Holds source + chain + pt so toggling back restores
+ * everything the user had on that side, not just the source.
+ */
+export interface WorkbenchAlt {
+  source: SampleSource;
+  chain: EffectNode[];
+  pt: PtTransformerParams;
+}
+
 export interface SampleWorkbench {
   /** Source feeding the chain — sampler (WAV) or chiptune (synth). */
   source: SampleSource;
@@ -145,6 +156,21 @@ export interface SampleWorkbench {
   chain: EffectNode[];
   /** Always-present terminal node. */
   pt: PtTransformerParams;
+  /**
+   * Stash of the workbench as it stood before the last kind-switch, so the
+   * user can flip Sampler ↔ Chiptune and get back the WAV / chain / pt they
+   * had on the other side. The stash is always the OPPOSITE kind to
+   * `source` (when non-null), since a same-kind toggle is a no-op.
+   *
+   * Session-only: never round-trips through `.retro`. Reloading a project
+   * restores `source` (chiptune persists; sampler doesn't) but not the alt.
+   */
+  alt: WorkbenchAlt | null;
+}
+
+/** Pull the active half of a workbench into an alt-stash record. */
+export function workbenchToAlt(wb: SampleWorkbench): WorkbenchAlt {
+  return { source: wb.source, chain: wb.chain, pt: wb.pt };
 }
 
 // ─── Effects ──────────────────────────────────────────────────────────────
@@ -386,6 +412,7 @@ export function workbenchFromWav(bytes: Uint8Array, filename: string): SampleWor
     // plays at its original speed. They can change the target (or set null
     // to disable resampling entirely) from the Effects panel.
     pt: { monoMix: 'average', targetNote: DEFAULT_TARGET_NOTE },
+    alt: null,
   };
 }
 
@@ -401,6 +428,30 @@ export function workbenchFromChiptune(
     source: { kind: 'chiptune', params },
     chain: [],
     pt: { monoMix: 'average', targetNote: null },
+    alt: null,
+  };
+}
+
+/**
+ * "Empty Sampler" workbench — a sampler whose source has no audio yet,
+ * waiting for the user to Load WAV. Used when toggling Chiptune → Sampler
+ * on a slot that has no remembered WAV: the workbench's view-mode flips to
+ * Sampler, the chiptune side is preserved in `alt`, and the Load WAV
+ * button becomes the path to actually populate the source.
+ *
+ * Materialised source is an empty mono WavData; the pipeline emits zero
+ * bytes, which `replaceSampleData` collapses to a 0-length sample slot.
+ */
+export function emptySamplerWorkbench(): SampleWorkbench {
+  return {
+    source: {
+      kind: 'sampler',
+      wav: { sampleRate: 22050, channels: [new Float32Array(0)] },
+      sourceName: '',
+    },
+    chain: [],
+    pt: { monoMix: 'average', targetNote: DEFAULT_TARGET_NOTE },
+    alt: null,
   };
 }
 
