@@ -157,6 +157,18 @@ const PIANO_KEYS: Readonly<Record<string, number>> = {
   ";": 16, // E +1
 };
 
+/** Hard cap on the `.retro` project file size. The header indicator turns
+ *  yellow at the warning threshold and red once the limit is exceeded. */
+const PROJECT_SIZE_LIMIT_BYTES = 5 * 1024 * 1024;
+const PROJECT_SIZE_WARN_BYTES = 4 * 1024 * 1024;
+
+/** Format a byte count for the header size indicator: KB under 1 MB,
+ *  MB with two decimals otherwise. */
+function formatProjectSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+  return Math.max(0, Math.round(bytes / 1024)) + ' KB';
+}
+
 let engine: AudioEngine | null = null;
 
 /**
@@ -1974,6 +1986,35 @@ export const App: Component = () => {
     return s.samples.filter((x) => x.lengthWords > 0).length;
   });
 
+  // Raw .mod byte size — what "Save .mod" would write. Recomputed only
+  // when the song reference changes (which happens on every commitEdit).
+  const modByteSize = createMemo(() => {
+    const s = song();
+    if (!s) return 0;
+    return writeModule(s).length;
+  });
+
+  // Estimated `.retro` file size for the project-size indicator. Tracks
+  // only the inputs that meaningfully affect bytes (song / metadata /
+  // chiptune params); cursor moves and view toggles don't recompute, and
+  // `encodeSongCached` reuses the writeModule output between this memo
+  // and the autosave path.
+  const projectByteSize = createMemo(() => {
+    const s = song();
+    if (!s) return 0;
+    return projectToBytes({
+      song: s,
+      filename: filename(),
+      infoText: infoText(),
+      view: 'pattern',
+      cursor: { order: 0, row: 0, channel: 0, field: 'note' },
+      currentSample: 1,
+      currentOctave: 1,
+      editStep: 1,
+      chiptuneSources: chiptuneSourcesSnapshot(),
+    }).length;
+  });
+
   return (
     <div
       class="app"
@@ -2008,6 +2049,23 @@ export const App: Component = () => {
             label="Edit"
             items={editMenuItems()}
           />
+          <Show when={song()}>
+            <span class="filesize" title=".mod file size">
+              .mod {formatProjectSize(modByteSize())}
+            </span>
+            <span
+              class="filesize"
+              classList={{
+                "filesize--warn":
+                  projectByteSize() >= PROJECT_SIZE_WARN_BYTES &&
+                  projectByteSize() <= PROJECT_SIZE_LIMIT_BYTES,
+                "filesize--err": projectByteSize() > PROJECT_SIZE_LIMIT_BYTES,
+              }}
+              title={`Estimated .retro project file size — limit ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}`}
+            >
+              .retro {formatProjectSize(projectByteSize())} / {formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}
+            </span>
+          </Show>
         </div>
         <div class="viewtabs" role="tablist" aria-label="View">
           <button

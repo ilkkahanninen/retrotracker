@@ -194,6 +194,22 @@ body {
 }
 .file-button:hover { border-color: var(--accent); }
 
+/* Project file size readout in the header. Stays muted until the warning
+ * threshold (4 MB) is crossed, then flips to yellow; once over the 5 MB
+ * limit it turns red so an oversized save attempt is obvious. */
+.filesize {
+  color: var(--muted);
+  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-size: 11px;
+  padding: 4px 10px;
+  border: 1px solid var(--grid-line);
+  border-radius: 6px;
+  user-select: none;
+  white-space: nowrap;
+}
+.filesize--warn { color: #e6b800; border-color: #e6b800; }
+.filesize--err { color: var(--error); border-color: var(--error); }
+
 /* Segmented Play song / Play pattern group: a single visual control with
  * a shared border. The two halves butt up against each other (no gap, no
  * inner radii) and the active half is tinted with the accent colour to
