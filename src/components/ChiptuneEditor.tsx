@@ -1,12 +1,25 @@
 import { type Component } from "solid-js";
 import {
-  COMBINE_MODES, COMBINE_LABELS,
-  CYCLE_FRAMES_MIN, CYCLE_FRAMES_MAX,
-  SHAPE_INDEX_MIN, SHAPE_INDEX_MAX,
-  PHASE_SPLIT_MIN, PHASE_SPLIT_MAX,
-  RATIO_MIN, RATIO_MAX,
-  snapCycleFramesToMusical, snapRatioToMusical,
-  type ChiptuneParams, type Oscillator,
+  COMBINE_MODES,
+  COMBINE_LABELS,
+  CYCLE_FRAMES_MIN,
+  CYCLE_FRAMES_MAX,
+  SHAPE_INDEX_MIN,
+  SHAPE_INDEX_MAX,
+  PHASE_SPLIT_MIN,
+  PHASE_SPLIT_MAX,
+  RATIO_MIN,
+  RATIO_MAX,
+  LFO_MULT_MIN,
+  LFO_MULT_MAX,
+  LFO_TARGETS,
+  LFO_TARGET_LABELS,
+  snapCycleFramesToMusical,
+  snapRatioToMusical,
+  type ChiptuneParams,
+  type Lfo,
+  type LfoTarget,
+  type Oscillator,
 } from "../core/audio/chiptune";
 import { Slider } from "./Slider";
 
@@ -69,7 +82,11 @@ export const ChiptuneEditor: Component<ChiptuneEditorProps> = (props) => {
 
       <div class="chiptune__group">
         <span class="chiptune__group-label">Combine</span>
-        <div class="chiptune__modes" role="radiogroup" aria-label="Combine mode">
+        <div
+          class="chiptune__modes"
+          role="radiogroup"
+          aria-label="Combine mode"
+        >
           {COMBINE_MODES.map((m) => (
             <button
               type="button"
@@ -95,9 +112,68 @@ export const ChiptuneEditor: Component<ChiptuneEditorProps> = (props) => {
           />
         </div>
       </div>
+
+      <LfoSection
+        lfo={props.params.lfo}
+        disabled={props.disabled}
+        onUpdate={(patch) =>
+          props.onUpdate({ lfo: { ...props.params.lfo, ...patch } })
+        }
+      />
     </section>
   );
 };
+
+interface LfoSectionProps {
+  lfo: Lfo;
+  disabled: boolean;
+  onUpdate: (patch: Partial<Lfo>) => void;
+}
+
+const LfoSection: Component<LfoSectionProps> = (props) => (
+  <div class="chiptune__group">
+    <span class="chiptune__group-label">LFO</span>
+    <label class="lfo__target">
+      <span class="samplemeta__label">Target</span>
+      <select
+        aria-label="LFO target"
+        value={props.lfo.target}
+        disabled={props.disabled}
+        onChange={(e) =>
+          props.onUpdate({ target: e.currentTarget.value as LfoTarget })
+        }
+      >
+        {LFO_TARGETS.map((t) => (
+          <option value={t}>{LFO_TARGET_LABELS[t]}</option>
+        ))}
+      </select>
+    </label>
+    <div class="chiptune__sliders">
+      <Slider
+        label="Cycle multiplier"
+        min={LFO_MULT_MIN}
+        max={LFO_MULT_MAX}
+        step={1}
+        value={props.lfo.cycleMultiplier}
+        disabled={props.disabled}
+        snap={snapToInteger}
+        format={(v) => `${Math.round(v)}×`}
+        hint="1× ─ 2× ─ 4× ─ 8× ─ 16× ─ 32×"
+        onInput={(v) => props.onUpdate({ cycleMultiplier: v })}
+      />
+      <Slider
+        label="Amplitude"
+        min={0}
+        max={1}
+        step={0.01}
+        value={props.lfo.amplitude}
+        disabled={props.disabled}
+        hint="0 = LFO off"
+        onInput={(v) => props.onUpdate({ amplitude: v })}
+      />
+    </div>
+  </div>
+);
 
 interface OscillatorSlidersProps {
   label: string;
@@ -146,3 +222,7 @@ const OscillatorSliders: Component<OscillatorSlidersProps> = (props) => (
     </div>
   </div>
 );
+
+function snapToInteger(v: number): number {
+  return Math.round(v);
+}

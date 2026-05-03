@@ -297,3 +297,64 @@ describe('generateChiptuneCycle — multi-cycle ratios', () => {
     expect(Array.from(single.channels[0]!)).toEqual(Array.from(explicit.channels[0]!));
   });
 });
+
+describe('generateChiptuneCycle — LFO', () => {
+  it('with amplitude 0 and multiplier 1, the output matches the no-LFO render', () => {
+    const base = generateChiptuneCycle(defaultChiptuneParams());
+    const off = generateChiptuneCycle({
+      ...defaultChiptuneParams(),
+      lfo: { cycleMultiplier: 1, amplitude: 0, target: 'amplitude' },
+    });
+    expect(Array.from(off.channels[0]!)).toEqual(Array.from(base.channels[0]!));
+  });
+
+  it('cycleMultiplier extends the rendered output length', () => {
+    const m1 = generateChiptuneCycle(withDefaults({
+      cycleFrames: 32,
+      lfo: { cycleMultiplier: 1, amplitude: 0, target: 'amplitude' },
+    }));
+    const m4 = generateChiptuneCycle(withDefaults({
+      cycleFrames: 32,
+      lfo: { cycleMultiplier: 4, amplitude: 0, target: 'amplitude' },
+    }));
+    expect(m1.channels[0]!.length).toBe(32);
+    expect(m4.channels[0]!.length).toBe(128);
+  });
+
+  it('amplitude target with full amp shapes a triangle envelope on the output', () => {
+    // Drive a constant +1 carrier (square at phaseSplit 0.5 always at +1 in
+    // the first half — pick cycleFrames=4 with osc1=square + amp=1 +
+    // multiplier=4 so we can read off the LFO envelope clearly. We compare
+    // peak magnitudes near the LFO mid (high) and the LFO ends (low).
+    const w = generateChiptuneCycle({
+      ...defaultChiptuneParams(),
+      cycleFrames: 8,
+      amplitude: 0.5, // base amp leaves headroom for the LFO to add to.
+      osc1: { shapeIndex: 2, phaseSplit: 0.5, ratio: 1 }, // square → ±1
+      osc2: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 },
+      combineMode: 'morph',
+      combineAmount: 0,
+      lfo: { cycleMultiplier: 4, amplitude: 1, target: 'amplitude' },
+    });
+    const ch = w.channels[0]!;
+    expect(ch.length).toBe(32);
+    // Mid of the LFO triangle (i = L/2) hits amp 1.0 (saturation cap),
+    // start/end hit base amp 0.5.
+    expect(Math.abs(ch[0]!)).toBeCloseTo(0.5, 6);
+    expect(Math.abs(ch[16]!)).toBeCloseTo(1.0, 6);
+    expect(Math.abs(ch[31]!)).toBeLessThan(Math.abs(ch[16]!));
+  });
+
+  it('chiptuneFromJson back-fills `lfo` for older payloads', () => {
+    const restored = chiptuneFromJson({
+      ...defaultChiptuneParams(),
+      // Strip the lfo as if loaded from a pre-LFO `.retro` file.
+      lfo: undefined,
+    });
+    expect(restored?.lfo).toEqual({
+      cycleMultiplier: 1,
+      amplitude: 0,
+      target: 'osc1Shape',
+    });
+  });
+});

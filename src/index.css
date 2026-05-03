@@ -1192,3 +1192,23 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   border-color: var(--accent);
 }
 .chiptune__modes button:hover:not(.is-active) { border-color: var(--accent); }
+
+/* LFO target picker — column layout so it stacks above the cycle/amp
+   sliders and reads as the section's "what is being modulated" header. */
+.lfo__target {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: ui-monospace, 'SFMono-Regular', monospace;
+}
+.lfo__target select {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.lfo__target select:focus { outline: none; border-color: var(--accent); }
