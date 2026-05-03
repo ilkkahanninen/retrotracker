@@ -294,7 +294,11 @@ export const App: Component = () => {
       for (const [slotStr, src] of Object.entries(loaded.samplerSources)) {
         const slot = parseInt(slotStr, 10);
         if (!Number.isFinite(slot)) continue;
-        setWorkbench(slot, workbenchFromWavData(src.wav, src.sourceName));
+        setWorkbench(slot, {
+          ...workbenchFromWavData(src.wav, src.sourceName),
+          chain: src.chain,
+          pt: src.pt,
+        });
       }
     }
     setTransport("ready");
@@ -384,10 +388,11 @@ export const App: Component = () => {
   };
 
   /**
-   * Build the slot→source map of sampler workbenches for persistence.
-   * Empty workbenches (placeholder created by toggling Sampler → Chiptune
-   * on a fresh slot) are skipped — there's no WAV to store and the toggle
-   * recreates them on demand.
+   * Build the slot→source map of sampler workbenches for persistence —
+   * source WAV plus the chain and PT params so the pipeline restores
+   * exactly as the user left it. Empty workbenches (placeholder created by
+   * toggling Sampler → Chiptune on a fresh slot) are skipped: there's no
+   * audio to store and the toggle recreates them on demand.
    */
   const samplerSourcesSnapshot = (): Record<number, SamplerSourceInputs> => {
     const out: Record<number, SamplerSourceInputs> = {};
@@ -395,7 +400,12 @@ export const App: Component = () => {
       if (wb.source.kind !== 'sampler') continue;
       const hasAudio = wb.source.wav.channels.some((ch) => ch.length > 0);
       if (!hasAudio) continue;
-      out[slot] = { sourceName: wb.source.sourceName, wav: wb.source.wav };
+      out[slot] = {
+        sourceName: wb.source.sourceName,
+        wav: wb.source.wav,
+        chain: wb.chain,
+        pt: wb.pt,
+      };
     }
     return out;
   };
@@ -1469,7 +1479,12 @@ export const App: Component = () => {
         }
         for (const [slotStr, src] of Object.entries(restored.samplerSources)) {
           const slot = parseInt(slotStr, 10);
-          if (Number.isFinite(slot)) setWorkbench(slot, workbenchFromWavData(src.wav, src.sourceName));
+          if (!Number.isFinite(slot)) continue;
+          setWorkbench(slot, {
+            ...workbenchFromWavData(src.wav, src.sourceName),
+            chain: src.chain,
+            pt: src.pt,
+          });
         }
         setTransport("ready");
       } else {

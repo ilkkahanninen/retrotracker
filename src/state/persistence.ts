@@ -7,6 +7,12 @@ import type { ChiptuneParams } from '../core/audio/chiptune';
 import { chiptuneFromJson } from '../core/audio/chiptune';
 import type { WavData } from '../core/audio/wav';
 import { readWav, writeWav } from '../core/audio/wav';
+import type {
+  EffectNode,
+  MonoMix,
+  PtTransformerParams,
+} from '../core/audio/sampleWorkbench';
+import { DEFAULT_TARGET_NOTE } from '../core/audio/sampleWorkbench';
 
 /**
  * Local-storage session persistence.
@@ -49,10 +55,14 @@ const STORAGE_KEY = 'retrotracker:session:v1';
 type SchemaVersion = 1 | 2 | 3;
 
 /**
- * On-disk shape for one persisted sampler source. Only `source` round-trips
- * (matching how chiptuneSources work) — the chain and PT params reset to
- * defaults on load. The slot's int8 is in the song bytes either way, so
- * playback restores identically; the user just gets a fresh chain UI.
+ * On-disk shape for one persisted sampler source. The whole sampler-side
+ * workbench (source + chain + PT) round-trips so a refresh restores the
+ * pipeline exactly as the user left it. The `alt` stash is intentionally
+ * dropped — that's session-only.
+ *
+ * `chain` and `pt` are optional so older v=3 payloads (saved before the
+ * chain started persisting) still load — they restore with an empty chain
+ * and default PT params.
  */
 interface PersistedSamplerSource {
   /** Display name shown in the pipeline header. */
@@ -64,6 +74,10 @@ interface PersistedSamplerSource {
    * inventing a parallel JSON shape.
    */
   wavBase64: string;
+  /** Effect chain in original order. Optional for back-compat. */
+  chain?: EffectNode[];
+  /** PT transformer params (mono mix + target note). Optional for back-compat. */
+  pt?: PtTransformerParams;
 }
 
 interface PersistedShape {
@@ -90,14 +104,19 @@ interface PersistedShape {
 }
 
 /**
- * Input shape for one sampler source the App wants to persist. The App owns
- * `WavData`; the persistence layer encodes it to bytes (via `writeWav`) and
- * base64s the result. Keeping the encoding inside this module means callers
- * never touch base64 / RIFF directly.
+ * Input shape for one sampler workbench the App wants to persist. The App
+ * owns `WavData`; the persistence layer encodes it to bytes (via `writeWav`)
+ * and base64s the result. Keeping the encoding inside this module means
+ * callers never touch base64 / RIFF directly.
+ *
+ * `chain` and `pt` round-trip alongside the source so the pipeline UI
+ * restores exactly as left — not just the source name.
  */
 export interface SamplerSourceInputs {
   sourceName: string;
   wav: WavData;
+  chain: EffectNode[];
+  pt: PtTransformerParams;
 }
 
 export interface SessionInputs {
@@ -209,9 +228,9 @@ function buildPayload(state: SessionInputs): PersistedShape {
   };
 }
 
-/** Encode each sampler source's WavData as 16-bit PCM bytes → base64.
- *  Slot keys are preserved verbatim (numeric strings) so the JSON map
- *  parses back symmetrically. */
+/** Encode each sampler source's WavData as 16-bit PCM bytes → base64,
+ *  alongside the chain + PT params. Slot keys are preserved verbatim
+ *  (numeric strings) so the JSON map parses back symmetrically. */
 function encodeSamplerSources(
   src: Record<number, SamplerSourceInputs>,
 ): Record<number, PersistedSamplerSource> {
@@ -220,6 +239,8 @@ function encodeSamplerSources(
     out[Number(k)] = {
       sourceName: v.sourceName,
       wavBase64: bytesToBase64(writeWav(v.wav, { bitsPerSample: 16 })),
+      ...(v.chain.length > 0 ? { chain: v.chain } : {}),
+      pt: v.pt,
     };
   }
   return out;
@@ -260,6 +281,10 @@ function payloadToSession(parsed: unknown): LoadedSession | null {
  * dropped (better than failing the whole load over a single corrupt slot).
  * Slot indices are clamped to [0, 30] — anything outside can't refer to a
  * real PT sample slot.
+ *
+ * Chain + PT are optional in the on-disk shape (older v=3 payloads predate
+ * them); when missing, they default to an empty chain and the standard PT
+ * params (`average` mono mix, C-2 target note).
  */
 function parseSamplerSources(raw: unknown): Record<number, SamplerSourceInputs> {
   if (!raw || typeof raw !== 'object') return {};
@@ -274,12 +299,77 @@ function parseSamplerSources(raw: unknown): Record<number, SamplerSourceInputs> 
     if (!wavBase64) continue;
     try {
       const wav = readWav(base64ToBytes(wavBase64));
-      out[slot] = { sourceName, wav };
+      out[slot] = {
+        sourceName,
+        wav,
+        chain: parseEffectChain(entry['chain']),
+        pt: parsePtParams(entry['pt']),
+      };
     } catch {
       // Corrupt WAV bytes — drop this slot and continue.
     }
   }
   return out;
+}
+
+/** Parse an `EffectNode[]` from an unknown JSON value. Drops bad entries
+ *  rather than failing — a single corrupt effect shouldn't lose the chain. */
+function parseEffectChain(raw: unknown): EffectNode[] {
+  if (!Array.isArray(raw)) return [];
+  const out: EffectNode[] = [];
+  for (const v of raw) {
+    const node = parseEffectNode(v);
+    if (node) out.push(node);
+  }
+  return out;
+}
+
+/** Validate one EffectNode. Returns null on any structural mismatch. */
+function parseEffectNode(v: unknown): EffectNode | null {
+  if (!v || typeof v !== 'object') return null;
+  const x = v as Record<string, unknown>;
+  const kind = x['kind'];
+  if (kind === 'normalize') return { kind: 'normalize' };
+  const p = x['params'];
+  if (!p || typeof p !== 'object') return null;
+  const params = p as Record<string, unknown>;
+  if (kind === 'gain') {
+    if (typeof params['gain'] !== 'number') return null;
+    return { kind: 'gain', params: { gain: params['gain'] } };
+  }
+  if (kind === 'reverse' || kind === 'crop' || kind === 'cut'
+      || kind === 'fadeIn' || kind === 'fadeOut') {
+    if (typeof params['startFrame'] !== 'number') return null;
+    if (typeof params['endFrame']   !== 'number') return null;
+    return {
+      kind,
+      params: {
+        startFrame: Math.max(0, Math.floor(params['startFrame'])),
+        endFrame:   Math.max(0, Math.floor(params['endFrame'])),
+      },
+    };
+  }
+  return null;
+}
+
+/** Validate PT transformer params. Falls back to standard defaults on any
+ *  mismatch — keeps old v=3 payloads (no `pt` field) loadable. */
+function parsePtParams(raw: unknown): PtTransformerParams {
+  const fallback: PtTransformerParams = {
+    monoMix: 'average',
+    targetNote: DEFAULT_TARGET_NOTE,
+  };
+  if (!raw || typeof raw !== 'object') return fallback;
+  const x = raw as Record<string, unknown>;
+  const mix = x['monoMix'];
+  const monoMix: MonoMix =
+    mix === 'left' ? 'left' : mix === 'right' ? 'right' : 'average';
+  const note = x['targetNote'];
+  const targetNote =
+    note === null ? null
+    : typeof note === 'number' && note >= 0 && note < 36 ? Math.floor(note)
+    : DEFAULT_TARGET_NOTE;
+  return { monoMix, targetNote };
 }
 
 /**
