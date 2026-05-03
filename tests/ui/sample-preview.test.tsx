@@ -131,3 +131,22 @@ describe('typing in inputs no longer fires bare-letter shortcuts', () => {
     expect(song()!.patterns.length).toBeGreaterThan(1);
   });
 });
+
+describe('range slider focus: piano keys still fire, navigation keys reach the slider', () => {
+  it("'z' (octave down) fires while a range input is focused — slider doesn't consume letters", async () => {
+    setView('sample');
+    const { container } = render(() => <App />);
+    setCurrentSample(1);
+    setCurrentOctave(2);
+    // Switch the slot to chiptune so the synth panel renders with sliders.
+    const chiptuneBtn = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('.source-picker button'),
+    ).find((b) => b.textContent === 'Chiptune')!;
+    chiptuneBtn.click();
+    const range = container.querySelector<HTMLInputElement>('.chiptune input[type="range"]')!;
+    range.focus();
+    await userEvent.setup().keyboard('z');
+    // Letter passed through to the global piano-row Z shortcut → octave dropped.
+    expect(currentOctave()).toBe(1);
+  });
+});

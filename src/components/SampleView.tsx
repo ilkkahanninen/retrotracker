@@ -17,12 +17,27 @@ import { previewFrame } from "../state/preview";
 import { transport } from "../state/song";
 import {
   EFFECT_LABELS,
+  SOURCE_KINDS,
+  SOURCE_LABELS,
+  materializeSource,
+  sourceDisplayName,
   type EffectKind,
   type EffectNode,
   type MonoMix,
+  type SampleSource,
   type SampleWorkbench,
+  type SourceKind,
 } from "../core/audio/sampleWorkbench";
+import {
+  COMBINE_MODES, COMBINE_LABELS,
+  CYCLE_FRAMES_MIN, CYCLE_FRAMES_MAX,
+  SHAPE_INDEX_MIN, SHAPE_INDEX_MAX,
+  PHASE_SPLIT_MIN, PHASE_SPLIT_MAX,
+  snapCycleFramesToMusical,
+  type ChiptuneParams, type CombineMode, type Oscillator,
+} from "../core/audio/chiptune";
 import { truncateSampleAtLoopEnd } from "../core/audio/loopTruncate";
+import { Slider } from "./Slider";
 
 /**
  * Effect kinds that ride the Crop/Cut row as their own buttons. Order
@@ -111,6 +126,10 @@ interface Props {
   onPatchEffect: (index: number, next: EffectNode) => void;
   onSetMonoMix: (monoMix: MonoMix) => void;
   onSetTargetNote: (targetNote: number | null) => void;
+  /** Switch the source kind. Creates a default workbench if needed. */
+  onSetSourceKind: (kind: SourceKind) => void;
+  /** Patch the chiptune source params on the current slot. No-op for sampler. */
+  onUpdateChiptune: (patch: Partial<ChiptuneParams>) => void;
 }
 
 /** Editor for the sample under `currentSample()`: waveform + metadata + load. */
@@ -169,23 +188,47 @@ export const SampleView: Component<Props> = (props) => {
     props.onLoadWav(buf, file.name);
   };
 
+  // Active source kind for the picker. Defaults to 'sampler' when no
+  // workbench exists for the slot (the slot may still hold int8 from a
+  // .mod load — picking Chiptune kicks off a fresh synth workbench).
+  const activeSourceKind = createMemo<SourceKind>(
+    () => workbench()?.source.kind ?? "sampler",
+  );
+
   return (
     <div class="sampleview">
       <header class="sampleview__header">
         <h2>Sample {slotIndex()}</h2>
+        <div class="source-picker" role="tablist" aria-label="Sample source">
+          {SOURCE_KINDS.map((k) => (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeSourceKind() === k}
+              classList={{ "is-active": activeSourceKind() === k }}
+              disabled={editingDisabled()}
+              title={`Use the ${SOURCE_LABELS[k]} source for this slot`}
+              onClick={() => props.onSetSourceKind(k)}
+            >
+              {SOURCE_LABELS[k]}
+            </button>
+          ))}
+        </div>
         <div class="sampleview__actions">
-          <label
-            class="file-button"
-            title="Load a WAV file into this sample slot"
-          >
-            <input
-              type="file"
-              accept=".wav,audio/wav,audio/x-wav"
-              hidden
-              onChange={onPickWav}
-            />
-            Load WAV…
-          </label>
+          <Show when={activeSourceKind() === "sampler"}>
+            <label
+              class="file-button"
+              title="Load a WAV file into this sample slot"
+            >
+              <input
+                type="file"
+                accept=".wav,audio/wav,audio/x-wav"
+                hidden
+                onChange={onPickWav}
+              />
+              Load WAV…
+            </label>
+          </Show>
           <button
             type="button"
             onClick={props.onClear}
@@ -207,12 +250,23 @@ export const SampleView: Component<Props> = (props) => {
           onPatch={props.onPatch}
           selection={selection()}
           onSelect={setSelection}
+          // Chiptune samples are always fully looped — the synth re-renders
+          // the cycle on every param edit, so the user can't move the
+          // boundaries anyway. Hide the overlay and disable handle drag.
+          showLoop={workbench()?.source.kind !== "chiptune"}
         />
         {/* Selection-action row: Crop/Cut act on the selection (and require
             one); the remaining effect buttons append to the workbench chain
             — range-aware kinds adopt the selection if present, gain /
             normalize ignore it. All workbench-only buttons disable when the
-            slot has no workbench (e.g. a sample loaded from a `.mod`). */}
+            slot has no workbench (e.g. a sample loaded from a `.mod`).
+
+            Hidden in chiptune mode: the synth's output is one cycle that's
+            re-rendered from params on every edit, so destructive ops (crop /
+            cut) and chain effects (reverse / gain / normalize / …) would
+            either be wiped on the next param change or just confuse the
+            mental model. Edit the synth params instead. */}
+        <Show when={workbench()?.source.kind !== "chiptune"}>
         <div class="sampleview__selection">
           <button
             type="button"
@@ -267,6 +321,7 @@ export const SampleView: Component<Props> = (props) => {
             </span>
           </Show>
         </div>
+        </Show>
         <div class="samplemeta">
           <label>
             <span class="samplemeta__label">Name</span>
@@ -319,45 +374,64 @@ export const SampleView: Component<Props> = (props) => {
               }}
             />
           </label>
-          <label class="samplemeta__toggle">
-            <input
-              type="checkbox"
-              checked={isLooping()}
-              disabled={sample()!.lengthWords === 0 || editingDisabled()}
-              onChange={(e) => {
-                if (e.currentTarget.checked) {
-                  // If the user has drawn a selection, adopt it as the loop
-                  // range and drop the selection — the loop handles take
-                  // over the same role visually. Round inward to word
-                  // boundaries (PT's loop fields are word-aligned).
-                  const sel = selection();
-                  if (sel) {
-                    const start = (sel.start + 1) & ~1;
-                    const end = sel.end & ~1;
-                    if (end - start >= 2) {
-                      props.onPatch({
-                        loopStartWords: start >> 1,
-                        loopLengthWords: (end - start) >> 1,
-                      });
-                      setSelection(null);
-                      return;
+          {/* Chiptune samples are loops by design — the synth produces a
+              single cycle that `writeWorkbenchToSongPure` keeps fully
+              looped on every re-run. Hide the toggle so the user can't
+              fight the engine. */}
+          <Show when={workbench()?.source.kind !== "chiptune"}>
+            <label class="samplemeta__toggle">
+              <input
+                type="checkbox"
+                checked={isLooping()}
+                disabled={sample()!.lengthWords === 0 || editingDisabled()}
+                onChange={(e) => {
+                  if (e.currentTarget.checked) {
+                    // If the user has drawn a selection, adopt it as the loop
+                    // range and drop the selection — the loop handles take
+                    // over the same role visually. Round inward to word
+                    // boundaries (PT's loop fields are word-aligned).
+                    const sel = selection();
+                    if (sel) {
+                      const start = (sel.start + 1) & ~1;
+                      const end = sel.end & ~1;
+                      if (end - start >= 2) {
+                        props.onPatch({
+                          loopStartWords: start >> 1,
+                          loopLengthWords: (end - start) >> 1,
+                        });
+                        setSelection(null);
+                        return;
+                      }
                     }
+                    // No (usable) selection — default loop = whole sample.
+                    props.onPatch({
+                      loopStartWords: 0,
+                      loopLengthWords: sample()!.lengthWords,
+                    });
+                  } else {
+                    // PT no-loop sentinel.
+                    props.onPatch({ loopLengthWords: 1 });
                   }
-                  // No (usable) selection — default loop = whole sample.
-                  props.onPatch({
-                    loopStartWords: 0,
-                    loopLengthWords: sample()!.lengthWords,
-                  });
-                } else {
-                  // PT no-loop sentinel.
-                  props.onPatch({ loopLengthWords: 1 });
-                }
-              }}
-            />
-            <span>Loop</span>
-          </label>
+                }}
+              />
+              <span>Loop</span>
+            </label>
+          </Show>
         </div>
-        <Show when={workbench()}>
+        <Show when={workbench()?.source.kind === "chiptune" ? workbench()!.source : null}>
+          {(src) => (
+            <ChiptuneEditor
+              params={(src() as Extract<SampleSource, { kind: "chiptune" }>).params}
+              disabled={editingDisabled()}
+              onUpdate={props.onUpdateChiptune}
+            />
+          )}
+        </Show>
+        {/* Pipeline editor is the chain + PT transformer panel. Useful only
+            for sampler workbenches — the chiptune source has its own editor
+            above and its `pt` is fixed (mono, no resampling), so showing
+            the pipeline here would just be visual noise. */}
+        <Show when={workbench() && workbench()!.source.kind !== "chiptune"}>
           <PipelineEditor
             wb={workbench()!}
             onRemoveEffect={props.onRemoveEffect}
@@ -385,6 +459,8 @@ interface WaveformProps {
   onPatch: (patch: Partial<Sample>) => void;
   selection: SampleSelection | null;
   onSelect: (s: SampleSelection | null) => void;
+  /** When false, hide the loop overlay and ignore loop-handle drag. */
+  showLoop: boolean;
 }
 
 /** Either dragging a loop boundary, or sweeping a selection range. */
@@ -436,6 +512,7 @@ const Waveform: Component<WaveformProps> = (props) => {
   /** Mouse-x near a loop boundary? Returns which one, or null. */
   const handleAt = (x: number): "start" | "end" | null => {
     const s = props.sample;
+    if (!props.showLoop) return null;
     if (s.loopLengthWords <= 1) return null;
     const dataLen = s.data.length;
     if (dataLen === 0) return null;
@@ -608,7 +685,7 @@ const Waveform: Component<WaveformProps> = (props) => {
       }
     }
 
-    drawLoopOverlay(ctx, props.sample, W, H, data.length);
+    if (props.showLoop) drawLoopOverlay(ctx, props.sample, W, H, data.length);
   });
 
   // Playhead layer: redrawn on every previewFrame tick. The whole canvas is
@@ -710,14 +787,17 @@ interface PipelineEditorProps {
 }
 
 const PipelineEditor: Component<PipelineEditorProps> = (props) => {
-  const channels = () => props.wb.source.channels.length;
-  const sourceFrames = () => props.wb.source.channels[0]?.length ?? 0;
+  // The chain operates on the materialised source — for chiptune that's a
+  // synth cycle, for sampler the loaded WAV. Read both off the same memo.
+  const materialised = createMemo(() => materializeSource(props.wb.source));
+  const channels = () => materialised().channels.length;
+  const sourceFrames = () => materialised().channels[0]?.length ?? 0;
 
   return (
     <section class="pipeline">
       <header class="pipeline__header">
         <span class="pipeline__source">
-          {props.wb.sourceName} · {props.wb.source.sampleRate} Hz ·{" "}
+          {sourceDisplayName(props.wb.source)} · {materialised().sampleRate} Hz ·{" "}
           {channels() === 1
             ? "mono"
             : channels() === 2
@@ -912,3 +992,128 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
     </Switch>
   );
 };
+
+// ─── Chiptune editor ─────────────────────────────────────────────────────
+
+interface ChiptuneEditorProps {
+  params: ChiptuneParams;
+  disabled: boolean;
+  onUpdate: (patch: Partial<ChiptuneParams>) => void;
+}
+
+const SHAPE_HINT = "sine ─ tri ─ sq ─ saw";
+
+const ChiptuneEditor: Component<ChiptuneEditorProps> = (props) => {
+  const patchOsc1 = (patch: Partial<Oscillator>) =>
+    props.onUpdate({ osc1: { ...props.params.osc1, ...patch } });
+  const patchOsc2 = (patch: Partial<Oscillator>) =>
+    props.onUpdate({ osc2: { ...props.params.osc2, ...patch } });
+
+  return (
+    <section class="chiptune">
+      <div class="chiptune__group">
+        <span class="chiptune__group-label">Synth</span>
+        <div class="chiptune__sliders">
+          <Slider
+            label="Cycle frames"
+            min={CYCLE_FRAMES_MIN}
+            max={CYCLE_FRAMES_MAX}
+            step={1}
+            value={props.params.cycleFrames}
+            disabled={props.disabled}
+            // Snap to octave-aligned cycle lengths so a "C" pattern note
+            // always plays as some C — never a detuned C-ish.
+            snap={snapCycleFramesToMusical}
+            format={(v) => `${v}`}
+            onInput={(v) => props.onUpdate({ cycleFrames: v })}
+          />
+          <Slider
+            label="Amplitude"
+            min={0}
+            max={1}
+            step={0.01}
+            value={props.params.amplitude}
+            disabled={props.disabled}
+            onInput={(v) => props.onUpdate({ amplitude: v })}
+          />
+        </div>
+      </div>
+
+      <OscillatorSliders
+        label="Oscillator 1"
+        osc={props.params.osc1}
+        disabled={props.disabled}
+        onUpdate={patchOsc1}
+      />
+      <OscillatorSliders
+        label="Oscillator 2"
+        osc={props.params.osc2}
+        disabled={props.disabled}
+        onUpdate={patchOsc2}
+      />
+
+      <div class="chiptune__group">
+        <span class="chiptune__group-label">Combine</span>
+        <div class="chiptune__modes" role="radiogroup" aria-label="Combine mode">
+          {COMBINE_MODES.map((m) => (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={props.params.combineMode === m}
+              classList={{ "is-active": props.params.combineMode === m }}
+              disabled={props.disabled}
+              onClick={() => props.onUpdate({ combineMode: m })}
+            >
+              {COMBINE_LABELS[m]}
+            </button>
+          ))}
+        </div>
+        <div class="chiptune__sliders">
+          <Slider
+            label="Amount"
+            min={0}
+            max={1}
+            step={0.01}
+            value={props.params.combineAmount}
+            disabled={props.disabled}
+            onInput={(v) => props.onUpdate({ combineAmount: v })}
+          />
+        </div>
+      </div>
+    </section>
+  );
+};
+
+interface OscillatorSlidersProps {
+  label: string;
+  osc: Oscillator;
+  disabled: boolean;
+  onUpdate: (patch: Partial<Oscillator>) => void;
+}
+
+const OscillatorSliders: Component<OscillatorSlidersProps> = (props) => (
+  <div class="chiptune__group">
+    <span class="chiptune__group-label">{props.label}</span>
+    <div class="chiptune__sliders">
+      <Slider
+        label="Shape"
+        min={SHAPE_INDEX_MIN}
+        max={SHAPE_INDEX_MAX}
+        step={0.01}
+        value={props.osc.shapeIndex}
+        disabled={props.disabled}
+        hint={SHAPE_HINT}
+        onInput={(v) => props.onUpdate({ shapeIndex: v })}
+      />
+      <Slider
+        label="Phase split"
+        min={PHASE_SPLIT_MIN}
+        max={PHASE_SPLIT_MAX}
+        step={0.01}
+        value={props.osc.phaseSplit}
+        disabled={props.disabled}
+        onInput={(v) => props.onUpdate({ phaseSplit: v })}
+      />
+    </div>
+  </div>
+);

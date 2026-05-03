@@ -132,20 +132,39 @@ function matchesKeyOnly(e: KeyboardEvent, s: Shortcut): boolean {
 }
 
 /**
- * True when document.activeElement is something that natively consumes
- * keystrokes (a text-like input, textarea, select, or contenteditable). Used
- * to skip plain-key shortcuts so the user can type into inputs without their
- * 'a' / 'z' / digits being intercepted as piano notes / octave / hex entry.
- * Mod-key shortcuts (⌘S, ⌘Z, …) still fire so global app actions stay reachable.
+ * Categorise document.activeElement so the dispatcher can decide *which*
+ * shortcuts to skip:
+ *   - 'text': text inputs, textareas, contenteditable — block ALL bare-key
+ *     shortcuts so typing 'a' enters the letter, doesn't preview a note.
+ *   - 'range': range sliders — block only navigation keys (arrows / page /
+ *     home / end) so the user keeps native slider interaction, but bare
+ *     letters fall through to shortcuts (piano keys, octave Z/X, …).
+ *     Range inputs don't consume letters or digits anyway.
+ *   - 'select': <select> elements — block bare-key shortcuts (selects can
+ *     jump-to-letter on type).
+ *   - null: nothing focused or focus is on a non-form element.
+ *
+ * Mod-key shortcuts (⌘S, ⌘Z, …) always fire regardless, so global app
+ * actions stay reachable.
  */
-function isFocusInEditable(): boolean {
+type FocusKind = 'text' | 'range' | 'select' | null;
+
+function focusKind(): FocusKind {
   const el = typeof document === 'undefined' ? null : document.activeElement;
-  if (!el) return false;
+  if (!el) return null;
+  if (el instanceof HTMLInputElement && el.type === 'range') return 'range';
   const tag = el.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
-  if (el instanceof HTMLElement && el.isContentEditable) return true;
-  return false;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return 'text';
+  if (tag === 'SELECT') return 'select';
+  if (el instanceof HTMLElement && el.isContentEditable) return 'text';
+  return null;
 }
+
+/** Keys a focused range input consumes natively — leave these to the slider. */
+const RANGE_NAV_KEYS: ReadonlySet<string> = new Set([
+  'arrowup', 'arrowdown', 'arrowleft', 'arrowright',
+  'pageup', 'pagedown', 'home', 'end',
+]);
 
 /**
  * Install window-level keydown + keyup listeners that run matching shortcuts.
@@ -160,13 +179,20 @@ function isFocusInEditable(): boolean {
 export function installShortcuts(target: Window = window): () => void {
   const downHandler = (ev: Event) => {
     const e = ev as KeyboardEvent;
-    const inEditable = isFocusInEditable();
+    const kind = focusKind();
     for (const s of registered) {
       if (!matchesShortcut(e, s)) continue;
-      // Skip plain-key shortcuts when the user is typing into an input. Mod
-      // shortcuts (⌘+letter etc.) still fire — e.g. ⌘S to save while focused
-      // on the sample-name field.
-      if (inEditable && !s.mod) continue;
+      // Mod-key shortcuts (⌘S, ⌘Z, …) always fire — global actions reach
+      // the user even while a form control is focused.
+      if (!s.mod) {
+        // Text inputs / selects consume bare keystrokes; skip plain-key
+        // shortcuts so typing into the field works.
+        if (kind === 'text' || kind === 'select') continue;
+        // Range inputs natively consume navigation keys — let the slider
+        // keep arrow/page/home/end. Letters and digits pass through so
+        // piano notes (a/s/d/…) audition while the slider has focus.
+        if (kind === 'range' && RANGE_NAV_KEYS.has(s.key)) continue;
+      }
       e.preventDefault();
       if (s.runUp && e.repeat) return;
       s.run();

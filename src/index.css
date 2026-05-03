@@ -519,6 +519,11 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   padding: 16px 24px;
   gap: 16px;
   overflow: auto;
+  /* Container query host so the chiptune editor below can lay out its
+     groups in 1 or 2 columns based on the sampleview's actual width
+     (which depends on side-panel widths, not just the viewport). */
+  container-type: inline-size;
+  container-name: sampleview;
 }
 .sampleview__header {
   display: flex;
@@ -554,6 +559,12 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   position: relative;
   width: 100%;
   height: 160px;
+  /* The parent .sampleview is a flex column with height: 100% and overflow:
+     auto. Without `flex-shrink: 0`, when children below (chiptune editor,
+     pipeline editor, etc.) push past the container's height, the waveform
+     gets squeezed to near-zero instead of letting the column scroll. */
+  flex-shrink: 0;
+  min-height: 160px;
   background: var(--panel);
   border: 1px solid var(--grid-line);
   border-radius: 6px;
@@ -856,3 +867,156 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   font-size: 11px;
   color: var(--muted);
 }
+
+/* ── Slider ─────────────────────────────────────────────────────────── */
+
+.slider {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  min-width: 220px;
+  flex: 1 1 220px;
+}
+.slider__label {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+}
+.slider__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.slider__range {
+  flex: 1;
+  accent-color: var(--accent);
+  cursor: pointer;
+  min-width: 0;
+}
+.slider__value {
+  color: var(--fg);
+  min-width: 56px;
+  text-align: right;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.slider__hint {
+  color: var(--muted);
+  font-size: 10px;
+}
+.slider--disabled { opacity: 0.55; cursor: not-allowed; }
+.slider--disabled .slider__range { cursor: not-allowed; }
+
+/* ── Source picker (Sampler / Chiptune) ─────────────────────────────── */
+
+.source-picker {
+  display: inline-flex;
+  border: 1px solid var(--grid-line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.source-picker button {
+  background: transparent;
+  color: var(--muted);
+  border: 0;
+  padding: 4px 14px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.source-picker button + button { border-left: 1px solid var(--grid-line); }
+.source-picker button:hover:not(:disabled):not(.is-active) { color: var(--fg); }
+.source-picker button.is-active {
+  background: var(--accent);
+  color: var(--bg);
+}
+.source-picker button:disabled { color: var(--muted); cursor: not-allowed; opacity: 0.55; }
+
+/* ── Chiptune editor ────────────────────────────────────────────────── */
+
+.chiptune {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--grid-line);
+  border-radius: 6px;
+}
+/* Wide sampleview: switch to a 2-column grid. JSX renders the groups in
+   reading order (Synth → Osc1 → Osc2 → Combine), but we want Combine on
+   the top-right next to Synth so the oscillators line up underneath their
+   own row. Named grid areas remap nth-child to the desired layout without
+   reordering the markup. */
+@container sampleview (min-width: 640px) {
+  .chiptune {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "synth combine"
+      "osc1  osc2";
+    align-items: start;
+  }
+  .chiptune > :nth-child(1) { grid-area: synth; }
+  .chiptune > :nth-child(2) { grid-area: osc1; }
+  .chiptune > :nth-child(3) { grid-area: osc2; }
+  .chiptune > :nth-child(4) { grid-area: combine; }
+}
+/* Each group is its own visual section — subtle background panel and a
+   header label, so the eye can navigate Synth / Oscillator 1 / Oscillator 2
+   / Combine without counting sliders. */
+.chiptune__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
+}
+.chiptune__group-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+/* One slider per row, full width — makes the synth panel readable at a
+   glance instead of cramming two sliders side-by-side. Subtle separators
+   between rows so each parameter reads as its own section. */
+.chiptune__sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.chiptune__sliders > .slider {
+  padding: 8px 0;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.chiptune__sliders > .slider + .slider {
+  border-top: 1px dashed var(--grid-line);
+}
+.chiptune__modes {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.chiptune__modes button {
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.chiptune__modes button.is-active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+.chiptune__modes button:hover:not(.is-active) { border-color: var(--accent); }

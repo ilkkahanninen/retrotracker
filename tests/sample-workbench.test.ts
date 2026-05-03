@@ -3,10 +3,12 @@ import {
   applyGain, applyNormalize, applyReverse, applyCrop, applyCut,
   applyFadeIn, applyFadeOut, applyEffect,
   runChain, transformToPt, runPipeline,
-  workbenchFromWav, defaultEffect,
+  workbenchFromWav, workbenchFromChiptune, defaultEffect,
   resampleLinear, rateForTargetNote, DEFAULT_TARGET_NOTE,
+  materializeSource, sourceDisplayName, sourceWantsFullLoop,
   type SampleWorkbench,
 } from '../src/core/audio/sampleWorkbench';
+import { defaultChiptuneParams } from '../src/core/audio/chiptune';
 import { writeWav } from '../src/core/audio/wav';
 
 const sr = 44100;
@@ -187,8 +189,7 @@ describe('transformToPt (mono mix + int8 quantise)', () => {
 describe('runPipeline (end-to-end)', () => {
   it('source → chain → PT transformer → Int8', () => {
     const wb: SampleWorkbench = {
-      source: stereo([0.5, 0.5], [-0.5, -0.5]),
-      sourceName: 'demo',
+      source: { kind: 'sampler', wav: stereo([0.5, 0.5], [-0.5, -0.5]), sourceName: 'demo' },
       chain: [{ kind: 'gain', params: { gain: 2 } }], // → 1, 1 / -1, -1
       pt: { monoMix: 'average', targetNote: null },                      // → 0, 0
     };
@@ -198,8 +199,7 @@ describe('runPipeline (end-to-end)', () => {
 
   it('with no effects, passes the source straight through to int8', () => {
     const wb: SampleWorkbench = {
-      source: mono(0, 1, -1),
-      sourceName: 'demo',
+      source: { kind: 'sampler', wav: mono(0, 1, -1), sourceName: 'demo' },
       chain: [],
       pt: { monoMix: 'average', targetNote: null },
     };
@@ -214,12 +214,60 @@ describe('workbenchFromWav (round-trip from a synthetic WAV)', () => {
       channels: [new Float32Array([0, 0.5, -0.5])],
     }, { bitsPerSample: 16 });
     const wb = workbenchFromWav(wav, 'beep.wav');
-    expect(wb.source.sampleRate).toBe(22050);
-    expect(wb.source.channels).toHaveLength(1);
+    if (wb.source.kind !== 'sampler') throw new Error('expected sampler source');
+    expect(wb.source.wav.sampleRate).toBe(22050);
+    expect(wb.source.wav.channels).toHaveLength(1);
+    expect(wb.source.sourceName).toBe('beep');
     expect(wb.chain).toEqual([]);
     expect(wb.pt.monoMix).toBe('average');
     expect(wb.pt.targetNote).toBe(DEFAULT_TARGET_NOTE); // C-2 = 12
-    expect(wb.sourceName).toBe('beep');
+  });
+});
+
+describe('SampleSource', () => {
+  it('workbenchFromChiptune builds a chiptune-source workbench with no resampling', () => {
+    const wb = workbenchFromChiptune(defaultChiptuneParams());
+    expect(wb.source.kind).toBe('chiptune');
+    expect(wb.chain).toEqual([]);
+    // PT resampling is off — pitch comes from PT period applied to cycle length.
+    expect(wb.pt.targetNote).toBeNull();
+  });
+
+  it('materializeSource returns the WAV for sampler and a synth cycle for chiptune', () => {
+    const wav = writeWav(
+      { sampleRate: 22050, channels: [new Float32Array([0, 0.5, -0.5])] },
+      { bitsPerSample: 16 },
+    );
+    const sampler = workbenchFromWav(wav, 'beep.wav');
+    expect(materializeSource(sampler.source).channels[0]!.length).toBe(3);
+
+    const chip = workbenchFromChiptune({ ...defaultChiptuneParams(), cycleFrames: 32 });
+    expect(materializeSource(chip.source).channels[0]!.length).toBe(32);
+  });
+
+  it('sourceWantsFullLoop is true for chiptune, false for sampler', () => {
+    expect(sourceWantsFullLoop({ kind: 'chiptune', params: defaultChiptuneParams() })).toBe(true);
+    expect(sourceWantsFullLoop({
+      kind: 'sampler',
+      wav: { sampleRate: 44100, channels: [new Float32Array(8)] },
+      sourceName: 'demo',
+    })).toBe(false);
+  });
+
+  it('sourceDisplayName falls back to "Chiptune" for the synth source', () => {
+    expect(sourceDisplayName({ kind: 'chiptune', params: defaultChiptuneParams() }))
+      .toBe('Chiptune');
+    expect(sourceDisplayName({
+      kind: 'sampler',
+      wav: { sampleRate: 44100, channels: [new Float32Array(2)] },
+      sourceName: 'beep',
+    })).toBe('beep');
+  });
+
+  it('runPipeline on a chiptune workbench emits int8 of cycleFrames length', () => {
+    const wb = workbenchFromChiptune({ ...defaultChiptuneParams(), cycleFrames: 32 });
+    const data = runPipeline(wb);
+    expect(data.length).toBe(32);
   });
 });
 

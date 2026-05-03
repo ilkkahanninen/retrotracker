@@ -3,6 +3,8 @@ import { writeModule } from '../core/mod/writer';
 import type { Song } from '../core/mod/types';
 import { FIELDS, type Cursor, type Field } from './cursor';
 import type { View } from './view';
+import type { ChiptuneParams } from '../core/audio/chiptune';
+import { chiptuneFromJson } from '../core/audio/chiptune';
 
 /**
  * Local-storage session persistence.
@@ -14,24 +16,32 @@ import type { View } from './view';
  * and "Open .mod" so we never invent a JSON shape we'd have to migrate.
  *
  * The handful of UI signals (cursor, view, current sample / octave / edit
- * step, filename) are bundled around the song bytes as plain JSON. We don't
- * persist:
- *   - Workbenches (WAV source + effect chain) — these can be MB-sized and
- *     localStorage isn't the right home; they go away on reload.
+ * step, filename) are bundled around the song bytes as plain JSON.
+ *
+ * Chiptune-source workbenches DO persist: the params are tiny JSON, the
+ * synth is deterministic, and re-running the pipeline on load reproduces
+ * the slot's int8 exactly. Sampler-source workbenches do NOT persist —
+ * their WAV bytes can be MB-sized and don't fit comfortably in
+ * localStorage / a `.retro` JSON file.
+ *
+ * Other things we don't persist:
  *   - History stacks — a fresh session starts with no undo, matching the
  *     "Open .mod" path which also calls clearHistory.
  *   - Selection / clipboard — ephemeral.
  *   - Transport / playPos — playback never resumes mid-stream.
  *
- * The key includes a `:v1` suffix so a future schema change can bump the
- * version and reject the old payload cleanly (read-side returns null on a
- * shape mismatch).
+ * Schema versions: the storage key is `retrotracker:session:v1` (kept for
+ * backward compat with already-saved sessions). The `v` field bumped to 2
+ * when chiptuneSources was added — v=1 payloads still load (just without
+ * any chiptune params), and v=2 payloads write the same key.
  */
 
 const STORAGE_KEY = 'retrotracker:session:v1';
 
+type SchemaVersion = 1 | 2;
+
 interface PersistedShape {
-  v: 1;
+  v: SchemaVersion;
   songBase64: string;
   filename: string | null;
   /** Optional in v=1: older snapshots predate the Info view and load with ''. */
@@ -41,6 +51,12 @@ interface PersistedShape {
   currentSample: number;
   currentOctave: number;
   editStep: number;
+  /**
+   * v≥2 only: per-slot chiptune source params. Slot index → params. Sampler
+   * workbenches aren't persisted (WAV bytes are too large for this transport).
+   * Optional so v=1 payloads still validate.
+   */
+  chiptuneSources?: Record<number, ChiptuneParams>;
 }
 
 export interface SessionInputs {
@@ -53,12 +69,18 @@ export interface SessionInputs {
   currentSample: number;
   currentOctave: number;
   editStep: number;
+  /** Per-slot chiptune source params (slot index → params). Optional. */
+  chiptuneSources?: Record<number, ChiptuneParams>;
 }
 
 /** A session that has been read back: same shape as SessionInputs, but
  *  `infoText` is always materialised (never undefined) so the App can
  *  `setInfoText` without a fallback at every call site. */
-export type LoadedSession = Omit<SessionInputs, 'infoText'> & { infoText: string };
+export type LoadedSession = Omit<SessionInputs, 'infoText' | 'chiptuneSources'> & {
+  infoText: string;
+  /** Always materialised on load — empty record when none persisted. */
+  chiptuneSources: Record<number, ChiptuneParams>;
+};
 
 function bytesToBase64(bytes: Uint8Array): string {
   // The CharCode-loop / btoa pair is the smallest reliable Uint8Array→base64
@@ -118,8 +140,11 @@ export function __resetEncodeCacheForTests(): void {
  *  so we re-use the lossless M.K. binary instead of inventing a JSON shape
  *  for the sample data.  Throws if `writeModule` rejects the song. */
 function buildPayload(state: SessionInputs): PersistedShape {
+  const hasChiptune = state.chiptuneSources && Object.keys(state.chiptuneSources).length > 0;
   return {
-    v: 1,
+    // Bump to v=2 only when actually carrying chiptune params, so a session
+    // that has none stays bit-identical to the older format.
+    v: hasChiptune ? 2 : 1,
     songBase64: encodeSongCached(state.song),
     filename: state.filename,
     infoText: state.infoText ?? '',
@@ -128,6 +153,7 @@ function buildPayload(state: SessionInputs): PersistedShape {
     currentSample: state.currentSample,
     currentOctave: state.currentOctave,
     editStep: state.editStep,
+    ...(hasChiptune ? { chiptuneSources: state.chiptuneSources } : {}),
   };
 }
 
@@ -155,7 +181,26 @@ function payloadToSession(parsed: unknown): LoadedSession | null {
     currentSample: clamp(parsed.currentSample, 1, 31, 1),
     currentOctave: clamp(parsed.currentOctave, 1, 3, 2),
     editStep: clamp(parsed.editStep, 0, 16, 1),
+    chiptuneSources: parseChiptuneSources(parsed.chiptuneSources),
   };
+}
+
+/**
+ * Validate a `chiptuneSources` map. Each entry must independently parse via
+ * `chiptuneFromJson`; bad entries are silently dropped (better than failing
+ * the whole load over a single corrupt slot). Slot indices are clamped to
+ * [0, 30] — anything outside that range can't refer to a real PT sample slot.
+ */
+function parseChiptuneSources(raw: unknown): Record<number, ChiptuneParams> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<number, ChiptuneParams> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const slot = parseInt(k, 10);
+    if (!Number.isFinite(slot) || slot < 0 || slot > 30) continue;
+    const p = chiptuneFromJson(v);
+    if (p) out[slot] = p;
+  }
+  return out;
 }
 
 /** Persist the inputs to localStorage. Silent on quota / SecurityErrors. */
@@ -250,7 +295,11 @@ export function deriveProjectFilename(
 function isPersistedShape(v: unknown): v is PersistedShape {
   if (!v || typeof v !== 'object') return false;
   const x = v as Record<string, unknown>;
-  return x['v'] === 1
+  // Accept both v=1 (older sessions, no chiptune support) and v=2 (with
+  // `chiptuneSources`). The chiptuneSources field is validated entry-by-entry
+  // in `parseChiptuneSources` rather than here — a single corrupt slot
+  // shouldn't fail the whole load.
+  return (x['v'] === 1 || x['v'] === 2)
     && typeof x['songBase64'] === 'string'
     && (x['filename'] === null || typeof x['filename'] === 'string')
     && (x['infoText'] === undefined || typeof x['infoText'] === 'string')

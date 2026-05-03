@@ -21,7 +21,30 @@ import { writeWav } from "../../src/core/audio/wav";
 import {
   runPipeline as runPipelineSync,
   type SampleWorkbench,
+  type EffectNode,
+  type PtTransformerParams,
 } from "../../src/core/audio/sampleWorkbench";
+import type { WavData } from "../../src/core/audio/wav";
+
+/**
+ * Compact fixture shape for `seedSampleWithWorkbench` — these tests pre-date
+ * the SampleSource union and inline `{ source, sourceName, chain, pt }` for
+ * brevity. The seed helper translates to the new sampler-source shape.
+ */
+interface LegacyWorkbenchFixture {
+  source: WavData;
+  sourceName: string;
+  chain: EffectNode[];
+  pt: PtTransformerParams;
+}
+
+function fixtureToWorkbench(f: LegacyWorkbenchFixture): SampleWorkbench {
+  return {
+    source: { kind: "sampler", wav: f.source, sourceName: f.sourceName },
+    chain: f.chain,
+    pt: f.pt,
+  };
+}
 
 function resetState() {
   setSong(null);
@@ -63,18 +86,17 @@ function makeStereoWav(): File {
  * song so the UI's view of the slot matches the workbench. Requires that
  * App has already mounted (so `song()` is non-null).
  */
-function seedSampleWithWorkbench(wb: SampleWorkbench): void {
+function seedSampleWithWorkbench(fixture: LegacyWorkbenchFixture): void {
   const s = song();
   if (!s)
     throw new Error(
       "seedSampleWithWorkbench needs a mounted song; render(App) first",
     );
+  const wb = fixtureToWorkbench(fixture);
   setWorkbench(0, wb);
   // Apply the pipeline so the slot's int8 data matches what the editor shows.
   // We mimic what App's writeWorkbenchToSong does, but inline to avoid pulling
   // it through props (the test only cares about end state).
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- async import in tests is awkward
-  // We use require here is impossible in ESM; use top-level import instead.
   const data = runPipelineSync(wb);
   setSong({
     ...s,
@@ -104,8 +126,9 @@ describe("pipeline: WAV load creates a workbench", () => {
 
     const wb = getWorkbench(1);
     expect(wb).toBeDefined();
-    expect(wb!.source.sampleRate).toBe(44100);
-    expect(wb!.source.channels).toHaveLength(2);
+    if (wb!.source.kind !== "sampler") throw new Error("expected sampler source");
+    expect(wb!.source.wav.sampleRate).toBe(44100);
+    expect(wb!.source.wav.channels).toHaveLength(2);
     expect(wb!.chain).toEqual([]);
     expect(wb!.pt.monoMix).toBe("average");
     // Pipeline ran: slot 1 received int8 data.
@@ -622,12 +645,12 @@ describe("pipeline editor: undo/redo restores chain alongside song", () => {
 
 describe("pipeline editor: workbench is cleared on .mod load", () => {
   it("loading a fresh empty song clears any existing workbenches", () => {
-    setWorkbench(0, {
+    setWorkbench(0, fixtureToWorkbench({
       source: { sampleRate: 44100, channels: [new Float32Array([0])] },
       sourceName: "demo",
       chain: [],
       pt: { monoMix: "average", targetNote: null },
-    });
+    }));
     expect(getWorkbench(0)).toBeDefined();
     clearAllWorkbenches();
     expect(getWorkbench(0)).toBeUndefined();

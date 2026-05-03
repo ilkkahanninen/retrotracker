@@ -90,16 +90,25 @@ import {
 import { clipboardSlice, setClipboardSlice } from "./state/clipboard";
 import {
   workbenchFromWav,
+  workbenchFromChiptune,
   runPipeline,
   runChain,
   defaultEffect,
+  materializeSource,
+  sourceDisplayName,
+  sourceWantsFullLoop,
   type SampleWorkbench,
+  type SampleSource,
+  type SourceKind,
   type EffectNode,
   type EffectKind,
   type MonoMix,
 } from "./core/audio/sampleWorkbench";
+import type { ChiptuneParams } from "./core/audio/chiptune";
 import {
   getWorkbench,
+  setWorkbench,
+  workbenches,
   clearAllWorkbenches,
   withWorkbench,
   withoutWorkbench,
@@ -226,6 +235,8 @@ export const App: Component = () => {
     currentSample?: number;
     currentOctave?: number;
     editStep?: number;
+    /** Per-slot chiptune source params restored from the project. */
+    chiptuneSources?: Record<number, ChiptuneParams>;
   }) => {
     if (!loaded.song) return;
     // Halt any in-flight playback before swapping the song — otherwise the
@@ -247,9 +258,19 @@ export const App: Component = () => {
     if (typeof loaded.currentOctave === 'number') setCurrentOctave(loaded.currentOctave);
     if (typeof loaded.editStep === 'number') setEditStep(loaded.editStep);
     clearHistory();
-    // Workbenches are session-only; a fresh load gives us new int8 slots
-    // with no recipe to re-derive them. Drop any in-memory pipelines.
+    // Sampler workbenches don't survive a session boundary (their WAV bytes
+    // aren't persisted). Chiptune workbenches do — we rebuild them from the
+    // saved params so the pipeline editor restores with the synth controls
+    // populated. The slot's int8 is already in the song bytes, so playback
+    // works regardless.
     clearAllWorkbenches();
+    if (loaded.chiptuneSources) {
+      for (const [slotStr, params] of Object.entries(loaded.chiptuneSources)) {
+        const slot = parseInt(slotStr, 10);
+        if (!Number.isFinite(slot)) continue;
+        setWorkbench(slot, workbenchFromChiptune(params));
+      }
+    }
     setTransport("ready");
     setDirty(false);
   };
@@ -326,6 +347,19 @@ export const App: Component = () => {
   }
 
   /**
+   * Build the slot→params map of chiptune workbenches for persistence.
+   * Sampler workbenches are skipped — their WAV bytes are too large for
+   * the JSON / localStorage transports.
+   */
+  const chiptuneSourcesSnapshot = (): Record<number, ChiptuneParams> => {
+    const out: Record<number, ChiptuneParams> = {};
+    for (const [slot, wb] of workbenches()) {
+      if (wb.source.kind === 'chiptune') out[slot] = wb.source.params;
+    }
+    return out;
+  };
+
+  /**
    * Serialise the current Song + UI state to a `.retro` project file. This
    * is the format that round-trips losslessly — Save .mod loses the cursor
    * position, current sample, edit step, etc.
@@ -342,6 +376,7 @@ export const App: Component = () => {
       currentSample: currentSample(),
       currentOctave: currentOctave(),
       editStep: editStep(),
+      chiptuneSources: chiptuneSourcesSnapshot(),
     });
     io.download(
       deriveProjectFilename(filename(), s.title),
@@ -1001,7 +1036,7 @@ export const App: Component = () => {
     endByte: number,
     int8Len: number,
   ): { startFrame: number; endFrame: number } | null => {
-    const chainOut = runChain(wb.source, wb.chain);
+    const chainOut = runChain(materializeSource(wb.source), wb.chain);
     const chainLen = chainOut.channels[0]?.length ?? 0;
     if (chainLen === 0 || int8Len === 0) return null;
     const startFrame = Math.max(
@@ -1078,6 +1113,12 @@ export const App: Component = () => {
    * loop they configured on the waveform. `replaceSampleData` clamps the
    * loop to the new length so a length-changing effect (crop) can't leave
    * the loop pointing past the data.
+   *
+   * Exception: chiptune sources always force a full-sample loop on every
+   * write. The synth's output is a single cycle that's only musically useful
+   * when looped, the UI hides the Loop toggle so the user can't intervene,
+   * and changing `cycleFrames` would otherwise leave a stale loop length
+   * pointing into nothing.
    */
   const writeWorkbenchToSongPure = (
     song: import("./core/mod/types").Song,
@@ -1087,14 +1128,26 @@ export const App: Component = () => {
     const data = runPipeline(wb);
     const old = song.samples[slot];
     const isFirstWrite = !old || old.lengthWords === 0;
+    const fullLoop = sourceWantsFullLoop(wb.source) && data.length >= 2
+      ? { loopStartWords: 0, loopLengthWords: data.length >> 1 }
+      : null;
     const meta: Parameters<typeof replaceSampleData>[3] = isFirstWrite
-      ? { volume: 64, finetune: 0, name: wb.sourceName.slice(0, 22) }
+      ? {
+          volume: 64,
+          finetune: 0,
+          name: sourceDisplayName(wb.source).slice(0, 22),
+          ...(fullLoop ?? {}),
+        }
       : {
           volume: old.volume,
           finetune: old.finetune,
           name: old.name,
-          loopStartWords: old.loopStartWords,
-          loopLengthWords: old.loopLengthWords,
+          // Force the loop to track the current data length for chiptune;
+          // preserve whatever the user set otherwise.
+          ...(fullLoop ?? {
+            loopStartWords: old.loopStartWords,
+            loopLengthWords: old.loopLengthWords,
+          }),
         };
     return replaceSampleData(song, slot, data, meta);
   };
@@ -1155,7 +1208,7 @@ export const App: Component = () => {
     const s = song()?.samples[slot];
     if (!s) return;
 
-    const chainOut = runChain(wb.source, wb.chain);
+    const chainOut = runChain(materializeSource(wb.source), wb.chain);
     let node: EffectNode;
     const isRangeAware =
       kind === "reverse" ||
@@ -1223,6 +1276,64 @@ export const App: Component = () => {
     updateCurrentWorkbench({ ...wb, pt: { ...wb.pt, targetNote } });
   };
 
+  /**
+   * Switch the current slot's source kind (Sampler ↔ Chiptune). Going to
+   * Chiptune from nothing creates a fresh chiptune workbench. Going to
+   * Sampler when no WAV has been loaded is a no-op — the user has to pick
+   * a file via the Load WAV button. Switching kinds drops the chain (its
+   * range-aware effects were sized to the previous source), but keeps `pt`.
+   */
+  const setSourceKind = (kind: SourceKind) => {
+    if (transport() === "playing") return;
+    const slot = currentSample() - 1;
+    const wb = getWorkbench(slot);
+    if (kind === "chiptune") {
+      if (wb && wb.source.kind === "chiptune") return;
+      const fresh = workbenchFromChiptune();
+      const next: SampleWorkbench = wb
+        ? { ...fresh, pt: wb.pt }
+        : fresh;
+      updateCurrentWorkbench(next);
+      return;
+    }
+    // kind === 'sampler' — only meaningful if the slot already has a sampler
+    // workbench underneath (e.g. user toggled to Chiptune and wants to go
+    // back). With nothing to revert to, ignore the click — the Load WAV
+    // button is the entry point for a fresh Sampler.
+    if (!wb || wb.source.kind === "sampler") return;
+    // No previous sampler source on hand — fall through to the "no-op" path.
+    // (Future: persist the prior sampler source on the workbench so we can
+    // restore it. For now the user re-loads the WAV.)
+  };
+
+  /**
+   * Patch the chiptune source params on the current slot. No-op if the slot
+   * isn't a chiptune workbench. Re-runs the pipeline through the same
+   * single-history-entry path the rest of the workbench edits use, and
+   * live-restarts any active preview so the user hears the slider edit
+   * immediately while still holding the piano key.
+   */
+  const updateChiptune = (patch: Partial<ChiptuneParams>) => {
+    if (transport() === "playing") return;
+    const slot = currentSample() - 1;
+    const wb = getWorkbench(slot);
+    if (!wb || wb.source.kind !== "chiptune") return;
+    const params: ChiptuneParams = { ...wb.source.params, ...patch };
+    updateCurrentWorkbench({
+      ...wb,
+      source: { kind: "chiptune", params },
+    });
+    // The commit above ran synchronously — `song()` now returns the new int8.
+    // If the user is auditioning this slot via a held piano key, restart the
+    // preview so they hear the edit. No-op when nothing is playing or the
+    // active preview is on a different slot.
+    const ap = preview.activePreview();
+    if (ap && ap.slot === slot) {
+      const updatedSample = song()?.samples[slot];
+      if (updatedSample) triggerPreview(slot, updatedSample, ap.period);
+    }
+  };
+
   const cleanups: Array<() => void> = [];
   onMount(() => {
     // Restore the previous session from localStorage if one exists; otherwise
@@ -1230,9 +1341,12 @@ export const App: Component = () => {
     // without having to load a file first. The engine is created lazily on
     // the first Play, so we don't touch AudioContext on mount.
     //
-    // Workbenches don't survive a reload (their WAV sources can be MB-sized,
-    // not a good fit for localStorage); the int8 sample data IS in the song,
-    // so playback restores cleanly — only the pipeline editor loses state.
+    // Sampler workbenches don't survive a reload (their WAV sources can be
+    // MB-sized, not a good fit for localStorage). Chiptune workbenches do
+    // — their params are tiny, deterministic, and re-running the synth on
+    // restore reproduces the int8 exactly. The int8 sample data IS in the
+    // song bytes either way, so playback restores cleanly even before the
+    // pipeline editor catches up.
     if (!song()) {
       const restored = loadSession();
       if (restored) {
@@ -1245,6 +1359,10 @@ export const App: Component = () => {
         setCurrentSample(restored.currentSample);
         setCurrentOctave(restored.currentOctave);
         setEditStep(restored.editStep);
+        for (const [slotStr, params] of Object.entries(restored.chiptuneSources)) {
+          const slot = parseInt(slotStr, 10);
+          if (Number.isFinite(slot)) setWorkbench(slot, workbenchFromChiptune(params));
+        }
         setTransport("ready");
       } else {
         setSong(emptySong());
@@ -1269,12 +1387,17 @@ export const App: Component = () => {
       const samp = currentSample();
       const oct = currentOctave();
       const step = editStep();
+      // Subscribe to the workbenches map so chiptune-source edits also
+      // trigger an autosave. The snapshot is taken inside the timeout to
+      // pick up any rapid follow-up edits before we serialise.
+      workbenches();
       if (!s) return;
       if (saveTimer !== null) window.clearTimeout(saveTimer);
       saveTimer = window.setTimeout(() => {
         saveSession({
           song: s, filename: fname, infoText: info, view: v, cursor: c,
           currentSample: samp, currentOctave: oct, editStep: step,
+          chiptuneSources: chiptuneSourcesSnapshot(),
         });
       }, 250);
     });
@@ -2022,6 +2145,8 @@ export const App: Component = () => {
                   onPatchEffect={patchEffect}
                   onSetMonoMix={setMonoMix}
                   onSetTargetNote={setTargetNote}
+                  onSetSourceKind={setSourceKind}
+                  onUpdateChiptune={updateChiptune}
                 />
               </div>
               <div

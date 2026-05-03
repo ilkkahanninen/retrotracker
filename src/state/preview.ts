@@ -96,3 +96,15 @@ export function stopPreview(): void {
   active = null;
   setPosition(null);
 }
+
+/**
+ * Read-back of which slot is currently being previewed and at what PT period.
+ * Lets the App's update handlers live-restart the audition when a slider
+ * edit changes the underlying sample data — without it, the engine would
+ * keep playing the buffer that was loaded when the key was first pressed
+ * and the user wouldn't hear their edits until they re-pressed the key.
+ */
+export function activePreview(): { slot: number; period: number } | null {
+  if (!active) return null;
+  return { slot: active.slot, period: PAULA_CLOCK_PAL / (active.paulaRate * 2) };
+}

@@ -2,7 +2,12 @@
  * Sample workbench — a per-slot, session-only editing pipeline that lives
  * outside the Song.
  *
- *   source (Float32 WavData) → effect chain → PT transformer → Int8Array
+ *   source → effect chain → PT transformer → Int8Array
+ *
+ * The source is a `SampleSource` union: today either a loaded WAV (the
+ * "Sampler" — kind: 'sampler') or a wavetable synth cycle (kind: 'chiptune').
+ * `materializeSource` is the only place that knows how to turn either into a
+ * WavData; everything downstream is shape-agnostic.
  *
  * Each effect is a pure `WavData → WavData` function. The terminal PT
  * transformer mixes to mono and quantises to 8-bit signed; its output is
@@ -11,15 +16,21 @@
  * Playback reads the int8 data; it never touches the workbench. That's the
  * boundary: the pipeline shapes the int8, then we hand off to the replayer.
  *
- * Workbenches don't survive a `.mod` save / re-load — when the user opens
- * a saved file, the slots have only the int8 result, not the recipe to
- * re-derive it. A future project file could persist the chain.
+ * Sampler workbenches don't survive a `.mod` save / re-load (their WAV
+ * source bytes can be MB-sized, no good fit for localStorage / `.retro`).
+ * Chiptune workbenches DO persist — their params are tiny, and the synth is
+ * deterministic so re-running the pipeline reproduces the int8 exactly.
  */
 
 import type { WavData } from './wav';
 import { readWav } from './wav';
 import { deriveSampleName } from '../mod/sampleImport';
 import { PAULA_CLOCK_PAL, PERIOD_TABLE } from '../mod/format';
+import {
+  type ChiptuneParams,
+  defaultChiptuneParams,
+  generateChiptuneCycle,
+} from './chiptune';
 
 /** PT note slot for "C-2" — the conventional default target for fresh imports. */
 export const DEFAULT_TARGET_NOTE = 12;
@@ -79,11 +90,57 @@ export interface PtTransformerParams {
   targetNote: number | null;
 }
 
+// ─── Sources ──────────────────────────────────────────────────────────────
+
+/**
+ * The "front" of the pipeline. Generalised so a slot can be either a
+ * traditional WAV-import sampler or a synthesised chiptune cycle. Adding
+ * another kind (8SVX/IFF, FM patch, …) means a new variant + a clause in
+ * `materializeSource`.
+ *
+ * The downstream chain + PT transformer don't care which kind produced the
+ * WavData — they operate on raw audio.
+ */
+export type SampleSource =
+  | { kind: 'sampler';  wav: WavData; sourceName: string }
+  | { kind: 'chiptune'; params: ChiptuneParams };
+
+export type SourceKind = SampleSource['kind'];
+
+export const SOURCE_KINDS: readonly SourceKind[] = ['sampler', 'chiptune'] as const;
+
+export const SOURCE_LABELS: Readonly<Record<SourceKind, string>> = {
+  sampler:  'Sampler',
+  chiptune: 'Chiptune',
+};
+
+/** Turn a source into the WavData the chain receives. Pure, deterministic. */
+export function materializeSource(src: SampleSource): WavData {
+  switch (src.kind) {
+    case 'sampler':  return src.wav;
+    case 'chiptune': return generateChiptuneCycle(src.params);
+  }
+}
+
+/** Display name for the pipeline header. */
+export function sourceDisplayName(src: SampleSource): string {
+  switch (src.kind) {
+    case 'sampler':  return src.sourceName;
+    case 'chiptune': return 'Chiptune';
+  }
+}
+
+/**
+ * Should the slot's loop be set to span the whole result on the first write?
+ * Chiptune samples are looping by nature; sampler results aren't.
+ */
+export function sourceWantsFullLoop(src: SampleSource): boolean {
+  return src.kind === 'chiptune';
+}
+
 export interface SampleWorkbench {
-  /** Original loaded audio at original rate / channel count. Never mutated. */
-  source: WavData;
-  /** Display name (typically derived from the loaded WAV's filename). */
-  sourceName: string;
+  /** Source feeding the chain — sampler (WAV) or chiptune (synth). */
+  source: SampleSource;
   /** Effect chain, runs left-to-right. */
   chain: EffectNode[];
   /** Always-present terminal node. */
@@ -311,7 +368,7 @@ export function transformToPt(audio: WavData, pt: PtTransformerParams): Int8Arra
 
 /** End-to-end: source → chain → PT transformer → Int8. */
 export function runPipeline(workbench: SampleWorkbench): Int8Array {
-  return transformToPt(runChain(workbench.source, workbench.chain), workbench.pt);
+  return transformToPt(runChain(materializeSource(workbench.source), workbench.chain), workbench.pt);
 }
 
 // ─── Construction ─────────────────────────────────────────────────────────
@@ -319,13 +376,31 @@ export function runPipeline(workbench: SampleWorkbench): Int8Array {
 /** Decode a WAV file into a fresh workbench with an empty effect chain. */
 export function workbenchFromWav(bytes: Uint8Array, filename: string): SampleWorkbench {
   return {
-    source: readWav(bytes),
-    sourceName: deriveSampleName(filename) || filename,
+    source: {
+      kind: 'sampler',
+      wav: readWav(bytes),
+      sourceName: deriveSampleName(filename) || filename,
+    },
     chain: [],
     // Default to C-2: when the user triggers C-2 in a pattern, the sample
     // plays at its original speed. They can change the target (or set null
     // to disable resampling entirely) from the Effects panel.
     pt: { monoMix: 'average', targetNote: DEFAULT_TARGET_NOTE },
+  };
+}
+
+/**
+ * Build a fresh chiptune workbench. Uses `defaultChiptuneParams` and disables
+ * PT resampling — pitch comes from the cycle length applied to the PT period
+ * at playback time, not from rate conversion.
+ */
+export function workbenchFromChiptune(
+  params: ChiptuneParams = defaultChiptuneParams(),
+): SampleWorkbench {
+  return {
+    source: { kind: 'chiptune', params },
+    chain: [],
+    pt: { monoMix: 'average', targetNote: null },
   };
 }
 
