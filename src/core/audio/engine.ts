@@ -1,7 +1,7 @@
 import workletUrl from "./worklet?worker&url";
 import previewWorkletUrl from "./preview-worklet?worker&url";
 import type { Sample, Song } from "../mod/types";
-import { songForPlayback } from "./loopTruncate";
+import { songForPlayback, truncateSampleAtLoopEnd } from "./loopTruncate";
 import type { WorkletEvent, WorkletMessage } from "./worklet";
 import type { PreviewMsg } from "./preview-worklet-types";
 
@@ -126,13 +126,20 @@ export class AudioEngine {
     if (sample.data.byteLength === 0 || period <= 0) return;
     if (this.ctx.state === "suspended") await this.ctx.resume();
     const node = await this.ensurePreviewNode();
+    // Match what `engine.load` feeds the song worklet: drop trailing bytes
+    // past loopEnd for looped samples (PT/Amiga loopStart=0 quirk — see
+    // loopTruncate.ts). Without this, preview audio plays the full
+    // post-pipeline buffer once before settling into the loop, while song
+    // playback wraps at loopEnd — the two would disagree, defeating the
+    // whole point of routing preview through Paula.
+    const truncated = truncateSampleAtLoopEnd(sample);
     const msg: PreviewMsg = {
       type: "set",
-      data: sample.data,
+      data: truncated.data,
       period,
-      volume: sample.volume,
-      loopStartBytes: sample.loopStartWords * 2,
-      loopLengthWords: sample.loopLengthWords,
+      volume: truncated.volume,
+      loopStartBytes: truncated.loopStartWords * 2,
+      loopLengthWords: truncated.loopLengthWords,
     };
     node.port.postMessage(msg);
   }
