@@ -1,4 +1,4 @@
-import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack, type Component } from 'solid-js';
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack, type Component } from 'solid-js';
 import type { Note, Song } from '../core/mod/types';
 import { CHANNELS } from '../core/mod/types';
 import { PERIOD_TABLE } from '../core/mod/format';
@@ -154,9 +154,10 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
 
   // Center the playhead row when the song is playing. We skip this when
   // stopped because in that mode the playhead tracks the cursor — the
-  // margin-based cursor scroller below handles it more gently. With
-  // virtualization the row's pixel position is known arithmetically
-  // (`idx * ROW_HEIGHT`) so we don't need the row to be in the DOM.
+  // margin-based cursor scroller below handles it more gently. Cheap
+  // per-tick because the visible-row <For> below is keyed by FlatRow
+  // identity: a one-row scroll mounts/unmounts a single row instead of
+  // rewriting every row's content.
   createEffect(() => {
     if (!props.active) return;
     const idx = activeFlatIndex();
@@ -312,21 +313,22 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
             class="patgrid__rows-spacer"
             style={{ height: `${flat().length * ROW_HEIGHT}px` }}
           >
-            {/* <Index> over the visible slice keeps row DOM stable across
-                small slice shifts (cursor nav within the buffer). On a
-                bigger jump (PageDown / scroll) the slice diff is small
-                enough that the mount cost stays in the millisecond range. */}
-            <Index each={visibleRows()}>
+            {/* <For> keyed on FlatRow identity: when the slice shifts during
+                playback only the entering / leaving row mount-or-unmount,
+                while the ~80 kept rows reuse their DOM (and their flatIdx
+                memo recomputes to the same value, so style/class effects
+                don't propagate). flatRowCache in flatten.ts gives us the
+                stable refs this relies on. */}
+            <For each={visibleRows()}>
               {(item, sliceIdx) => {
-                const flatIdx = createMemo(() => visibleRange().start + sliceIdx);
-                const rowIndex = createMemo(() => item().rowIndex);
+                const flatIdx = createMemo(() => visibleRange().start + sliceIdx());
                 const isBeat = createMemo(() => {
                   const b = rowsPerBeat();
-                  return b > 0 && rowIndex() % b === 0;
+                  return b > 0 && item.rowIndex % b === 0;
                 });
                 const isBar = createMemo(() => {
                   const bar = rowsPerBeat() * beatsPerBar();
-                  return bar > 0 && rowIndex() % bar === 0;
+                  return bar > 0 && item.rowIndex % bar === 0;
                 });
                 return (
                   <div
@@ -335,15 +337,15 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                     classList={{
                       'patgrid__row--beat': isBeat() && !isBar(),
                       'patgrid__row--bar': isBar(),
-                      'patgrid__row--boundary': item().boundaryAbove,
+                      'patgrid__row--boundary': item.boundaryAbove,
                       'patgrid__row--active': props.active && flatIdx() === activeFlatIndex(),
                       'patgrid__row--cursor': !props.active && flatIdx() === activeFlatIndex(),
                     }}
                   >
                     <span class="patgrid__num">
-                      {rowIndex().toString(16).toUpperCase().padStart(2, '0')}
+                      {item.rowIndex.toString(16).toUpperCase().padStart(2, '0')}
                     </span>
-                    <For each={item().cells}>
+                    <For each={item.cells}>
                       {(note, ch) => {
                         const eff = createMemo(() => effectChars(note));
                         const samp = createMemo(() => sampleChars(note));
@@ -355,12 +357,11 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                         // the cell to focus its note column".
                         const focusAndDrag = (e: MouseEvent, field: Field) => {
                           if (e.button !== 0) return;
-                          const it = item();
                           props.onCellClick?.({
-                            order: it.order, row: it.rowIndex,
+                            order: item.order, row: item.rowIndex,
                             channel: ch(), field,
                           });
-                          startDrag(it.order, it.rowIndex, ch());
+                          startDrag(item.order, item.rowIndex, ch());
                         };
                         // Selection highlight: ".patgrid__cell--selected" sits
                         // on the cell wrapper so its background paints under
@@ -369,15 +370,15 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                         const isSelected = createMemo(() => {
                           const sel = selection();
                           if (!sel) return false;
-                          if (sel.order !== item().order) return false;
-                          return selectionContains(sel, item().rowIndex, ch());
+                          if (sel.order !== item.order) return false;
+                          return selectionContains(sel, item.rowIndex, ch());
                         });
                         return (
                           <span
                             class="patgrid__cell"
                             classList={{ 'patgrid__cell--selected': isSelected() }}
-                            attr:data-order={item().order}
-                            attr:data-row={item().rowIndex}
+                            attr:data-order={item.order}
+                            attr:data-row={item.rowIndex}
                             attr:data-channel={ch()}
                             onMouseDown={(e) => focusAndDrag(e, 'note')}
                           >
@@ -452,7 +453,7 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                   </div>
                 );
               }}
-            </Index>
+            </For>
           </div>
         </div>
       </Show>
