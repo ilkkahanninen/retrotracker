@@ -10,6 +10,7 @@ import {
   selection, setSelection, setSelectionAnchor, makeSelection,
   selectionContains,
 } from '../state/selection';
+import { useWindowListener } from './hooks';
 
 const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'] as const;
 
@@ -101,8 +102,8 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
   // viewport and absolute-position them inside a tall placeholder; the
   // scrollbar represents the full song while only ~80 rows live in DOM.
   //
-  // ROW_HEIGHT is locked in CSS (.patgrid__row { height: 19px }) so we can
-  // compute every row's position arithmetically without measuring.
+  // ROW_HEIGHT is locked in CSS (--pat-row-height) so we can compute every
+  // row's position arithmetically without measuring. Keep in sync.
   const ROW_HEIGHT = 19;
   /** Extra rows rendered above / below the viewport so quick scrolls
    *  don't reveal blank gaps before the next viewport tick. */
@@ -285,12 +286,8 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
   const onWindowMouseUp = () => {
     dragAnchor = null;
   };
-  window.addEventListener('mousemove', onWindowMouseMove);
-  window.addEventListener('mouseup', onWindowMouseUp);
-  onCleanup(() => {
-    window.removeEventListener('mousemove', onWindowMouseMove);
-    window.removeEventListener('mouseup', onWindowMouseUp);
-  });
+  useWindowListener('mousemove', onWindowMouseMove);
+  useWindowListener('mouseup', onWindowMouseUp);
 
   return (
     <div class="patgrid">

@@ -8,6 +8,14 @@
   --accent-dim: #2a4f66;
   --grid-line: #2a2d38;
   --error: #ff6b6b;
+  --warn: #e6b800;
+  /* Foreground for text painted on top of --accent (active tabs, current
+   * row, selected cell) — the accent is light enough that --fg fails the
+   * contrast bar. */
+  --text-on-accent: var(--text-on-accent);
+  --waveform-height: 160px;
+  --pat-row-height: 19px;
+  --slider-min-width: 220px;
   font-family: 'Inter', system-ui, sans-serif;
   color-scheme: dark;
 }
@@ -110,7 +118,7 @@ body {
 }
 .viewtabs button.viewtab--active {
   background: var(--accent);
-  color: #061119;
+  color: var(--text-on-accent);
   border-color: var(--accent);
   z-index: 1;
 }
@@ -136,7 +144,11 @@ body {
  * `position: relative` so the absolutely-positioned list floats just
  * below the trigger without affecting the header's flex layout. */
 .menu { position: relative; }
-.menu__button {
+/* Shared style for the standard non-segmented toolbar buttons (File / Edit
+ * dropdown trigger, sample-view file picker). The two class names are kept
+ * for the tests that locate buttons by selector. */
+.menu__button,
+.file-button {
   background: var(--panel-2);
   color: var(--fg);
   border: 1px solid var(--grid-line);
@@ -146,7 +158,8 @@ body {
   cursor: pointer;
   user-select: none;
 }
-.menu__button:hover { border-color: var(--accent); }
+.menu__button:hover,
+.file-button:hover { border-color: var(--accent); }
 .menu__list {
   position: absolute;
   top: calc(100% + 4px);
@@ -189,18 +202,6 @@ body {
   background: var(--grid-line);
   list-style: none;
 }
-.file-button {
-  background: var(--panel-2);
-  color: var(--fg);
-  border: 1px solid var(--grid-line);
-  border-radius: 6px;
-  padding: 4px 12px;
-  font: inherit;
-  cursor: pointer;
-  user-select: none;
-}
-.file-button:hover { border-color: var(--accent); }
-
 /* Project file size readout in the header. Stays muted until the warning
  * threshold (4 MB) is crossed, then flips to yellow; once over the 5 MB
  * limit it turns red so an oversized save attempt is obvious. */
@@ -214,7 +215,7 @@ body {
   user-select: none;
   white-space: nowrap;
 }
-.filesize--warn { color: #e6b800; border-color: #e6b800; }
+.filesize--warn { color: var(--warn); border-color: var(--warn); }
 .filesize--err { color: var(--error); border-color: var(--error); }
 
 /* Segmented Play song / Play pattern group: a single visual control with
@@ -251,7 +252,7 @@ body {
 .transport__btn--active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #061119;
+  color: var(--text-on-accent);
   z-index: 1;
 }
 
@@ -320,20 +321,20 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .app__samples li:hover, .orderlist li:hover { background: var(--panel-2); }
 .app__samples li.sample--current {
   background: var(--accent);
-  color: #061119;
+  color: var(--text-on-accent);
 }
 .app__samples li.sample--current .num,
-.app__samples li.sample--current .name { color: #061119; }
+.app__samples li.sample--current .name { color: var(--text-on-accent); }
 .orderlist li { cursor: pointer; user-select: none; }
 .orderlist li.orderlist__item--cursor {
   background: var(--accent-dim);
 }
 .orderlist li.orderlist__item--active {
   background: var(--accent);
-  color: #061119;
+  color: var(--text-on-accent);
 }
 .orderlist li.orderlist__item--active .num,
-.orderlist li.orderlist__item--active .pat { color: #061119; }
+.orderlist li.orderlist__item--active .pat { color: var(--text-on-accent); }
 .sample--empty { opacity: 0.35; }
 .num { color: var(--muted); }
 .pat { color: var(--accent); }
@@ -601,8 +602,8 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   position: absolute;
   left: 0;
   right: 0;
-  height: 19px;
-  line-height: 19px;
+  height: var(--pat-row-height);
+  line-height: var(--pat-row-height);
   box-sizing: border-box;
 }
 .patgrid__row--beat { background: rgba(255, 255, 255, 0.025); }
@@ -617,12 +618,12 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .patgrid__row--cursor { background: var(--accent-dim); }
 .patgrid__row--active {
   background: var(--accent);
-  color: #061119;
+  color: var(--text-on-accent);
 }
 .patgrid__row--active .patgrid__num,
 .patgrid__row--active .patgrid__note,
 .patgrid__row--active .patgrid__samp,
-.patgrid__row--active .patgrid__eff { color: #061119; }
+.patgrid__row--active .patgrid__eff { color: var(--text-on-accent); }
 .patgrid__row--active .patgrid__part--empty { opacity: 0.5; }
 
 .patgrid__num {
@@ -644,7 +645,7 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 
 .patgrid__field--cursor {
   background: var(--accent);
-  color: #061119;
+  color: var(--text-on-accent);
   opacity: 1;
   box-shadow: 0 0 0 1px var(--accent);
   border-radius: 2px;
@@ -710,13 +711,13 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .waveform {
   position: relative;
   width: 100%;
-  height: 160px;
+  height: var(--waveform-height);
   /* The parent .sampleview is a flex column with height: 100% and overflow:
      auto. Without `flex-shrink: 0`, when children below (chiptune editor,
      pipeline editor, etc.) push past the container's height, the waveform
      gets squeezed to near-zero instead of letting the column scroll. */
   flex-shrink: 0;
-  min-height: 160px;
+  min-height: var(--waveform-height);
   background: var(--panel);
   border: 1px solid var(--grid-line);
   border-radius: 6px;
@@ -1034,8 +1035,8 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   gap: 4px;
   font-size: 12px;
   font-family: ui-monospace, 'SFMono-Regular', monospace;
-  min-width: 220px;
-  flex: 1 1 220px;
+  min-width: var(--slider-min-width);
+  flex: 1 1 var(--slider-min-width);
 }
 .slider__label {
   color: var(--muted);

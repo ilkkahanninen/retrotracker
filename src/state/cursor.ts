@@ -97,25 +97,27 @@ export function moveRight(c: Cursor): Cursor {
   return { ...c, channel: nextCh, field: FIELDS[0]! };
 }
 
-export function moveUp(c: Cursor, song: Song): Cursor {
+// Hidden (Dxx-truncated) rows treat their flat index as 0 so a step still
+// lands on a visible row at or before the cursor.
+function moveByRows(c: Cursor, song: Song, delta: number): Cursor {
   const idx = flatIndexOf(c, song);
-  // If hidden (Dxx-truncated row), snap to first visible row at or before.
-  return atFlatIndex(c, song, (idx < 0 ? 0 : idx) - 1);
+  return atFlatIndex(c, song, (idx < 0 ? 0 : idx) + delta);
+}
+
+export function moveUp(c: Cursor, song: Song): Cursor {
+  return moveByRows(c, song, -1);
 }
 
 export function moveDown(c: Cursor, song: Song): Cursor {
-  const idx = flatIndexOf(c, song);
-  return atFlatIndex(c, song, (idx < 0 ? 0 : idx) + 1);
+  return moveByRows(c, song, 1);
 }
 
 export function pageUp(c: Cursor, song: Song, pageRows: number): Cursor {
-  const idx = flatIndexOf(c, song);
-  return atFlatIndex(c, song, (idx < 0 ? 0 : idx) - Math.max(1, pageRows));
+  return moveByRows(c, song, -Math.max(1, pageRows));
 }
 
 export function pageDown(c: Cursor, song: Song, pageRows: number): Cursor {
-  const idx = flatIndexOf(c, song);
-  return atFlatIndex(c, song, (idx < 0 ? 0 : idx) + Math.max(1, pageRows));
+  return moveByRows(c, song, Math.max(1, pageRows));
 }
 
 /** Tab → next channel's note (wraps from last channel to first). */

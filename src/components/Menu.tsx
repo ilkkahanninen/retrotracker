@@ -1,4 +1,5 @@
-import { Index, Show, createSignal, onCleanup, type Component, type JSX } from 'solid-js';
+import { Index, Show, createEffect, createSignal, type Component, type JSX } from 'solid-js';
+import { useWindowListener } from './hooks';
 
 export interface MenuItem {
   /** Visible label. Ignored when `separator: true`. */
@@ -42,10 +43,7 @@ export const Menu: Component<MenuProps> = (props) => {
   const [open, setOpen] = createSignal(false);
   let containerRef: HTMLDivElement | undefined;
 
-  const close = () => {
-    setOpen(false);
-    unsubscribe();
-  };
+  const close = () => setOpen(false);
 
   const onWindowDown = (e: MouseEvent) => {
     if (!containerRef) return;
@@ -55,15 +53,11 @@ export const Menu: Component<MenuProps> = (props) => {
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') close();
   };
-  const subscribe = () => {
-    window.addEventListener('mousedown', onWindowDown);
-    window.addEventListener('keydown', onKey);
-  };
-  const unsubscribe = () => {
-    window.removeEventListener('mousedown', onWindowDown);
-    window.removeEventListener('keydown', onKey);
-  };
-  onCleanup(unsubscribe);
+  createEffect(() => {
+    if (!open()) return;
+    useWindowListener('mousedown', onWindowDown);
+    useWindowListener('keydown', onKey);
+  });
 
   const onItemClick = (item: MenuItem) => {
     if (item.separator || item.disabled) return;
@@ -107,8 +101,7 @@ export const Menu: Component<MenuProps> = (props) => {
         aria-expanded={open()}
         title={`${props.label} menu`}
         onClick={() => {
-          if (open()) close();
-          else { setOpen(true); subscribe(); }
+          setOpen(!open());
         }}
       >
         {props.label} ▾

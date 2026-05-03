@@ -7,9 +7,9 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  onCleanup,
   type Component,
 } from "solid-js";
+import { useWindowListener } from "./hooks";
 import type { Sample, Song } from "../core/mod/types";
 import { currentSample } from "../state/edit";
 import { workbenches } from "../state/sampleWorkbench";
@@ -510,6 +510,9 @@ const Waveform: Component<WaveformProps> = (props) => {
   let playheadCanvas: HTMLCanvasElement | undefined;
   let container: HTMLDivElement | undefined;
   const W = 1024;
+  // Canvas internal height — kept in sync with --waveform-height (the box
+  // it's drawn into). The canvas is upscaled via CSS, so a mismatch would
+  // just produce a blurry waveform, not a layout break.
   const H = 160;
   /** Pointer must be within this many canvas-internal pixels of a loop line to grab it. */
   const HANDLE_HIT_PX = 8;
@@ -641,12 +644,8 @@ const Waveform: Component<WaveformProps> = (props) => {
       }
       setDrag(null);
     };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
-    onCleanup(() => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
-    });
+    useWindowListener("mousemove", move);
+    useWindowListener("mouseup", up);
   });
 
   // Waveform layer: redrawn only when the underlying sample changes.
