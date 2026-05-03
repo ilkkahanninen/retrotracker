@@ -469,6 +469,92 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .patternhelp__sub  { color: var(--muted); }
 .patternhelp__muted { color: var(--muted); }
 
+/* Tips toggle — sits right-aligned on the cell-info row. Stays subtle
+ * (muted text, no fill) until hovered or expanded so it doesn't fight
+ * the data for visual weight. */
+.patternhelp__toggle {
+  margin-left: auto;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
+  padding: 1px 8px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.patternhelp__toggle:hover { color: var(--fg); border-color: var(--accent); }
+.patternhelp--open .patternhelp__toggle {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
+/* Expanded tips block — shows below the cell-info row. Sections are
+ * stacked vertically; the effect-list section uses an auto-fit grid so
+ * the 16 codes sit in 2-4 columns depending on pane width. */
+.patternhelp__tips {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--grid-line);
+  background: var(--panel);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 12px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.patternhelp__tip-title {
+  margin: 0 0 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.patternhelp__tip-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.patternhelp__tip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.patternhelp__tip-action {
+  color: var(--fg);
+}
+.patternhelp__kbd {
+  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-size: 11px;
+  background: var(--panel-2);
+  border: 1px solid var(--grid-line);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  padding: 1px 6px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.patternhelp__effect-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 4px 16px;
+}
+.patternhelp__effect {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
 .patgrid {
   flex: 1;
   display: flex;

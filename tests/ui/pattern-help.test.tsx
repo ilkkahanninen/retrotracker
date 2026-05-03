@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cleanup, render } from '@solidjs/testing-library';
+import { cleanup, render, fireEvent } from '@solidjs/testing-library';
+import userEvent from '@testing-library/user-event';
 import { App } from '../../src/App';
 import { setCursor, INITIAL_CURSOR } from '../../src/state/cursor';
 import { setSong, setTransport, setPlayPos, clearHistory, setDirty } from '../../src/state/song';
@@ -8,6 +9,7 @@ import { setView } from '../../src/state/view';
 import { setInfoText } from '../../src/state/info';
 import { emptySong, PERIOD_TABLE } from '../../src/core/mod/format';
 import { clearSession } from '../../src/state/persistence';
+import { setSelection, makeSelection } from '../../src/state/selection';
 
 function resetState() {
   setSong(null);
@@ -129,5 +131,122 @@ describe('PatternHelp: tracks the cursor', () => {
 
     setCursor({ order: 0, row: 5, channel: 2, field: 'note' });
     expect(helpText(container)).toMatch(/Note\s*C-3/);
+  });
+});
+
+describe('PatternHelp: tips toggle', () => {
+  it('the tips block is hidden by default and the toggle reads "Show tips"', () => {
+    setSong(emptySong());
+    const { container } = render(() => <App />);
+    expect(container.querySelector('.patternhelp__tips')).toBeNull();
+    const toggle = container.querySelector<HTMLButtonElement>('.patternhelp__toggle')!;
+    expect(toggle.textContent).toBe('Show tips');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('clicking the toggle opens the tips block and flips the label', () => {
+    setSong(emptySong());
+    const { container } = render(() => <App />);
+    const toggle = container.querySelector<HTMLButtonElement>('.patternhelp__toggle')!;
+    fireEvent.click(toggle);
+    expect(container.querySelector('.patternhelp__tips')).not.toBeNull();
+    expect(toggle.textContent).toBe('Hide tips');
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('pressing ? toggles the tips block', async () => {
+    setSong(emptySong());
+    const { container } = render(() => <App />);
+    const user = userEvent.setup();
+
+    expect(container.querySelector('.patternhelp__tips')).toBeNull();
+    await user.keyboard('{Shift>}/{/Shift}');
+    expect(container.querySelector('.patternhelp__tips')).not.toBeNull();
+    await user.keyboard('{Shift>}/{/Shift}');
+    expect(container.querySelector('.patternhelp__tips')).toBeNull();
+  });
+});
+
+describe('PatternHelp: context-sensitive tips', () => {
+  it('on the note column, shows piano / edit step / sample / play / selection sections', () => {
+    setSong(emptySong());
+    setCursor({ order: 0, row: 0, channel: 0, field: 'note' });
+    const { container } = render(() => <App />);
+    fireEvent.click(container.querySelector<HTMLButtonElement>('.patternhelp__toggle')!);
+
+    const titles = Array.from(
+      container.querySelectorAll('.patternhelp__tip-title'),
+    ).map((el) => el.textContent);
+    expect(titles).toContain('Note entry');
+    expect(titles).toContain('Edit step');
+    expect(titles).toContain('Sample');
+    expect(titles).toContain('Play');
+    // Selection tips are visible on the note column too, so the user
+    // can discover Shift+arrows / Cmd+C/V before making a first selection.
+    expect(titles).toContain('Selection');
+    expect(titles).not.toContain('Effects');
+  });
+
+  it('on an effect column, shows the 16-effect grid plus the 16 extended sub-commands', () => {
+    setSong(emptySong());
+    setCursor({ order: 0, row: 0, channel: 0, field: 'effectCmd' });
+    const { container } = render(() => <App />);
+    fireEvent.click(container.querySelector<HTMLButtonElement>('.patternhelp__toggle')!);
+
+    const grids = container.querySelectorAll('.patternhelp__effect-grid');
+    expect(grids.length).toBe(2);
+
+    const mainCodes = Array.from(grids[0]!.querySelectorAll('.patternhelp__kbd'))
+      .map((el) => el.textContent);
+    expect(mainCodes).toContain('0xy');
+    expect(mainCodes).toContain('4xy');
+    expect(mainCodes).toContain('Fxx');
+    expect(mainCodes.length).toBe(16);
+
+    const extCodes = Array.from(grids[1]!.querySelectorAll('.patternhelp__kbd'))
+      .map((el) => el.textContent);
+    expect(extCodes).toContain('E0x');
+    expect(extCodes).toContain('E4x'); // Vibrato waveform
+    expect(extCodes).toContain('EFx');
+    expect(extCodes.length).toBe(16);
+
+    const titles = Array.from(
+      container.querySelectorAll('.patternhelp__tip-title'),
+    ).map((el) => el.textContent);
+    expect(titles).toContain('Effects');
+    expect(titles).toContain('Extended effects (Exy)');
+    expect(titles).not.toContain('Note entry');
+    expect(titles).not.toContain('Play');
+  });
+
+  it('with an active selection, shows only the Selection section regardless of cursor field', () => {
+    setSong(emptySong());
+    setCursor({ order: 0, row: 0, channel: 0, field: 'note' });
+    setSelection(makeSelection(0, 0, 0, 3, 1));
+    const { container } = render(() => <App />);
+    fireEvent.click(container.querySelector<HTMLButtonElement>('.patternhelp__toggle')!);
+
+    const titles = Array.from(
+      container.querySelectorAll('.patternhelp__tip-title'),
+    ).map((el) => el.textContent);
+    expect(titles).toEqual(['Selection']);
+
+    const selSection = container.querySelector('.patternhelp__tip-section')!;
+    expect(selSection.textContent).toMatch(/Cmd \+ C/);
+    expect(selSection.textContent).toMatch(/Cmd \+ V/);
+  });
+
+  it('with an active selection on the effect column, the effect grid is hidden', () => {
+    setSong(emptySong());
+    setCursor({ order: 0, row: 0, channel: 0, field: 'effectCmd' });
+    setSelection(makeSelection(0, 0, 0, 3, 1));
+    const { container } = render(() => <App />);
+    fireEvent.click(container.querySelector<HTMLButtonElement>('.patternhelp__toggle')!);
+
+    expect(container.querySelector('.patternhelp__effect-grid')).toBeNull();
+    const titles = Array.from(
+      container.querySelectorAll('.patternhelp__tip-title'),
+    ).map((el) => el.textContent);
+    expect(titles).toEqual(['Selection']);
   });
 });

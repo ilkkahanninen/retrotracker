@@ -1,7 +1,10 @@
-import { Show, type Component } from 'solid-js';
+import { For, Show, createSignal, onCleanup, onMount, type Component } from 'solid-js';
 import type { Note, Song } from '../core/mod/types';
 import { PERIOD_TABLE } from '../core/mod/format';
-import type { Cursor } from '../state/cursor';
+import type { Cursor, Field } from '../state/cursor';
+import { selection } from '../state/selection';
+import { registerShortcut } from '../state/shortcuts';
+import { view } from '../state/view';
 
 const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'] as const;
 
@@ -101,6 +104,136 @@ function effectCellText(note: Note): string {
   return `${cmd}${hi}${lo}`;
 }
 
+// ── Tip sections ────────────────────────────────────────────────────────
+//
+// Static tables of (keys, action) pairs. Picked at render time based on
+// where the cursor is and whether a selection is active. Keys are rendered
+// as <kbd> chips; the `keys` string can hold multiple comma-separated
+// chips ("⌘C, ⌘X") or a span of glyphs to show as one block (the
+// piano-keys row uses one chip with all 17 letters in it).
+//
+// Synced manually with the registerShortcut calls in App.tsx — there's no
+// runtime registry to query, but the shortcut list is small enough that a
+// small drift in the help text is preferable to building one.
+
+interface Tip { keys: string; action: string; }
+interface TipSection { title: string; items: Tip[]; }
+
+const NOTE_TIPS: TipSection[] = [
+  {
+    title: 'Note entry',
+    items: [
+      { keys: 'A W S E D F T G Y H U J', action: 'piano (current octave)' },
+      { keys: 'K O L P ;', action: 'piano (octave + 1)' },
+      { keys: 'Z / X', action: 'octave − / +' },
+      { keys: '.', action: 'clear field under cursor' },
+      { keys: 'Backspace', action: 'delete row above (pull channel up)' },
+    ],
+  },
+  {
+    title: 'Edit step',
+    items: [
+      { keys: '[ / ]', action: 'edit step − / +' },
+      { keys: '\\', action: 'reset edit step to 1' },
+    ],
+  },
+  {
+    title: 'Sample',
+    items: [
+      { keys: '1 – 0', action: 'select samples 1 – 10' },
+      { keys: 'Shift + 1 – 0', action: 'select samples 11 – 20' },
+      { keys: '− / =', action: 'previous / next sample' },
+    ],
+  },
+  {
+    title: 'Play',
+    items: [
+      { keys: 'Space', action: 'play song / stop' },
+      { keys: 'Option + Space', action: 'play pattern (loop)' },
+      { keys: 'Shift + Space', action: 'play song from cursor' },
+      { keys: 'Option + Shift + Space', action: 'play pattern from cursor' },
+    ],
+  },
+];
+
+/**
+ * The 16 effect command codes in PT order. Names are short on purpose —
+ * this is a quick reference, not an effect manual; the cell breakdown
+ * above already shows the full description for whatever the user typed.
+ * 8xy is intentionally listed as "(unused)" because PT 2.3D ignores it
+ * and our replayer does the same.
+ */
+const EFFECT_LIST: ReadonlyArray<{ code: string; name: string }> = [
+  { code: '0xy', name: 'Arpeggio' },
+  { code: '1xx', name: 'Slide up' },
+  { code: '2xx', name: 'Slide down' },
+  { code: '3xx', name: 'Tone portamento' },
+  { code: '4xy', name: 'Vibrato' },
+  { code: '5xy', name: 'Tone porta + vol slide' },
+  { code: '6xy', name: 'Vibrato + vol slide' },
+  { code: '7xy', name: 'Tremolo' },
+  { code: '8xx', name: '(unused in PT 2.3D)' },
+  { code: '9xx', name: 'Sample offset' },
+  { code: 'Axy', name: 'Volume slide' },
+  { code: 'Bxx', name: 'Position jump' },
+  { code: 'Cxx', name: 'Set volume' },
+  { code: 'Dxy', name: 'Pattern break' },
+  { code: 'Exy', name: 'Extended (E0..EF)' },
+  { code: 'Fxx', name: 'Speed (<$20) / Tempo (≥$20)' },
+];
+
+/**
+ * The 16 extended effect sub-commands (Exy, where x picks one of these
+ * and y is the value). E8x and "unused" entries are kept in the list for
+ * completeness — a tracker following PT 2.3D ignores them, but a curious
+ * user reading the help shouldn't wonder whether they were forgotten.
+ */
+const EXTENDED_EFFECT_LIST: ReadonlyArray<{ code: string; name: string }> = [
+  { code: 'E0x', name: 'Set filter (LED on/off)' },
+  { code: 'E1x', name: 'Fine slide up' },
+  { code: 'E2x', name: 'Fine slide down' },
+  { code: 'E3x', name: 'Glissando on/off' },
+  { code: 'E4x', name: 'Vibrato waveform' },
+  { code: 'E5x', name: 'Set finetune' },
+  { code: 'E6x', name: 'Pattern loop' },
+  { code: 'E7x', name: 'Tremolo waveform' },
+  { code: 'E8x', name: '(unused in PT 2.3D)' },
+  { code: 'E9x', name: 'Retrigger note' },
+  { code: 'EAx', name: 'Fine volume up' },
+  { code: 'EBx', name: 'Fine volume down' },
+  { code: 'ECx', name: 'Note cut' },
+  { code: 'EDx', name: 'Note delay' },
+  { code: 'EEx', name: 'Pattern delay' },
+  { code: 'EFx', name: 'Invert loop' },
+];
+
+const EFFECT_TIPS: TipSection[] = [
+  {
+    title: 'Hex digits',
+    items: [
+      { keys: '0 – 9, A – F', action: 'enter nibble under cursor' },
+      { keys: '.', action: 'clear field under cursor' },
+      { keys: ',', action: 'repeat last effect from above' },
+    ],
+  },
+];
+
+const SELECTION_TIPS: TipSection = {
+  title: 'Selection',
+  items: [
+    { keys: 'Cmd + C', action: 'copy' },
+    { keys: 'Cmd + X', action: 'cut' },
+    { keys: 'Cmd + V', action: 'paste at cursor' },
+    { keys: 'Cmd + A', action: 'select all (channel, then pattern)' },
+    { keys: 'Shift + arrows', action: 'extend selection' },
+  ],
+};
+
+/** True when the cursor field addresses any part of the effect column. */
+function isEffectField(f: Field): boolean {
+  return f === 'effectCmd' || f === 'effectHi' || f === 'effectLo';
+}
+
 interface Props {
   song: Song;
   cursor: Cursor;
@@ -112,8 +245,47 @@ interface Props {
  * the user having to remember PT effect codes. Hidden during playback
  * isn't necessary — the cursor still has a position then; the help just
  * describes wherever it is.
+ *
+ * A "Tips" toggle expands the pane with context-sensitive shortcut help:
+ * note-entry / edit-step / sample / play tips on the note column, the
+ * full effect-code list on the effect columns, and copy / paste tips
+ * whenever a selection is active. The toggle state is local to the
+ * component — the pattern view stays mounted (`view-hidden` toggle, not
+ * unmount), so the user's preference survives view switches.
  */
 export const PatternHelp: Component<Props> = (props) => {
+  const [tipsOpen, setTipsOpen] = createSignal(false);
+
+  // `?` (Shift+/ on US, also Shift+- on Nordic) toggles the tips block.
+  // We register by `/` + shift because the shortcut matcher's KEY_CODE_MAP
+  // includes `'/' → 'Slash'`, so the codeMatches path catches the keypress
+  // regardless of how `event.key` resolves under shift across layouts and
+  // jsdom. Restrict to pattern view because the help pane only exists there.
+  onMount(() => {
+    const cleanup = registerShortcut({
+      key: '/',
+      shift: true,
+      description: 'Toggle pattern-view help tips (?)',
+      when: () => view() === 'pattern',
+      run: () => setTipsOpen((v) => !v),
+    });
+    onCleanup(cleanup);
+  });
+
+  const tipSections = (): TipSection[] => {
+    // Selection active → only selection tips. The user is in selection-
+    // management mode; everything else is noise on top of the actual job.
+    if (selection() !== null) return [SELECTION_TIPS];
+    // No selection: show context tips for the field. The note column
+    // also gets the selection tips so the user discovers Shift+arrows /
+    // Cmd+C/V before they've made a first selection.
+    if (isEffectField(props.cursor.field)) return [...EFFECT_TIPS];
+    return [...NOTE_TIPS, SELECTION_TIPS];
+  };
+
+  const showEffectList = () =>
+    isEffectField(props.cursor.field) && selection() === null;
+
   const cell = (): Note | null => {
     const patNum = props.song.orders[props.cursor.order];
     if (patNum === undefined) return null;
@@ -144,7 +316,7 @@ export const PatternHelp: Component<Props> = (props) => {
   };
 
   return (
-    <div class="patternhelp">
+    <div class="patternhelp" classList={{ 'patternhelp--open': tipsOpen() }}>
       <div class="patternhelp__row">
         <span class="patternhelp__seg">
           <span class="patternhelp__label">Note</span>
@@ -212,7 +384,66 @@ export const PatternHelp: Component<Props> = (props) => {
             </Show>
           </span>
         </span>
+        <button
+          type="button"
+          class="patternhelp__toggle"
+          onClick={() => setTipsOpen((v) => !v)}
+          aria-expanded={tipsOpen()}
+          aria-controls="patternhelp-tips"
+          title={tipsOpen() ? 'Hide tips (?)' : 'Show tips (?)'}
+        >
+          {tipsOpen() ? 'Hide tips' : 'Show tips'}
+        </button>
       </div>
+      <Show when={tipsOpen()}>
+        <div class="patternhelp__tips" id="patternhelp-tips">
+          <For each={tipSections()}>
+            {(section) => (
+              <section class="patternhelp__tip-section">
+                <h4 class="patternhelp__tip-title">{section.title}</h4>
+                <ul class="patternhelp__tip-list">
+                  <For each={section.items}>
+                    {(item) => (
+                      <li class="patternhelp__tip">
+                        <kbd class="patternhelp__kbd">{item.keys}</kbd>
+                        <span class="patternhelp__tip-action">{item.action}</span>
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </section>
+            )}
+          </For>
+          <Show when={showEffectList()}>
+            <section class="patternhelp__tip-section patternhelp__tip-section--effects">
+              <h4 class="patternhelp__tip-title">Effects</h4>
+              <ul class="patternhelp__effect-grid">
+                <For each={EFFECT_LIST}>
+                  {(eff) => (
+                    <li class="patternhelp__effect">
+                      <kbd class="patternhelp__kbd">{eff.code}</kbd>
+                      <span class="patternhelp__tip-action">{eff.name}</span>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </section>
+            <section class="patternhelp__tip-section patternhelp__tip-section--effects">
+              <h4 class="patternhelp__tip-title">Extended effects (Exy)</h4>
+              <ul class="patternhelp__effect-grid">
+                <For each={EXTENDED_EFFECT_LIST}>
+                  {(eff) => (
+                    <li class="patternhelp__effect">
+                      <kbd class="patternhelp__kbd">{eff.code}</kbd>
+                      <span class="patternhelp__tip-action">{eff.name}</span>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </section>
+          </Show>
+        </div>
+      </Show>
     </div>
   );
 };
