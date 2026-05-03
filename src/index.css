@@ -803,6 +803,12 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .pipeline__add select:focus,
 .pipeline__transformer select:focus { outline: none; border-color: var(--accent); }
 
+.pipeline__chain-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 8px 0;
+}
+
 .pipeline__transformer {
   display: flex;
   align-items: center;

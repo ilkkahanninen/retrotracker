@@ -124,6 +124,13 @@ interface Props {
   onRemoveEffect: (index: number) => void;
   onMoveEffect: (index: number, delta: -1 | 1) => void;
   onPatchEffect: (index: number, next: EffectNode) => void;
+  /**
+   * Burn the workbench's effect chain into its source: replace the source
+   * WAV with the chain output and clear the chain. PT params are preserved
+   * so playback is unchanged. Lets a heavy crop discard its pre-crop frames
+   * and shrinks the project file accordingly.
+   */
+  onApplyChain: () => void;
   onSetMonoMix: (monoMix: MonoMix) => void;
   onSetTargetNote: (targetNote: number | null) => void;
   /** Switch the source kind. Creates a default workbench if needed. */
@@ -444,6 +451,7 @@ export const SampleView: Component<Props> = (props) => {
             onRemoveEffect={props.onRemoveEffect}
             onMoveEffect={props.onMoveEffect}
             onPatchEffect={props.onPatchEffect}
+            onApplyChain={props.onApplyChain}
             onSetMonoMix={props.onSetMonoMix}
             onSetTargetNote={props.onSetTargetNote}
           />
@@ -789,6 +797,8 @@ interface PipelineEditorProps {
   onRemoveEffect: (index: number) => void;
   onMoveEffect: (index: number, delta: -1 | 1) => void;
   onPatchEffect: (index: number, next: EffectNode) => void;
+  /** Burn the chain into the source. See SampleView.Props.onApplyChain. */
+  onApplyChain: () => void;
   onSetMonoMix: (monoMix: MonoMix) => void;
   onSetTargetNote: (targetNote: number | null) => void;
 }
@@ -863,6 +873,16 @@ const PipelineEditor: Component<PipelineEditorProps> = (props) => {
           )}
         </Index>
       </ol>
+      <div class="pipeline__chain-actions">
+        <button
+          type="button"
+          onClick={() => props.onApplyChain()}
+          disabled={props.wb.chain.length === 0}
+          title="Run the chain into the source and clear it. Useful after a Crop — the trimmed source shrinks the project file size, but playback stays identical."
+        >
+          Apply changes
+        </button>
+      </div>
       <div class="pipeline__transformer">
         <Show when={channels() > 1}>
           <label>

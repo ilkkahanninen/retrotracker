@@ -1320,6 +1320,35 @@ export const App: Component = () => {
     updateCurrentWorkbench({ ...wb, chain });
   };
 
+  /**
+   * Burn the current workbench's effect chain into its sampler source: runs
+   * the chain end-to-end and replaces the source WAV with the result, then
+   * clears the chain. PT params are kept, so the slot's int8 — and thus
+   * playback — is unchanged. The motivation is project-file size: an early
+   * Crop in the chain still keeps the original full-length source around in
+   * the workbench (so the user can edit the crop later); applying collapses
+   * the source to just the bytes the chain actually used, which is the
+   * difference between a 20 MB and a 200 KB `.retro` after a heavy crop.
+   *
+   * No-op for chiptune (its source regenerates from params on every render —
+   * "applying" would have nothing meaningful to keep) and for an empty chain
+   * (nothing to burn).
+   */
+  const applyChainToSource = () => {
+    if (transport() === "playing") return;
+    const slot = currentSample() - 1;
+    const wb = getWorkbench(slot);
+    if (!wb) return;
+    if (wb.source.kind !== "sampler") return;
+    if (wb.chain.length === 0) return;
+    const burned = runChain(materializeSource(wb.source), wb.chain);
+    updateCurrentWorkbench({
+      ...wb,
+      source: { kind: "sampler", wav: burned, sourceName: wb.source.sourceName },
+      chain: [],
+    });
+  };
+
   const setMonoMix = (monoMix: MonoMix) => {
     const wb = getWorkbench(currentSample() - 1);
     if (!wb) return;
@@ -2270,6 +2299,7 @@ export const App: Component = () => {
                   onRemoveEffect={removeEffect}
                   onMoveEffect={moveEffect}
                   onPatchEffect={patchEffect}
+                  onApplyChain={applyChainToSource}
                   onSetMonoMix={setMonoMix}
                   onSetTargetNote={setTargetNote}
                   onSetSourceKind={setSourceKind}
