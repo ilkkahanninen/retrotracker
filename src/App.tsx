@@ -832,10 +832,11 @@ export const App: Component = () => {
   };
 
   /**
-   * Cmd+V: stamp the clipboard at the cursor. Cells past pattern bounds
-   * are silently clipped (pasteSlice handles that). We don't move the
-   * cursor or grow a new selection — the user's original placement is
-   * the friendliest "after-paste" state to be in.
+   * Cmd+V: stamp the clipboard at the cursor, then drop the cursor onto
+   * the row right after the pasted block (channel unchanged) so repeated
+   * pastes stack downward without manual stepping. Cells past pattern
+   * bounds are silently clipped by `pasteSlice`; the cursor advance is
+   * clamped to the last row in the same way.
    */
   const pasteAtCursor = () => {
     if (transport() === "playing") return;
@@ -845,6 +846,7 @@ export const App: Component = () => {
     commitEdit((song) =>
       pasteSlice(song, slice.rows, c.order, c.row, c.channel),
     );
+    applyCursor(stepRowPageDown(c, slice.rows.length));
   };
 
   /**
