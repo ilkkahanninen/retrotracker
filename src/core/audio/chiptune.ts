@@ -152,7 +152,7 @@ export interface ChiptuneParams {
 export const CYCLE_FRAMES_MIN = 8;
 export const CYCLE_FRAMES_MAX = 256;
 export const SHAPE_INDEX_MIN = 0;
-export const SHAPE_INDEX_MAX = 3;
+export const SHAPE_INDEX_MAX = 5;
 export const PHASE_SPLIT_MIN = 0.05;
 export const PHASE_SPLIT_MAX = 0.95;
 export const RATIO_MIN = 1;
@@ -248,7 +248,7 @@ export function defaultChiptuneParams(): ChiptuneParams {
   return {
     cycleFrames: 64, // a power-of-2, so musical from the start
     amplitude: 1,
-    osc1: { shapeIndex: 2, phaseSplit: 0.5, ratio: 1 }, // square — distinctly chip-y
+    osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 }, // square — distinctly chip-y
     osc2: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 }, // sine
     combineMode: "morph",
     combineAmount: 0, // default to "osc1 only"
@@ -265,17 +265,58 @@ const TWO_PI = Math.PI * 2;
 function sine(p: number): number {
   return Math.sin(TWO_PI * p);
 }
+// Triangle and saw are zero at the cycle seam (p=0 and p=1) so a looping
+// sample doesn't introduce a DC step at the loop point — that step is
+// what produces audible clicks on bass tones at long cycle lengths.
+// Triangle: 0 → +1 (p=0.25) → 0 (p=0.5) → −1 (p=0.75) → 0.
 function triangle(p: number): number {
-  return p < 0.5 ? 4 * p - 1 : 3 - 4 * p;
+  if (p < 0.25) return 4 * p;
+  if (p < 0.75) return 2 - 4 * p;
+  return 4 * p - 4;
+}
+// 15-level quantised triangle — NES-bass-channel grit. Odd level count
+// means 0 is one of the steps, so the wave still passes through 0 at
+// the cycle seam (no attack click). Sits between triangle and trapezoid
+// in the morph chain; sounds like a digital triangle / stepped saw.
+const STAIR_LEVELS = 15;
+const STAIR_STEP = 2 / (STAIR_LEVELS - 1);
+function stairTriangle(p: number): number {
+  const t = triangle(p);
+  return Math.round((t + 1) / STAIR_STEP) * STAIR_STEP - 1;
+}
+// Trapezoid — fast ramps separated by long flats. 1/8 cycle ramp up to
+// +1, 2/8 flat, 2/8 ramp down through 0, 2/8 flat at -1, 1/8 ramp back
+// to 0. Reads as a "fat" square: most of the punch of square but
+// smoother corners and softer attack. Loop-clean (starts and ends at 0).
+function trapezoid(p: number): number {
+  if (p < 1 / 8) return 8 * p;
+  if (p < 3 / 8) return 1;
+  if (p < 5 / 8) return 1 - 8 * (p - 3 / 8);
+  if (p < 7 / 8) return -1;
+  return -1 + 8 * (p - 7 / 8);
 }
 function square(p: number): number {
   return p < 0.5 ? 1 : -1;
 }
+// Saw: ramps 0 → +1 (just before p=0.5), drops to −1 at p=0.5, ramps
+// back to 0 at p=1. The hard step now sits in the middle of the cycle
+// instead of at the seam, where it would alias with the loop point.
 function saw(p: number): number {
-  return 2 * p - 1;
+  return p < 0.5 ? 2 * p : 2 * p - 2;
 }
 
-const SHAPES = [sine, triangle, square, saw] as const;
+// Order matters — the morph chain blends adjacent entries linearly, so
+// neighbours should sound related. Reads as a smoothness/grit axis:
+// pure sine → soft triangle → digital stair → fat trapezoid → harsh
+// square → all-harmonic saw.
+const SHAPES = [
+  sine,
+  triangle,
+  stairTriangle,
+  trapezoid,
+  square,
+  saw,
+] as const;
 
 // ─── Building blocks ─────────────────────────────────────────────────────
 
@@ -285,7 +326,8 @@ function clamp(v: number, lo: number, hi: number): number {
 
 /**
  * Linear blend between adjacent shapes for fractional shape indices.
- * idx is clamped to [0, 3]; idx=3 returns pure saw.
+ * idx is clamped to [SHAPE_INDEX_MIN, SHAPE_INDEX_MAX]; the maximum
+ * returns the last shape in the morph chain (saw).
  */
 export function morphShape(phase: number, idx: number): number {
   const i = clamp(idx, SHAPE_INDEX_MIN, SHAPE_INDEX_MAX);

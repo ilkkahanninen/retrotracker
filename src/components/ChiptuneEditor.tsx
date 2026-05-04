@@ -30,7 +30,10 @@ export interface ChiptuneEditorProps {
   onUpdate: (patch: Partial<ChiptuneParams>) => void;
 }
 
-const SHAPE_HINT = "sine ─ tri ─ sq ─ saw";
+/** Shape names for the clickable hint under the Shape slider. The order
+ *  matches the integer shapeIndex values (0..5) so click → set is a
+ *  direct index lookup. */
+const SHAPE_NAMES = ["sine", "tri", "stair", "trap", "sq", "saw"] as const;
 
 export const ChiptuneEditor: Component<ChiptuneEditorProps> = (props) => {
   const patchOsc1 = (patch: Partial<Oscillator>) =>
@@ -220,7 +223,26 @@ const OscillatorSliders: Component<OscillatorSlidersProps> = (props) => (
         step={0.01}
         value={props.osc.shapeIndex}
         disabled={props.disabled}
-        hint={SHAPE_HINT}
+        hint={
+          <>
+            {SHAPE_NAMES.map((name, idx) => (
+              <>
+                {idx > 0 ? " ─ " : null}
+                <button
+                  type="button"
+                  class="slider__hint-link"
+                  classList={{
+                    "is-active": Math.round(props.osc.shapeIndex) === idx,
+                  }}
+                  disabled={props.disabled}
+                  onClick={() => props.onUpdate({ shapeIndex: idx })}
+                >
+                  {name}
+                </button>
+              </>
+            ))}
+          </>
+        }
         onInput={(v) => props.onUpdate({ shapeIndex: v })}
       />
       <Slider

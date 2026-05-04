@@ -1066,6 +1066,22 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   color: var(--muted);
   font-size: 10px;
 }
+/* Inline shape-name buttons inside the Shape slider's hint — clicking
+   one snaps shapeIndex to that integer. Styled to read as text with a
+   dotted underline (cue that they're clickable) rather than as buttons,
+   so the hint row keeps its low visual weight. */
+.slider__hint-link {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+.slider__hint-link:hover:not(:disabled) { color: var(--accent); }
+.slider__hint-link.is-active { color: var(--fg); font-weight: 600; }
+.slider__hint-link:disabled { cursor: not-allowed; }
 .slider--disabled { opacity: 0.55; cursor: not-allowed; }
 .slider--disabled .slider__range { cursor: not-allowed; }
 

@@ -11,32 +11,56 @@ function withDefaults(patch: Partial<ChiptuneParams>): ChiptuneParams {
 
 describe('morphShape', () => {
   it('returns a pure shape at integer indices', () => {
+    // Chain: 0=sine 1=tri 2=stair 3=trap 4=sq 5=saw.
     // sine(0) = 0, sine(0.25) = 1
     expect(morphShape(0, 0)).toBeCloseTo(0, 6);
     expect(morphShape(0.25, 0)).toBeCloseTo(1, 6);
-    // triangle(0) = -1, triangle(0.25) = 0, triangle(0.5) = 1
-    expect(morphShape(0, 1)).toBeCloseTo(-1, 6);
-    expect(morphShape(0.25, 1)).toBeCloseTo(0, 6);
-    expect(morphShape(0.5, 1)).toBeCloseTo(1, 6);
+    // triangle starts at 0, peaks at +1 (p=0.25), back to 0 (p=0.5),
+    // troughs at -1 (p=0.75) — chosen so loops don't click at the seam.
+    expect(morphShape(0, 1)).toBeCloseTo(0, 6);
+    expect(morphShape(0.25, 1)).toBeCloseTo(1, 6);
+    expect(morphShape(0.5, 1)).toBeCloseTo(0, 6);
+    expect(morphShape(0.75, 1)).toBeCloseTo(-1, 6);
+    // stair-step triangle: 15 levels (step = 2/14 = 1/7). Quantises
+    // through 0 and ±1 exactly; intermediate triangle values land on the
+    // nearest 1/7-step.
+    expect(morphShape(0, 2)).toBeCloseTo(0, 6);
+    expect(morphShape(0.25, 2)).toBeCloseTo(1, 6);
+    expect(morphShape(0.5, 2)).toBeCloseTo(0, 6);
+    expect(morphShape(0.75, 2)).toBeCloseTo(-1, 6);
+    // Triangle at p=0.1 = 0.4. Quantised to nearest 1/7 = 3/7 ≈ 0.4286.
+    expect(morphShape(0.1, 2)).toBeCloseTo(3 / 7, 6);
+    // trapezoid: ramp 0→+1 in [0, 1/8), flat at +1, ramp through 0,
+    // flat at −1, ramp back to 0.
+    expect(morphShape(0, 3)).toBe(0);
+    expect(morphShape(1 / 8, 3)).toBe(1);
+    expect(morphShape(0.25, 3)).toBe(1); // mid-flat-top
+    expect(morphShape(0.5, 3)).toBeCloseTo(0, 6); // mid-fall
+    expect(morphShape(5 / 8, 3)).toBe(-1);
+    expect(morphShape(0.75, 3)).toBe(-1); // mid-flat-bottom
     // square: +1 below 0.5, -1 above
-    expect(morphShape(0.25, 2)).toBe(1);
-    expect(morphShape(0.75, 2)).toBe(-1);
-    // saw: linear from -1 to ~+1
-    expect(morphShape(0, 3)).toBe(-1);
-    expect(morphShape(0.5, 3)).toBe(0);
+    expect(morphShape(0.25, 4)).toBe(1);
+    expect(morphShape(0.75, 4)).toBe(-1);
+    // saw also starts at 0; ramps 0→+1, jumps to -1 at p=0.5, ramps -1→0.
+    expect(morphShape(0, 5)).toBe(0);
+    expect(morphShape(0.25, 5)).toBe(0.5);
+    expect(morphShape(0.5, 5)).toBe(-1);
+    expect(morphShape(0.75, 5)).toBe(-0.5);
   });
 
   it('linearly blends between adjacent shapes for fractional indices', () => {
-    // At idx=0.5 we expect 50% sine + 50% triangle.
-    const p = 0.25;
-    const sine = Math.sin(Math.PI * 2 * p);   // 1
-    const tri  = 4 * p - 1;                   // 0
+    // At idx=0.5 we expect 50% sine + 50% triangle. Pick p=0.125 where
+    // sine and triangle differ so the blend is observable.
+    const p = 0.125;
+    const sine = Math.sin(Math.PI * 2 * p);   // ≈ 0.7071
+    const tri  = 4 * p;                       // 0.5 (rising 0→1 region)
     expect(morphShape(p, 0.5)).toBeCloseTo(0.5 * sine + 0.5 * tri, 6);
   });
 
-  it('clamps to the saw at index 3+', () => {
-    expect(morphShape(0.5, 3)).toBe(0);
-    expect(morphShape(0.5, 5)).toBe(0); // clamped to 3
+  it('clamps to the saw at the top of the chain', () => {
+    // Saw at p=0.25 = 0.5 (rising region); same answer for index ≥ 5.
+    expect(morphShape(0.25, 5)).toBe(0.5);
+    expect(morphShape(0.25, 7)).toBe(0.5); // clamped to 5
   });
 });
 
@@ -68,7 +92,7 @@ describe('generateChiptuneCycle — basic shapes', () => {
     const p = withDefaults({
       cycleFrames: 8,
       amplitude: 1,
-      osc1: { shapeIndex: 2, phaseSplit: 0.5, ratio: 1 },
+      osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 },
       osc2: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 },
       combineMode: 'morph',
       combineAmount: 0,
@@ -89,13 +113,13 @@ describe('generateChiptuneCycle — basic shapes', () => {
     const full = generateChiptuneCycle(withDefaults({
       cycleFrames: 8,
       amplitude: 1,
-      osc1: { shapeIndex: 2, phaseSplit: 0.5, ratio: 1 },
+      osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 },
       combineAmount: 0,
     }));
     const half = generateChiptuneCycle(withDefaults({
       cycleFrames: 8,
       amplitude: 0.5,
-      osc1: { shapeIndex: 2, phaseSplit: 0.5, ratio: 1 },
+      osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 },
       combineAmount: 0,
     }));
     for (let i = 0; i < 8; i++) {
@@ -107,7 +131,7 @@ describe('generateChiptuneCycle — basic shapes', () => {
 describe('generateChiptuneCycle — combine modes', () => {
   const baseOscs = {
     osc1: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 },  // sine
-    osc2: { shapeIndex: 2, phaseSplit: 0.5, ratio: 1 },  // square
+    osc2: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 },  // square
   };
 
   it('sum at amount=0 ≡ osc1 only', () => {
@@ -157,7 +181,7 @@ describe('generateChiptuneCycle — combine modes', () => {
     const w = generateChiptuneCycle(withDefaults({
       cycleFrames: 4, amplitude: 1,
       osc1: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 }, // sine: 0,1,0,-1
-      osc2: { shapeIndex: 2, phaseSplit: 0.5, ratio: 1 }, // square: 1,1,-1,-1
+      osc2: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 }, // square: 1,1,-1,-1
       combineMode: 'ring', combineAmount: 1,
     }));
     // at amount=1 → (1-1)·o1 + 1·(o1·o2) = o1·o2
@@ -175,8 +199,8 @@ describe('generateChiptuneCycle — combine modes', () => {
     // of 127 and 127 is 0; XOR of 127 and 0x81 is 0xFE → -2 → -2/127.
     const w = generateChiptuneCycle(withDefaults({
       cycleFrames: 8, amplitude: 1,
-      osc1: { shapeIndex: 2, phaseSplit: 0.5, ratio: 1 }, // 1,1,1,1,-1,-1,-1,-1
-      osc2: { shapeIndex: 2, phaseSplit: 0.25, ratio: 1 }, // -1 except for first 25%
+      osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 }, // 1,1,1,1,-1,-1,-1,-1
+      osc2: { shapeIndex: 4, phaseSplit: 0.25, ratio: 1 }, // -1 except for first 25%
       combineMode: 'xor', combineAmount: 1,
     }));
     // At i=0, phaseSplit 0.25 puts the +1 region in [0, 0.25) → t=0 ∈ +1.
@@ -226,7 +250,7 @@ describe('chiptuneFromJson', () => {
       osc1: { shapeIndex: 99, phaseSplit: -1, ratio: 1 },
       osc2: { shapeIndex: -1, phaseSplit: 99, ratio: 1 },
     });
-    expect(p?.osc1.shapeIndex).toBe(3);
+    expect(p?.osc1.shapeIndex).toBe(5); // clamped to SHAPE_INDEX_MAX
     expect(p?.osc1.phaseSplit).toBeCloseTo(0.05, 6);
     expect(p?.osc2.shapeIndex).toBe(0);
     expect(p?.osc2.phaseSplit).toBeCloseTo(0.95, 6);
@@ -256,8 +280,8 @@ describe('generateChiptuneCycle — multi-cycle ratios', () => {
   it('output length collapses to N / min(ratio): both ratios = 2 → length = N/2', () => {
     const w = generateChiptuneCycle(withDefaults({
       cycleFrames: 64,
-      osc1: { shapeIndex: 2, phaseSplit: 0.5, ratio: 2 },
-      osc2: { shapeIndex: 2, phaseSplit: 0.5, ratio: 2 },
+      osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 2 },
+      osc2: { shapeIndex: 4, phaseSplit: 0.5, ratio: 2 },
       combineMode: 'morph', combineAmount: 0,
     }));
     expect(w.channels[0]!.length).toBe(32);
@@ -272,7 +296,7 @@ describe('generateChiptuneCycle — multi-cycle ratios', () => {
       cycleFrames: 16,
       amplitude: 1,
       osc1: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 }, // sine
-      osc2: { shapeIndex: 2, phaseSplit: 0.5, ratio: 2 }, // square @ 2x
+      osc2: { shapeIndex: 4, phaseSplit: 0.5, ratio: 2 }, // square @ 2x
       combineMode: 'morph', combineAmount: 1, // pure osc2
     }));
     const ch = Array.from(w.channels[0]!);
@@ -330,7 +354,7 @@ describe('generateChiptuneCycle — LFO', () => {
       ...defaultChiptuneParams(),
       cycleFrames: 8,
       amplitude: 0.5, // base amp leaves headroom for the LFO to add to.
-      osc1: { shapeIndex: 2, phaseSplit: 0.5, ratio: 1 }, // square → ±1
+      osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 }, // square → ±1
       osc2: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 },
       combineMode: 'morph',
       combineAmount: 0,
