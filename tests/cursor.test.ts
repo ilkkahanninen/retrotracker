@@ -5,6 +5,7 @@ import {
 } from '../src/state/cursor';
 import { CHANNELS } from '../src/core/mod/types';
 import { Effect, emptyPattern, emptySong } from '../src/core/mod/format';
+import { visibleRowRangeForOrder } from '../src/core/mod/flatten';
 import type { Song } from '../src/core/mod/types';
 
 const C0: Cursor = { order: 0, row: 0, channel: 0, field: 'note' };
@@ -107,6 +108,53 @@ describe('cursor UP / DOWN', () => {
     // moving down from row 10 should land on (order 1, row 0), not (order 0, row 11)
     const c: Cursor = { ...C0, row: 10 };
     expect(moveDown(c, s)).toEqual({ ...C0, order: 1, row: 0 });
+  });
+
+  it('moveUp from a now-hidden row snaps to the closest visible row at-or-before, then steps up', () => {
+    // Regression: a cursor parked on a row that was Dxx-truncated by a
+    // subsequent edit used to teleport to song[0,0] on the next moveUp,
+    // because moveByRows treated a hidden flat-index as 0 and then went to
+    // 0-1 → clamped to 0. Now: snap to the last visible row at-or-before
+    // (the Dxx-bearing row at order 0 / row 5), THEN apply -1 → row 4.
+    const s = songWith(1);
+    setDxx(s, 0, 5, 0);
+    const c: Cursor = { ...C0, row: 16 }; // hidden — pattern truncated at row 5
+    expect(moveUp(c, s)).toEqual({ ...C0, row: 4 });
+  });
+
+  it('moveDown from a hidden row snaps forward into the next visible block', () => {
+    const s = songWith(2);
+    setDxx(s, 0, 5, 0);
+    const c: Cursor = { ...C0, row: 30 }; // hidden in order 0
+    // Last visible is order 0 row 5 (the Dxx itself); +1 lands on order 1 row 0.
+    expect(moveDown(c, s)).toEqual({ ...C0, order: 1, row: 0 });
+  });
+});
+
+describe('visibleRowRangeForOrder', () => {
+  it('returns 0..63 for an untruncated pattern', () => {
+    const s = songWith(1);
+    expect(visibleRowRangeForOrder(s, 0)).toEqual({ first: 0, last: 63 });
+  });
+
+  it('reflects a Dxx truncation: last is the Dxx-bearing row', () => {
+    const s = songWith(1);
+    setDxx(s, 0, 7, 0);
+    expect(visibleRowRangeForOrder(s, 0)).toEqual({ first: 0, last: 7 });
+  });
+
+  it('reflects an inbound Dxx-target: first is the resume row, last is 63', () => {
+    const s = songWith(2);
+    setDxx(s, 0, 5, 12); // pattern 0 truncates at 5, pattern 1 starts at row 12
+    expect(visibleRowRangeForOrder(s, 0)).toEqual({ first: 0, last: 5 });
+    expect(visibleRowRangeForOrder(s, 1)).toEqual({ first: 12, last: 63 });
+  });
+
+  it('returns null for an order with no visible rows', () => {
+    // Defensive: songWith(0) is degenerate but should not throw.
+    const s = emptySong();
+    s.songLength = 0;
+    expect(visibleRowRangeForOrder(s, 0)).toBeNull();
   });
 });
 

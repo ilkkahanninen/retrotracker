@@ -90,6 +90,33 @@ export function flattenSong(song: Song): FlatRow[] {
 }
 
 /**
+ * Range of visible (i.e., not Dxx-truncated) rows in the given order. `first`
+ * accounts for an inbound Dxx-target row from a preceding pattern; `last`
+ * accounts for the truncating Dxx within this pattern. Returns null when the
+ * order has no visible rows at all (defensive — shouldn't happen for a
+ * well-formed song with `songLength > 0`).
+ *
+ * Used by selection-extend keybinds to clamp shift-arrow / shift-page steps
+ * to the visible grid; without it, selections leak into rows the user can't
+ * see and never edits.
+ */
+export function visibleRowRangeForOrder(
+  song: Song,
+  order: number,
+): { first: number; last: number } | null {
+  const flat = flattenSong(song);
+  let first = -1;
+  let last = -1;
+  for (const fr of flat) {
+    if (fr.order !== order) continue;
+    if (first < 0) first = fr.rowIndex;
+    last = fr.rowIndex;
+  }
+  if (first < 0) return null;
+  return { first, last };
+}
+
+/**
  * Walk the song from the start to (but not including) the given (order, row)
  * and return the speed and tempo that would be in effect at that position
  * — i.e. the most recent Fxx commands of each kind. Used when starting

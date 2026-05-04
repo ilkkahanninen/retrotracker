@@ -5,7 +5,8 @@ import { App } from '../../src/App';
 import { setCursor, INITIAL_CURSOR, cursor } from '../../src/state/cursor';
 import { setSong, setTransport, setPlayPos, clearHistory, song, transport } from '../../src/state/song';
 import { setCurrentOctave } from '../../src/state/edit';
-import { PERIOD_TABLE } from '../../src/core/mod/format';
+import { Effect, PERIOD_TABLE } from '../../src/core/mod/format';
+import { selection, clearSelection } from '../../src/state/selection';
 
 /**
  * Reset every module-level signal that App's mounted state writes into,
@@ -146,6 +147,113 @@ describe('App: Backspace clears the cursor field', () => {
     await user.keyboard('.'); // clearAtCursor on sampleHi → keep lo, drop hi
     setCursor({ order: 0, row: 0, channel: 0, field: 'sampleHi' });
     expect(cellAtCursor().sample).toBe(0x0A);
+  });
+});
+
+describe('App: Dxx-truncated patterns', () => {
+  // Two regressions reported together — both around a pattern that's been
+  // shortened by a Dxx (Pattern Break) in the cursor's column.
+  function setDxxAt(row: number, channel: number, nextRow = 0): void {
+    const s = song();
+    if (!s) throw new Error('no song mounted');
+    const cell = s.patterns[s.orders[0]!]!.rows[row]![channel]!;
+    cell.effect = Effect.PatternBreak;
+    cell.effectParam = ((Math.floor(nextRow / 10) & 0xf) << 4) | (nextRow % 10);
+    setSong({ ...s }); // bump signal so consumers (e.g. flatten cache) recompute
+  }
+
+  it('Backspace on the Dxx-bearing row moves the cursor up by one (not to song start)', async () => {
+    render(() => <App />);
+    const user = userEvent.setup();
+    // Place a Dxx at row 5 of channel 0 → pattern truncates at row 5.
+    setDxxAt(5, 0);
+    setCursor({ order: 0, row: 5, channel: 0, field: 'note' });
+    clearSelection();
+    // Park something distinguishable in the row above so we can verify the
+    // backspace pulled the Dxx up rather than snapping the cursor.
+    const s = song()!;
+    s.patterns[s.orders[0]!]!.rows[4]![0]!.period = PERIOD_TABLE[0]![12]!;
+    setSong({ ...s });
+
+    await user.keyboard('{Backspace}');
+    // Cursor should land at row 4 (the cell just below the deletion was
+    // pulled up, taking the Dxx along).
+    expect(cursor().row).toBe(4);
+    // And the cell at row 4 channel 0 now holds the Dxx that was at row 5.
+    const after = song()!;
+    expect(after.patterns[after.orders[0]!]!.rows[4]![0]!.effect).toBe(Effect.PatternBreak);
+  });
+
+  it('Shift+ArrowDown at the last visible row does not extend selection past truncation', async () => {
+    render(() => <App />);
+    const user = userEvent.setup();
+    setDxxAt(5, 0); // pattern truncates at row 5
+    setCursor({ order: 0, row: 5, channel: 0, field: 'note' });
+    clearSelection();
+
+    await user.keyboard('{Shift>}{ArrowDown}{/Shift}');
+    // Cursor stays at row 5 (clamped to the last visible row of order 0)
+    // and the selection — if any — never reaches into hidden territory.
+    expect(cursor().row).toBe(5);
+    const sel = selection();
+    if (sel) {
+      expect(sel.endRow).toBeLessThanOrEqual(5);
+    }
+  });
+
+  it('Shift+PageDown at the last visible row also clamps to the truncation', async () => {
+    render(() => <App />);
+    const user = userEvent.setup();
+    setDxxAt(5, 0);
+    setCursor({ order: 0, row: 5, channel: 0, field: 'note' });
+    clearSelection();
+
+    await user.keyboard('{Shift>}{PageDown}{/Shift}');
+    expect(cursor().row).toBe(5);
+    const sel = selection();
+    if (sel) expect(sel.endRow).toBeLessThanOrEqual(5);
+  });
+
+  it('Cmd+A selects only the visible rows of the truncated pattern (channel scope)', async () => {
+    render(() => <App />);
+    const user = userEvent.setup();
+    setDxxAt(5, 0);
+    setCursor({ order: 0, row: 2, channel: 1, field: 'note' });
+    clearSelection();
+
+    await user.keyboard('{Meta>}a{/Meta}');
+    const sel = selection();
+    expect(sel).not.toBeNull();
+    // Step 1: whole current channel — clamped to rows 0..5.
+    expect(sel).toMatchObject({
+      order: 0,
+      startRow: 0,
+      endRow: 5,
+      startChannel: 1,
+      endChannel: 1,
+    });
+  });
+
+  it('Cmd+A again expands to the whole visible pattern, then no-ops once maximal', async () => {
+    render(() => <App />);
+    const user = userEvent.setup();
+    setDxxAt(5, 0);
+    setCursor({ order: 0, row: 2, channel: 1, field: 'note' });
+    clearSelection();
+
+    await user.keyboard('{Meta>}a{/Meta}'); // step 1: channel
+    await user.keyboard('{Meta>}a{/Meta}'); // step 2: whole visible pattern
+    expect(selection()).toMatchObject({
+      order: 0,
+      startRow: 0,
+      endRow: 5,
+      startChannel: 0,
+      endChannel: 3,
+    });
+    // Step 3: already maximal → identical.
+    const before = selection();
+    await user.keyboard('{Meta>}a{/Meta}');
+    expect(selection()).toEqual(before);
   });
 });
 

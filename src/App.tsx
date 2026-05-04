@@ -33,7 +33,6 @@ import {
   resetCursor,
   moveDown,
   moveRight,
-  moveUp,
   requestJumpToTop,
 } from "./state/cursor";
 import {
@@ -78,6 +77,7 @@ import {
   type PatternRange,
 } from "./core/mod/clipboardOps";
 import { CHANNELS, ROWS_PER_PATTERN } from "./core/mod/types";
+import { visibleRowRangeForOrder } from "./core/mod/flatten";
 import {
   selection,
   setSelection,
@@ -634,21 +634,30 @@ export const App: Component = () => {
     ...c,
     channel: Math.min(CHANNELS - 1, c.channel + 1),
   });
+  // Clamp row movement to the visible-row range of the cursor's order so
+  // shift+arrow / shift+page can't extend a selection into Dxx-truncated
+  // territory (or above an inbound Dxx-target row, in the symmetric case).
+  // Falls back to the full 0..63 range when no song is loaded yet.
+  const visibleRows = (order: number): { first: number; last: number } => {
+    const s = song();
+    return s ? visibleRowRangeForOrder(s, order) ?? { first: 0, last: ROWS_PER_PATTERN - 1 }
+             : { first: 0, last: ROWS_PER_PATTERN - 1 };
+  };
   const stepRowUp = (c: ReturnType<typeof cursor>) => ({
     ...c,
-    row: Math.max(0, c.row - 1),
+    row: Math.max(visibleRows(c.order).first, c.row - 1),
   });
   const stepRowDown = (c: ReturnType<typeof cursor>) => ({
     ...c,
-    row: Math.min(ROWS_PER_PATTERN - 1, c.row + 1),
+    row: Math.min(visibleRows(c.order).last, c.row + 1),
   });
   const stepRowPageUp = (c: ReturnType<typeof cursor>, n: number) => ({
     ...c,
-    row: Math.max(0, c.row - Math.max(1, n)),
+    row: Math.max(visibleRows(c.order).first, c.row - Math.max(1, n)),
   });
   const stepRowPageDown = (c: ReturnType<typeof cursor>, n: number) => ({
     ...c,
-    row: Math.min(ROWS_PER_PATTERN - 1, c.row + Math.max(1, n)),
+    row: Math.min(visibleRows(c.order).last, c.row + Math.max(1, n)),
   });
 
   /**
@@ -867,6 +876,10 @@ export const App: Component = () => {
    *
    * The cycle key is the *exact* selection rectangle — if the user has
    * an arbitrary drag-selection active, Cmd+A jumps straight to step 1.
+   *
+   * The row range is clamped to the cursor order's visible band so a
+   * Dxx-truncated pattern doesn't get a selection that bleeds into the
+   * hidden tail (or above an inbound Dxx-target row).
    */
   const selectAllStep = () => {
     if (transport() === "playing") return;
@@ -874,32 +887,29 @@ export const App: Component = () => {
     if (!s) return;
     const c = cursor();
     const sel = selection();
+    const { first, last } = visibleRows(c.order);
     const isWholePattern =
       !!sel &&
       sel.order === c.order &&
-      sel.startRow === 0 &&
-      sel.endRow === ROWS_PER_PATTERN - 1 &&
+      sel.startRow === first &&
+      sel.endRow === last &&
       sel.startChannel === 0 &&
       sel.endChannel === CHANNELS - 1;
     if (isWholePattern) return; // step 3+ — already maximal, no-op
     const isWholeChannel =
       !!sel &&
       sel.order === c.order &&
-      sel.startRow === 0 &&
-      sel.endRow === ROWS_PER_PATTERN - 1 &&
+      sel.startRow === first &&
+      sel.endRow === last &&
       sel.startChannel === c.channel &&
       sel.endChannel === c.channel;
     if (isWholeChannel) {
       // Step 2: expand to the whole pattern.
-      setSelection(
-        makeSelection(c.order, 0, 0, ROWS_PER_PATTERN - 1, CHANNELS - 1),
-      );
+      setSelection(makeSelection(c.order, first, 0, last, CHANNELS - 1));
       return;
     }
     // Step 1 (default): select the whole current channel.
-    setSelection(
-      makeSelection(c.order, 0, c.channel, ROWS_PER_PATTERN - 1, c.channel),
-    );
+    setSelection(makeSelection(c.order, first, c.channel, last, c.channel));
   };
 
   /**
@@ -1030,8 +1040,12 @@ export const App: Component = () => {
     const c = cursor();
     if (c.row <= 0) return;
     commitEdit((song) => deleteCellPullUp(song, c.order, c.row - 1, c.channel));
-    const after = song();
-    if (after) applyCursor(moveUp(c, after));
+    // Step explicitly to row-1 rather than via moveUp: the pull-up may have
+    // shifted a Dxx into the cursor's row, hiding it. moveUp from a hidden
+    // row would snap-then-step (via moveByRows' recovery) to *one above* the
+    // closest visible — but backspace's contract is "the cell I deleted
+    // moved up; follow it", which means landing exactly on row-1.
+    applyCursor({ ...c, row: c.row - 1 });
   };
 
   /**
@@ -1075,8 +1089,9 @@ export const App: Component = () => {
     const c = cursor();
     if (c.row <= 0) return;
     commitEdit((song) => deleteRowPullUp(song, c.order, c.row - 1));
-    const after = song();
-    if (after) applyCursor(moveUp(c, after));
+    // See `backspaceCell` for why we step explicitly to c.row - 1 instead of
+    // routing through moveUp — same Dxx-pull-up corner case applies here.
+    applyCursor({ ...c, row: c.row - 1 });
   };
 
   /**
