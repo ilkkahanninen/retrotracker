@@ -52,7 +52,7 @@ import { DEFAULT_TARGET_NOTE } from '../core/audio/sampleWorkbench';
 
 const STORAGE_KEY = 'retrotracker:session:v1';
 
-type SchemaVersion = 1 | 2 | 3;
+type SchemaVersion = 1 | 2 | 3 | 4;
 
 /**
  * On-disk shape for one persisted sampler source. The whole sampler-side
@@ -101,6 +101,12 @@ interface PersistedShape {
    * Optional so v<3 payloads still validate.
    */
   samplerSources?: Record<number, PersistedSamplerSource>;
+  /**
+   * v≥4 only: user-given pattern names (project-only — never written to the
+   * exported `.mod`). Key is the 0-based pattern index. Optional so v<4
+   * payloads still validate.
+   */
+  patternNames?: Record<number, string>;
 }
 
 /**
@@ -133,6 +139,8 @@ export interface SessionInputs {
   chiptuneSources?: Record<number, ChiptuneParams>;
   /** Per-slot sampler source WAVs (slot index → source). Optional. */
   samplerSources?: Record<number, SamplerSourceInputs>;
+  /** Project-only pattern names (pattern index → name). Optional. */
+  patternNames?: Record<number, string>;
 }
 
 /** A session that has been read back: same shape as SessionInputs, but
@@ -140,13 +148,15 @@ export interface SessionInputs {
  *  `setInfoText` without a fallback at every call site. */
 export type LoadedSession = Omit<
   SessionInputs,
-  'infoText' | 'chiptuneSources' | 'samplerSources'
+  'infoText' | 'chiptuneSources' | 'samplerSources' | 'patternNames'
 > & {
   infoText: string;
   /** Always materialised on load — empty record when none persisted. */
   chiptuneSources: Record<number, ChiptuneParams>;
   /** Always materialised on load — empty record when none persisted. */
   samplerSources: Record<number, SamplerSourceInputs>;
+  /** Always materialised on load — empty record when none persisted. */
+  patternNames: Record<number, string>;
 };
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -197,12 +207,13 @@ function encodeSongCached(song: Song): string {
  *  so we re-use the lossless M.K. binary instead of inventing a JSON shape
  *  for the sample data.  Throws if `writeModule` rejects the song. */
 function buildPayload(state: SessionInputs): PersistedShape {
-  const hasChiptune = !!state.chiptuneSources && Object.keys(state.chiptuneSources).length > 0;
-  const hasSampler  = !!state.samplerSources  && Object.keys(state.samplerSources).length > 0;
-  // Lowest version that fits the data — keeps a chiptune/sampler-free
-  // session bit-identical to the original v=1 format and lets older
-  // builds keep loading anything they can still understand.
-  const v: SchemaVersion = hasSampler ? 3 : hasChiptune ? 2 : 1;
+  const hasChiptune    = !!state.chiptuneSources && Object.keys(state.chiptuneSources).length > 0;
+  const hasSampler     = !!state.samplerSources  && Object.keys(state.samplerSources).length > 0;
+  const hasPatternNames = !!state.patternNames   && Object.keys(state.patternNames).length > 0;
+  // Lowest version that fits the data — keeps a chiptune/sampler/names-free
+  // session bit-identical to the original v=1 format and lets older builds
+  // keep loading anything they can still understand.
+  const v: SchemaVersion = hasPatternNames ? 4 : hasSampler ? 3 : hasChiptune ? 2 : 1;
   return {
     v,
     songBase64: encodeSongCached(state.song),
@@ -213,8 +224,9 @@ function buildPayload(state: SessionInputs): PersistedShape {
     currentSample: state.currentSample,
     currentOctave: state.currentOctave,
     editStep: state.editStep,
-    ...(hasChiptune ? { chiptuneSources: state.chiptuneSources } : {}),
-    ...(hasSampler  ? { samplerSources:  encodeSamplerSources(state.samplerSources!) } : {}),
+    ...(hasChiptune     ? { chiptuneSources: state.chiptuneSources } : {}),
+    ...(hasSampler      ? { samplerSources:  encodeSamplerSources(state.samplerSources!) } : {}),
+    ...(hasPatternNames ? { patternNames:    state.patternNames } : {}),
   };
 }
 
@@ -262,6 +274,7 @@ function payloadToSession(parsed: unknown): LoadedSession | null {
     editStep: clamp(parsed.editStep, 0, 16, 1),
     chiptuneSources: parseChiptuneSources(parsed.chiptuneSources),
     samplerSources: parseSamplerSources(parsed.samplerSources),
+    patternNames: parsePatternNames(parsed.patternNames),
   };
 }
 
@@ -403,6 +416,26 @@ function parseChiptuneSources(raw: unknown): Record<number, ChiptuneParams> {
   return out;
 }
 
+/**
+ * Validate a `patternNames` map. Indices must be in [0, 127] (M.K.'s
+ * pattern-count cap) and values must be strings; bad entries are dropped
+ * silently rather than failing the whole load. Trailing trims keep
+ * empty-string entries from cluttering the map.
+ */
+function parsePatternNames(raw: unknown): Record<number, string> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<number, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const idx = parseInt(k, 10);
+    if (!Number.isFinite(idx) || idx < 0 || idx > 127) continue;
+    if (typeof v !== 'string') continue;
+    const name = v.slice(0, 64);
+    if (name.trim() === '') continue;
+    out[idx] = name;
+  }
+  return out;
+}
+
 /** Persist the inputs to localStorage. Silent on quota / SecurityErrors. */
 export function saveSession(state: SessionInputs): void {
   let payload: PersistedShape;
@@ -495,11 +528,11 @@ export function deriveProjectFilename(
 function isPersistedShape(v: unknown): v is PersistedShape {
   if (!v || typeof v !== 'object') return false;
   const x = v as Record<string, unknown>;
-  // Accept v=1 (oldest, no source maps), v=2 (chiptuneSources added) and
-  // v=3 (samplerSources added). Per-slot maps are validated entry-by-entry
-  // in their parse helpers so a single corrupt slot doesn't fail the whole
-  // load.
-  return (x['v'] === 1 || x['v'] === 2 || x['v'] === 3)
+  // Accept v=1 (oldest, no source maps), v=2 (chiptuneSources added),
+  // v=3 (samplerSources added) and v=4 (patternNames added). Per-slot
+  // maps are validated entry-by-entry in their parse helpers so a single
+  // corrupt slot doesn't fail the whole load.
+  return (x['v'] === 1 || x['v'] === 2 || x['v'] === 3 || x['v'] === 4)
     && typeof x['songBase64'] === 'string'
     && (x['filename'] === null || typeof x['filename'] === 'string')
     && (x['infoText'] === undefined || typeof x['infoText'] === 'string')

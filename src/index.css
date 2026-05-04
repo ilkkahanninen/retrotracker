@@ -334,7 +334,31 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   color: var(--text-on-accent);
 }
 .orderlist li.orderlist__item--active .num,
-.orderlist li.orderlist__item--active .pat { color: var(--text-on-accent); }
+.orderlist li.orderlist__item--active .pat,
+.orderlist li.orderlist__item--active .orderlist__name { color: var(--text-on-accent); }
+/* Pattern name (project-only, doesn't survive .mod export). Truncates so
+ * a long name can't push the row past the order-list aside's width. */
+.orderlist__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  cursor: text;
+}
+.orderlist__name-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 0 4px;
+  outline: none;
+}
 .sample--empty { opacity: 0.35; }
 /* Inline rename input — sized to the .name span it replaces so the row
  * height doesn't jump when entering edit mode. */

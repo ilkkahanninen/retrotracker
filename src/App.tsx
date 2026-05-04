@@ -90,6 +90,13 @@ import { clipboardSlice, setClipboardSlice } from "./state/clipboard";
 import { isChannelMuted, resetChannelMute, toggleMute, toggleSolo } from "./state/channelMute";
 import { resetChannelLevels } from "./state/channelLevel";
 import {
+  patternNames,
+  setPatternName,
+  resetPatternNames,
+  loadPatternNames,
+  PATTERN_NAME_MAX,
+} from "./state/patternNames";
+import {
   workbenchFromWav,
   workbenchFromWavData,
   workbenchFromChiptune,
@@ -183,6 +190,23 @@ export const App: Component = () => {
   const [editingTitle, setEditingTitle] = createSignal(false);
 
   /**
+   * Order-list row currently being inline-renamed, or null when none. Keyed
+   * by order index (not pattern index) so a pattern that appears multiple
+   * times in the order list only renders one input at a time — keying by
+   * pattern would race two refs' focus calls and the loser's blur would
+   * commit an empty value before the user could type. Rename still
+   * applies to the underlying pattern, so siblings update on commit.
+   */
+  const [editingOrderIdx, setEditingOrderIdx] = createSignal<number | null>(
+    null,
+  );
+
+  const commitPatternRename = (patternIdx: number, raw: string) => {
+    setEditingOrderIdx(null);
+    setPatternName(patternIdx, raw);
+  };
+
+  /**
    * Apply a fully-parsed session (from `.retro`, from localStorage, or from
    * a freshly-parsed .mod with no UI overrides) to every relevant signal.
    * Used by Open and the autosave-restore path so they go through one place.
@@ -200,6 +224,8 @@ export const App: Component = () => {
     chiptuneSources?: Record<number, ChiptuneParams>;
     /** Per-slot sampler source WAVs restored from the project. */
     samplerSources?: Record<number, SamplerSourceInputs>;
+    /** Project-only pattern names (pattern index → name). */
+    patternNames?: Record<number, string>;
   }) => {
     if (!loaded.song) return;
     // Halt any in-flight playback before swapping the song — otherwise the
@@ -212,6 +238,10 @@ export const App: Component = () => {
     // Drop stale VU bars from the previous song's last playing quantum;
     // the worklet won't emit a fresh `level` event until playback resumes.
     resetChannelLevels();
+    // Pattern names are project-only and tied to the previous song's
+    // pattern indices — clear before restoring this load's set.
+    resetPatternNames();
+    if (loaded.patternNames) loadPatternNames(loaded.patternNames);
     setSong(loaded.song);
     setFilename(loaded.filename);
     setInfoText(loaded.infoText ?? "");
@@ -389,6 +419,7 @@ export const App: Component = () => {
       editStep: editStep(),
       chiptuneSources: chiptuneSourcesSnapshot(),
       samplerSources: samplerSourcesSnapshot(),
+      patternNames: patternNames(),
     });
     io.download(
       deriveProjectFilename(filename(), s.title),
@@ -1788,6 +1819,7 @@ export const App: Component = () => {
             pt: src.pt,
           });
         }
+        loadPatternNames(restored.patternNames);
         setTransport("ready");
       } else {
         setSong(emptySong());
@@ -1827,6 +1859,8 @@ export const App: Component = () => {
       // trigger an autosave. The snapshot is taken inside the timeout to
       // pick up any rapid follow-up edits before we serialise.
       workbenches();
+      // Subscribe to pattern names so renames also re-fire the autosave.
+      const names = patternNames();
       if (!s) return;
       if (saveTimer !== null) window.clearTimeout(saveTimer);
       saveTimer = window.setTimeout(() => {
@@ -1841,6 +1875,7 @@ export const App: Component = () => {
           editStep: step,
           chiptuneSources: chiptuneSourcesSnapshot(),
           samplerSources: samplerSourcesSnapshot(),
+          patternNames: names,
         });
       }, 250);
     });
@@ -1976,6 +2011,7 @@ export const App: Component = () => {
       editStep: 1,
       chiptuneSources: chiptuneSourcesSnapshot(),
       samplerSources: samplerSourcesSnapshot(),
+      patternNames: patternNames(),
     }).length;
   });
 
@@ -2374,8 +2410,15 @@ export const App: Component = () => {
                             "orderlist__item--cursor":
                               transport() !== "playing" && i === cursor().order,
                           }}
-                          onClick={() => jumpToOrder(i)}
-                          title={`Jump to order ${i.toString(16).toUpperCase().padStart(2, "0")}`}
+                          onClick={() => {
+                            if (editingOrderIdx() === i) return;
+                            jumpToOrder(i);
+                          }}
+                          onDblClick={(e) => {
+                            e.stopPropagation();
+                            setEditingOrderIdx(i);
+                          }}
+                          title={`Jump to order ${i.toString(16).toUpperCase().padStart(2, "0")} — double-click to rename pattern`}
                         >
                           <span class="num">
                             {i.toString(16).toUpperCase().padStart(2, "0")}
@@ -2383,6 +2426,41 @@ export const App: Component = () => {
                           <span class="pat">
                             {p.toString(16).toUpperCase().padStart(2, "0")}
                           </span>
+                          <Show
+                            when={editingOrderIdx() === i}
+                            fallback={
+                              <span class="orderlist__name">
+                                {patternNames()[p] ?? ""}
+                              </span>
+                            }
+                          >
+                            <input
+                              class="orderlist__name-input"
+                              type="text"
+                              maxLength={PATTERN_NAME_MAX}
+                              value={patternNames()[p] ?? ""}
+                              ref={(el) =>
+                                queueMicrotask(() => {
+                                  el.focus();
+                                  el.select();
+                                })
+                              }
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  commitPatternRename(p, e.currentTarget.value);
+                                } else if (e.key === "Escape") {
+                                  e.preventDefault();
+                                  setEditingOrderIdx(null);
+                                }
+                              }}
+                              onBlur={(e) => {
+                                if (editingOrderIdx() === i)
+                                  commitPatternRename(p, e.currentTarget.value);
+                              }}
+                            />
+                          </Show>
                         </li>
                       ))}
                   </ol>
