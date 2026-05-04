@@ -17,6 +17,11 @@ import {
   type MonoMix,
   type SampleWorkbench,
 } from "../core/audio/sampleWorkbench";
+import {
+  SHAPER_LABELS,
+  SHAPER_MODES,
+  type ShaperMode,
+} from "../core/audio/shapers";
 import { Slider } from "./Slider";
 
 const NOTE_NAMES = [
@@ -193,6 +198,7 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
   const asFilter = () => props.node as Extract<EffectNode, { kind: "filter" }>;
   const asCrossfade = () =>
     props.node as Extract<EffectNode, { kind: "crossfade" }>;
+  const asShaper = () => props.node as Extract<EffectNode, { kind: "shaper" }>;
   return (
     <Switch>
       <Match when={props.node.kind === "gain"}>
@@ -210,6 +216,46 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
       </Match>
       <Match when={props.node.kind === "normalize"}>
         <span class="effect-node__hint">Scales to peak ±1.0</span>
+      </Match>
+      <Match when={props.node.kind === "shaper"}>
+        <label class="effect-node__param">
+          <span class="samplemeta__label">Mode</span>
+          <select
+            value={asShaper().params.mode}
+            onChange={(e) => {
+              const node = asShaper();
+              props.onPatch({
+                kind: "shaper",
+                params: {
+                  mode: e.currentTarget.value as ShaperMode,
+                  amount: node.params.amount,
+                },
+              });
+            }}
+          >
+            {SHAPER_MODES.map((m) => (
+              <option value={m}>{SHAPER_LABELS[m]}</option>
+            ))}
+          </select>
+        </label>
+        <Slider
+          label="Drive"
+          min={0}
+          max={1}
+          step={0.01}
+          value={asShaper().params.amount}
+          format={(v) => v.toFixed(2)}
+          onInput={(v) => {
+            const node = asShaper();
+            props.onPatch({
+              kind: "shaper",
+              params: {
+                mode: node.params.mode,
+                amount: Math.max(0, Math.min(1, v)),
+              },
+            });
+          }}
+        />
       </Match>
       <Match when={props.node.kind === "crossfade"}>
         <Slider

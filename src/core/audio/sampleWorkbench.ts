@@ -31,6 +31,7 @@ import {
   defaultChiptuneParams,
   generateChiptuneCycle,
 } from './chiptune';
+import { applyShaper, type ShaperMode } from './shapers';
 
 /** PT note slot for "C-2" — the conventional default target for fresh imports. */
 export const DEFAULT_TARGET_NOTE = 12;
@@ -73,12 +74,21 @@ export type EffectNode =
         /** Crossfade window length in source-frame units. */
         length: number;
       };
+    }
+  | {
+      kind: 'shaper';
+      params: {
+        /** Waveshaper mode — see SHAPER_MODES in shapers.ts. */
+        mode: ShaperMode;
+        /** Drive / wet-dry blend, 0..1. 0 = bypass, 1 = full effect. */
+        amount: number;
+      };
     };
 
 export type EffectKind = EffectNode['kind'];
 
 export const EFFECT_KINDS: readonly EffectKind[] = [
-  'gain', 'normalize', 'reverse', 'crop', 'cut', 'fadeIn', 'fadeOut', 'filter', 'crossfade',
+  'gain', 'normalize', 'reverse', 'crop', 'cut', 'fadeIn', 'fadeOut', 'filter', 'crossfade', 'shaper',
 ] as const;
 
 /** Human-readable names for the picker UI. */
@@ -92,6 +102,7 @@ export const EFFECT_LABELS: Readonly<Record<EffectKind, string>> = {
   fadeOut:   'Fade out',
   filter:    'Filter',
   crossfade: 'Crossfade',
+  shaper:    'Shaper',
 };
 
 /**
@@ -449,6 +460,20 @@ export function applyCrossfade(
   });
 }
 
+/**
+ * Per-sample waveshaper across every channel. Whole-input only — there's
+ * no range param. `mode === 'none'` is a fast pass-through, matching the
+ * shaper-stage contract from chiptune.
+ */
+export function applyShaperEffect(input: WavData, mode: ShaperMode, amount: number): WavData {
+  if (mode === 'none' || amount === 0) return input;
+  return mapChannels(input, (ch) => {
+    const out = new Float32Array(ch.length);
+    for (let i = 0; i < ch.length; i++) out[i] = applyShaper(ch[i]!, mode, amount);
+    return out;
+  });
+}
+
 export function applyEffect(
   input: WavData,
   node: EffectNode,
@@ -463,6 +488,7 @@ export function applyEffect(
     case 'fadeIn':     return applyFadeIn(input, node.params.startFrame, node.params.endFrame);
     case 'fadeOut':    return applyFadeOut(input, node.params.startFrame, node.params.endFrame);
     case 'filter':     return applyFilter(input, node.params.type, node.params.cutoff, node.params.q);
+    case 'shaper':     return applyShaperEffect(input, node.params.mode, node.params.amount);
     case 'crossfade':
       // Loop info comes from the run context — without it (slot has no
       // loop, or the chain ran outside `writeWorkbenchToSongPure`) the
@@ -690,5 +716,9 @@ export function defaultEffect(kind: EffectKind, input: WavData): EffectNode {
     // ones. The actual cap is tightened at apply time by `applyCrossfade`
     // (≤ loopStart and ≤ loop length).
     case 'crossfade': return { kind: 'crossfade', params: { length: Math.min(4096, Math.max(1, Math.floor(len / 16))) } };
+    // Soft clip at half-drive — audible without being aggressive, gives the
+    // user something to hear immediately. They can pick a different mode or
+    // dial drive from the param row.
+    case 'shaper':    return { kind: 'shaper',    params: { mode: 'softClip', amount: 0.5 } };
   }
 }

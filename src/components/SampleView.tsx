@@ -42,6 +42,7 @@ const EFFECT_BUTTON_KINDS: readonly EffectKind[] = [
   "gain",
   "normalize",
   "filter",
+  "shaper",
   "crossfade",
 ] as const;
 
