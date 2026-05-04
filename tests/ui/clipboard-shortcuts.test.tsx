@@ -178,6 +178,64 @@ describe('Cmd+X: cut', () => {
   });
 });
 
+describe('Cmd+E: bounce selection to sample', () => {
+  it('renders the selection into the next free sample slot and selects it', async () => {
+    // Stamp a note that will play during the bounced rows.
+    setSong(songWith([
+      { row: 0, ch: 0, note: { period: C2, sample: 1 } },
+      { row: 1, ch: 0, note: { period: D2, sample: 1 } },
+    ]));
+    // Give sample 1 a non-trivial body so the bounce actually emits audio.
+    const s = song()!;
+    s.samples[0] = {
+      ...s.samples[0]!,
+      lengthWords: 8,
+      data: new Int8Array(16).fill(64),
+      volume: 64,
+    };
+    setSong({ ...s });
+    render(() => <App />);
+    setCursor({ order: 0, row: 0, channel: 0, field: 'note' });
+    setSelection(makeSelection(0, 0, 0, 1, 0));
+
+    chord('e');
+
+    // Sample slot 2 (index 1) should now be populated with the bounce.
+    const after = song()!;
+    expect(after.samples[1]!.lengthWords).toBeGreaterThan(0);
+    expect(after.samples[1]!.name.startsWith('Bnc')).toBe(true);
+  });
+
+  it('is a no-op when there is no selection (handler bails)', () => {
+    setSong(songWith([]));
+    render(() => <App />);
+    chord('e');
+    // No slot got populated.
+    expect(song()!.samples[1]!.lengthWords).toBe(0);
+  });
+
+  it('is suppressed during playback', () => {
+    setSong(songWith([
+      { row: 0, ch: 0, note: { period: C2, sample: 1 } },
+    ]));
+    const s = song()!;
+    s.samples[0] = {
+      ...s.samples[0]!,
+      lengthWords: 4,
+      data: new Int8Array(8).fill(32),
+      volume: 64,
+    };
+    setSong({ ...s });
+    render(() => <App />);
+    setSelection(makeSelection(0, 0, 0, 0, 0));
+    setTransport('playing');
+
+    chord('e');
+
+    expect(song()!.samples[1]!.lengthWords).toBe(0);
+  });
+});
+
 describe('Cmd+V: paste', () => {
   it('stamps the clipboard at the cursor position', () => {
     setSong(songWith([]));

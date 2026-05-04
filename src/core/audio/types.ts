@@ -1,3 +1,5 @@
+import type { Mixer } from './mixer';
+
 export type PaulaClock = 'PAL' | 'NTSC';
 
 export interface ReplayerOptions {
@@ -37,6 +39,12 @@ export interface ReplayerOptions {
    * F7 "play pattern" in the live editor.
    */
   loopPattern?: boolean;
+  /**
+   * Optional mixer factory. Defaults to constructing a Paula (BLEP + RC/LED).
+   * Pass a CleanMixer factory for the offline "Bounce selection" path where
+   * the user wants a high-quality render free of Paula's analog character.
+   */
+  mixerFactory?: (sampleRate: number) => Mixer;
 }
 
 export interface RenderOptions extends ReplayerOptions {

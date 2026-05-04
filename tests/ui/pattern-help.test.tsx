@@ -235,6 +235,9 @@ describe('PatternHelp: context-sensitive tips', () => {
     const sections = container.querySelectorAll('.patternhelp__tip-section');
     expect(sections[0]!.textContent).toMatch(new RegExp(`${MOD_LABEL} \\+ C`));
     expect(sections[0]!.textContent).toMatch(new RegExp(`${MOD_LABEL} \\+ V`));
+    // Bounce-to-sample tip lives in the Selection section.
+    expect(sections[0]!.textContent).toMatch(new RegExp(`${MOD_LABEL} \\+ E`));
+    expect(sections[0]!.textContent).toMatch(/bounce/i);
     expect(sections[1]!.textContent).toMatch(/Shift \+ − \/ =/);
   });
 

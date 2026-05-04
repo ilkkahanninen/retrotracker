@@ -7,6 +7,7 @@ import {
 } from '../mod/format';
 import type { ReplayerOptions } from './types';
 import { Paula } from './paula';
+import type { Mixer } from './mixer';
 
 /**
  * ProTracker M.K. replayer.
@@ -174,7 +175,7 @@ export class Replayer {
   private readonly sampleRate: number;
   private readonly channels: ChannelState[] = [];
   private readonly state: SongState;
-  private readonly paula: Paula;
+  private readonly paula: Mixer;
   /** Mid/side panning side coefficient: (sep% / 100) * 0.5. */
   private readonly sideFactor: number;
   /** If true, never report ended; treat Bxx revisits and end-of-orders as a wrap. */
@@ -201,7 +202,9 @@ export class Replayer {
     this.sampleRate = opts.sampleRate;
     this.loop = opts.loop ?? false;
     this.loopPattern = opts.loopPattern ?? false;
-    this.paula = new Paula(opts.sampleRate, 'A1200');
+    this.paula = opts.mixerFactory
+      ? opts.mixerFactory(opts.sampleRate)
+      : new Paula(opts.sampleRate, 'A1200');
     const sep = Math.max(0, Math.min(100, opts.stereoSeparation ?? 20));
     this.sideFactor = (sep / 100) * 0.5;
     for (let i = 0; i < CHANNELS; i++) this.channels.push(newChannel());

@@ -78,6 +78,7 @@ import {
 } from "./core/mod/clipboardOps";
 import { CHANNELS, ROWS_PER_PATTERN } from "./core/mod/types";
 import { visibleRowRangeForOrder } from "./core/mod/flatten";
+import { bounceSelection } from "./core/audio/bounce";
 import {
   selection,
   setSelection,
@@ -1499,6 +1500,46 @@ export const App: Component = () => {
    * Bundles workbench creation + pipeline write into a single history entry
    * so undoing reverts both halves at once.
    */
+  /**
+   * "Bounce selection" — render the current pattern selection through a
+   * CleanMixer (no Paula) and land the result in the next free sample slot
+   * as a Sampler workbench. Selection survives unchanged so the user can
+   * follow up with a Cut / Delete to clear the bounced rows.
+   *
+   * No-op when:
+   *   - playing (offline render shouldn't fight live audio)
+   *   - no song / no selection
+   *   - no free slot remains
+   */
+  const bounceSelectionToSample = () => {
+    if (transport() === "playing") return;
+    const s = song();
+    const sel = selection();
+    if (!s || !sel) return;
+    const slot = nextFreeSlot(s, -1);
+    if (slot === null) {
+      setError("No free sample slots — clear one and try again.");
+      return;
+    }
+    const result = bounceSelection(s, sel);
+    if (!result) return;
+    const patNum = s.orders[sel.order] ?? 0;
+    // Short, grep-able name within PT's 22-char limit. Pattern + row range.
+    const sourceName = `Bnc P${patNum.toString(16).toUpperCase()} R${sel.startRow
+      .toString(16)
+      .toUpperCase()
+      .padStart(2, "0")}-${sel.endRow.toString(16).toUpperCase().padStart(2, "0")}`;
+    const wb = workbenchFromWavData(result.wav, sourceName);
+    setError(null);
+    commitEditWithWorkbenches(({ song, workbenches }) => ({
+      song: writeWorkbenchToSongPure(song, slot, wb, NO_LOOP),
+      workbenches: withWorkbench(workbenches, slot, wb),
+    }));
+    // Hop the sample-slot selection to the new bounce so the user sees what
+    // they got. Keep the pattern-view cursor and selection where they were.
+    selectSample(slot + 1);
+  };
+
   const loadWavIntoCurrentSample = (bytes: Uint8Array, filename: string) => {
     if (transport() === "playing") return;
     let wb: SampleWorkbench;
@@ -2000,6 +2041,7 @@ export const App: Component = () => {
       copySelection,
       cutSelection,
       pasteAtCursor,
+      bounceSelectionToSample,
       applyCursor,
       applyCursorWithSong,
       extendSelection,
@@ -2084,6 +2126,18 @@ export const App: Component = () => {
         onClick: pasteAtCursor,
         disabled:
           playing || view() === "sample" || !song() || !clipboardSlice(),
+      },
+      { separator: true, label: "" },
+      {
+        label: "Bounce selection to sample",
+        hint: "⌘E",
+        onClick: bounceSelectionToSample,
+        disabled:
+          playing
+          || view() === "sample"
+          || !song()
+          || !selection()
+          || nextFreeSlot(song(), -1) === null,
       },
     ];
   };

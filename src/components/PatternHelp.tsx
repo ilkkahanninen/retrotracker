@@ -259,6 +259,7 @@ const SELECTION_TIPS: TipSection = {
     { keys: `${MOD_LABEL} + X`, action: 'cut' },
     { keys: `${MOD_LABEL} + V`, action: 'paste at cursor' },
     { keys: `${MOD_LABEL} + A`, action: 'select all (channel, then pattern)' },
+    { keys: `${MOD_LABEL} + E`, action: 'bounce to next free sample slot' },
     { keys: 'Shift + arrows', action: 'extend selection' },
     { keys: 'Backspace', action: 'clear cells' },
   ],

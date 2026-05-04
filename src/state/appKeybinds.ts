@@ -84,6 +84,7 @@ export interface AppKeybindHandlers {
   copySelection: () => void;
   cutSelection: () => void;
   pasteAtCursor: () => void;
+  bounceSelectionToSample: () => void;
   applyCursor: (next: Cursor) => void;
   applyCursorWithSong: (mover: (c: Cursor, s: Song) => Cursor) => void;
   extendSelection: (next: Cursor) => void;
@@ -177,6 +178,19 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       description: "Paste clipboard at cursor",
       when: () => transport() !== "playing" && view() !== "sample",
       run: h.pasteAtCursor,
+    }),
+  );
+  // Cmd+E — render the current selection through the clean offline mixer
+  // and land it in the next free sample slot. The handler itself bails on
+  // missing-selection / no-free-slot, so the gate here just covers playback
+  // and view; finer eligibility is the handler's concern.
+  cleanups.push(
+    registerShortcut({
+      key: "e",
+      mod: true,
+      description: "Bounce selection to sample",
+      when: () => transport() !== "playing" && view() !== "sample",
+      run: h.bounceSelectionToSample,
     }),
   );
   cleanups.push(

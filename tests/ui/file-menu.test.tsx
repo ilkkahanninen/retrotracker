@@ -11,6 +11,7 @@ import {
 } from '../../src/state/edit';
 import { setView, view } from '../../src/state/view';
 import { setClipboardSlice } from '../../src/state/clipboard';
+import { setSelection } from '../../src/state/selection';
 import { io } from '../../src/state/io';
 import {
   clearSession, projectToBytes,
@@ -30,6 +31,7 @@ function resetState() {
   setEditStep(1);
   setDirty(false);
   setView('pattern');
+  setSelection(null);
   clearSession();
 }
 
@@ -202,14 +204,16 @@ describe('Open: file-input sniff routes by extension', () => {
 });
 
 describe('EditMenu: dropdown contents and actions', () => {
-  it('lists Undo, Redo, Cut, Copy, Paste in order with a separator after Redo', () => {
+  it('lists Undo, Redo, Cut, Copy, Paste, Bounce in order with a separator after Redo', () => {
     setSong(emptySong());
     const { container } = render(() => <App />);
     fireEvent.click(menuTrigger(container, 'Edit'));
     const labels = Array.from(
       container.querySelectorAll<HTMLElement>('.menu__list .menu__label'),
     ).map((el) => el.textContent);
-    expect(labels).toEqual(['Undo', 'Redo', 'Cut', 'Copy', 'Paste']);
+    expect(labels).toEqual([
+      'Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Bounce selection to sample',
+    ]);
     // Separator is the third <li> in the list (after Undo and Redo).
     const items = container.querySelectorAll<HTMLElement>('.menu__list > li');
     expect(items[2]!.classList.contains('menu__separator')).toBe(true);
@@ -253,6 +257,26 @@ describe('EditMenu: dropdown contents and actions', () => {
       container.querySelectorAll<HTMLElement>('.menu__item'),
     ).find((i) => i.textContent?.startsWith('Paste'))!;
     expect(pasteItem.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('Bounce selection is disabled without a selection, enabled once one exists', () => {
+    setSong(emptySong());
+    setClipboardSlice(null);
+    const { container } = render(() => <App />);
+    fireEvent.click(menuTrigger(container, 'Edit'));
+    let bounce = Array.from(
+      container.querySelectorAll<HTMLElement>('.menu__item'),
+    ).find((i) => i.textContent?.startsWith('Bounce'))!;
+    expect(bounce.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(menuTrigger(container, 'Edit')); // close
+
+    // Drop a selection and reopen the menu.
+    setSelection({ order: 0, startRow: 0, endRow: 4, startChannel: 0, endChannel: 1 });
+    fireEvent.click(menuTrigger(container, 'Edit'));
+    bounce = Array.from(
+      container.querySelectorAll<HTMLElement>('.menu__item'),
+    ).find((i) => i.textContent?.startsWith('Bounce'))!;
+    expect(bounce.getAttribute('aria-disabled')).toBe('false');
   });
 
   it('Cut / Copy / Paste are all disabled in the sample view', () => {
