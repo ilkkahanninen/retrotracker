@@ -36,7 +36,7 @@ describe('SampleView: loop toggle', () => {
     setView('sample');
     const { container } = render(() => <App />);
     seedSampleData();
-    const toggle = container.querySelector<HTMLInputElement>('.samplemeta__toggle input[type="checkbox"]')!;
+    const toggle = container.querySelector<HTMLInputElement>('.samplemeta__check input[type="checkbox"]')!;
     expect(toggle.checked).toBe(false);
     fireEvent.change(toggle, { target: { checked: true } });
     expect(song()!.samples[0]!.loopStartWords).toBe(0);
@@ -53,7 +53,7 @@ describe('SampleView: loop toggle', () => {
         ? { ...sm, loopStartWords: 10, loopLengthWords: 50 }
         : sm),
     });
-    const toggle = container.querySelector<HTMLInputElement>('.samplemeta__toggle input[type="checkbox"]')!;
+    const toggle = container.querySelector<HTMLInputElement>('.samplemeta__check input[type="checkbox"]')!;
     expect(toggle.checked).toBe(true);
     fireEvent.change(toggle, { target: { checked: false } });
     expect(song()!.samples[0]!.loopLengthWords).toBe(1);
@@ -81,7 +81,7 @@ describe('SampleView: loop toggle', () => {
     fireEvent.mouseDown(wf, { clientX: 205 });
     fireEvent.mouseMove(wf, { clientX: 820 });
 
-    const toggle = container.querySelector<HTMLInputElement>('.samplemeta__toggle input[type="checkbox"]')!;
+    const toggle = container.querySelector<HTMLInputElement>('.samplemeta__check input[type="checkbox"]')!;
     fireEvent.change(toggle, { target: { checked: true } });
 
     // Word-aligned: start=40 stays 40, end=160 stays 160.
@@ -96,7 +96,7 @@ describe('SampleView: loop toggle', () => {
     setView('sample');
     const { container } = render(() => <App />);
     seedSampleData();
-    const toggle = container.querySelector<HTMLInputElement>('.samplemeta__toggle input[type="checkbox"]')!;
+    const toggle = container.querySelector<HTMLInputElement>('.samplemeta__check input[type="checkbox"]')!;
     fireEvent.change(toggle, { target: { checked: true } });
     expect(song()!.samples[0]!.loopStartWords).toBe(0);
     expect(song()!.samples[0]!.loopLengthWords).toBe(100);
@@ -115,7 +115,7 @@ describe('SampleView: loop toggle', () => {
     seedSampleData();
     setTransport('playing');
 
-    const toggle = container.querySelector<HTMLInputElement>('.samplemeta__toggle input[type="checkbox"]')!;
+    const toggle = container.querySelector<HTMLInputElement>('.samplemeta__check input[type="checkbox"]')!;
     expect(toggle.disabled).toBe(true);
   });
 
@@ -123,7 +123,7 @@ describe('SampleView: loop toggle', () => {
     setView('sample');
     const { container } = render(() => <App />);
     // Slot 1 is empty by default (lengthWords=0).
-    const toggle = container.querySelector<HTMLInputElement>('.samplemeta__toggle input[type="checkbox"]')!;
+    const toggle = container.querySelector<HTMLInputElement>('.samplemeta__check input[type="checkbox"]')!;
     expect(toggle.disabled).toBe(true);
   });
 });

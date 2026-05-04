@@ -336,42 +336,45 @@ export const SampleView: Component<Props> = (props) => {
               looped on every re-run. Hide the toggle so the user can't
               fight the engine. */}
           <Show when={workbench()?.source.kind !== "chiptune"}>
-            <label class="samplemeta__toggle">
-              <input
-                type="checkbox"
-                checked={isLooping()}
-                disabled={sample()!.lengthWords === 0 || editingDisabled()}
-                onChange={(e) => {
-                  if (e.currentTarget.checked) {
-                    // If the user has drawn a selection, adopt it as the loop
-                    // range and drop the selection — the loop handles take
-                    // over the same role visually. Round inward to word
-                    // boundaries (PT's loop fields are word-aligned).
-                    const sel = selection();
-                    if (sel) {
-                      const start = (sel.start + 1) & ~1;
-                      const end = sel.end & ~1;
-                      if (end - start >= 2) {
-                        props.onPatch({
-                          loopStartWords: start >> 1,
-                          loopLengthWords: (end - start) >> 1,
-                        });
-                        setSelection(null);
-                        return;
+            <label>
+              <span class="samplemeta__label">Looping</span>
+              <span class="samplemeta__check">
+                <input
+                  type="checkbox"
+                  checked={isLooping()}
+                  disabled={sample()!.lengthWords === 0 || editingDisabled()}
+                  onChange={(e) => {
+                    if (e.currentTarget.checked) {
+                      // If the user has drawn a selection, adopt it as the loop
+                      // range and drop the selection — the loop handles take
+                      // over the same role visually. Round inward to word
+                      // boundaries (PT's loop fields are word-aligned).
+                      const sel = selection();
+                      if (sel) {
+                        const start = (sel.start + 1) & ~1;
+                        const end = sel.end & ~1;
+                        if (end - start >= 2) {
+                          props.onPatch({
+                            loopStartWords: start >> 1,
+                            loopLengthWords: (end - start) >> 1,
+                          });
+                          setSelection(null);
+                          return;
+                        }
                       }
+                      // No (usable) selection — default loop = whole sample.
+                      props.onPatch({
+                        loopStartWords: 0,
+                        loopLengthWords: sample()!.lengthWords,
+                      });
+                    } else {
+                      // PT no-loop sentinel.
+                      props.onPatch({ loopLengthWords: 1 });
                     }
-                    // No (usable) selection — default loop = whole sample.
-                    props.onPatch({
-                      loopStartWords: 0,
-                      loopLengthWords: sample()!.lengthWords,
-                    });
-                  } else {
-                    // PT no-loop sentinel.
-                    props.onPatch({ loopLengthWords: 1 });
-                  }
-                }}
-              />
-              <span>Loop</span>
+                  }}
+                />
+                <span>Enabled</span>
+              </span>
             </label>
           </Show>
         </div>

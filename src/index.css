@@ -11,8 +11,8 @@
   --warn: #e6b800;
   /* Foreground for text painted on top of --accent (active tabs, current
    * row, selected cell) — the accent is light enough that --fg fails the
-   * contrast bar. */
-  --text-on-accent: var(--text-on-accent);
+   * contrast bar. Near-black tuned against #5ec8ff for AA. */
+  --text-on-accent: #0a1118;
   --waveform-height: 160px;
   --pat-row-height: 19px;
   --slider-min-width: 220px;
@@ -336,6 +336,11 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .orderlist li.orderlist__item--active .num,
 .orderlist li.orderlist__item--active .pat { color: var(--text-on-accent); }
 .sample--empty { opacity: 0.35; }
+/* When an empty slot is also the current selection, the 35% opacity
+ * compounded with the accent background buries the text under a wash of
+ * cyan. The accent fill is already a strong "this is the current slot"
+ * cue, so drop the empty-dimming in that combination. */
+.app__samples li.sample--current.sample--empty { opacity: 1; }
 .num { color: var(--muted); }
 .pat { color: var(--accent); }
 
@@ -387,6 +392,7 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .patternpane__meta {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   padding: 8px 16px;
   background: var(--panel);
@@ -808,13 +814,19 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 }
 .sampleview__selection button:hover:not(:disabled) { border-color: var(--accent); }
 .sampleview__selection button:disabled { color: var(--muted); cursor: not-allowed; opacity: 0.55; }
-.samplemeta__toggle {
-  flex-direction: row !important;
+/* Sits under a `.samplemeta__label` like the other meta controls. The
+ * checkbox + "Enabled" share a single row below the LOOPING caption so
+ * the field column-aligns with NAME / LENGTH / VOLUME / FINETUNE. */
+.samplemeta__check {
+  display: inline-flex;
+  flex-direction: row;
   align-items: center;
-  gap: 8px !important;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
   user-select: none;
 }
-.samplemeta__toggle input[type="checkbox"] { accent-color: var(--accent); }
+.samplemeta__check input[type="checkbox"] { accent-color: var(--accent); }
 
 .samplemeta {
   display: flex;
