@@ -19,7 +19,12 @@ export type WorkletMessage =
   | { type: 'playFrom'; order: number; row: number; loopPattern: boolean }
   | { type: 'setChannelMuted'; channel: number; muted: boolean };
 
-export type WorkletEvent = { type: 'pos'; order: number; row: number };
+export type WorkletEvent =
+  | { type: 'pos'; order: number; row: number }
+  | { type: 'level'; peaks: number[] };
+
+/** UI-rate update cadence for VU level events (Hz). */
+const LEVEL_UPDATE_HZ = 30;
 
 class RetrotrackerProcessor extends AudioWorkletProcessor {
   private replayer: Replayer | null = null;
@@ -35,6 +40,15 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
    * would silently reset on every replayer swap.
    */
   private readonly channelMuted: boolean[] = new Array(CHANNELS).fill(false);
+  /**
+   * VU-level throttle state. We accumulate frames since the last `level`
+   * post and fire one when we cross the update interval — keeps the
+   * message channel quiet (~30 Hz instead of one event per 128-frame
+   * render quantum, ~344 Hz at 44.1 kHz).
+   */
+  private framesSinceLevels = 0;
+  private readonly levelInterval = sampleRate / LEVEL_UPDATE_HZ;
+  private readonly peakBuf = new Float32Array(CHANNELS);
 
   private applyChannelMuted(): void {
     if (!this.replayer) return;
@@ -68,6 +82,11 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           break;
         case 'stop':
           this.playing = false;
+          // Force VU meters to silence on stop — `process()` short-circuits
+          // out of the level-posting branch while paused, so without this
+          // the UI would show frozen bars from the last playing quantum.
+          this.framesSinceLevels = 0;
+          this.port.postMessage({ type: 'level', peaks: [0, 0, 0, 0] });
           break;
         case 'reset':
           this.playing = false;
@@ -133,6 +152,17 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
         this.lastOrder = o;
         this.lastRow = r;
         const evt: WorkletEvent = { type: 'pos', order: o, row: r };
+        this.port.postMessage(evt);
+      }
+
+      this.framesSinceLevels += left.length;
+      if (this.framesSinceLevels >= this.levelInterval) {
+        this.framesSinceLevels = 0;
+        this.replayer.peakSnapshotAndReset(this.peakBuf);
+        const evt: WorkletEvent = {
+          type: 'level',
+          peaks: [this.peakBuf[0]!, this.peakBuf[1]!, this.peakBuf[2]!, this.peakBuf[3]!],
+        };
         this.port.postMessage(evt);
       }
     } else {

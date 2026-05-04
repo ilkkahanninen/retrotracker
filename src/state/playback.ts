@@ -11,6 +11,7 @@ import {
 } from "./song";
 import { cursor } from "./cursor";
 import { isChannelMuted } from "./channelMute";
+import { setChannelLevels } from "./channelLevel";
 import * as preview from "./preview";
 
 /**
@@ -32,6 +33,7 @@ export async function ensureEngine(): Promise<AudioEngine | null> {
   try {
     engine = await AudioEngine.create();
     engine.onPosition = (order, row) => setPlayPos({ order, row });
+    engine.onLevels = (peaks) => setChannelLevels(peaks);
     // Sync the current per-channel mute gate. Without this, anything the
     // user toggled before the engine existed would silently fail to apply
     // on first play.

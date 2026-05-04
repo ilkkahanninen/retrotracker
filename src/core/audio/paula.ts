@@ -560,6 +560,14 @@ export class Paula {
   // Reusable mix buffers for one chunk; grown lazily in generate().
   private mixL: Float64Array = new Float64Array(0);
   private mixR: Float64Array = new Float64Array(0);
+  /**
+   * Per-channel peak amplitude accumulator for VU meters. Updated
+   * sample-by-sample inside `generate()`; the worklet drains it via
+   * `peakSnapshotAndReset` on a fixed UI-rate cadence (~30 Hz). Values
+   * are pre-pan and post-volume — a muted channel (volume=0) reads 0
+   * automatically, no extra wiring needed.
+   */
+  private readonly channelPeaks = new Float64Array(PAULA_VOICES);
 
   constructor(outputRate: number, model: AmigaModel = 'A1200') {
     this.outputRate = outputRate;
@@ -661,6 +669,19 @@ export class Paula {
     this.voices[ch]!.dmaActive = false;
   }
 
+  /**
+   * Read the per-channel peak amplitudes accumulated since the last call,
+   * then zero the accumulator. Returns absolute pre-pan values straight from
+   * the mix loop — typically [0, ~1.5] (PT max-volume sample is ~1.0; BLEP
+   * transitions can briefly overshoot). Caller normalises for display.
+   */
+  peakSnapshotAndReset(out: Float32Array): void {
+    for (let i = 0; i < PAULA_VOICES; i++) {
+      out[i] = this.channelPeaks[i]!;
+      this.channelPeaks[i] = 0;
+    }
+  }
+
   reset(): void {
     for (const v of this.voices) v.reset();
     for (const b of this.bleps) b.reset();
@@ -670,6 +691,7 @@ export class Paula {
     this.dsL.reset();
     this.dsR.reset();
     this.useLED = false;
+    this.channelPeaks.fill(0);
   }
 
   // --- Sample generation ----------------------------------------------------
@@ -701,6 +723,7 @@ export class Paula {
       const isLeft = ci === 0 || ci === 3;
       const dst = isLeft ? mL : mR;
 
+      let peak = this.channelPeaks[ci]!;
       for (let j = 0; j < mixCount; j++) {
         if (v.nextSampleStage) {
           v.nextSampleStage = false;
@@ -710,6 +733,8 @@ export class Paula {
         let sample = v.dSample;
         if (blep.samplesLeft > 0) sample = blep.run(sample);
         dst[j] = dst[j]! + sample;
+        const av = sample < 0 ? -sample : sample;
+        if (av > peak) peak = av;
 
         v.dPhase += v.dDelta;
         if (v.dPhase >= 1) {
@@ -721,6 +746,7 @@ export class Paula {
           v.nextSampleStage = true;
         }
       }
+      this.channelPeaks[ci] = peak;
     }
 
     // Apply RC + LED filters at the mix rate.

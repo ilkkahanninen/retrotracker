@@ -26,6 +26,13 @@ export class AudioEngine {
   private previewModuleAdded = false;
   /** Called whenever the replayer crosses a row boundary during playback. */
   onPosition: ((order: number, row: number) => void) | null = null;
+  /**
+   * Per-channel peak amplitude updates for VU meters. Fires at ~30 Hz
+   * during playback and once with all zeros on stop so the UI can settle.
+   * `peaks` is a 4-element array of pre-pan absolute values straight from
+   * Paula's mix loop (typically [0, ~1.0]).
+   */
+  onLevels: ((peaks: number[]) => void) | null = null;
 
   private constructor(ctx: AudioContext, node: AudioWorkletNode) {
     this.ctx = ctx;
@@ -33,6 +40,7 @@ export class AudioEngine {
     this.node.port.onmessage = (e: MessageEvent<WorkletEvent>) => {
       const data = e.data;
       if (data.type === "pos") this.onPosition?.(data.order, data.row);
+      else if (data.type === "level") this.onLevels?.(data.peaks);
     };
   }
 

@@ -13,6 +13,7 @@ import {
 import {
   mutedChannels, soloedChannels, toggleMute, toggleSolo,
 } from '../state/channelMute';
+import { channelLevels } from '../state/channelLevel';
 import { useWindowListener } from './hooks';
 
 const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'] as const;
@@ -300,6 +301,14 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
           {(c) => (
             <span class="patgrid__cell patgrid__chhead">
               <span class="patgrid__chnum">Ch {c + 1}</span>
+              <span class="patgrid__vu" aria-hidden="true">
+                <span
+                  class="patgrid__vu-fill"
+                  style={{
+                    width: `${Math.min(100, (channelLevels()[c] ?? 0) * 100)}%`,
+                  }}
+                />
+              </span>
               <button
                 type="button"
                 tabindex={-1}

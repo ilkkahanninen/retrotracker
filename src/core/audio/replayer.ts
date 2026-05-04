@@ -382,6 +382,15 @@ export class Replayer {
     this.channelMuted[channel] = muted;
   }
 
+  /**
+   * Drain Paula's per-channel peak accumulators into `out` and reset them.
+   * Pure delegation — kept on the replayer so consumers don't have to reach
+   * past it into the mixer.
+   */
+  peakSnapshotAndReset(out: Float32Array): void {
+    this.paula.peakSnapshotAndReset(out);
+  }
+
   private syncPaula(): void {
     for (let ci = 0; ci < CHANNELS; ci++) {
       const ch = this.channels[ci]!;

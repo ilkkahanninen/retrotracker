@@ -88,6 +88,7 @@ import {
 } from "./state/selection";
 import { clipboardSlice, setClipboardSlice } from "./state/clipboard";
 import { isChannelMuted, resetChannelMute, toggleMute, toggleSolo } from "./state/channelMute";
+import { resetChannelLevels } from "./state/channelLevel";
 import {
   workbenchFromWav,
   workbenchFromWavData,
@@ -202,6 +203,9 @@ export const App: Component = () => {
     // Mute/solo are session-only and tied to the previous song's channels;
     // carrying them over surprises the user ("why is channel 3 silent?").
     resetChannelMute();
+    // Drop stale VU bars from the previous song's last playing quantum;
+    // the worklet won't emit a fresh `level` event until playback resumes.
+    resetChannelLevels();
     setSong(loaded.song);
     setFilename(loaded.filename);
     setInfoText(loaded.infoText ?? "");
