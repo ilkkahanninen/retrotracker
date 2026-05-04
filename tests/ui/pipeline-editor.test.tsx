@@ -451,6 +451,53 @@ describe("pipeline editor: target-note selector", () => {
     fireEvent.change(select, { target: { value: "" } });
     expect(song()!.samples[0]!.lengthWords).toBe(128);
   });
+
+  it("changing the target note scales loop points proportionally", () => {
+    // Regression: switching target-note resampled the int8 to a new length
+    // but kept loopStartWords / loopLengthWords literal — the loop pointed
+    // at a different proportional region (or got clamped to the new tail).
+    // After the fix, the loop window's relative position is preserved.
+    setView("sample");
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: { sampleRate: 44100, channels: [new Float32Array(256).fill(1)] },
+      sourceName: "demo",
+      chain: [],
+      pt: { monoMix: "average", targetNote: null },
+    });
+    // Configure a real loop on the slot directly (mirrors a user dragging
+    // the loop handles on the waveform). Loop covers bytes 64..192 of a
+    // 256-byte sample — i.e. the middle 50%.
+    const before = song()!;
+    setSong({
+      ...before,
+      samples: before.samples.map((sm, i) =>
+        i === 0 ? { ...sm, loopStartWords: 32, loopLengthWords: 64 } : sm,
+      ),
+    });
+    expect(song()!.samples[0]!.lengthWords).toBe(128);
+    expect(song()!.samples[0]!.loopStartWords).toBe(32);
+    expect(song()!.samples[0]!.loopLengthWords).toBe(64);
+
+    const select = container.querySelector<HTMLSelectElement>(
+      'select[aria-label="Target note"]',
+    )!;
+    fireEvent.change(select, { target: { value: "12" } }); // C-2 → ~48 frames
+
+    const after = song()!.samples[0]!;
+    expect(after.lengthWords).toBeLessThan(30);
+    // Loop window stays at the middle ~50% of the (now shorter) sample.
+    // Allow a 1-word tolerance for word-aligned rounding.
+    const startFrac = after.loopStartWords / after.lengthWords;
+    const endFrac =
+      (after.loopStartWords + after.loopLengthWords) / after.lengthWords;
+    expect(startFrac).toBeGreaterThan(0.2);
+    expect(startFrac).toBeLessThan(0.3);
+    expect(endFrac).toBeGreaterThan(0.7);
+    expect(endFrac).toBeLessThan(0.8);
+    // And it remains a real loop, not the no-loop sentinel.
+    expect(after.loopLengthWords).toBeGreaterThan(1);
+  });
 });
 
 describe("pipeline editor: editing params preserves input focus", () => {

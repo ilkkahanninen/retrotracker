@@ -1470,8 +1470,32 @@ export const App: Component = () => {
         ? { loopStartWords: 0, loopLengthWords: data.length >> 1 }
         : null;
     // Explicit override wins; otherwise chiptune's full-loop wins; otherwise
-    // we fall through to first-write defaults (no loop) or preserve old.
+    // we fall through to first-write defaults (no loop) or preserve / scale old.
     const loopFields = loopOverride ?? fullLoop;
+    // When the data length changed under us (target-note resample, resample-
+    // mode toggle, dither flip, any chain edit) and the slot HAD a real loop,
+    // scale the loop window's byte endpoints by the new/old length ratio so
+    // the user keeps the same proportional loop region. Without this, switch-
+    // ing target note slid the loop relative to the audio underneath.
+    // Skipped when an explicit `loopOverride` (or chiptune full-loop) wins
+    // anyway, when the slot has no loop, or when length is unchanged.
+    const scaledLoop = (() => {
+      if (loopFields) return null;
+      if (!old || old.loopLengthWords <= 1) return null;
+      if (old.data.length <= 0 || data.length === old.data.length) return null;
+      const ratio = data.length / old.data.length;
+      const oldEndBytes = (old.loopStartWords + old.loopLengthWords) * 2;
+      const newStartBytes = Math.round(old.loopStartWords * 2 * ratio);
+      const newEndBytes = Math.round(oldEndBytes * ratio);
+      const newLenBytes = Math.max(4, newEndBytes - newStartBytes);
+      // Word-align: PT loop fields count 16-bit words. `>> 1` floors to keep
+      // the loop strictly inside the resampled data; `replaceSampleData`
+      // also clamps, but landing in bounds first preserves loop *intent*.
+      return {
+        loopStartWords: Math.max(0, newStartBytes >> 1),
+        loopLengthWords: Math.max(2, newLenBytes >> 1),
+      };
+    })();
     const meta: Parameters<typeof replaceSampleData>[3] = isFirstWrite
       ? {
           volume: 64,
@@ -1483,7 +1507,7 @@ export const App: Component = () => {
           volume: old.volume,
           finetune: old.finetune,
           name: old.name,
-          ...(loopFields ?? {
+          ...(loopFields ?? scaledLoop ?? {
             loopStartWords: old.loopStartWords,
             loopLengthWords: old.loopLengthWords,
           }),
