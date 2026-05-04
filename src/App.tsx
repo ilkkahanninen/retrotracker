@@ -175,6 +175,12 @@ export const App: Component = () => {
   const [error, setError] = createSignal<string | null>(null);
   const [filename, setFilename] = createSignal<string | null>(null);
   const [dragOver, setDragOver] = createSignal(false);
+  /**
+   * True while the user is double-click-editing the song title in the
+   * pattern metapane. Local UI state — same shape as SampleList's inline
+   * rename, just a single-target version since there's only one title.
+   */
+  const [editingTitle, setEditingTitle] = createSignal(false);
 
   /**
    * Apply a fully-parsed session (from `.retro`, from localStorage, or from
@@ -1086,6 +1092,30 @@ export const App: Component = () => {
   const patchCurrentSample = (patch: Parameters<typeof setSample>[2]) => {
     if (transport() === "playing") return;
     commitEdit((song) => setSample(song, currentSample() - 1, patch));
+  };
+
+  /**
+   * Rename a sample slot by 1-based index. Used by the sample list's
+   * double-click-to-edit affordance — independent of which slot is the
+   * current selection so the user can rename any slot they double-click.
+   * Skipped during playback so the worklet's snapshot stays in sync.
+   */
+  const renameSample = (slot1Based: number, name: string) => {
+    if (transport() === "playing") return;
+    commitEdit((song) => setSample(song, slot1Based - 1, { name }));
+  };
+
+  /**
+   * Commit a new song title from the metapane's inline editor. Truncated
+   * to PT's 20-char limit (matches the Info view's input). Skipped during
+   * playback to keep the worklet's snapshot consistent with the UI; the
+   * Info view's input is similarly gated.
+   */
+  const commitTitleEdit = (raw: string) => {
+    setEditingTitle(false);
+    if (transport() === "playing") return;
+    const title = raw.slice(0, 20);
+    commitEdit((song) => (song.title === title ? song : { ...song, title }));
   };
 
   /**
@@ -2069,7 +2099,7 @@ export const App: Component = () => {
 
       <aside class="app__samples">
         <h2>Samples</h2>
-        <SampleList song={song()} onSelect={selectSample} />
+        <SampleList song={song()} onSelect={selectSample} onRename={renameSample} />
       </aside>
 
       <main class="app__main">
@@ -2099,9 +2129,40 @@ export const App: Component = () => {
                 classList={{ "view-hidden": view() !== "pattern" }}
               >
                 <div class="patternpane__meta">
-                  <span class="patternpane__title">
-                    {s().title || <em>(untitled)</em>}
-                  </span>
+                  <Show
+                    when={editingTitle()}
+                    fallback={
+                      <span
+                        class="patternpane__title"
+                        title="Double-click to rename song"
+                        onDblClick={() => {
+                          if (transport() !== "playing") setEditingTitle(true);
+                        }}
+                      >
+                        {s().title || <em>(untitled)</em>}
+                      </span>
+                    }
+                  >
+                    <input
+                      class="patternpane__title-input"
+                      type="text"
+                      maxLength={20}
+                      value={s().title}
+                      ref={(el) => queueMicrotask(() => { el.focus(); el.select(); })}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          commitTitleEdit(e.currentTarget.value);
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          setEditingTitle(false);
+                        }
+                      }}
+                      onBlur={(e) => {
+                        if (editingTitle()) commitTitleEdit(e.currentTarget.value);
+                      }}
+                    />
+                  </Show>
                   <span class="patternpane__sep">·</span>
                   <span>{filename()}</span>
                   <span class="patternpane__sep">·</span>

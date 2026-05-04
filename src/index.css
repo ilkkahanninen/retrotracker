@@ -336,6 +336,21 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .orderlist li.orderlist__item--active .num,
 .orderlist li.orderlist__item--active .pat { color: var(--text-on-accent); }
 .sample--empty { opacity: 0.35; }
+/* Inline rename input — sized to the .name span it replaces so the row
+ * height doesn't jump when entering edit mode. */
+.sample__name-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 0 4px;
+  font: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  outline: none;
+}
 /* When an empty slot is also the current selection, the 35% opacity
  * compounded with the accent background buries the text under a wash of
  * cyan. The accent fill is already a strong "this is the current slot"
@@ -401,7 +416,20 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   font-size: 12px;
   color: var(--muted);
 }
-.patternpane__title { color: var(--fg); font-weight: 600; }
+.patternpane__title { color: var(--fg); font-weight: 600; cursor: text; }
+/* Inline title editor — inherits the metapane's font so swapping in the
+ * input on double-click doesn't shift the row's height. */
+.patternpane__title-input {
+  font: inherit;
+  font-weight: 600;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 0 4px;
+  outline: none;
+  width: 22ch;
+}
 .patternpane__sep { opacity: 0.5; }
 .patternpane__editstep {
   display: inline-flex;
