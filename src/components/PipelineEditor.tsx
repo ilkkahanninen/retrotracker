@@ -56,6 +56,7 @@ export interface PipelineEditorProps {
   onSetMonoMix: (monoMix: MonoMix) => void;
   onSetTargetNote: (targetNote: number | null) => void;
   onSetResampleMode: (mode: ResampleMode) => void;
+  onSetDither: (dither: boolean) => void;
 }
 
 export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
@@ -197,6 +198,22 @@ export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
             </select>
           </label>
         </Show>
+        {/* TPDF dither at int8 quantisation. Always shown — quantisation runs
+            on every export regardless of resample, so the toggle's effect
+            doesn't depend on targetNote. Lays out like the Looping checkbox
+            (caption above, checkbox + "Enabled" on one row). */}
+        <label>
+          <span class="samplemeta__label">Dither</span>
+          <span class="samplemeta__check">
+            <input
+              type="checkbox"
+              aria-label="Dither"
+              checked={props.wb.pt.dither === true}
+              onChange={(e) => props.onSetDither(e.currentTarget.checked)}
+            />
+            <span>Enabled</span>
+          </span>
+        </label>
       </div>
     </section>
   );

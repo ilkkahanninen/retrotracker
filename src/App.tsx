@@ -1724,6 +1724,12 @@ export const App: Component = () => {
     updateCurrentWorkbench({ ...wb, pt: { ...wb.pt, resampleMode } });
   };
 
+  const setDither = (dither: boolean) => {
+    const wb = getWorkbench(currentSample() - 1);
+    if (!wb) return;
+    updateCurrentWorkbench({ ...wb, pt: { ...wb.pt, dither } });
+  };
+
   /**
    * Switch the current slot's source kind (Sampler ↔ Chiptune). The switch
    * is non-destructive: the active half is stashed in `wb.alt` and the
@@ -2388,6 +2394,7 @@ export const App: Component = () => {
                   onSetMonoMix={setMonoMix}
                   onSetTargetNote={setTargetNote}
                   onSetResampleMode={setResampleMode}
+                  onSetDither={setDither}
                   onSetSourceKind={setSourceKind}
                   onUpdateChiptune={updateChiptune}
                   onConvertChiptuneToSampler={convertChiptuneToSampler}

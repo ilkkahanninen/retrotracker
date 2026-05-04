@@ -390,6 +390,7 @@ function parsePtParams(raw: unknown): PtTransformerParams {
     monoMix: 'average',
     targetNote: DEFAULT_TARGET_NOTE,
     resampleMode: DEFAULT_RESAMPLE_MODE,
+    dither: false,
   };
   if (!raw || typeof raw !== 'object') return fallback;
   const x = raw as Record<string, unknown>;
@@ -408,7 +409,10 @@ function parsePtParams(raw: unknown): PtTransformerParams {
   )
     ? (rs as ResampleMode)
     : DEFAULT_RESAMPLE_MODE;
-  return { monoMix, targetNote, resampleMode };
+  // Dither defaults to false for back-compat — old projects' int8 stays
+  // bit-identical until the user explicitly turns it on.
+  const dither = x['dither'] === true;
+  return { monoMix, targetNote, resampleMode, dither };
 }
 
 /**

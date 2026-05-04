@@ -373,6 +373,44 @@ describe("pipeline editor: resample-mode selector", () => {
   });
 });
 
+describe("pipeline editor: dither toggle", () => {
+  it("checking the Dither checkbox flips pt.dither on the workbench", async () => {
+    setView("sample");
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: { sampleRate: 44100, channels: [new Float32Array([0, 0.5, -0.5])] },
+      sourceName: "demo",
+      chain: [],
+      pt: { monoMix: "average", targetNote: null, resampleMode: "linear" },
+    });
+    expect(getWorkbench(0)!.pt.dither).toBeFalsy();
+
+    const cb = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Dither"]',
+    )!;
+    expect(cb.checked).toBe(false);
+    fireEvent.click(cb);
+    expect(getWorkbench(0)!.pt.dither).toBe(true);
+  });
+
+  it("the Dither checkbox is visible even when targetNote is null", async () => {
+    // Quantisation runs on every export, regardless of resample, so the
+    // checkbox stays available — unlike the resample-mode dropdown which
+    // hides itself when there's no rate change.
+    setView("sample");
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: { sampleRate: 44100, channels: [new Float32Array(8).fill(0.5)] },
+      sourceName: "demo",
+      chain: [],
+      pt: { monoMix: "average", targetNote: null, resampleMode: "linear" },
+    });
+    expect(
+      container.querySelector('input[aria-label="Dither"]'),
+    ).not.toBeNull();
+  });
+});
+
 describe("pipeline editor: target-note selector", () => {
   it("changing the target note re-runs the pipeline and resamples to that rate", () => {
     setView("sample");

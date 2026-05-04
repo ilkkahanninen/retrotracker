@@ -109,6 +109,7 @@ interface Props {
   onSetMonoMix: (monoMix: MonoMix) => void;
   onSetTargetNote: (targetNote: number | null) => void;
   onSetResampleMode: (mode: ResampleMode) => void;
+  onSetDither: (dither: boolean) => void;
   /** Switch the source kind. Creates a default workbench if needed. */
   onSetSourceKind: (kind: SourceKind) => void;
   /** Patch the chiptune source params on the current slot. No-op for sampler. */
@@ -512,6 +513,7 @@ export const SampleView: Component<Props> = (props) => {
             onSetMonoMix={props.onSetMonoMix}
             onSetTargetNote={props.onSetTargetNote}
             onSetResampleMode={props.onSetResampleMode}
+            onSetDither={props.onSetDither}
           />
         </Show>
       </Show>

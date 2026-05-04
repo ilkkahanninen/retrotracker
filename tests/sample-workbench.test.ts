@@ -359,6 +359,78 @@ describe('workbenchFromWav (round-trip from a synthetic WAV)', () => {
     const wb = workbenchFromInt8(new Int8Array([0, 64, -64, 0]), 'mod-slot');
     expect(wb.pt.resampleMode).toBe('linear');
   });
+
+  it('keeps dither off by default for fresh WAV imports — user opts in', () => {
+    // Adding white noise to every export is a taste call: the user toggles
+    // it from the pipeline editor's Dither checkbox.
+    const wav = writeWav({
+      sampleRate: 44100,
+      channels: [new Float32Array([0, 0.5, -0.5])],
+    }, { bitsPerSample: 16 });
+    const wb = workbenchFromWav(wav, 'pad.wav');
+    expect(wb.pt.dither).toBeFalsy();
+  });
+
+  it('workbenchFromInt8 leaves dither off (back-compat for .mod loads)', () => {
+    const wb = workbenchFromInt8(new Int8Array([0, 64, -64, 0]), 'mod-slot');
+    expect(wb.pt.dither).toBeFalsy();
+  });
+});
+
+describe('transformToPt dither', () => {
+  it('omitting dither (or setting it false) is bit-identical to the un-dithered quantiser', () => {
+    const audio = { sampleRate: 8287, channels: [new Float32Array([0, 0.5, -0.5, 0.25, -0.25, 1, -1]) ] };
+    const a = transformToPt(audio, { monoMix: 'average', targetNote: null });
+    const b = transformToPt(audio, { monoMix: 'average', targetNote: null, dither: false });
+    expect(Array.from(a)).toEqual(Array.from(b));
+  });
+
+  it("a constant signal at exactly an int8 step passes through dither unchanged", () => {
+    // 64/127 ≈ 0.504 lies right at int8 step 64. With ±1 LSB triangular dither,
+    // the rounded output stays at 64 the vast majority of the time and at most
+    // jitters one step either way. Asserting that all samples land in {63,64,65}
+    // is robust to PRNG variance and confirms dither doesn't drift the signal.
+    const N = 512;
+    const ch = new Float32Array(N).fill(64 / 127);
+    const audio = { sampleRate: 8287, channels: [ch] };
+    const out = transformToPt(audio, { monoMix: 'average', targetNote: null, dither: true });
+    for (const v of out) {
+      expect(v).toBeGreaterThanOrEqual(63);
+      expect(v).toBeLessThanOrEqual(65);
+    }
+  });
+
+  it('decorrelates the quantisation error: low-level signal produces non-zero output (vs. all-zero un-dithered)', () => {
+    // Constant 0.002 (~0.25 LSB) rounds to 0 every time without dither — the
+    // signal is "lost in the quantiser". With dither, the output flips between
+    // 0 and 1 at a duty cycle proportional to the signal level, so there's
+    // measurable non-zero content.
+    const N = 1024;
+    const ch = new Float32Array(N).fill(0.002);
+    const audio = { sampleRate: 8287, channels: [ch] };
+    const undith = transformToPt(audio, { monoMix: 'average', targetNote: null, dither: false });
+    const dith = transformToPt(audio, { monoMix: 'average', targetNote: null, dither: true });
+    // Without dither: every sample rounds to 0.
+    for (const v of undith) expect(v).toBe(0);
+    // With dither: at least some samples are non-zero.
+    let nonZero = 0;
+    for (const v of dith) if (v !== 0) nonZero++;
+    expect(nonZero).toBeGreaterThan(0);
+  });
+
+  it('dithered quantisation never overflows the int8 range on full-scale input', () => {
+    // ±1 LSB dither could push a full-scale sample over 1.0; the quantiser
+    // must clamp before rounding so output stays in [-127, 127].
+    const N = 1024;
+    const ch = new Float32Array(N);
+    for (let i = 0; i < N; i++) ch[i] = i & 1 ? 1 : -1;
+    const audio = { sampleRate: 8287, channels: [ch] };
+    const out = transformToPt(audio, { monoMix: 'average', targetNote: null, dither: true });
+    for (const v of out) {
+      expect(v).toBeGreaterThanOrEqual(-127);
+      expect(v).toBeLessThanOrEqual(127);
+    }
+  });
 });
 
 describe('SampleSource', () => {
