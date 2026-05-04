@@ -1,5 +1,5 @@
-import type { Note, Song } from './types';
-import { Effect } from './format';
+import type { Note, Song } from "./types";
+import { Effect } from "./format";
 
 /** MOD defaults the replayer falls back to before any Fxx is hit. */
 const DEFAULT_SPEED = 6;
@@ -21,13 +21,18 @@ export interface FlatRow {
 // can skip reconciling the other ~255.
 const flatRowCache = new WeakMap<Note[], FlatRow>();
 
-function getFlatRow(cells: Note[], order: number, rowIndex: number, boundaryAbove: boolean): FlatRow {
+function getFlatRow(
+  cells: Note[],
+  order: number,
+  rowIndex: number,
+  boundaryAbove: boolean,
+): FlatRow {
   const cached = flatRowCache.get(cells);
   if (
-    cached
-    && cached.order === order
-    && cached.rowIndex === rowIndex
-    && cached.boundaryAbove === boundaryAbove
+    cached &&
+    cached.order === order &&
+    cached.rowIndex === rowIndex &&
+    cached.boundaryAbove === boundaryAbove
   ) {
     return cached;
   }
@@ -43,6 +48,10 @@ function getFlatRow(cells: Note[], order: number, rowIndex: number, boundaryAbov
  * order resumes at the Dxx-target row. Bxx and pattern-loop are deliberately
  * NOT honored here — they would create infinite views for songs that loop.
  *
+ * If row contains both Bxx and Dxx do not try to truncate this pattern or
+ * some tracker-fu techniques, like walking the pattern in reverse order,
+ * break the pattern grid view.
+ *
  * If multiple Dxx commands appear on the same row, the last one (highest
  * channel index) wins for the resume row, matching pt2-clone.
  */
@@ -54,16 +63,26 @@ export function flattenSong(song: Song): FlatRow[] {
     if (!pat) continue;
     const startRow = Math.min(nextStartRow, pat.rows.length - 1);
     nextStartRow = 0;
+    let ignoreDxx = false;
     for (let r = startRow; r < pat.rows.length; r++) {
       const cells = pat.rows[r]!;
       out.push(getFlatRow(cells, o, r, r === startRow && o > 0));
       let dxx = -1;
+      let hasBxx = false;
       for (const c of cells) {
         if (c.effect === Effect.PatternBreak) dxx = c.effectParam;
+        else if (c.effect === Effect.PositionJump) hasBxx = true;
       }
       if (dxx >= 0) {
-        nextStartRow = Math.min(((dxx >> 4) * 10) + (dxx & 0x0f), pat.rows.length - 1);
-        break;
+        if (hasBxx) {
+          ignoreDxx = true;
+        } else if (!ignoreDxx) {
+          nextStartRow = Math.min(
+            (dxx >> 4) * 10 + (dxx & 0x0f),
+            pat.rows.length - 1,
+          );
+          break;
+        }
       }
     }
   }
