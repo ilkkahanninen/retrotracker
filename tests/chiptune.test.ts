@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   morphShape, splitPhase,
   generateChiptuneCycle, defaultChiptuneParams, chiptuneFromJson,
+  snapLfoMultiplierToDivisor,
   type ChiptuneParams,
 } from '../src/core/audio/chiptune';
 
@@ -376,6 +377,128 @@ describe('generateChiptuneCycle — LFO', () => {
       lfo: undefined,
     });
     expect(restored?.lfo).toEqual({
+      cycleMultiplier: 1,
+      amplitude: 0,
+      target: 'osc1Shape',
+    });
+  });
+});
+
+describe('snapLfoMultiplierToDivisor', () => {
+  it('returns 1 when total is 1 (only valid divisor)', () => {
+    expect(snapLfoMultiplierToDivisor(0, 1)).toBe(1);
+    expect(snapLfoMultiplierToDivisor(5, 1)).toBe(1);
+    expect(snapLfoMultiplierToDivisor(99, 1)).toBe(1);
+  });
+
+  it('snaps to the nearest divisor of total', () => {
+    // Divisors of 12: 1, 2, 3, 4, 6, 12.
+    expect(snapLfoMultiplierToDivisor(1, 12)).toBe(1);
+    expect(snapLfoMultiplierToDivisor(2, 12)).toBe(2);
+    expect(snapLfoMultiplierToDivisor(7, 12)).toBe(6);  // closer to 6 than 12
+    expect(snapLfoMultiplierToDivisor(11, 12)).toBe(12);
+    expect(snapLfoMultiplierToDivisor(20, 12)).toBe(12); // out-of-range → max divisor
+  });
+
+  it('handles powers of two cleanly', () => {
+    // Divisors of 64: 1, 2, 4, 8, 16, 32, 64.
+    for (const d of [1, 2, 4, 8, 16, 32, 64]) {
+      expect(snapLfoMultiplierToDivisor(d, 64)).toBe(d);
+    }
+    // Clearly-closer-to-one neighbour cases.
+    expect(snapLfoMultiplierToDivisor(7, 64)).toBe(8);
+    expect(snapLfoMultiplierToDivisor(15, 64)).toBe(16);
+    expect(snapLfoMultiplierToDivisor(50, 64)).toBe(64);
+  });
+
+  it('breaks ties toward the smaller (earlier) divisor', () => {
+    // 5 is equidistant from 4 and 6 (divisors of 12); the earlier scan
+    // wins. Documented here because it could surprise — equally-near
+    // divisors always pick the slower (smaller-multiplier) LFO 2.
+    expect(snapLfoMultiplierToDivisor(5, 12)).toBe(4);
+    expect(snapLfoMultiplierToDivisor(6, 64)).toBe(4); // 4 and 8 both dist 2
+  });
+
+  it('falls back to 1 on non-finite input', () => {
+    expect(snapLfoMultiplierToDivisor(NaN, 12)).toBe(1);
+    expect(snapLfoMultiplierToDivisor(Infinity, 12)).toBe(1);
+  });
+});
+
+describe('generateChiptuneCycle — LFO 2', () => {
+  it('renders identical output to LFO 2 disabled when amp=0, regardless of m2', () => {
+    // LFO 2 with amp 0 must be a true no-op so users can park the slider
+    // anywhere without affecting the audio.
+    const baseline = generateChiptuneCycle(defaultChiptuneParams());
+    const withInactive = generateChiptuneCycle({
+      ...defaultChiptuneParams(),
+      lfo2: { cycleMultiplier: 4, amplitude: 0, target: 'amplitude' },
+    });
+    expect(Array.from(withInactive.channels[0]!)).toEqual(
+      Array.from(baseline.channels[0]!),
+    );
+  });
+
+  it("output length is set by LFO 1's multiplier; LFO 2 doesn't extend it", () => {
+    // L = baseLen × m1 regardless of m2.
+    const w = generateChiptuneCycle(withDefaults({
+      cycleFrames: 16,
+      lfo:  { cycleMultiplier: 4, amplitude: 0, target: 'amplitude' },
+      lfo2: { cycleMultiplier: 2, amplitude: 1, target: 'osc1Shape' },
+    }));
+    // baseLen=16, m1=4 → L=64. m2=2 (divisor of 4) → period2=32.
+    expect(w.channels[0]!.length).toBe(64);
+  });
+
+  it('LFO 2 completes m1/m2 triangles inside the rendered output', () => {
+    // amp target so we can read off the envelope. m1=4, m2=2 means
+    // LFO 2 does 2 triangles in L. Each triangle is 0→1→0, so the
+    // envelope returns to base-amp every period2 = baseLen × m2 samples.
+    const w = generateChiptuneCycle({
+      ...defaultChiptuneParams(),
+      cycleFrames: 8,
+      amplitude: 0.5, // headroom so LFO can lift toward 1.0
+      osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 }, // square → ±1
+      osc2: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 },
+      combineMode: 'morph',
+      combineAmount: 0,
+      // LFO 1 silent (amp=0); we only want to see LFO 2's effect.
+      lfo:  { cycleMultiplier: 4, amplitude: 0, target: 'amplitude' },
+      lfo2: { cycleMultiplier: 2, amplitude: 1, target: 'amplitude' },
+    });
+    const ch = w.channels[0]!;
+    // baseLen=8, L=32, period2=16. Two LFO 2 triangles in L:
+    // i=0 → base amp 0.5, i=8 → mid of first triangle (peak 1.0),
+    // i=16 → end of first triangle (back to 0.5), i=24 → mid of second (1.0).
+    expect(ch.length).toBe(32);
+    expect(Math.abs(ch[0]!)).toBeCloseTo(0.5, 6);
+    expect(Math.abs(ch[8]!)).toBeCloseTo(1.0, 6);
+    expect(Math.abs(ch[16]!)).toBeCloseTo(0.5, 6);
+    expect(Math.abs(ch[24]!)).toBeCloseTo(1.0, 6);
+  });
+
+  it('renderer auto-snaps a non-divisor m2 to a divisor of m1', () => {
+    // m2=5 isn't a divisor of m1=4; the renderer should snap it to one
+    // (the nearest divisor of 4 to 5 is 4 itself).
+    const snapped = generateChiptuneCycle(withDefaults({
+      lfo:  { cycleMultiplier: 4, amplitude: 0, target: 'amplitude' },
+      lfo2: { cycleMultiplier: 5, amplitude: 0.5, target: 'osc1Shape' },
+    }));
+    const matched = generateChiptuneCycle(withDefaults({
+      lfo:  { cycleMultiplier: 4, amplitude: 0, target: 'amplitude' },
+      lfo2: { cycleMultiplier: 4, amplitude: 0.5, target: 'osc1Shape' },
+    }));
+    expect(Array.from(snapped.channels[0]!)).toEqual(
+      Array.from(matched.channels[0]!),
+    );
+  });
+
+  it('chiptuneFromJson back-fills `lfo2` for older payloads', () => {
+    const restored = chiptuneFromJson({
+      ...defaultChiptuneParams(),
+      lfo2: undefined, // simulate a pre-LFO-2 saved file
+    });
+    expect(restored?.lfo2).toEqual({
       cycleMultiplier: 1,
       amplitude: 0,
       target: 'osc1Shape',

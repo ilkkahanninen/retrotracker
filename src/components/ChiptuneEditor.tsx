@@ -15,6 +15,7 @@ import {
   LFO_TARGETS,
   LFO_TARGET_LABELS,
   snapCycleFramesToMusical,
+  snapLfoMultiplierToDivisor,
   snapRatioToMusical,
   type ChiptuneParams,
   type Lfo,
@@ -144,10 +145,50 @@ export const ChiptuneEditor: Component<ChiptuneEditorProps> = (props) => {
       </div>
 
       <LfoSection
+        label="LFO 1"
+        ariaLabel="LFO 1"
         lfo={props.params.lfo}
         disabled={props.disabled}
+        multMin={LFO_MULT_MIN}
+        multMax={LFO_MULT_MAX}
+        multHint="defines rendered length"
+        onUpdate={(patch) => {
+          const newLfo1 = { ...props.params.lfo, ...patch };
+          // When m1 changes the divisor set changes too — re-snap m2
+          // immediately so it stays a valid divisor of the new m1
+          // instead of silently drifting at render time.
+          if (patch.cycleMultiplier !== undefined) {
+            const newM2 = snapLfoMultiplierToDivisor(
+              props.params.lfo2.cycleMultiplier,
+              newLfo1.cycleMultiplier,
+            );
+            props.onUpdate({
+              lfo: newLfo1,
+              lfo2: { ...props.params.lfo2, cycleMultiplier: newM2 },
+            });
+          } else {
+            props.onUpdate({ lfo: newLfo1 });
+          }
+        }}
+      />
+      <LfoSection
+        label="LFO 2"
+        ariaLabel="LFO 2"
+        lfo={props.params.lfo2}
+        disabled={props.disabled}
+        multMin={LFO_MULT_MIN}
+        // Cap LFO 2's range at LFO 1's multiplier — values beyond it
+        // can't divide L, so the slider only spans the valid divisors.
+        multMax={Math.max(
+          LFO_MULT_MIN,
+          Math.floor(props.params.lfo.cycleMultiplier),
+        )}
+        multSnap={(v) =>
+          snapLfoMultiplierToDivisor(v, props.params.lfo.cycleMultiplier)
+        }
+        multHint="snaps to divisors of LFO 1"
         onUpdate={(patch) =>
-          props.onUpdate({ lfo: { ...props.params.lfo, ...patch } })
+          props.onUpdate({ lfo2: { ...props.params.lfo2, ...patch } })
         }
       />
     </section>
@@ -155,18 +196,24 @@ export const ChiptuneEditor: Component<ChiptuneEditorProps> = (props) => {
 };
 
 interface LfoSectionProps {
+  label: string;
+  ariaLabel: string;
   lfo: Lfo;
   disabled: boolean;
+  multMin: number;
+  multMax: number;
+  multSnap?: (v: number) => number;
+  multHint: string;
   onUpdate: (patch: Partial<Lfo>) => void;
 }
 
 const LfoSection: Component<LfoSectionProps> = (props) => (
   <div class="chiptune__group">
-    <span class="chiptune__group-label">LFO</span>
+    <span class="chiptune__group-label">{props.label}</span>
     <label class="lfo__target">
       <span class="samplemeta__label">Target</span>
       <select
-        aria-label="LFO target"
+        aria-label={`${props.ariaLabel} target`}
         value={props.lfo.target}
         disabled={props.disabled}
         onChange={(e) =>
@@ -181,14 +228,17 @@ const LfoSection: Component<LfoSectionProps> = (props) => (
     <div class="chiptune__sliders">
       <Slider
         label="Cycle multiplier"
-        min={LFO_MULT_MIN}
-        max={LFO_MULT_MAX}
+        min={props.multMin}
+        max={props.multMax}
         step={1}
         value={props.lfo.cycleMultiplier}
-        disabled={props.disabled}
-        snap={snapToInteger}
+        // When LFO 2's max collapses to 1 (LFO 1 at multiplier 1),
+        // there's only one valid value — disable the slider so the
+        // user sees that explicitly instead of a dead-feeling drag.
+        disabled={props.disabled || props.multMax <= props.multMin}
+        snap={props.multSnap ?? snapToInteger}
         format={(v) => `${Math.round(v)}×`}
-        hint="longer = slower LFO"
+        hint={props.multHint}
         onInput={(v) => props.onUpdate({ cycleMultiplier: v })}
       />
       <Slider

@@ -145,8 +145,16 @@ export interface ChiptuneParams {
    * rendered output and adds it (scaled by amplitude × target range) to
    * the chosen target on a per-sample basis. Set `amplitude: 0` to
    * effectively disable the LFO without removing the section.
+   * LFO 1's `cycleMultiplier` defines the rendered output length.
    */
   lfo: Lfo;
+  /**
+   * Faster sub-modulator that runs alongside LFO 1. Its
+   * `cycleMultiplier` is snapped to a divisor of LFO 1's so the loop
+   * point stays clean — LFO 2 completes `m1/m2` integer triangles
+   * inside the rendered output. Set `amplitude: 0` to disable.
+   */
+  lfo2: Lfo;
 }
 
 export const CYCLE_FRAMES_MIN = 8;
@@ -177,6 +185,32 @@ export const LFO_MULT_MAX = 256;
 export function snapLfoMultiplier(v: number): number {
   if (!Number.isFinite(v)) return LFO_MULT_MIN;
   return Math.max(LFO_MULT_MIN, Math.min(LFO_MULT_MAX, Math.round(v)));
+}
+
+/**
+ * Snap `value` to the nearest divisor of `total` in [1, total]. Used by
+ * LFO 2 to keep its cycle length a clean fraction of the rendered
+ * output (which is `baseLen × LFO 1's cycleMultiplier`). With m2
+ * dividing m1, the second LFO completes `m1/m2` integer triangles
+ * across the output, so it lands at phase 0 at every loop point.
+ */
+export function snapLfoMultiplierToDivisor(
+  value: number,
+  total: number,
+): number {
+  const t = Math.max(1, Math.floor(total));
+  if (!Number.isFinite(value) || t === 1) return 1;
+  let best = 1;
+  let bestDist = Math.abs(value - 1);
+  for (let d = 2; d <= t; d++) {
+    if (t % d !== 0) continue;
+    const dist = Math.abs(value - d);
+    if (dist < bestDist) {
+      best = d;
+      bestDist = dist;
+    }
+  }
+  return best;
 }
 
 /** Snap an arbitrary slider value to the nearest power-of-two ratio. */
@@ -255,6 +289,7 @@ export function defaultChiptuneParams(): ChiptuneParams {
     shaperMode: "none", // off by default — user opts in
     shaperAmount: 0,
     lfo: defaultLfo(),
+    lfo2: defaultLfo(),
   };
 }
 
@@ -386,17 +421,23 @@ export function generateChiptuneCycle(p: ChiptuneParams): WavData {
   const r2 = Math.max(RATIO_MIN, Math.floor(p.osc2.ratio));
   const minR = Math.min(r1, r2);
   const baseLen = Math.max(2, Math.floor(N / minR));
-  // LFO extends the output to `baseLen × multiplier` so one LFO triangle
+  // LFO 1 extends the output to `baseLen × m1` so one LFO 1 triangle
   // covers the entire rendered sample. Oscillator phase formulas
-  // (`(i·R) / N % 1`) wrap correctly inside the longer span — multiplier
-  // is power-of-two so each osc lands exactly on phase 0 again at the end.
-  const lfoMult = Math.max(LFO_MULT_MIN, Math.floor(p.lfo.cycleMultiplier));
-  const L = Math.max(2, baseLen * lfoMult);
+  // (`(i·R) / N % 1`) wrap correctly inside the longer span. LFO 2's
+  // multiplier is snapped to a divisor of m1, so its period
+  // (`baseLen × m2`) divides L exactly — LFO 2 completes m1/m2
+  // integer triangles inside the output, landing on phase 0 at the
+  // loop point alongside LFO 1.
+  const m1 = Math.max(LFO_MULT_MIN, Math.floor(p.lfo.cycleMultiplier));
+  const m2 = snapLfoMultiplierToDivisor(p.lfo2.cycleMultiplier, m1);
+  const L = Math.max(2, baseLen * m1);
+  const period2 = Math.max(2, baseLen * m2);
   const out = new Float32Array(L);
   const baseAmp = clamp(p.amplitude, 0, 1);
   const baseAmount = p.combineAmount;
   const baseShaperAmount = clamp(p.shaperAmount, 0, 1);
-  const lfoAmp = clamp(p.lfo.amplitude, 0, 1);
+  const lfoAmp1 = clamp(p.lfo.amplitude, 0, 1);
+  const lfoAmp2 = clamp(p.lfo2.amplitude, 0, 1);
 
   // Per-target sweep range — `lfoAmp = 1` modulates the full natural span
   // of the chosen target so the slider feels equally effective whatever
@@ -405,18 +446,22 @@ export function generateChiptuneCycle(p: ChiptuneParams): WavData {
   const splitRange = PHASE_SPLIT_MAX - PHASE_SPLIT_MIN;
 
   // Pre-build mutable osc descriptors so we can patch their fields per
-  // sample when the LFO targets one of them — saves allocating a new
+  // sample when an LFO targets one of them — saves allocating a new
   // object inside the hot loop.
   const osc1 = { ...p.osc1 };
   const osc2 = { ...p.osc2 };
 
   for (let i = 0; i < L; i++) {
-    // Triangle 0 → 1 → 0 over [0, 1) — unipolar, as specified.
-    const lfoT = i / L;
-    const lfoVal = (lfoT < 0.5 ? 2 * lfoT : 2 * (1 - lfoT)) * lfoAmp;
+    // Triangle 0 → 1 → 0 — unipolar. LFO 1 covers the whole output;
+    // LFO 2 has its own (shorter) period that divides L cleanly.
+    const lfoT1 = i / L;
+    const lfoVal1 = (lfoT1 < 0.5 ? 2 * lfoT1 : 2 * (1 - lfoT1)) * lfoAmp1;
+    const lfoT2 = (i % period2) / period2;
+    const lfoVal2 = (lfoT2 < 0.5 ? 2 * lfoT2 : 2 * (1 - lfoT2)) * lfoAmp2;
 
     // Reset osc descriptors and combine/amplitude for this sample, then
-    // apply the LFO modulation to the chosen target.
+    // sum each LFO's modulation into its target. Two LFOs hitting the
+    // same target add; different targets stack independently.
     osc1.shapeIndex = p.osc1.shapeIndex;
     osc1.phaseSplit = p.osc1.phaseSplit;
     osc2.shapeIndex = p.osc2.shapeIndex;
@@ -424,29 +469,33 @@ export function generateChiptuneCycle(p: ChiptuneParams): WavData {
     let combineAmt = baseAmount;
     let shaperAmt = baseShaperAmount;
     let outAmp = baseAmp;
-    switch (p.lfo.target) {
-      case "osc1Shape":
-        osc1.shapeIndex += lfoVal * shapeRange;
-        break;
-      case "osc1PhaseSplit":
-        osc1.phaseSplit += lfoVal * splitRange;
-        break;
-      case "osc2Shape":
-        osc2.shapeIndex += lfoVal * shapeRange;
-        break;
-      case "osc2PhaseSplit":
-        osc2.phaseSplit += lfoVal * splitRange;
-        break;
-      case "combineAmount":
-        combineAmt += lfoVal;
-        break;
-      case "shaperAmount":
-        shaperAmt = clamp(shaperAmt + lfoVal, 0, 1);
-        break;
-      case "amplitude":
-        outAmp = clamp(outAmp + lfoVal, 0, 1);
-        break;
-    }
+    const applyLfo = (target: LfoTarget, lfoVal: number) => {
+      switch (target) {
+        case "osc1Shape":
+          osc1.shapeIndex += lfoVal * shapeRange;
+          break;
+        case "osc1PhaseSplit":
+          osc1.phaseSplit += lfoVal * splitRange;
+          break;
+        case "osc2Shape":
+          osc2.shapeIndex += lfoVal * shapeRange;
+          break;
+        case "osc2PhaseSplit":
+          osc2.phaseSplit += lfoVal * splitRange;
+          break;
+        case "combineAmount":
+          combineAmt += lfoVal;
+          break;
+        case "shaperAmount":
+          shaperAmt = clamp(shaperAmt + lfoVal, 0, 1);
+          break;
+        case "amplitude":
+          outAmp = clamp(outAmp + lfoVal, 0, 1);
+          break;
+      }
+    };
+    applyLfo(p.lfo.target, lfoVal1);
+    applyLfo(p.lfo2.target, lfoVal2);
 
     // Each osc's natural phase at sample i: osc with ratio R has cycle
     // length N/R, so phase = ((i * R) % N) / N. The shorter-cycle osc
@@ -556,7 +605,10 @@ export function chiptuneFromJson(v: unknown): ChiptuneParams | null {
     return null;
   // `lfo` is optional for back-compat with payloads saved before the
   // LFO addition — those restore with the LFO disabled (defaultLfo).
+  // `lfo2` is also optional, missing in payloads predating the second
+  // LFO; it restores disabled.
   const lfo = parseLfo(x["lfo"]);
+  const lfo2 = parseLfo(x["lfo2"]);
   // `shaperMode` / `shaperAmount` are optional for back-compat with
   // payloads saved before the shaper addition — those restore with the
   // shaper bypassed.
@@ -581,6 +633,7 @@ export function chiptuneFromJson(v: unknown): ChiptuneParams | null {
     shaperMode,
     shaperAmount,
     lfo,
+    lfo2,
   };
 }
 
