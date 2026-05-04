@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   applyGain, applyNormalize, applyReverse, applyCrop, applyCut,
   applyFadeIn, applyFadeOut, applyFilter, applyCrossfade, applyEffect,
+  applyShaperEffect,
   runChain, transformToPt, runPipeline,
   workbenchFromWav, workbenchFromChiptune, workbenchToAlt, defaultEffect,
   resampleLinear, rateForTargetNote, DEFAULT_TARGET_NOTE,
   materializeSource, sourceDisplayName, sourceWantsFullLoop,
+  EFFECT_KINDS, EFFECT_LABELS,
   type SampleWorkbench,
 } from '../src/core/audio/sampleWorkbench';
 import { defaultChiptuneParams } from '../src/core/audio/chiptune';
@@ -518,6 +520,78 @@ describe('applyEffect dispatcher', () => {
       .channels[0]).toEqual(Float32Array.from([3, 2, 1]));
     expect(applyEffect(mono(0, 1, 2, 3, 4), { kind: 'cut', params: { startFrame: 1, endFrame: 4 } })
       .channels[0]).toEqual(Float32Array.from([0, 4]));
+  });
+
+  it("dispatches 'shaper' through applyShaperEffect (drive saturates)", () => {
+    // hardClip at amount=1 has drive=9 — 0.5×9=4.5 → clamp to ±1.
+    const out = applyEffect(mono(0.5, -0.5), {
+      kind: 'shaper', params: { mode: 'hardClip', amount: 1 },
+    });
+    expect(Array.from(out.channels[0]!)).toEqual([1, -1]);
+  });
+});
+
+describe('applyShaperEffect', () => {
+  it("'none' is a fast-path passthrough (returns the same WavData reference)", () => {
+    const w = mono(0.5, -0.25, 0);
+    expect(applyShaperEffect(w, 'none', 1)).toBe(w);
+  });
+
+  it('amount=0 short-circuits regardless of mode (same reference)', () => {
+    const w = mono(0.5, -0.25, 0);
+    expect(applyShaperEffect(w, 'hardClip', 0)).toBe(w);
+    expect(applyShaperEffect(w, 'wavefold', 0)).toBe(w);
+    expect(applyShaperEffect(w, 'bitcrush', 0)).toBe(w);
+  });
+
+  it('hardClip at amount=1 clamps small inputs to ±1 across the whole sample', () => {
+    const out = applyShaperEffect(mono(0.5, -0.5, 0.5), 'hardClip', 1);
+    expect(Array.from(out.channels[0]!)).toEqual([1, -1, 1]);
+  });
+
+  it('shapes each channel independently on stereo input', () => {
+    const stereoIn = stereo([0.5, -0.5], [0.25, -0.25]);
+    const out = applyShaperEffect(stereoIn, 'hardClip', 1);
+    // Both channels driven 9× then clamped — both saturate to ±1.
+    expect(Array.from(out.channels[0]!)).toEqual([1, -1]);
+    expect(Array.from(out.channels[1]!)).toEqual([1, -1]);
+  });
+
+  it('does not mutate the input WavData', () => {
+    const ch = Float32Array.from([0.5, -0.5]);
+    const w = { sampleRate: sr, channels: [ch] };
+    applyShaperEffect(w, 'hardClip', 1);
+    expect(Array.from(ch)).toEqual([0.5, -0.5]);
+  });
+
+  it('end-to-end: shaper node in a chain feeds the rest of the pipeline', () => {
+    const wb: SampleWorkbench = {
+      source: { kind: 'sampler', wav: mono(0.5, -0.5), sourceName: 'demo' },
+      chain: [{ kind: 'shaper', params: { mode: 'hardClip', amount: 1 } }],
+      pt: { monoMix: 'average', targetNote: null },
+      alt: null,
+    };
+    // 0.5 → +1 → int8 127; -0.5 → -1 → int8 -127.
+    expect(Array.from(runPipeline(wb))).toEqual([127, -127]);
+  });
+});
+
+describe("'shaper' effect kind registration", () => {
+  it("EFFECT_KINDS includes 'shaper'", () => {
+    expect(EFFECT_KINDS).toContain('shaper');
+  });
+
+  it("EFFECT_LABELS has a human-readable 'Shaper' label", () => {
+    expect(EFFECT_LABELS.shaper).toBe('Shaper');
+  });
+
+  it("defaultEffect('shaper') produces softClip at half drive", () => {
+    const e = defaultEffect('shaper', mono(0));
+    expect(e.kind).toBe('shaper');
+    if (e.kind === 'shaper') {
+      expect(e.params.mode).toBe('softClip');
+      expect(e.params.amount).toBe(0.5);
+    }
   });
 });
 

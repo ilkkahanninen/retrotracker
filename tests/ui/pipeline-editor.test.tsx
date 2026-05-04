@@ -563,6 +563,92 @@ describe("pipeline editor: effect buttons append range-aware nodes (non-destruct
   });
 });
 
+describe("pipeline editor: shaper effect", () => {
+  it("clicking the Shaper button appends a softClip node at half drive", async () => {
+    setView("sample");
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: {
+        sampleRate: 44100,
+        channels: [new Float32Array([0, 0.5, -0.5])],
+      },
+      sourceName: "demo",
+      chain: [],
+      pt: { monoMix: "average", targetNote: null },
+    });
+    await userEvent.setup().click(findEffectButton(container, "Shaper"));
+    const chain = getWorkbench(0)!.chain;
+    expect(chain).toHaveLength(1);
+    const node = chain[0]!;
+    expect(node.kind).toBe("shaper");
+    if (node.kind === "shaper") {
+      expect(node.params.mode).toBe("softClip");
+      expect(node.params.amount).toBe(0.5);
+    }
+  });
+
+  it("changing the mode select patches the chain entry and re-runs the pipeline", () => {
+    setView("sample");
+    const { container } = render(() => <App />);
+    // hardClip at amount=1 will push 0.5 → ±1 → int8 ±127. Start with mode 'none'
+    // (passthrough) so we can observe the int8 flip when the user picks hardClip.
+    seedSampleWithWorkbench({
+      source: {
+        sampleRate: 44100,
+        channels: [new Float32Array([0.5, -0.5])],
+      },
+      sourceName: "demo",
+      chain: [{ kind: "shaper", params: { mode: "none", amount: 1 } }],
+      pt: { monoMix: "average", targetNote: null },
+    });
+    // 0.5 → int8 64-ish under 'none' passthrough.
+    expect(song()!.samples[0]!.data[0]!).not.toBe(127);
+
+    // The shaper row's <select> is the only one in the .effect-node body.
+    const select = container.querySelector<HTMLSelectElement>(
+      ".effect-node select",
+    )!;
+    fireEvent.change(select, { target: { value: "hardClip" } });
+
+    expect(getWorkbench(0)!.chain[0]).toEqual({
+      kind: "shaper",
+      params: { mode: "hardClip", amount: 1 },
+    });
+    // 0.5 ×9 → 4.5 → clamp to +1 → int8 127.
+    expect(song()!.samples[0]!.data[0]!).toBe(127);
+    expect(song()!.samples[0]!.data[1]!).toBe(-127);
+  });
+
+  it("dragging the Drive slider patches the amount", () => {
+    setView("sample");
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: {
+        sampleRate: 44100,
+        channels: [new Float32Array([0.5, -0.5])],
+      },
+      sourceName: "demo",
+      chain: [{ kind: "shaper", params: { mode: "hardClip", amount: 0 } }],
+      pt: { monoMix: "average", targetNote: null },
+    });
+    // amount=0 ⇒ passthrough; 0.5 → int8 64-ish, definitely not saturated.
+    expect(song()!.samples[0]!.data[0]!).not.toBe(127);
+
+    // The shaper row has one <input type="range"> — the Drive slider.
+    const slider = container.querySelector<HTMLInputElement>(
+      '.effect-node input[type="range"]',
+    )!;
+    fireEvent.input(slider, { target: { value: "1" } });
+
+    expect(getWorkbench(0)!.chain[0]).toEqual({
+      kind: "shaper",
+      params: { mode: "hardClip", amount: 1 },
+    });
+    expect(song()!.samples[0]!.data[0]!).toBe(127);
+    expect(song()!.samples[0]!.data[1]!).toBe(-127);
+  });
+});
+
 describe("pipeline editor: undo/redo restores chain alongside song", () => {
   // Regression: workbenches lived in a separate signal map outside the song
   // history, so undoing an effect-add reverted the int8 in the waveform but
