@@ -153,11 +153,11 @@ export const MUSICAL_RATIOS: readonly number[] = [1, 2, 4, 8];
  * phase 0 at the end of the sample (seamless loop). No power-of-two
  * constraint here — the multiplier doesn't affect pitch the way
  * `cycleFrames` does, it just spreads the LFO across a longer rendered
- * span. 64 keeps the int8 output well under PT's 65 535-word ceiling
- * (256 × 64 = 16 384 bytes worst-case).
+ * span. 256 keeps the int8 output safely under PT's 131 070-byte
+ * sample ceiling (256 × 256 = 65 536 bytes worst-case — half of max).
  */
 export const LFO_MULT_MIN = 1;
-export const LFO_MULT_MAX = 64;
+export const LFO_MULT_MAX = 256;
 
 /** Round to the nearest integer in `[LFO_MULT_MIN, LFO_MULT_MAX]`. */
 export function snapLfoMultiplier(v: number): number {

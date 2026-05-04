@@ -158,7 +158,7 @@ const LfoSection: Component<LfoSectionProps> = (props) => (
         disabled={props.disabled}
         snap={snapToInteger}
         format={(v) => `${Math.round(v)}×`}
-        hint="1× ─ 2× ─ 4× ─ 8× ─ 16× ─ 32×"
+        hint="longer = slower LFO"
         onInput={(v) => props.onUpdate({ cycleMultiplier: v })}
       />
       <Slider
