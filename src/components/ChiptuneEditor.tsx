@@ -21,6 +21,7 @@ import {
   type LfoTarget,
   type Oscillator,
 } from "../core/audio/chiptune";
+import { SHAPER_LABELS, SHAPER_MODES } from "../core/audio/shapers";
 import { Slider } from "./Slider";
 
 export interface ChiptuneEditorProps {
@@ -109,6 +110,32 @@ export const ChiptuneEditor: Component<ChiptuneEditorProps> = (props) => {
             value={props.params.combineAmount}
             disabled={props.disabled}
             onInput={(v) => props.onUpdate({ combineAmount: v })}
+          />
+        </div>
+        <div class="chiptune__modes" role="radiogroup" aria-label="Shaper mode">
+          {SHAPER_MODES.map((m) => (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={props.params.shaperMode === m}
+              classList={{ "is-active": props.params.shaperMode === m }}
+              disabled={props.disabled}
+              onClick={() => props.onUpdate({ shaperMode: m })}
+            >
+              {SHAPER_LABELS[m]}
+            </button>
+          ))}
+        </div>
+        <div class="chiptune__sliders">
+          <Slider
+            label="Drive"
+            min={0}
+            max={1}
+            step={0.01}
+            value={props.params.shaperAmount}
+            disabled={props.disabled || props.params.shaperMode === "none"}
+            hint="0 = bypass"
+            onInput={(v) => props.onUpdate({ shaperAmount: v })}
           />
         </div>
       </div>

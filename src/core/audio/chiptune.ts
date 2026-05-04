@@ -8,10 +8,17 @@
  * Two oscillators with continuous shape morph (sine→triangle→square→saw)
  * and a phase-split parameter that warps where the cycle's midpoint lands.
  * Combine modes cover the usual chiptune territory: sum / morph / ring /
- * AM / FM / min / max / xor (8-bit signed).
+ * AM / FM / min / max / xor (8-bit signed). After the combine stage a
+ * single-param shaper (hard/soft clip, wavefold, Chebyshev, bitcrush)
+ * adds extra harmonic content before the final amp scaling.
  */
 import type { WavData } from "./wav";
 import { PAULA_CLOCK_PAL, PERIOD_TABLE } from "../mod/format";
+import {
+  applyShaper,
+  SHAPER_MODES,
+  type ShaperMode,
+} from "./shapers";
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -78,6 +85,7 @@ export type LfoTarget =
   | "osc2Shape"
   | "osc2PhaseSplit"
   | "combineAmount"
+  | "shaperAmount"
   | "amplitude";
 
 export const LFO_TARGETS: readonly LfoTarget[] = [
@@ -86,6 +94,7 @@ export const LFO_TARGETS: readonly LfoTarget[] = [
   "osc2Shape",
   "osc2PhaseSplit",
   "combineAmount",
+  "shaperAmount",
   "amplitude",
 ] as const;
 
@@ -95,6 +104,7 @@ export const LFO_TARGET_LABELS: Readonly<Record<LfoTarget, string>> = {
   osc2Shape: "Osc 2 Shape",
   osc2PhaseSplit: "Osc 2 Phase split",
   combineAmount: "Combine amount",
+  shaperAmount: "Shaper drive",
   amplitude: "Amplitude",
 };
 
@@ -126,6 +136,10 @@ export interface ChiptuneParams {
   combineMode: CombineMode;
   /** 0..1 (or 0..2 for FM, where it doubles as modulation depth in radians). */
   combineAmount: number;
+  /** End-of-pipeline shaper mode (between combine and final amp). */
+  shaperMode: ShaperMode;
+  /** 0..1. 0 = bypass, 1 = full effect, regardless of which mode is picked. */
+  shaperAmount: number;
   /**
    * Slow modulator. Generates a unipolar triangle (0 → 1 → 0) over the
    * rendered output and adds it (scaled by amplitude × target range) to
@@ -238,6 +252,8 @@ export function defaultChiptuneParams(): ChiptuneParams {
     osc2: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 }, // sine
     combineMode: "morph",
     combineAmount: 0, // default to "osc1 only"
+    shaperMode: "none", // off by default — user opts in
+    shaperAmount: 0,
     lfo: defaultLfo(),
   };
 }
@@ -337,6 +353,7 @@ export function generateChiptuneCycle(p: ChiptuneParams): WavData {
   const out = new Float32Array(L);
   const baseAmp = clamp(p.amplitude, 0, 1);
   const baseAmount = p.combineAmount;
+  const baseShaperAmount = clamp(p.shaperAmount, 0, 1);
   const lfoAmp = clamp(p.lfo.amplitude, 0, 1);
 
   // Per-target sweep range — `lfoAmp = 1` modulates the full natural span
@@ -363,6 +380,7 @@ export function generateChiptuneCycle(p: ChiptuneParams): WavData {
     osc2.shapeIndex = p.osc2.shapeIndex;
     osc2.phaseSplit = p.osc2.phaseSplit;
     let combineAmt = baseAmount;
+    let shaperAmt = baseShaperAmount;
     let outAmp = baseAmp;
     switch (p.lfo.target) {
       case "osc1Shape":
@@ -379,6 +397,9 @@ export function generateChiptuneCycle(p: ChiptuneParams): WavData {
         break;
       case "combineAmount":
         combineAmt += lfoVal;
+        break;
+      case "shaperAmount":
+        shaperAmt = clamp(shaperAmt + lfoVal, 0, 1);
         break;
       case "amplitude":
         outAmp = clamp(outAmp + lfoVal, 0, 1);
@@ -438,6 +459,7 @@ export function generateChiptuneCycle(p: ChiptuneParams): WavData {
         break;
       }
     }
+    s = applyShaper(s, p.shaperMode, shaperAmt);
     out[i] = s * outAmp;
   }
   return {
@@ -493,6 +515,17 @@ export function chiptuneFromJson(v: unknown): ChiptuneParams | null {
   // `lfo` is optional for back-compat with payloads saved before the
   // LFO addition — those restore with the LFO disabled (defaultLfo).
   const lfo = parseLfo(x["lfo"]);
+  // `shaperMode` / `shaperAmount` are optional for back-compat with
+  // payloads saved before the shaper addition — those restore with the
+  // shaper bypassed.
+  const rawShaperMode = x["shaperMode"];
+  const shaperMode: ShaperMode =
+    typeof rawShaperMode === "string" &&
+    (SHAPER_MODES as readonly string[]).includes(rawShaperMode)
+      ? (rawShaperMode as ShaperMode)
+      : "none";
+  const shaperAmount =
+    typeof x["shaperAmount"] === "number" ? clamp(x["shaperAmount"], 0, 1) : 0;
   // Snap cycleFrames to the nearest musical (octave-aligned) value so a
   // saved-then-loaded `.retro` always restores to an in-tune cycle length,
   // even if the underlying snap rule changed between versions.
@@ -503,6 +536,8 @@ export function chiptuneFromJson(v: unknown): ChiptuneParams | null {
     osc2: o2,
     combineMode: x["combineMode"] as CombineMode,
     combineAmount: x["combineAmount"],
+    shaperMode,
+    shaperAmount,
     lfo,
   };
 }
