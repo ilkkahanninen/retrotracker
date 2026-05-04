@@ -11,8 +11,13 @@ import type {
   EffectNode,
   MonoMix,
   PtTransformerParams,
+  ResampleMode,
 } from '../core/audio/sampleWorkbench';
-import { DEFAULT_TARGET_NOTE } from '../core/audio/sampleWorkbench';
+import {
+  DEFAULT_RESAMPLE_MODE,
+  DEFAULT_TARGET_NOTE,
+  RESAMPLE_MODES,
+} from '../core/audio/sampleWorkbench';
 
 /**
  * Local-storage session persistence.
@@ -384,6 +389,7 @@ function parsePtParams(raw: unknown): PtTransformerParams {
   const fallback: PtTransformerParams = {
     monoMix: 'average',
     targetNote: DEFAULT_TARGET_NOTE,
+    resampleMode: DEFAULT_RESAMPLE_MODE,
   };
   if (!raw || typeof raw !== 'object') return fallback;
   const x = raw as Record<string, unknown>;
@@ -395,7 +401,14 @@ function parsePtParams(raw: unknown): PtTransformerParams {
     note === null ? null
     : typeof note === 'number' && note >= 0 && note < 36 ? Math.floor(note)
     : DEFAULT_TARGET_NOTE;
-  return { monoMix, targetNote };
+  const rs = x['resampleMode'];
+  // Field added later — old payloads have nothing here, fall back to default.
+  const resampleMode: ResampleMode = (RESAMPLE_MODES as readonly string[]).includes(
+    rs as string,
+  )
+    ? (rs as ResampleMode)
+    : DEFAULT_RESAMPLE_MODE;
+  return { monoMix, targetNote, resampleMode };
 }
 
 /**

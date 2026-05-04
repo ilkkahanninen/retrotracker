@@ -331,6 +331,48 @@ describe("pipeline editor: live param updates re-run the pipeline", () => {
   });
 });
 
+describe("pipeline editor: resample-mode selector", () => {
+  it("changing the resample mode re-runs the pipeline (output diverges from linear)", async () => {
+    setView("sample");
+    const { container } = render(() => <App />);
+    // Use a varying source so the resamplers diverge — a flat input would
+    // round to identical int8 under both algorithms.
+    const N = 256;
+    const ch = new Float32Array(N);
+    for (let i = 0; i < N; i++) ch[i] = Math.sin((2 * Math.PI * 3000 * i) / 44100);
+    seedSampleWithWorkbench({
+      source: { sampleRate: 44100, channels: [ch] },
+      sourceName: "demo",
+      chain: [],
+      pt: { monoMix: "average", targetNote: 12, resampleMode: "linear" },
+    });
+    const before = Array.from(song()!.samples[0]!.data);
+
+    const select = container.querySelector<HTMLSelectElement>(
+      'select[aria-label="Resample mode"]',
+    )!;
+    fireEvent.change(select, { target: { value: "sinc" } });
+
+    expect(getWorkbench(0)!.pt.resampleMode).toBe("sinc");
+    const after = Array.from(song()!.samples[0]!.data);
+    expect(after).not.toEqual(before);
+  });
+
+  it("the resample-mode select is hidden when targetNote is null", async () => {
+    setView("sample");
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: { sampleRate: 44100, channels: [new Float32Array(8).fill(0.5)] },
+      sourceName: "demo",
+      chain: [],
+      pt: { monoMix: "average", targetNote: null, resampleMode: "linear" },
+    });
+    expect(
+      container.querySelector('select[aria-label="Resample mode"]'),
+    ).toBeNull();
+  });
+});
+
 describe("pipeline editor: target-note selector", () => {
   it("changing the target note re-runs the pipeline and resamples to that rate", () => {
     setView("sample");

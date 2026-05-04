@@ -4,8 +4,10 @@ import {
   applyFadeIn, applyFadeOut, applyFilter, applyCrossfade, applyEffect,
   applyShaperEffect,
   runChain, transformToPt, runPipeline,
-  workbenchFromWav, workbenchFromChiptune, workbenchToAlt, defaultEffect,
-  resampleLinear, rateForTargetNote, DEFAULT_TARGET_NOTE,
+  workbenchFromWav, workbenchFromInt8, workbenchFromChiptune, workbenchToAlt, defaultEffect,
+  resampleLinear, resampleFilteredLinear, resampleSinc,
+  rateForTargetNote, DEFAULT_TARGET_NOTE,
+  RESAMPLE_MODES, RESAMPLE_LABELS, DEFAULT_RESAMPLE_MODE,
   materializeSource, sourceDisplayName, sourceWantsFullLoop,
   EFFECT_KINDS, EFFECT_LABELS,
   type SampleWorkbench,
@@ -337,6 +339,26 @@ describe('workbenchFromWav (round-trip from a synthetic WAV)', () => {
     expect(wb.pt.monoMix).toBe('average');
     expect(wb.pt.targetNote).toBe(DEFAULT_TARGET_NOTE); // C-2 = 12
   });
+
+  it("defaults the resampler to 'sinc' for fresh WAV imports (best quality)", () => {
+    // WAV imports are typically 44.1 kHz material that gets downsampled ~5:1
+    // to the C-2 rate; sinc avoids the audible aliasing plain linear produces.
+    const wav = writeWav({
+      sampleRate: 44100,
+      channels: [new Float32Array([0, 0.5, -0.5])],
+    }, { bitsPerSample: 16 });
+    const wb = workbenchFromWav(wav, 'snare.wav');
+    expect(wb.pt.resampleMode).toBe('sinc');
+  });
+
+  it("workbenchFromInt8 keeps the resampler at the back-compat default ('linear')", () => {
+    // .mod-loaded slots wrap their existing int8 at the C-2 rate — the
+    // resampler short-circuits anyway, and keeping the historical default
+    // means existing projects' int8 stays bit-identical until the user
+    // edits anything.
+    const wb = workbenchFromInt8(new Int8Array([0, 64, -64, 0]), 'mod-slot');
+    expect(wb.pt.resampleMode).toBe('linear');
+  });
 });
 
 describe('SampleSource', () => {
@@ -456,6 +478,138 @@ describe('resampleLinear', () => {
 
   it('preserves an empty input as an empty output', () => {
     expect(resampleLinear(new Float32Array(0), 44100, 8287).length).toBe(0);
+  });
+});
+
+describe('resampleFilteredLinear', () => {
+  it('matches resampleLinear when fromRate === toRate (no-op short-circuit)', () => {
+    const buf = Float32Array.from([0, 1, -1, 0.5]);
+    expect(resampleFilteredLinear(buf, 44100, 44100)).toBe(buf);
+  });
+
+  it('matches plain linear when upsampling — no aliasing risk, no pre-filter', () => {
+    const buf = Float32Array.from([0, 1, 0, -1, 0]);
+    const linear = resampleLinear(buf, 22050, 44100);
+    const filtered = resampleFilteredLinear(buf, 22050, 44100);
+    expect(filtered.length).toBe(linear.length);
+    for (let i = 0; i < filtered.length; i++) {
+      expect(filtered[i]!).toBeCloseTo(linear[i]!, 6);
+    }
+  });
+
+  it('downsample output length matches the linear resampler', () => {
+    // The filter changes amplitudes but not the integer-frame target length —
+    // both resamplers walk the same i*ratio grid.
+    const buf = new Float32Array(256).fill(0.25);
+    const linear = resampleLinear(buf, 44100, 8287);
+    const filtered = resampleFilteredLinear(buf, 44100, 8287);
+    expect(filtered.length).toBe(linear.length);
+  });
+
+  it('attenuates an above-Nyquist sine far more than plain linear', () => {
+    // 6 kHz tone at 44.1 kHz, downsampled to 8.287 kHz (target Nyquist ~4.14 kHz).
+    // With plain linear, the 6 kHz aliases to about |8287 − 6000| = 2287 Hz at
+    // similar amplitude. With the LPF prefilter, that 6 kHz content is gone
+    // before the resampler hops over it, so the post-resample RMS drops sharply.
+    const fromRate = 44100;
+    const toRate = 8287;
+    const N = 4096;
+    const sig = new Float32Array(N);
+    for (let i = 0; i < N; i++) sig[i] = Math.sin((2 * Math.PI * 6000 * i) / fromRate);
+    const linear = resampleLinear(sig, fromRate, toRate);
+    const filtered = resampleFilteredLinear(sig, fromRate, toRate);
+    function rms(b: Float32Array): number {
+      let s = 0;
+      // Skip the head where the biquad is still settling.
+      for (let i = 100; i < b.length; i++) s += b[i]! * b[i]!;
+      return Math.sqrt(s / Math.max(1, b.length - 100));
+    }
+    expect(rms(filtered)).toBeLessThan(rms(linear) * 0.25);
+  });
+});
+
+describe('resampleSinc', () => {
+  it('returns the same reference when fromRate === toRate', () => {
+    const buf = Float32Array.from([0, 1, -1, 0.5]);
+    expect(resampleSinc(buf, 44100, 44100)).toBe(buf);
+  });
+
+  it('preserves an empty input as an empty output', () => {
+    expect(resampleSinc(new Float32Array(0), 44100, 8287).length).toBe(0);
+  });
+
+  it('produces the expected output length for a downsample', () => {
+    const buf = new Float32Array(256).fill(1);
+    const out = resampleSinc(buf, 44100, 8287);
+    // ~256 frames * 8287/44100 ≈ 48 frames, matching the linear resampler.
+    expect(out.length).toBeGreaterThan(40);
+    expect(out.length).toBeLessThan(60);
+  });
+
+  it('preserves DC at unity gain across downsamples (constant-input test)', () => {
+    const buf = new Float32Array(256).fill(0.5);
+    const out = resampleSinc(buf, 44100, 8287);
+    // Mid-buffer samples are far from the truncated kernel boundary —
+    // unity-DC normalisation should hold to f32 precision.
+    expect(out[10]!).toBeCloseTo(0.5, 4);
+    expect(out[Math.floor(out.length / 2)]!).toBeCloseTo(0.5, 4);
+  });
+
+  it('attenuates an above-Nyquist sine far more than plain linear', () => {
+    const fromRate = 44100;
+    const toRate = 8287;
+    const N = 4096;
+    const sig = new Float32Array(N);
+    for (let i = 0; i < N; i++) sig[i] = Math.sin((2 * Math.PI * 6000 * i) / fromRate);
+    const linear = resampleLinear(sig, fromRate, toRate);
+    const sinc = resampleSinc(sig, fromRate, toRate);
+    function rms(b: Float32Array): number {
+      let s = 0;
+      for (let i = 100; i < b.length; i++) s += b[i]! * b[i]!;
+      return Math.sqrt(s / Math.max(1, b.length - 100));
+    }
+    expect(rms(sinc)).toBeLessThan(rms(linear) * 0.25);
+  });
+});
+
+describe('resample-mode registration', () => {
+  it("RESAMPLE_MODES lists 'linear', 'filteredLinear' and 'sinc'", () => {
+    expect(RESAMPLE_MODES).toEqual(['linear', 'filteredLinear', 'sinc']);
+  });
+
+  it('every mode has a human-readable label', () => {
+    for (const m of RESAMPLE_MODES) {
+      expect(typeof RESAMPLE_LABELS[m]).toBe('string');
+      expect(RESAMPLE_LABELS[m].length).toBeGreaterThan(0);
+    }
+  });
+
+  it("DEFAULT_RESAMPLE_MODE is 'linear' (back-compat for old projects)", () => {
+    expect(DEFAULT_RESAMPLE_MODE).toBe('linear');
+  });
+});
+
+describe('transformToPt resampleMode dispatch', () => {
+  it("'linear' produces the same int8 as the historical (no-mode) call", () => {
+    const audio = { sampleRate: 44100, channels: [new Float32Array(256).fill(1)] };
+    const a = transformToPt(audio, { monoMix: 'average', targetNote: 12, resampleMode: 'linear' });
+    const b = transformToPt(audio, { monoMix: 'average', targetNote: 12 }); // no mode → fallback
+    expect(Array.from(a)).toEqual(Array.from(b));
+  });
+
+  it("'sinc' produces a different waveform from 'linear' on a downsample", () => {
+    // A varying signal so the two algorithms actually diverge — a flat line
+    // would round to the same int8 under any band-limited resampler.
+    const N = 256;
+    const ch = new Float32Array(N);
+    for (let i = 0; i < N; i++) ch[i] = Math.sin((2 * Math.PI * 3000 * i) / 44100);
+    const audio = { sampleRate: 44100, channels: [ch] };
+    const linear = transformToPt(audio, { monoMix: 'average', targetNote: 12, resampleMode: 'linear' });
+    const sinc = transformToPt(audio, { monoMix: 'average', targetNote: 12, resampleMode: 'sinc' });
+    expect(linear.length).toBe(sinc.length);
+    let diff = 0;
+    for (let i = 0; i < linear.length; i++) diff += Math.abs(linear[i]! - sinc[i]!);
+    expect(diff).toBeGreaterThan(0);
   });
 });
 

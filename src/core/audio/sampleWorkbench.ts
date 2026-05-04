@@ -128,6 +128,41 @@ export const FILTER_TYPE_LABELS: Readonly<Record<FilterType, string>> = {
 
 export type MonoMix = 'average' | 'left' | 'right';
 
+/**
+ * Sample-rate conversion algorithm used when the PT transformer resamples
+ * the source down to the target-note rate (typically a 5:1 downsample for
+ * a 44.1 kHz source at C-2). Picked per slot — most users want the default
+ * but can flip to a heavier algorithm when a bright sample sounds aliased.
+ *
+ *   linear         — Fast, hop-and-skip linear interpolation. Aliases on
+ *                    heavy downsamples (any source content above the new
+ *                    Nyquist folds back as inharmonic tones), but cheap and
+ *                    matches the historical behaviour.
+ *   filteredLinear — Two cascaded Butterworth-ish biquad lowpasses at the
+ *                    target Nyquist, then linear. Removes most of the
+ *                    above-Nyquist energy before it can alias; ~24 dB/oct
+ *                    rolloff. Inexpensive, audibly cleaner than `linear`.
+ *   sinc           — Windowed-sinc (Lanczos-6) polyphase resampler. Sharp
+ *                    cutoff right at the new Nyquist; minimal aliasing.
+ *                    Highest quality, most CPU — but it's a one-shot offline
+ *                    pass, so latency doesn't matter.
+ */
+export type ResampleMode = 'linear' | 'filteredLinear' | 'sinc';
+
+export const RESAMPLE_MODES: readonly ResampleMode[] = [
+  'linear', 'filteredLinear', 'sinc',
+] as const;
+
+export const RESAMPLE_LABELS: Readonly<Record<ResampleMode, string>> = {
+  linear:         'Linear (fastest)',
+  filteredLinear: 'Linear + LPF',
+  sinc:           'Sinc (best)',
+};
+
+/** Default for fresh workbenches and persistence fallbacks. Linear keeps the
+ *  historical behaviour for projects predating the `resampleMode` field. */
+export const DEFAULT_RESAMPLE_MODE: ResampleMode = 'linear';
+
 export interface PtTransformerParams {
   monoMix: MonoMix;
   /**
@@ -142,6 +177,11 @@ export interface PtTransformerParams {
    * a note in the standard 113..856 period range.
    */
   targetNote: number | null;
+  /** Sample-rate conversion algorithm — see ResampleMode. Optional: workbenches
+   *  that pre-date the field (loaded from old `.retro` files, or built by tests
+   *  that don't care which resampler runs) fall back to `DEFAULT_RESAMPLE_MODE`
+   *  inside `transformToPt`. New construction sites set it explicitly. */
+  resampleMode?: ResampleMode;
 }
 
 // ─── Sources ──────────────────────────────────────────────────────────────
@@ -558,6 +598,92 @@ export function resampleLinear(input: Float32Array, fromRate: number, toRate: nu
 }
 
 /**
+ * Pre-filter the input with two cascaded biquad lowpasses at the target
+ * Nyquist (~24 dB/oct rolloff), then linear-resample. The lowpass kills
+ * the source content that would alias when the linear resampler hops over
+ * it; passband stays Butterworth-flat near DC.
+ *
+ * Upsamples skip the filter entirely — there's nothing above the source
+ * Nyquist to alias, and a lowpass at fromRate/2 would just dull the highs.
+ *
+ * Cutoff is set at 0.45 × toRate (a hair below Nyquist) to keep transition-
+ * band ringing out of the audible passband. Q = 1/√2 (Butterworth-flat).
+ */
+export function resampleFilteredLinear(input: Float32Array, fromRate: number, toRate: number): Float32Array {
+  if (input.length === 0) return input;
+  if (Math.abs(fromRate - toRate) < 1e-3) return input;
+  // Upsample: nothing to alias, plain linear suffices.
+  if (toRate >= fromRate) return resampleLinear(input, fromRate, toRate);
+  const cutoff = toRate * 0.45;
+  const wrap: WavData = { sampleRate: fromRate, channels: [input] };
+  const stage1 = applyFilter(wrap, 'lowpass', cutoff, Math.SQRT1_2);
+  const stage2 = applyFilter(stage1, 'lowpass', cutoff, Math.SQRT1_2);
+  return resampleLinear(stage2.channels[0]!, fromRate, toRate);
+}
+
+function sinc(x: number): number {
+  if (x === 0) return 1;
+  const px = Math.PI * x;
+  return Math.sin(px) / px;
+}
+
+/** Lanczos window parameter `a` — kernel half-width in normalised units.
+ *  6 is a common "high-quality" pick: sharp cutoff, manageable kernel size. */
+const LANCZOS_A = 6;
+
+/**
+ * Windowed-sinc (Lanczos-6) polyphase resampler. For downsamples the
+ * kernel widens by `ratio` so its effective cutoff lands at the target
+ * Nyquist instead of the source one — that's what removes alias-prone
+ * content before the rate change. Per-output normalisation by the kernel
+ * tap sum holds DC gain at 1 even at the input boundaries where the
+ * window is truncated.
+ *
+ * Cost is O(outLen × kernelTaps) where kernelTaps ≈ 2·a·max(1, ratio) —
+ * around 60 taps per output frame at a 5:1 downsample. One-shot offline,
+ * so the user never feels it.
+ */
+export function resampleSinc(input: Float32Array, fromRate: number, toRate: number): Float32Array {
+  if (input.length === 0) return input;
+  if (Math.abs(fromRate - toRate) < 1e-3) return input;
+  const ratio = fromRate / toRate;
+  const outLen = Math.max(1, Math.round(input.length / ratio));
+  // Kernel scales with the downsample factor so the effective cutoff stays
+  // at the new Nyquist; for upsamples the scale stays 1 (full source band).
+  const scale = Math.max(1, ratio);
+  const halfWidth = LANCZOS_A * scale;
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const srcPos = i * ratio;
+    const start = Math.max(0, Math.ceil(srcPos - halfWidth));
+    const end = Math.min(input.length - 1, Math.floor(srcPos + halfWidth));
+    let acc = 0;
+    let norm = 0;
+    for (let j = start; j <= end; j++) {
+      const x = (j - srcPos) / scale;
+      const w = sinc(x) * sinc(x / LANCZOS_A);
+      acc += input[j]! * w;
+      norm += w;
+    }
+    out[i] = norm !== 0 ? acc / norm : 0;
+  }
+  return out;
+}
+
+function resampleByMode(
+  input: Float32Array,
+  fromRate: number,
+  toRate: number,
+  mode: ResampleMode,
+): Float32Array {
+  switch (mode) {
+    case 'linear':         return resampleLinear(input, fromRate, toRate);
+    case 'filteredLinear': return resampleFilteredLinear(input, fromRate, toRate);
+    case 'sinc':           return resampleSinc(input, fromRate, toRate);
+  }
+}
+
+/**
  * Convert a PT note slot (0..35) into the Paula playback rate it produces
  * at finetune 0. We resample the source to this rate so the sample plays at
  * its original speed when this note is triggered.
@@ -587,7 +713,9 @@ export function transformToPt(audio: WavData, pt: PtTransformerParams): Int8Arra
   // source at original speed when triggering that note in a pattern.
   if (pt.targetNote !== null) {
     const targetRate = rateForTargetNote(pt.targetNote);
-    if (targetRate !== null) mono = resampleLinear(mono, audio.sampleRate, targetRate);
+    if (targetRate !== null) {
+      mono = resampleByMode(mono, audio.sampleRate, targetRate, pt.resampleMode ?? DEFAULT_RESAMPLE_MODE);
+    }
   }
 
   return floatToInt8(mono);
@@ -626,7 +754,7 @@ export function workbenchFromInt8(data: Int8Array, sourceName: string): SampleWo
   return {
     source: { kind: 'sampler', wav: int8ToWav(data, sampleRate), sourceName },
     chain: [],
-    pt: { monoMix: 'average', targetNote: DEFAULT_TARGET_NOTE },
+    pt: { monoMix: 'average', targetNote: DEFAULT_TARGET_NOTE, resampleMode: DEFAULT_RESAMPLE_MODE },
     alt: null,
   };
 }
@@ -644,7 +772,14 @@ export function workbenchFromWavData(wav: WavData, sourceName: string): SampleWo
     // Default to C-2: when the user triggers C-2 in a pattern, the sample
     // plays at its original speed. They can change the target (or set null
     // to disable resampling entirely) from the Effects panel.
-    pt: { monoMix: 'average', targetNote: DEFAULT_TARGET_NOTE },
+    //
+    // Resampler defaults to `sinc` — fresh WAV imports tend to be 44.1 kHz
+    // material that gets downsampled ~5:1 to the C-2 rate, where linear
+    // interpolation aliases audibly. The .retro restore path overrides
+    // `pt` from the saved payload, so previously-saved projects keep their
+    // chosen mode. `DEFAULT_RESAMPLE_MODE` (linear) remains the back-compat
+    // fallback for old payloads that pre-date the field.
+    pt: { monoMix: 'average', targetNote: DEFAULT_TARGET_NOTE, resampleMode: 'sinc' },
     alt: null,
   };
 }
@@ -683,7 +818,7 @@ export function emptySamplerWorkbench(): SampleWorkbench {
       sourceName: '',
     },
     chain: [],
-    pt: { monoMix: 'average', targetNote: DEFAULT_TARGET_NOTE },
+    pt: { monoMix: 'average', targetNote: DEFAULT_TARGET_NOTE, resampleMode: DEFAULT_RESAMPLE_MODE },
     alt: null,
   };
 }

@@ -17,6 +17,7 @@ import {
   type EffectKind,
   type EffectNode,
   type MonoMix,
+  type ResampleMode,
   type SampleSource,
   type SampleWorkbench,
   type SourceKind,
@@ -107,6 +108,7 @@ interface Props {
   onApplyChain: () => void;
   onSetMonoMix: (monoMix: MonoMix) => void;
   onSetTargetNote: (targetNote: number | null) => void;
+  onSetResampleMode: (mode: ResampleMode) => void;
   /** Switch the source kind. Creates a default workbench if needed. */
   onSetSourceKind: (kind: SourceKind) => void;
   /** Patch the chiptune source params on the current slot. No-op for sampler. */
@@ -509,6 +511,7 @@ export const SampleView: Component<Props> = (props) => {
             onApplyChain={props.onApplyChain}
             onSetMonoMix={props.onSetMonoMix}
             onSetTargetNote={props.onSetTargetNote}
+            onSetResampleMode={props.onSetResampleMode}
           />
         </Show>
       </Show>

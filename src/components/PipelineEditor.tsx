@@ -8,13 +8,17 @@ import {
   type Component,
 } from "solid-js";
 import {
+  DEFAULT_RESAMPLE_MODE,
   EFFECT_LABELS,
   FILTER_TYPE_LABELS,
+  RESAMPLE_LABELS,
+  RESAMPLE_MODES,
   materializeSource,
   sourceDisplayName,
   type EffectNode,
   type FilterType,
   type MonoMix,
+  type ResampleMode,
   type SampleWorkbench,
 } from "../core/audio/sampleWorkbench";
 import {
@@ -51,6 +55,7 @@ export interface PipelineEditorProps {
   onApplyChain: () => void;
   onSetMonoMix: (monoMix: MonoMix) => void;
   onSetTargetNote: (targetNote: number | null) => void;
+  onSetResampleMode: (mode: ResampleMode) => void;
 }
 
 export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
@@ -173,6 +178,25 @@ export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
             </For>
           </select>
         </label>
+        {/* Resampler picker — only relevant when targetNote drives a rate
+            conversion. Hidden when targetNote is null since there's no
+            resample step to influence. */}
+        <Show when={props.wb.pt.targetNote !== null}>
+          <label>
+            <span class="samplemeta__label">Resample</span>
+            <select
+              aria-label="Resample mode"
+              value={props.wb.pt.resampleMode ?? DEFAULT_RESAMPLE_MODE}
+              onChange={(e) =>
+                props.onSetResampleMode(e.currentTarget.value as ResampleMode)
+              }
+            >
+              <For each={RESAMPLE_MODES}>
+                {(m) => <option value={m}>{RESAMPLE_LABELS[m]}</option>}
+              </For>
+            </select>
+          </label>
+        </Show>
       </div>
     </section>
   );

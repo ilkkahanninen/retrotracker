@@ -115,6 +115,7 @@ import {
   type EffectNode,
   type EffectKind,
   type MonoMix,
+  type ResampleMode,
 } from "./core/audio/sampleWorkbench";
 import type { ChiptuneParams } from "./core/audio/chiptune";
 import {
@@ -1717,6 +1718,12 @@ export const App: Component = () => {
     updateCurrentWorkbench({ ...wb, pt: { ...wb.pt, targetNote } });
   };
 
+  const setResampleMode = (resampleMode: ResampleMode) => {
+    const wb = getWorkbench(currentSample() - 1);
+    if (!wb) return;
+    updateCurrentWorkbench({ ...wb, pt: { ...wb.pt, resampleMode } });
+  };
+
   /**
    * Switch the current slot's source kind (Sampler ↔ Chiptune). The switch
    * is non-destructive: the active half is stashed in `wb.alt` and the
@@ -2380,6 +2387,7 @@ export const App: Component = () => {
                   onApplyChain={applyChainToSource}
                   onSetMonoMix={setMonoMix}
                   onSetTargetNote={setTargetNote}
+                  onSetResampleMode={setResampleMode}
                   onSetSourceKind={setSourceKind}
                   onUpdateChiptune={updateChiptune}
                   onConvertChiptuneToSampler={convertChiptuneToSampler}
