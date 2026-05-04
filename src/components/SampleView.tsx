@@ -110,6 +110,8 @@ interface Props {
   onSetSourceKind: (kind: SourceKind) => void;
   /** Patch the chiptune source params on the current slot. No-op for sampler. */
   onUpdateChiptune: (patch: Partial<ChiptuneParams>) => void;
+  /** Freeze the current chiptune render as a sampler workbench source. */
+  onConvertChiptuneToSampler: () => void;
 }
 
 /** Editor for the sample under `currentSample()`: waveform + metadata + load. */
@@ -458,6 +460,7 @@ export const SampleView: Component<Props> = (props) => {
               }
               disabled={editingDisabled()}
               onUpdate={props.onUpdateChiptune}
+              onConvertToSampler={props.onConvertChiptuneToSampler}
             />
           )}
         </Show>

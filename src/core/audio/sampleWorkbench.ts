@@ -185,11 +185,19 @@ export function sourceWantsFullLoop(src: SampleSource): boolean {
  * Frozen snapshot of one half of a workbench (the "off" side after a
  * source-kind toggle). Holds source + chain + pt so toggling back restores
  * everything the user had on that side, not just the source.
+ *
+ * `loop` captures the slot's loop fields at stash time so toggling back to
+ * a sampler half restores the loop the user had — without it, a sampler
+ * with a loop would lose its loop the moment the user flipped to chiptune
+ * (chiptune's `sourceWantsFullLoop` rule overwrites the slot's loop) and
+ * back. Null means "no specific loop captured" (e.g. the alt was built
+ * before the slot existed); restore falls through to default behaviour.
  */
 export interface WorkbenchAlt {
   source: SampleSource;
   chain: EffectNode[];
   pt: PtTransformerParams;
+  loop: { loopStartWords: number; loopLengthWords: number } | null;
 }
 
 export interface SampleWorkbench {
@@ -211,9 +219,17 @@ export interface SampleWorkbench {
   alt: WorkbenchAlt | null;
 }
 
-/** Pull the active half of a workbench into an alt-stash record. */
-export function workbenchToAlt(wb: SampleWorkbench): WorkbenchAlt {
-  return { source: wb.source, chain: wb.chain, pt: wb.pt };
+/**
+ * Pull the active half of a workbench into an alt-stash record. `loop`
+ * (the slot's current loopStart/loopLength at stash time) is stored
+ * alongside so restoring this alt later puts the loop back to where the
+ * user had it — chiptune's full-loop rule would otherwise have erased it.
+ */
+export function workbenchToAlt(
+  wb: SampleWorkbench,
+  loop: { loopStartWords: number; loopLengthWords: number } | null = null,
+): WorkbenchAlt {
+  return { source: wb.source, chain: wb.chain, pt: wb.pt, loop };
 }
 
 // ─── Effects ──────────────────────────────────────────────────────────────

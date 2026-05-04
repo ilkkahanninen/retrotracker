@@ -1220,6 +1220,34 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .chiptune__sliders > .chiptune__row + .slider {
   border-top: 1px dashed var(--grid-line);
 }
+/* "Convert to sampler" — bottom of the chiptune editor. Right-aligned
+   so it doesn't compete with the synth control panels above; muted by
+   default, accent-coloured on hover so it reads as a destructive-ish
+   action without being shouty. */
+.chiptune__actions {
+  display: flex;
+  justify-content: flex-end;
+  /* In the 2-column grid layout (`@container sampleview ≥ 640px`) the
+     auto-placement would land this in the left column under LFO 1.
+     Span both columns so the button anchors the bottom of the editor. */
+  grid-column: 1 / -1;
+}
+.chiptune__convert {
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.chiptune__convert:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.chiptune__convert:disabled { opacity: 0.55; cursor: not-allowed; }
+
 /* Labelled <select> used in Combine, Shaper and LFO sections. Column
    layout (label on top, dropdown below) matches the slider's stacking
    so they line up cleanly when placed side-by-side in a chiptune row. */

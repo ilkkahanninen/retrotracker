@@ -1067,6 +1067,7 @@ export const App: Component = () => {
                   source: wb.alt.source,
                   chain: [...wb.alt.chain],
                   pt: { ...wb.alt.pt },
+                  loop: wb.alt.loop ? { ...wb.alt.loop } : null,
                 }
               : null,
           })
@@ -1503,15 +1504,29 @@ export const App: Component = () => {
     }
     if (wb.source.kind === kind) return;
 
-    const stash = workbenchToAlt(wb);
-    // Whenever we transition INTO a sampler half, force the slot's loop
-    // back to the no-loop sentinel — chiptune's full-loop must not bleed
-    // into sampler's int8. Chiptune transitions handle their own loop via
-    // the `sourceWantsFullLoop` rule in writeWorkbenchToSongPure.
-    const samplerLoopReset = kind === "sampler" ? NO_LOOP : undefined;
+    // Snapshot the slot's current loop into the alt — without it, a sampler
+    // with a loop would lose the loop on Sampler→Chiptune→Sampler round-trip
+    // (chiptune's full-loop overwrites the slot's fields, and the
+    // sampler-restore path below forces NO_LOOP when no snapshot exists).
+    const sample = song()?.samples[slot];
+    const currentLoop = sample
+      ? {
+          loopStartWords: sample.loopStartWords,
+          loopLengthWords: sample.loopLengthWords,
+        }
+      : null;
+    const stash = workbenchToAlt(wb, currentLoop);
 
-    // Restore from alt when it matches the requested kind.
+    // Restore from alt when it matches the requested kind. For sampler
+    // restore use the alt's captured loop (preserves the user's sampler
+    // loop across kind toggles), falling back to NO_LOOP if no snapshot
+    // exists. For chiptune restore, pass undefined so the
+    // `sourceWantsFullLoop` rule recomputes the full-loop against the
+    // current render size — a stale captured loop would be wrong if the
+    // user changed osc params (and thus cycle length) before toggling.
     if (wb.alt && wb.alt.source.kind === kind) {
+      const restoreLoop =
+        kind === "sampler" ? (wb.alt.loop ?? NO_LOOP) : undefined;
       updateCurrentWorkbench(
         {
           source: wb.alt.source,
@@ -1519,7 +1534,7 @@ export const App: Component = () => {
           pt: wb.alt.pt,
           alt: stash,
         },
-        samplerLoopReset,
+        restoreLoop,
       );
       return;
     }
@@ -1537,7 +1552,7 @@ export const App: Component = () => {
     // toggling back restores it untouched.
     updateCurrentWorkbench(
       { ...emptySamplerWorkbench(), alt: stash },
-      samplerLoopReset,
+      NO_LOOP,
     );
   };
 
@@ -1555,6 +1570,41 @@ export const App: Component = () => {
     updateCurrentWorkbench({
       ...wb,
       source: { kind: "chiptune", params },
+    });
+  };
+
+  /**
+   * Render the current chiptune to a WavData and replace the slot's
+   * workbench with a sampler whose source IS that wave — opens the slot
+   * up to the sampler effect chain (filter / fade / crop / …) while
+   * keeping the synthesised sound exactly as it was. Distinct from the
+   * Chiptune↔Sampler kind toggle: that one swaps in a fresh / stashed
+   * sampler half, this one freezes the synth output as the new source.
+   *
+   * Chiptune params get stashed in `alt` so the user can flip back via
+   * the source-kind toggle without losing their work. PT stays at
+   * `targetNote: null` so the sampler plays the wave at its native rate
+   * (matching how chiptune played it); the slot's existing full-loop
+   * carries over so the sampled cycle still loops by default.
+   */
+  const convertChiptuneToSampler = () => {
+    if (transport() === "playing") return;
+    const slot = currentSample() - 1;
+    const wb = getWorkbench(slot);
+    if (!wb || wb.source.kind !== "chiptune") return;
+    const wav = materializeSource(wb.source);
+    const sample = song()?.samples[slot];
+    const currentLoop = sample
+      ? {
+          loopStartWords: sample.loopStartWords,
+          loopLengthWords: sample.loopLengthWords,
+        }
+      : null;
+    updateCurrentWorkbench({
+      source: { kind: "sampler", wav, sourceName: "Chiptune render" },
+      chain: [],
+      pt: { monoMix: "average", targetNote: null },
+      alt: workbenchToAlt(wb, currentLoop),
     });
   };
 
@@ -2026,6 +2076,7 @@ export const App: Component = () => {
                   onSetTargetNote={setTargetNote}
                   onSetSourceKind={setSourceKind}
                   onUpdateChiptune={updateChiptune}
+                  onConvertChiptuneToSampler={convertChiptuneToSampler}
                 />
               </div>
               <div

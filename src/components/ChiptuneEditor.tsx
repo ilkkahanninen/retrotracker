@@ -34,6 +34,8 @@ export interface ChiptuneEditorProps {
   params: ChiptuneParams;
   disabled: boolean;
   onUpdate: (patch: Partial<ChiptuneParams>) => void;
+  /** Freeze the current chiptune render as the sampler workbench's source. */
+  onConvertToSampler: () => void;
 }
 
 /** Shape names for the clickable hint under the Shape slider. The order
@@ -197,6 +199,18 @@ export const ChiptuneEditor: Component<ChiptuneEditorProps> = (props) => {
           props.onUpdate({ lfo2: { ...props.params.lfo2, ...patch } })
         }
       />
+
+      <div class="chiptune__actions">
+        <button
+          type="button"
+          class="chiptune__convert"
+          disabled={props.disabled}
+          onClick={() => props.onConvertToSampler()}
+          title="Replace this slot's chiptune with a sampler whose source is the current rendered wave. Synth params are stashed so toggling back to Chiptune restores them."
+        >
+          Convert to sampler
+        </button>
+      </div>
     </section>
   );
 };
