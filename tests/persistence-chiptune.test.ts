@@ -81,3 +81,81 @@ describe('persistence: chiptune source round-trip', () => {
     expect(restored!.chiptuneSources).toEqual({});
   });
 });
+
+describe('persistence: sampler chain round-trip', () => {
+  // Regression: the shaper effect (added later than gain/filter/crossfade)
+  // wasn't covered in `parseEffectNode`, so it was silently dropped on reload.
+  // Keep one assertion per effect kind so a future addition can't slip
+  // through the parser the same way.
+  it('round-trips every effect kind through the chain', () => {
+    const wav = {
+      sampleRate: 22050,
+      channels: [new Float32Array([0, 0.5, -0.5, 0.25])],
+    };
+    const chain = [
+      { kind: 'gain', params: { gain: 1.5 } },
+      { kind: 'normalize' },
+      { kind: 'reverse',  params: { startFrame: 0, endFrame: 4 } },
+      { kind: 'crop',     params: { startFrame: 1, endFrame: 4 } },
+      { kind: 'cut',      params: { startFrame: 0, endFrame: 1 } },
+      { kind: 'fadeIn',   params: { startFrame: 0, endFrame: 2 } },
+      { kind: 'fadeOut',  params: { startFrame: 2, endFrame: 4 } },
+      { kind: 'filter',   params: { type: 'lowpass' as const, cutoff: 4000, q: 0.707 } },
+      { kind: 'crossfade', params: { length: 16 } },
+      { kind: 'shaper',   params: { mode: 'softClip' as const, amount: 0.7 } },
+    ] as const;
+    const bytes = projectToBytes({
+      ...baseInputs(),
+      samplerSources: {
+        0: {
+          sourceName: 'test',
+          wav,
+          chain: [...chain] as never,
+          pt: { monoMix: 'average', targetNote: 12 },
+        },
+      },
+    });
+    const restored = projectFromBytes(bytes);
+    expect(restored).not.toBeNull();
+    const restoredChain = restored!.samplerSources[0]!.chain;
+    expect(restoredChain).toHaveLength(chain.length);
+    for (let i = 0; i < chain.length; i++) {
+      expect(restoredChain[i]!.kind).toBe(chain[i]!.kind);
+    }
+    // Spot-check the shaper params explicitly — the regression that motivated
+    // this whole block.
+    const shaper = restoredChain.find((n) => n.kind === 'shaper');
+    expect(shaper).toBeDefined();
+    if (shaper && shaper.kind === 'shaper') {
+      expect(shaper.params.mode).toBe('softClip');
+      expect(shaper.params.amount).toBeCloseTo(0.7, 6);
+    }
+  });
+
+  it('drops a shaper node with an unknown mode rather than crashing the load', () => {
+    const wav = { sampleRate: 22050, channels: [new Float32Array([0])] };
+    const bytes = projectToBytes({
+      ...baseInputs(),
+      samplerSources: {
+        0: {
+          sourceName: 'test',
+          wav,
+          chain: [{ kind: 'gain', params: { gain: 1 } }],
+          pt: { monoMix: 'average', targetNote: 12 },
+        },
+      },
+    });
+    // Tamper: replace the gain with a shaper that has a bogus mode.
+    const text = new TextDecoder().decode(bytes);
+    const parsed = JSON.parse(text);
+    parsed.samplerSources['0'].chain = [
+      { kind: 'shaper', params: { mode: 'bogus', amount: 0.5 } },
+    ];
+    const tampered = new TextEncoder().encode(JSON.stringify(parsed));
+    const restored = projectFromBytes(tampered);
+    expect(restored).not.toBeNull();
+    // Bogus node parsed to null and was filtered out — chain ends up empty
+    // rather than failing the whole project load.
+    expect(restored!.samplerSources[0]!.chain).toEqual([]);
+  });
+});

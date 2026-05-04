@@ -18,6 +18,7 @@ import {
   DEFAULT_TARGET_NOTE,
   RESAMPLE_MODES,
 } from '../core/audio/sampleWorkbench';
+import { SHAPER_MODES, type ShaperMode } from '../core/audio/shapers';
 
 /**
  * Local-storage session persistence.
@@ -378,6 +379,20 @@ function parseEffectNode(v: unknown): EffectNode | null {
     return {
       kind: 'crossfade',
       params: { length: Math.max(1, Math.floor(params['length'])) },
+    };
+  }
+  if (kind === 'shaper') {
+    const mode = params['mode'];
+    if (typeof mode !== 'string'
+        || !(SHAPER_MODES as readonly string[]).includes(mode)) return null;
+    if (typeof params['amount'] !== 'number') return null;
+    return {
+      kind: 'shaper',
+      params: {
+        mode: mode as ShaperMode,
+        // Soft-clamp here mirrors the runtime guard in `applyShaper`.
+        amount: Math.max(0, Math.min(1, params['amount'])),
+      },
     };
   }
   return null;
