@@ -388,13 +388,13 @@ describe('shift+arrow: extend selection from cursor', () => {
   });
 });
 
-describe('cursor() unchanged after copy/paste', () => {
-  it('paste leaves the cursor where it was', () => {
+describe('cursor advances after paste', () => {
+  it('paste lands the cursor on the row right after the pasted block', () => {
     setSong(songWith([]));
     render(() => <App />);
     setClipboardSlice({ rows: [[{ period: C2, sample: 0, effect: 0, effectParam: 0 }]] });
     setCursor({ order: 0, row: 7, channel: 1, field: 'sampleHi' });
     chord('v');
-    expect(cursor()).toMatchObject({ row: 7, channel: 1, field: 'sampleHi' });
+    expect(cursor()).toMatchObject({ row: 8, channel: 1, field: 'sampleHi' });
   });
 });

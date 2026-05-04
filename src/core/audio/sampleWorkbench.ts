@@ -24,7 +24,7 @@
 
 import type { WavData } from './wav';
 import { readWav } from './wav';
-import { deriveSampleName } from '../mod/sampleImport';
+import { deriveSampleName, int8ToWav } from '../mod/sampleImport';
 import { PAULA_CLOCK_PAL, PERIOD_TABLE } from '../mod/format';
 import {
   type ChiptuneParams,
@@ -583,6 +583,26 @@ export function runPipeline(
 /** Decode a WAV file into a fresh workbench with an empty effect chain. */
 export function workbenchFromWav(bytes: Uint8Array, filename: string): SampleWorkbench {
   return workbenchFromWavData(readWav(bytes), deriveSampleName(filename) || filename);
+}
+
+/**
+ * Wrap an existing PT sample's int8 bytes as a Sampler workbench. Used
+ * when loading a `.mod` so every populated slot gets a chain UI without
+ * the user having to re-import. The WavData's `sampleRate` is set to the
+ * C-2 target rate so the PT transformer's resampler short-circuits — an
+ * empty-chain pipeline run reproduces the input bytes (modulo the lone
+ * -128 → -127 quirk in `floatToInt8`). We don't auto-write through the
+ * pipeline either, so the slot's int8 stays bit-identical until the user
+ * actually edits the chain.
+ */
+export function workbenchFromInt8(data: Int8Array, sourceName: string): SampleWorkbench {
+  const sampleRate = rateForTargetNote(DEFAULT_TARGET_NOTE) ?? 22050;
+  return {
+    source: { kind: 'sampler', wav: int8ToWav(data, sampleRate), sourceName },
+    chain: [],
+    pt: { monoMix: 'average', targetNote: DEFAULT_TARGET_NOTE },
+    alt: null,
+  };
 }
 
 /**

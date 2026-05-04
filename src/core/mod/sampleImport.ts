@@ -77,3 +77,18 @@ export function importWavSample(bytes: Uint8Array, filename: string): ImportedSa
     name: deriveSampleName(filename),
   };
 }
+
+/**
+ * Wrap an int8 PCM buffer as a single-channel WavData. The reverse of
+ * `wavToInt8Mono` for the round-trip case: dividing by 127 inverts the
+ * `* 127` in `transformToPt`'s `floatToInt8`, so for any byte in
+ * [-127, 127] the pipeline (with empty chain and `sampleRate` matching
+ * the PT target rate) reproduces the original bytes exactly. The lone
+ * value -128 clamps back to -127 — a pre-existing quirk of the pipeline,
+ * not introduced here.
+ */
+export function int8ToWav(data: Int8Array, sampleRate: number): WavData {
+  const ch = new Float32Array(data.length);
+  for (let i = 0; i < data.length; i++) ch[i] = data[i]! / 127;
+  return { sampleRate, channels: [ch] };
+}

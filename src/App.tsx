@@ -92,6 +92,7 @@ import {
   workbenchFromWav,
   workbenchFromWavData,
   workbenchFromChiptune,
+  workbenchFromInt8,
   emptySamplerWorkbench,
   workbenchToAlt,
   runPipeline,
@@ -1676,6 +1677,23 @@ export const App: Component = () => {
    * (matching how chiptune played it); the slot's existing full-loop
    * carries over so the sampled cycle still loops by default.
    */
+  /**
+   * Wrap an existing int8 sample as a fresh sampler workbench. Used after
+   * a `.mod` load when the user wants to access the chain UI on a sample
+   * that came from the file rather than a `Load WAV…` import. Pure
+   * workbench-state — the slot's int8 isn't rewritten, so the bytes stay
+   * exactly as the .mod stored them until the user actually edits the chain.
+   */
+  const convertSlotToSampler = () => {
+    if (transport() === "playing") return;
+    const slot = currentSample() - 1;
+    if (getWorkbench(slot)) return;
+    const sample = song()?.samples[slot];
+    if (!sample || sample.lengthWords <= 0 || sample.data.byteLength <= 0) return;
+    const sourceName = (sample.name.trim() || `Sample ${slot + 1}`).slice(0, 22);
+    setWorkbench(slot, workbenchFromInt8(sample.data, sourceName));
+  };
+
   const convertChiptuneToSampler = () => {
     if (transport() === "playing") return;
     const slot = currentSample() - 1;
@@ -2182,6 +2200,7 @@ export const App: Component = () => {
                   onSetSourceKind={setSourceKind}
                   onUpdateChiptune={updateChiptune}
                   onConvertChiptuneToSampler={convertChiptuneToSampler}
+                  onConvertToSampler={convertSlotToSampler}
                 />
               </div>
               <div

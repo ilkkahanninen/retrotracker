@@ -112,6 +112,12 @@ interface Props {
   onUpdateChiptune: (patch: Partial<ChiptuneParams>) => void;
   /** Freeze the current chiptune render as a sampler workbench source. */
   onConvertChiptuneToSampler: () => void;
+  /**
+   * Wrap the slot's existing int8 sample as a fresh sampler workbench so
+   * the chain UI becomes available. Visible only when the slot has data
+   * but no workbench yet — typical after loading a `.mod`.
+   */
+  onConvertToSampler: () => void;
 }
 
 /** Editor for the sample under `currentSample()`: waveform + metadata + load. */
@@ -216,6 +222,29 @@ export const SampleView: Component<Props> = (props) => {
               onClick={() => wavInput?.click()}
             >
               Load WAV…
+            </button>
+          </Show>
+          <Show
+            when={
+              !editingDisabled() &&
+              ((sample() && sample()!.lengthWords > 0 && !workbench()) ||
+                workbench()?.source.kind === "chiptune")
+            }
+          >
+            <button
+              type="button"
+              title={
+                workbench()?.source.kind === "chiptune"
+                  ? "Freeze this slot's chiptune render as a sampler workbench's source. Synth params are stashed so toggling back to Chiptune restores them."
+                  : "Wrap this sample's bytes as a sampler workbench so the effect chain becomes available"
+              }
+              onClick={
+                workbench()?.source.kind === "chiptune"
+                  ? props.onConvertChiptuneToSampler
+                  : props.onConvertToSampler
+              }
+            >
+              Convert to sampler
             </button>
           </Show>
           <button
@@ -460,7 +489,6 @@ export const SampleView: Component<Props> = (props) => {
               }
               disabled={editingDisabled()}
               onUpdate={props.onUpdateChiptune}
-              onConvertToSampler={props.onConvertChiptuneToSampler}
             />
           )}
         </Show>
