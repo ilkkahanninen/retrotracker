@@ -452,6 +452,37 @@ describe("pipeline editor: target-note selector", () => {
     expect(song()!.samples[0]!.lengthWords).toBe(128);
   });
 
+  it("blurs selects and checkboxes after commit so piano keys flow to shortcuts", () => {
+    // Regression: selects and checkboxes kept focus after the user changed a
+    // value, so subsequent letter keys were swallowed (selects type-search
+    // options; focused checkboxes don't, but bare-key shortcuts skip on any
+    // focused select per `focusKind` in shortcuts.ts). The fix is a blur-on-
+    // commit listener at the SampleView root.
+    setView("sample");
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: { sampleRate: 44100, channels: [new Float32Array(8).fill(0.5)] },
+      sourceName: "demo",
+      chain: [],
+      pt: { monoMix: "average", targetNote: 12 },
+    });
+    const select = container.querySelector<HTMLSelectElement>(
+      'select[aria-label="Target note"]',
+    )!;
+    select.focus();
+    expect(document.activeElement).toBe(select);
+    fireEvent.change(select, { target: { value: "24" } }); // C-3
+    expect(document.activeElement).not.toBe(select);
+
+    const cb = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Dither"]',
+    )!;
+    cb.focus();
+    expect(document.activeElement).toBe(cb);
+    fireEvent.click(cb);
+    expect(document.activeElement).not.toBe(cb);
+  });
+
   it("changing the target note scales loop points proportionally", () => {
     // Regression: switching target-note resampled the int8 to a new length
     // but kept loopStartWords / loopLengthWords literal — the loop pointed

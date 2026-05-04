@@ -191,8 +191,32 @@ export const SampleView: Component<Props> = (props) => {
   // in the DOM so it's reachable regardless of which source kind is active.
   let wavInput: HTMLInputElement | undefined;
 
+  /**
+   * Drop focus from selects and checkboxes after the user commits a value,
+   * so that subsequent piano-key presses ('a', 's', 'd', …) flow through
+   * the global shortcut handler instead of being swallowed by the focused
+   * <select> (which type-searches its options) or <input type="checkbox">
+   * (where Space would re-toggle it). Text inputs and range sliders are
+   * NOT blurred — text fields the user is mid-edit on shouldn't lose focus
+   * on every keystroke, and sliders pass through letters per `focusKind`
+   * in src/state/shortcuts.ts.
+   *
+   * `change` events bubble, so one handler at the SampleView root covers
+   * every nested control (PipelineEditor selects, ChiptuneEditor selects,
+   * Looping / Dither checkboxes) without per-component plumbing.
+   */
+  const blurOnCommit = (e: Event) => {
+    const t = e.target;
+    if (
+      t instanceof HTMLSelectElement
+      || (t instanceof HTMLInputElement && t.type === "checkbox")
+    ) {
+      t.blur();
+    }
+  };
+
   return (
-    <div class="sampleview">
+    <div class="sampleview" onChange={blurOnCommit}>
       <header class="sampleview__header">
         <h2>Sample {slotIndex()}</h2>
         <div class="source-picker" role="tablist" aria-label="Sample source">
