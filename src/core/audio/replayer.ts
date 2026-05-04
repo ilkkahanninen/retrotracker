@@ -181,6 +181,14 @@ export class Replayer {
   private readonly loop: boolean;
   /** If true, playback never advances past the starting order's pattern. */
   private readonly loopPattern: boolean;
+  /**
+   * Per-channel live mute gate. When `true` for a channel, syncPaula
+   * pins that channel's Paula volume to 0 — DMA still advances normally,
+   * so unmuting picks up wherever the song would be without the gate.
+   * Independent of any tracker-driven volume; defaults to all-audible.
+   * Used only by the live worklet path (offline render leaves it alone).
+   */
+  private readonly channelMuted: boolean[] = new Array(CHANNELS).fill(false);
   /** Scratch buffers for Paula's double-precision output. */
   private scratchL: Float64Array = new Float64Array(0);
   private scratchR: Float64Array = new Float64Array(0);
@@ -364,9 +372,20 @@ export class Replayer {
    * after row/effect processing has settled. Triggers DMA for any channel
    * that requested it; otherwise just updates period/volume on live voices.
    */
+  /**
+   * Toggle a channel's live mute gate. Volume is pinned to 0 on the next
+   * syncPaula tick; DMA continues normally so unmuting resumes wherever
+   * the song would be. No-op when `channel` is out of range.
+   */
+  setChannelMuted(channel: number, muted: boolean): void {
+    if (channel < 0 || channel >= CHANNELS) return;
+    this.channelMuted[channel] = muted;
+  }
+
   private syncPaula(): void {
     for (let ci = 0; ci < CHANNELS; ci++) {
       const ch = this.channels[ci]!;
+      const muted = this.channelMuted[ci]!;
       if (ch.pendingStop) {
         this.paula.stopDMA(ci);
         ch.pendingStop = false;
@@ -398,7 +417,7 @@ export class Replayer {
             sample.loopStartWords * 2,
             sample.loopLengthWords,
           );
-          this.paula.setVolume(ci, ch.effectiveVolume >= 0 ? ch.effectiveVolume : ch.volume);
+          this.paula.setVolume(ci, muted ? 0 : (ch.effectiveVolume >= 0 ? ch.effectiveVolume : ch.volume));
           this.paula.setPeriod(ci, ch.period);
           this.paula.startDMA(ci);
         }
@@ -406,7 +425,7 @@ export class Replayer {
         ch.pendingStartOffsetBytes = 0;
       } else if (ch.playing) {
         this.paula.setPeriod(ci, ch.period);
-        this.paula.setVolume(ci, ch.effectiveVolume >= 0 ? ch.effectiveVolume : ch.volume);
+        this.paula.setVolume(ci, muted ? 0 : (ch.effectiveVolume >= 0 ? ch.effectiveVolume : ch.volume));
       }
     }
   }

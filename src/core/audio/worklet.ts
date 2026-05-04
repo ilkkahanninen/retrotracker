@@ -7,6 +7,7 @@
  */
 
 import type { Song } from '../mod/types';
+import { CHANNELS } from '../mod/types';
 import { speedTempoAt } from '../mod/flatten';
 import { Replayer } from './replayer';
 
@@ -15,7 +16,8 @@ export type WorkletMessage =
   | { type: 'play' }
   | { type: 'stop' }
   | { type: 'reset' }
-  | { type: 'playFrom'; order: number; row: number; loopPattern: boolean };
+  | { type: 'playFrom'; order: number; row: number; loopPattern: boolean }
+  | { type: 'setChannelMuted'; channel: number; muted: boolean };
 
 export type WorkletEvent = { type: 'pos'; order: number; row: number };
 
@@ -26,6 +28,20 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
   // -1 forces an initial 'pos' post on the first process() call after load/play.
   private lastOrder = -1;
   private lastRow = -1;
+  /**
+   * Cached mute gate. Mirrors the main thread's effective audibility per
+   * channel so the worklet can re-apply it whenever it builds a fresh
+   * Replayer (load, end-of-song wrap, playFrom). Without this the gate
+   * would silently reset on every replayer swap.
+   */
+  private readonly channelMuted: boolean[] = new Array(CHANNELS).fill(false);
+
+  private applyChannelMuted(): void {
+    if (!this.replayer) return;
+    for (let ch = 0; ch < CHANNELS; ch++) {
+      this.replayer.setChannelMuted(ch, this.channelMuted[ch]!);
+    }
+  }
 
   constructor() {
     super();
@@ -35,6 +51,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
         case 'load':
           this.song = msg.song;
           this.replayer = new Replayer(msg.song, { sampleRate, loop: true });
+          this.applyChannelMuted();
           this.lastOrder = -1;
           this.lastRow = -1;
           break;
@@ -43,6 +60,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           // previous run finished. This is what makes Play→end→Play work.
           if (this.song && (!this.replayer || this.replayer.isFinished())) {
             this.replayer = new Replayer(this.song, { sampleRate, loop: true });
+            this.applyChannelMuted();
             this.lastOrder = -1;
             this.lastRow = -1;
           }
@@ -72,9 +90,16 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
               initialTempo: tempo,
               loopPattern: msg.loopPattern,
             });
+            this.applyChannelMuted();
             this.lastOrder = -1;
             this.lastRow = -1;
             this.playing = true;
+          }
+          break;
+        case 'setChannelMuted':
+          if (msg.channel >= 0 && msg.channel < CHANNELS) {
+            this.channelMuted[msg.channel] = msg.muted;
+            this.replayer?.setChannelMuted(msg.channel, msg.muted);
           }
           break;
       }
@@ -97,6 +122,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
       // of a few ms.
       if (this.replayer.isFinished() && this.song) {
         this.replayer = new Replayer(this.song, { sampleRate, loop: true });
+        this.applyChannelMuted();
         this.lastOrder = -1;
         this.lastRow = -1;
       }

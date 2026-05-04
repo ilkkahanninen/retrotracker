@@ -116,6 +116,16 @@ export class AudioEngine {
   }
 
   /**
+   * Update the worklet's per-channel mute gate. Cheap to call repeatedly —
+   * the worklet caches the gate across replayer recreations, and the audio
+   * thread only spends a memory write per call.
+   */
+  setChannelMuted(channel: number, muted: boolean): void {
+    const msg: WorkletMessage = { type: "setChannelMuted", channel, muted };
+    this.node.port.postMessage(msg);
+  }
+
+  /**
    * Audition a sample at `period`. Routed through the preview worklet,
    * which holds a single Paula voice with hot-swappable sample data —
    * so rapid synth slider edits during a held key just patch the voice's

@@ -109,6 +109,8 @@ export interface AppKeybindHandlers {
   deleteSelection: () => void;
   insertEmptyCell: () => void;
   insertEmptyRow: () => void;
+  toggleChannelMute: (channel: number) => void;
+  toggleChannelSolo: (channel: number) => void;
 }
 
 /**
@@ -658,6 +660,30 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       run: h.insertEmptyRow,
     }),
   );
+
+  // Per-channel mute / solo. Option/Alt + digit to keep digits without a
+  // modifier free for sample selection. Channels are 1..4 in the UI but
+  // 0..3 in the API.
+  for (let i = 0; i < 4; i++) {
+    const channel = i;
+    cleanups.push(
+      registerShortcut({
+        key: `${i + 1}`,
+        alt: true,
+        description: `Mute channel ${i + 1}`,
+        run: () => h.toggleChannelMute(channel),
+      }),
+    );
+    cleanups.push(
+      registerShortcut({
+        key: `${i + 1}`,
+        alt: true,
+        shift: true,
+        description: `Solo channel ${i + 1}`,
+        run: () => h.toggleChannelSolo(channel),
+      }),
+    );
+  }
 
   return cleanups;
 }

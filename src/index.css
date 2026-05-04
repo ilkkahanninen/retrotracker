@@ -663,6 +663,35 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 }
 .patgrid__cell { cursor: cell; user-select: none; }
 
+/* Channel-header layout: name + compact M/S toggles. Header cells inherit
+ * `cursor: cell` from .patgrid__cell so we restore the default cursor on
+ * the buttons below. */
+.patgrid__chhead {
+  align-items: center;
+  cursor: default;
+}
+.patgrid__chnum { flex: 1; }
+.patgrid__chbtn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--grid-line);
+  color: var(--muted);
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0;
+  padding: 0 5px;
+  height: 14px;
+  line-height: 12px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.patgrid__chbtn:hover { color: var(--fg); border-color: var(--muted); }
+.patgrid__chbtn--active {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-color: var(--accent);
+}
+
 /* ── Sample editor view ─────────────────────────────────────────────── */
 
 .sampleview {

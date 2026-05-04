@@ -170,6 +170,13 @@ const NOTE_TIPS: TipSection[] = [
       { keys: `${ALT_LABEL} + Shift + Space`, action: 'play pattern from cursor' },
     ],
   },
+  {
+    title: 'Channels',
+    items: [
+      { keys: `${ALT_LABEL} + 1 – 4`, action: 'mute channel' },
+      { keys: `${ALT_LABEL} + Shift + 1 – 4`, action: 'solo channel' },
+    ],
+  },
 ];
 
 /**

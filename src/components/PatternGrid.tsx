@@ -10,6 +10,9 @@ import {
   selection, setSelection, setSelectionAnchor, makeSelection,
   selectionContains,
 } from '../state/selection';
+import {
+  mutedChannels, soloedChannels, toggleMute, toggleSolo,
+} from '../state/channelMute';
 import { useWindowListener } from './hooks';
 
 const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'] as const;
@@ -294,7 +297,27 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
       <div class="patgrid__header">
         <span class="patgrid__num">Row</span>
         <For each={Array.from({ length: CHANNELS }, (_, i) => i)}>
-          {(c) => <span class="patgrid__cell">Ch {c + 1}</span>}
+          {(c) => (
+            <span class="patgrid__cell patgrid__chhead">
+              <span class="patgrid__chnum">Ch {c + 1}</span>
+              <button
+                type="button"
+                tabindex={-1}
+                class="patgrid__chbtn"
+                classList={{ 'patgrid__chbtn--active': mutedChannels()[c] === true }}
+                onClick={() => toggleMute(c)}
+                title={`Mute channel ${c + 1} (Alt+${c + 1})`}
+              >M</button>
+              <button
+                type="button"
+                tabindex={-1}
+                class="patgrid__chbtn"
+                classList={{ 'patgrid__chbtn--active': soloedChannels()[c] === true }}
+                onClick={() => toggleSolo(c)}
+                title={`Solo channel ${c + 1} (Alt+Shift+${c + 1})`}
+              >S</button>
+            </span>
+          )}
         </For>
       </div>
       <Show when={flat().length > 0} fallback={<p class="placeholder">No pattern</p>}>

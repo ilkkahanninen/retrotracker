@@ -1,5 +1,6 @@
 import { AudioEngine } from "../core/audio/engine";
 import type { Sample } from "../core/mod/types";
+import { CHANNELS } from "../core/mod/types";
 import {
   song,
   setTransport,
@@ -9,6 +10,7 @@ import {
   playMode,
 } from "./song";
 import { cursor } from "./cursor";
+import { isChannelMuted } from "./channelMute";
 import * as preview from "./preview";
 
 /**
@@ -30,10 +32,25 @@ export async function ensureEngine(): Promise<AudioEngine | null> {
   try {
     engine = await AudioEngine.create();
     engine.onPosition = (order, row) => setPlayPos({ order, row });
+    // Sync the current per-channel mute gate. Without this, anything the
+    // user toggled before the engine existed would silently fail to apply
+    // on first play.
+    for (let ch = 0; ch < CHANNELS; ch++) {
+      engine.setChannelMuted(ch, isChannelMuted(ch));
+    }
     return engine;
   } catch {
     return null;
   }
+}
+
+/**
+ * Read the current engine without lazily constructing it. Used by reactive
+ * effects that push state changes to the worklet — no engine yet means
+ * nothing to push, and the next `ensureEngine` will sync the state itself.
+ */
+export function currentEngine(): AudioEngine | null {
+  return engine;
 }
 
 /**

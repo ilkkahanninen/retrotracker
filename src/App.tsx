@@ -87,6 +87,7 @@ import {
   clearSelection,
 } from "./state/selection";
 import { clipboardSlice, setClipboardSlice } from "./state/clipboard";
+import { isChannelMuted, resetChannelMute, toggleMute, toggleSolo } from "./state/channelMute";
 import {
   workbenchFromWav,
   workbenchFromWavData,
@@ -129,6 +130,7 @@ import {
   stopEngine,
   stopEnginePreview,
   disposeEngine,
+  currentEngine,
 } from "./state/playback";
 import { PatternGrid } from "./components/PatternGrid";
 import { PatternHelp } from "./components/PatternHelp";
@@ -196,6 +198,9 @@ export const App: Component = () => {
     // worklet keeps mixing the old song under the new UI state.
     stopEngine();
     setPlayMode(null);
+    // Mute/solo are session-only and tied to the previous song's channels;
+    // carrying them over surprises the user ("why is channel 3 silent?").
+    resetChannelMute();
     setSong(loaded.song);
     setFilename(loaded.filename);
     setInfoText(loaded.infoText ?? "");
@@ -978,6 +983,18 @@ export const App: Component = () => {
     advanceCursor();
   };
 
+  /**
+   * Mute / solo a channel by 0-based index. Both work during playback —
+   * the gate is applied per-tick by the replayer, so the user can A/B
+   * channels in real time. Out-of-range indices are no-ops.
+   */
+  const toggleChannelMute = (channel: number) => {
+    toggleMute(channel);
+  };
+  const toggleChannelSolo = (channel: number) => {
+    toggleSolo(channel);
+  };
+
   // ─── Order-list editing ──────────────────────────────────────────────────
 
   /**
@@ -1727,6 +1744,17 @@ export const App: Component = () => {
     }
     cleanups.push(installShortcuts());
 
+    // Push per-channel mute/solo changes to the audio engine. We don't
+    // auto-create the engine here — if it doesn't exist yet, the next
+    // ensureEngine() will sync the current state on creation.
+    createEffect(() => {
+      const eng = currentEngine();
+      for (let ch = 0; ch < CHANNELS; ch++) {
+        const muted = isChannelMuted(ch);
+        if (eng) eng.setChannelMuted(ch, muted);
+      }
+    });
+
     // Autosave to localStorage whenever the persisted signals change.
     // Debounced because some interactions (drag-selection, hex digit
     // entry sweeping a column) fire many cursor / song updates in quick
@@ -1800,6 +1828,8 @@ export const App: Component = () => {
       deleteSelection,
       insertEmptyCell,
       insertEmptyRow,
+      toggleChannelMute,
+      toggleChannelSolo,
     }))
       cleanups.push(c);
   });
