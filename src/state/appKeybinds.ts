@@ -105,7 +105,10 @@ export interface AppKeybindHandlers {
   duplicateCurrentPattern: () => void;
   clearAtCursor: () => void;
   backspaceCell: () => void;
+  backspaceRow: () => void;
+  deleteSelection: () => void;
   insertEmptyCell: () => void;
+  insertEmptyRow: () => void;
 }
 
 /**
@@ -621,8 +624,23 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   cleanups.push(
     registerShortcut({
       key: "backspace",
-      description: "Delete cell above (pull channel up)",
+      description: "Clear selection / clear cell, step up",
       run: h.backspaceCell,
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "backspace",
+      shift: true,
+      description: "Clear selected rows / clear current row, step up (all channels)",
+      run: h.backspaceRow,
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "delete",
+      description: "Clear selected range",
+      run: h.deleteSelection,
     }),
   );
   cleanups.push(
@@ -630,6 +648,14 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       key: "enter",
       description: "Insert empty cell (push channel down)",
       run: h.insertEmptyCell,
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "enter",
+      shift: true,
+      description: "Insert empty row (push all channels down)",
+      run: h.insertEmptyRow,
     }),
   );
 

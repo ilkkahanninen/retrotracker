@@ -139,8 +139,11 @@ const NOTE_TIPS: TipSection[] = [
       { keys: 'A W S E D F T G Y H U J', action: 'piano (current octave)', position: true },
       { keys: 'K O L P ;',               action: 'piano (octave + 1)',     position: true },
       { keys: 'Z / X',                   action: 'octave − / +',           position: true },
-      { keys: '.', action: 'clear field under cursor' },
-      { keys: 'Backspace', action: 'delete row above (pull channel up)' },
+      { keys: '.', action: 'clear field' },
+      { keys: 'Backspace', action: 'pull cell up' },
+      { keys: 'Shift + Backspace', action: 'pull row up' },
+      { keys: 'Return', action: 'push cell down' },
+      { keys: 'Shift + Return', action: 'push row down' },
     ],
   },
   {
@@ -224,9 +227,9 @@ const EFFECT_TIPS: TipSection[] = [
   {
     title: 'Hex digits',
     items: [
-      { keys: '0 – 9, A – F', action: 'enter nibble under cursor' },
-      { keys: '.', action: 'clear field under cursor' },
-      { keys: ',', action: 'repeat last effect from above' },
+      { keys: '0 – 9, A – F', action: 'enter nibble' },
+      { keys: '.', action: 'clear field' },
+      { keys: ',', action: 'repeat last effect' },
     ],
   },
 ];
@@ -237,8 +240,8 @@ const EFFECT_TIPS: TipSection[] = [
 const TRANSPOSE_TIPS: TipSection = {
   title: 'Transpose',
   items: [
-    { keys: 'Shift + − / =', action: 'transpose −/+ 1 semitone' },
-    { keys: `${MOD_LABEL} + Shift + − / =`, action: 'transpose −/+ 1 octave' },
+    { keys: 'Shift + − / =', action: 'transpose −/+ semitone' },
+    { keys: `${MOD_LABEL} + Shift + − / =`, action: 'transpose −/+ octave' },
   ],
 };
 
@@ -250,6 +253,7 @@ const SELECTION_TIPS: TipSection = {
     { keys: `${MOD_LABEL} + V`, action: 'paste at cursor' },
     { keys: `${MOD_LABEL} + A`, action: 'select all (channel, then pattern)' },
     { keys: 'Shift + arrows', action: 'extend selection' },
+    { keys: 'Backspace', action: 'clear cells' },
   ],
 };
 

@@ -55,7 +55,9 @@ import { deriveExportFilename, io } from "./state/io";
 import { PERIOD_TABLE, emptySong } from "./core/mod/format";
 import {
   deleteCellPullUp,
+  deleteRowPullUp,
   insertCellPushDown,
+  insertRowPushDown,
   setCell,
   nextPatternAtOrder,
   prevPatternAtOrder,
@@ -876,18 +878,71 @@ export const App: Component = () => {
   };
 
   /**
-   * Backspace: delete the cell directly above the cursor on this channel and
-   * pull the rest of the channel up by one. Cursor moves up one row to land
-   * on the now-shifted content, mirroring text-editor backspace. Affects only
-   * the current pattern.
+   * Backspace: with an active range selection, zero every cell inside it and
+   * leave the cursor + selection alone — the user expects a destructive key
+   * over a highlighted block to wipe the block, not nudge the cursor. With
+   * no selection, delete the cell directly above the cursor on this channel
+   * and pull the rest of the channel up by one; cursor moves up one row to
+   * land on the now-shifted content, mirroring text-editor backspace.
+   * Affects only the current pattern in both modes.
    */
   const backspaceCell = () => {
     if (transport() === "playing") return;
     const s = song();
     if (!s) return;
+    const sel = selection();
+    if (sel) {
+      commitEdit((song) => clearRange(song, sel));
+      return;
+    }
     const c = cursor();
     if (c.row <= 0) return;
     commitEdit((song) => deleteCellPullUp(song, c.order, c.row - 1, c.channel));
+    const after = song();
+    if (after) applyCursor(moveUp(c, after));
+  };
+
+  /**
+   * Delete: when a range selection is active, zero every cell inside it.
+   * Cursor and selection both stay put so follow-up edits can target the
+   * same block. No-op without a selection — Backspace owns the
+   * single-cell clear; Delete is selection-only.
+   */
+  const deleteSelection = () => {
+    if (transport() === "playing") return;
+    const sel = selection();
+    if (!sel) return;
+    commitEdit((song) => clearRange(song, sel));
+  };
+
+  /**
+   * Shift+Backspace: like Backspace but applied across every channel.
+   * With a selection, clear all channels for the selected row range (the
+   * horizontal extent is widened to the whole pattern), cursor + selection
+   * stay put. With no selection, delete the row directly above the cursor
+   * across all channels and pull every row below up by one; cursor moves
+   * up to land on the now-shifted content.
+   */
+  const backspaceRow = () => {
+    if (transport() === "playing") return;
+    const s = song();
+    if (!s) return;
+    const sel = selection();
+    if (sel) {
+      commitEdit((song) =>
+        clearRange(song, {
+          order: sel.order,
+          startRow: sel.startRow,
+          endRow: sel.endRow,
+          startChannel: 0,
+          endChannel: CHANNELS - 1,
+        }),
+      );
+      return;
+    }
+    const c = cursor();
+    if (c.row <= 0) return;
+    commitEdit((song) => deleteRowPullUp(song, c.order, c.row - 1));
     const after = song();
     if (after) applyCursor(moveUp(c, after));
   };
@@ -903,6 +958,21 @@ export const App: Component = () => {
     if (!s) return;
     const c = cursor();
     commitEdit((song) => insertCellPushDown(song, c.order, c.row, c.channel));
+    advanceCursor();
+  };
+
+  /**
+   * Shift+Return: like Return but applied across every channel. Insert an
+   * empty row at the cursor and push every row at or below down by one
+   * (the last row of the pattern falls off). Cursor advances one row so
+   * subsequent presses keep extending the gap downward.
+   */
+  const insertEmptyRow = () => {
+    if (transport() === "playing") return;
+    const s = song();
+    if (!s) return;
+    const c = cursor();
+    commitEdit((song) => insertRowPushDown(song, c.order, c.row));
     advanceCursor();
   };
 
@@ -1724,7 +1794,10 @@ export const App: Component = () => {
       duplicateCurrentPattern,
       clearAtCursor,
       backspaceCell,
+      backspaceRow,
+      deleteSelection,
       insertEmptyCell,
+      insertEmptyRow,
     }))
       cleanups.push(c);
   });

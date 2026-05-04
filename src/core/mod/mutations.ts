@@ -116,6 +116,61 @@ export function deleteCellPullUp(song: Song, order: number, row: number, channel
 }
 
 /**
+ * Delete the row at (order, row) — every channel — and pull every row below
+ * it up by one. The pattern's last row becomes empty across all channels.
+ *
+ * No-op when the address is out of range.
+ */
+export function deleteRowPullUp(song: Song, order: number, row: number): Song {
+  const ctx = resolvePattern(song, order);
+  if (!ctx) return song;
+  const { pattern, patNum } = ctx;
+  if (row < 0 || row >= pattern.rows.length) return song;
+
+  const channels = pattern.rows[0]?.length ?? 0;
+  const newRows: Note[][] = [...pattern.rows];
+  for (let r = row; r < pattern.rows.length - 1; r++) {
+    newRows[r] = pattern.rows[r + 1]!;
+  }
+  const lastRow: Note[] = [];
+  for (let c = 0; c < channels; c++) lastRow.push(emptyNote());
+  newRows[pattern.rows.length - 1] = lastRow;
+
+  const newPattern: Pattern = { rows: newRows };
+  const newPatterns: Pattern[] = [...song.patterns];
+  newPatterns[patNum] = newPattern;
+  return { ...song, patterns: newPatterns };
+}
+
+/**
+ * Insert an empty row at (order, row) — every channel — shifting every row
+ * at or below this row down by one. The row that was on the last position
+ * of the pattern falls off the end.
+ *
+ * No-op when the address is out of range.
+ */
+export function insertRowPushDown(song: Song, order: number, row: number): Song {
+  const ctx = resolvePattern(song, order);
+  if (!ctx) return song;
+  const { pattern, patNum } = ctx;
+  if (row < 0 || row >= pattern.rows.length) return song;
+
+  const channels = pattern.rows[0]?.length ?? 0;
+  const newRows: Note[][] = [...pattern.rows];
+  for (let r = pattern.rows.length - 1; r > row; r--) {
+    newRows[r] = pattern.rows[r - 1]!;
+  }
+  const blank: Note[] = [];
+  for (let c = 0; c < channels; c++) blank.push(emptyNote());
+  newRows[row] = blank;
+
+  const newPattern: Pattern = { rows: newRows };
+  const newPatterns: Pattern[] = [...song.patterns];
+  newPatterns[patNum] = newPattern;
+  return { ...song, patterns: newPatterns };
+}
+
+/**
  * Insert an empty cell at (order, row, channel), shifting every cell at or
  * below this row on the same channel down by one. The cell that was on the
  * last row of this channel falls off the end. Other channels are untouched.
