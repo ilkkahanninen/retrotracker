@@ -50,8 +50,14 @@ interface EffectChars {
   lo: string;
 }
 
-function effectChars(note: Note): EffectChars {
-  if (note.effect === 0 && note.effectParam === 0) return { cmd: '.', hi: '.', lo: '.' };
+/** `forceShow` overrides the empty-cell collapse so the user sees the digits
+ *  even when both nibbles are zero. Used while the cursor is on this cell's
+ *  effect column — without it, typing arpeggio's first `0` looks identical to
+ *  an empty cell, since arpeggio 000 IS the empty state. */
+function effectChars(note: Note, forceShow: boolean): EffectChars {
+  if (!forceShow && note.effect === 0 && note.effectParam === 0) {
+    return { cmd: '.', hi: '.', lo: '.' };
+  }
   const cmd = note.effect.toString(16).toUpperCase();
   const hi = ((note.effectParam >> 4) & 0x0f).toString(16).toUpperCase();
   const lo = (note.effectParam & 0x0f).toString(16).toUpperCase();
@@ -376,9 +382,24 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                     </span>
                     <For each={item.cells}>
                       {(note, ch) => {
-                        const eff = createMemo(() => effectChars(note));
+                        // True when the cursor sits on any of this cell's
+                        // effect sub-fields. While that's the case we force
+                        // the digits to render even if both nibbles are zero —
+                        // otherwise typing arpeggio (effect 0xy) starting with
+                        // `0` looks identical to an empty cell until the user
+                        // types the next nibble.
+                        const cursorOnEffect = createMemo(() =>
+                          isCursorAt(flatIdx(), ch(), 'effectCmd')
+                          || isCursorAt(flatIdx(), ch(), 'effectHi')
+                          || isCursorAt(flatIdx(), ch(), 'effectLo'),
+                        );
+                        const eff = createMemo(() => effectChars(note, cursorOnEffect()));
                         const samp = createMemo(() => sampleChars(note));
-                        const blank = createMemo(() => note.effect === 0 && note.effectParam === 0);
+                        const blank = createMemo(() =>
+                          note.effect === 0
+                          && note.effectParam === 0
+                          && !cursorOnEffect(),
+                        );
                         // mousedown → place the cursor at this cell's sub-field
                         // AND open a drag anchor on this cell. The cell-level
                         // fallback (mousedown on padding around the characters)

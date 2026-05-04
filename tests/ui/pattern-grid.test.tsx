@@ -101,6 +101,49 @@ describe('PatternGrid rendering', () => {
     expect(chars[0]!.textContent).toBe('.');
     expect(chars[1]!.textContent).toBe('.');
   });
+
+  it('renders an empty effect column as "..." dots when the cursor is elsewhere', () => {
+    setCursor({ order: 0, row: 5, channel: 0, field: 'note' });
+    const { container } = render(() => (
+      <PatternGrid song={songFixture()} pos={{ order: 0, row: 0 }} active={false} />
+    ));
+    const row5 = container.querySelectorAll<HTMLElement>('.patgrid__row')[5]!;
+    const ch0 = row5.querySelectorAll<HTMLElement>('.patgrid__cell')[0]!;
+    const chars = ch0.querySelectorAll<HTMLElement>('.patgrid__eff-char');
+    expect(chars).toHaveLength(3);
+    for (const c of chars) expect(c.textContent).toBe('.');
+  });
+
+  it('shows effect digits "000" when the cursor is on the effect column of an otherwise-empty cell', () => {
+    // Regression: typing arpeggio (effect 0xy) starts by setting effect=0
+    // on effectCmd — but effect=0 + effectParam=0 IS the empty-cell state,
+    // so the user got no visual feedback for the first keystroke. Now that
+    // the cursor is past effectCmd (at effectHi after the entry advance)
+    // we force the digits to render so the user sees the "0" they typed.
+    setCursor({ order: 0, row: 5, channel: 0, field: 'effectHi' });
+    const { container } = render(() => (
+      <PatternGrid song={songFixture()} pos={{ order: 0, row: 0 }} active={false} />
+    ));
+    const row5 = container.querySelectorAll<HTMLElement>('.patgrid__row')[5]!;
+    const ch0 = row5.querySelectorAll<HTMLElement>('.patgrid__cell')[0]!;
+    const chars = ch0.querySelectorAll<HTMLElement>('.patgrid__eff-char');
+    expect(chars[0]!.textContent).toBe('0');
+    expect(chars[1]!.textContent).toBe('0');
+    expect(chars[2]!.textContent).toBe('0');
+  });
+
+  it('still uses dots on rows whose cursor sits on a different cell-field', () => {
+    // Cursor is on the effect column of channel 0; channel 1's effect column
+    // should not light up (different cell), still rendering as dots.
+    setCursor({ order: 0, row: 5, channel: 0, field: 'effectCmd' });
+    const { container } = render(() => (
+      <PatternGrid song={songFixture()} pos={{ order: 0, row: 0 }} active={false} />
+    ));
+    const row5 = container.querySelectorAll<HTMLElement>('.patgrid__row')[5]!;
+    const cells = row5.querySelectorAll<HTMLElement>('.patgrid__cell');
+    const ch1Eff = cells[1]!.querySelectorAll<HTMLElement>('.patgrid__eff-char');
+    for (const c of ch1Eff) expect(c.textContent).toBe('.');
+  });
 });
 
 describe('PatternGrid cell click', () => {
