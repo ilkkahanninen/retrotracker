@@ -448,8 +448,90 @@ export const App: Component = () => {
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    const file = e.dataTransfer?.files?.[0];
-    if (file) void loadFile(file);
+    const files = e.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+    // A single .mod / .retro replaces the current project — anything else is
+    // treated as a batch of WAV imports and fanned out across free slots.
+    const first = files[0]!;
+    if (files.length === 1 && /\.(mod|retro)$/i.test(first.name)) {
+      void loadFile(first);
+      return;
+    }
+    void loadWavsIntoFreeSlots(Array.from(files));
+  };
+
+  /**
+   * Decode each dropped WAV and assign them to consecutive free sample slots,
+   * starting at the current selection (using it first if empty, otherwise
+   * walking forward via `nextFreeSlot`). All slot writes land in a single
+   * history entry so undo reverts the whole batch.
+   */
+  const loadWavsIntoFreeSlots = async (files: File[]) => {
+    if (transport() === "playing") return;
+    const s = song();
+    if (!s) {
+      setError("Open a song before importing WAVs.");
+      return;
+    }
+    const wavFiles = files.filter((f) => /\.wav$/i.test(f.name));
+    if (wavFiles.length === 0) {
+      setError("Unsupported file. Drop a .mod, .retro, or one or more .wav.");
+      return;
+    }
+
+    setError(null);
+    const decoded: { wb: SampleWorkbench }[] = [];
+    for (const file of wavFiles) {
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        decoded.push({ wb: workbenchFromWav(bytes, file.name) });
+      } catch (err) {
+        setError(`${file.name}: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+    }
+
+    const startSlot = currentSample() - 1;
+    const targets: number[] = [];
+    let from = startSlot - 1;
+    if (s.samples[startSlot]?.lengthWords === 0) {
+      targets.push(startSlot);
+      from = startSlot;
+    }
+    while (targets.length < decoded.length) {
+      const next = nextFreeSlot(s, from);
+      if (next === null) break;
+      targets.push(next);
+      from = next;
+    }
+    if (targets.length === 0) {
+      setError("No free sample slots.");
+      return;
+    }
+
+    const pairs = decoded.slice(0, targets.length).map((d, i) => ({
+      slot: targets[i]!,
+      wb: d.wb,
+    }));
+
+    commitEditWithWorkbenches(({ song, workbenches }) => {
+      let nextSong = song;
+      let nextWb = workbenches;
+      for (const { slot, wb } of pairs) {
+        nextSong = writeWorkbenchToSongPure(nextSong, slot, wb, NO_LOOP);
+        nextWb = withWorkbench(nextWb, slot, wb);
+      }
+      return { song: nextSong, workbenches: nextWb };
+    });
+
+    selectSample(pairs[0]!.slot + 1);
+
+    const skipped = decoded.length - pairs.length;
+    if (skipped > 0) {
+      setError(
+        `Out of sample slots — skipped ${skipped} file${skipped === 1 ? "" : "s"}.`,
+      );
+    }
   };
 
   const onDragOver = (e: DragEvent) => {
