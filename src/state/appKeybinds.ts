@@ -402,12 +402,17 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   }
   // Hex-digit entry — fills sample/effect nibbles. Same physical keys as
   // the piano-row letters (A..F) but the `when` gate routes by cursor field.
+  // Pattern-view-only: in sample view the cursor is dormant, and digits should
+  // flow to the sample-select shortcut instead of editing a hidden cell.
   for (const [k, val] of Object.entries(HEX_KEYS)) {
     cleanups.push(
       registerShortcut({
         key: k,
         description: `Hex digit ${val.toString(16).toUpperCase()}`,
-        when: () => transport() !== "playing" && isHexField(cursor().field),
+        when: () =>
+          transport() !== "playing" &&
+          view() !== "sample" &&
+          isHexField(cursor().field),
         run: () => h.enterHexDigit(val),
       }),
     );
@@ -457,22 +462,21 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
     }),
   );
   // Sample quick-select.
-  //   1..9, 0          → samples 1..10 (only when cursor is on the note
-  //                      field — on hex fields these keys type hex digits)
+  //   1..9, 0          → samples 1..10 (in pattern view: only when cursor is
+  //                      on the note field — hex fields swallow plain digits;
+  //                      in sample view: always, since the cursor is dormant)
   //   Shift+1..9, 0    → samples 11..20 (always; hex entry doesn't use shift)
   //   -, =             → previous / next sample
+  // Focused text inputs / selects are protected upstream by `installShortcuts`,
+  // so typing into a sample-name field or a Target-note dropdown still works.
   for (const [k, n] of Object.entries(SAMPLE_QUICK)) {
     cleanups.push(
       registerShortcut({
         key: k,
         description: `Select sample ${n}`,
-        // Suppress in sample view so digits flow into the sample-editor's
-        // numeric inputs (volume / finetune / loop / effect params) instead
-        // of preventDefault'ing into a sample-select.
         when: () =>
           transport() !== "playing" &&
-          view() !== "sample" &&
-          !isHexField(cursor().field),
+          (view() === "sample" || !isHexField(cursor().field)),
         run: () => selectSample(n),
       }),
     );
@@ -481,7 +485,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
         key: k,
         shift: true,
         description: `Select sample ${n + 10}`,
-        when: () => transport() !== "playing" && view() !== "sample",
+        when: () => transport() !== "playing",
         run: () => selectSample(n + 10),
       }),
     );
@@ -490,7 +494,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
     registerShortcut({
       key: "-",
       description: "Previous sample",
-      when: () => transport() !== "playing" && view() !== "sample",
+      when: () => transport() !== "playing",
       run: prevSample,
     }),
   );
@@ -498,7 +502,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
     registerShortcut({
       key: "=",
       description: "Next sample",
-      when: () => transport() !== "playing" && view() !== "sample",
+      when: () => transport() !== "playing",
       run: nextSample,
     }),
   );

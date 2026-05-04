@@ -146,34 +146,49 @@ describe('quick-select is suppressed during playback', () => {
   });
 });
 
-describe('quick-select is suppressed in the sample view', () => {
-  // The sample editor has number/text inputs that need to receive raw digit
-  // keystrokes; if quick-select preventDefault'd them, you couldn't type
-  // into volume / finetune / loop / effect-param fields.
+describe('quick-select also works in the sample view', () => {
+  // Earlier the gate was wholesale-disabled here because the sample editor
+  // had bare numeric inputs that would have eaten plain digits. With the
+  // editor on sliders + selects (focused inputs are protected upstream),
+  // sample selection works the same as in pattern view.
 
-  it('plain digits do not change currentSample when view is "sample"', async () => {
+  it('plain digits select samples 1..10 when view is "sample"', async () => {
     render(() => <App />);
     const user = userEvent.setup();
     setView('sample');
     await user.keyboard('5');
-    expect(currentSample()).toBe(1);
+    expect(currentSample()).toBe(5);
+    await user.keyboard('0');
+    expect(currentSample()).toBe(10);
   });
 
-  it('Shift+digit does not change currentSample when view is "sample"', async () => {
+  it('plain digits work in sample view even when cursor is on a hex field', async () => {
+    // The hex-field gate is pattern-view-specific (digits there type into the
+    // cell). In sample view the cursor is dormant, so the field doesn't
+    // matter — plain digits still select samples.
+    render(() => <App />);
+    const user = userEvent.setup();
+    await user.keyboard('{ArrowRight}'); // sampleHi (a hex field)
+    setView('sample');
+    await user.keyboard('5');
+    expect(currentSample()).toBe(5);
+  });
+
+  it('Shift+digit selects samples 11..20 in sample view', async () => {
     render(() => <App />);
     const user = userEvent.setup();
     setView('sample');
     await user.keyboard('{Shift>}3{/Shift}');
-    expect(currentSample()).toBe(1);
+    expect(currentSample()).toBe(13);
   });
 
-  it("'-' / '=' do not step the sample when view is \"sample\"", async () => {
+  it("'-' / '=' step previous/next sample in sample view", async () => {
     render(() => <App />);
     const user = userEvent.setup();
     setCurrentSample(5);
     setView('sample');
     await user.keyboard('=');
-    expect(currentSample()).toBe(5);
+    expect(currentSample()).toBe(6);
     await user.keyboard('-');
     expect(currentSample()).toBe(5);
   });
