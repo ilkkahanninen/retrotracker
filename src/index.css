@@ -1146,7 +1146,10 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
     grid-template-areas:
       "synth combine"
       "osc1  osc2";
-    align-items: start;
+    /* Default `align-items: stretch` so paired panels (Synth/Combine,
+       Osc1/Osc2, LFO1/LFO2) match heights — Combine drives the first
+       row's height, Synth's lighter content gets matching panel size
+       with a little breathing room at the bottom. */
   }
   .chiptune > :nth-child(1) { grid-area: synth; }
   .chiptune > :nth-child(2) { grid-area: osc1; }
@@ -1187,37 +1190,47 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .chiptune__sliders > .slider + .slider {
   border-top: 1px dashed var(--grid-line);
 }
-.chiptune__modes {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 4px;
+/* Two sliders side-by-side inside a chiptune group — used for the
+   Phase split + Ratio (oscillator) and Cycle multiplier + Amplitude
+   (LFO) pairs to recover vertical space. Override the global slider
+   min-width so they shrink to share the half-panel; a vertical separator
+   keeps each one visually grouped with its own value read-out (same
+   pattern as `.samplemeta`). */
+.chiptune__row {
+  display: flex;
+  flex-direction: row;
+  padding: 8px 0;
 }
-.chiptune__modes button {
-  background: var(--panel-2);
-  color: var(--fg);
-  border: 1px solid var(--grid-line);
-  border-radius: 3px;
-  padding: 3px 10px;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
+.chiptune__row > .slider,
+.chiptune__row > .chiptune__select {
+  flex: 1 1 0;
+  min-width: 0;
 }
-.chiptune__modes button.is-active {
-  background: var(--accent);
-  color: var(--bg);
-  border-color: var(--accent);
+/* Universal sibling rule covers slider+slider, select+slider and the
+   reverse — every adjacent pair gets the same vertical separator. */
+.chiptune__row > * + * {
+  border-left: 1px solid var(--grid-line);
+  margin-left: 12px;
+  padding-left: 12px;
 }
-.chiptune__modes button:hover:not(.is-active) { border-color: var(--accent); }
-
-/* LFO target picker — column layout so it stacks above the cycle/amp
-   sliders and reads as the section's "what is being modulated" header. */
-.lfo__target {
+/* When a row sits inside the column wrapper, treat it like another
+   slider for the dashed-separator rule so the row doesn't lose the
+   visual break between it and the slider above/below. */
+.chiptune__sliders > .slider + .chiptune__row,
+.chiptune__sliders > .chiptune__row + .slider {
+  border-top: 1px dashed var(--grid-line);
+}
+/* Labelled <select> used in Combine, Shaper and LFO sections. Column
+   layout (label on top, dropdown below) matches the slider's stacking
+   so they line up cleanly when placed side-by-side in a chiptune row. */
+.chiptune__select {
   display: flex;
   flex-direction: column;
   gap: 4px;
   font-family: ui-monospace, 'SFMono-Regular', monospace;
 }
-.lfo__target select {
+.chiptune__select select {
+  width: 100%;
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--grid-line);
@@ -1227,4 +1240,4 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   font-size: 12px;
   cursor: pointer;
 }
-.lfo__target select:focus { outline: none; border-color: var(--accent); }
+.chiptune__select select:focus { outline: none; border-color: var(--accent); }

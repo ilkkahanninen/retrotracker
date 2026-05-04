@@ -18,11 +18,16 @@ import {
   snapLfoMultiplierToDivisor,
   snapRatioToMusical,
   type ChiptuneParams,
+  type CombineMode,
   type Lfo,
   type LfoTarget,
   type Oscillator,
 } from "../core/audio/chiptune";
-import { SHAPER_LABELS, SHAPER_MODES } from "../core/audio/shapers";
+import {
+  SHAPER_LABELS,
+  SHAPER_MODES,
+  type ShaperMode,
+} from "../core/audio/shapers";
 import { Slider } from "./Slider";
 
 export interface ChiptuneEditorProps {
@@ -87,25 +92,24 @@ export const ChiptuneEditor: Component<ChiptuneEditorProps> = (props) => {
 
       <div class="chiptune__group">
         <span class="chiptune__group-label">Combine</span>
-        <div
-          class="chiptune__modes"
-          role="radiogroup"
-          aria-label="Combine mode"
-        >
-          {COMBINE_MODES.map((m) => (
-            <button
-              type="button"
-              role="radio"
-              aria-checked={props.params.combineMode === m}
-              classList={{ "is-active": props.params.combineMode === m }}
+        <div class="chiptune__row">
+          <label class="chiptune__select">
+            <span class="slider__label">Mode</span>
+            <select
+              aria-label="Combine mode"
+              value={props.params.combineMode}
               disabled={props.disabled}
-              onClick={() => props.onUpdate({ combineMode: m })}
+              onChange={(e) =>
+                props.onUpdate({
+                  combineMode: e.currentTarget.value as CombineMode,
+                })
+              }
             >
-              {COMBINE_LABELS[m]}
-            </button>
-          ))}
-        </div>
-        <div class="chiptune__sliders">
+              {COMBINE_MODES.map((m) => (
+                <option value={m}>{COMBINE_LABELS[m]}</option>
+              ))}
+            </select>
+          </label>
           <Slider
             label="Amount"
             min={0}
@@ -116,21 +120,24 @@ export const ChiptuneEditor: Component<ChiptuneEditorProps> = (props) => {
             onInput={(v) => props.onUpdate({ combineAmount: v })}
           />
         </div>
-        <div class="chiptune__modes" role="radiogroup" aria-label="Shaper mode">
-          {SHAPER_MODES.map((m) => (
-            <button
-              type="button"
-              role="radio"
-              aria-checked={props.params.shaperMode === m}
-              classList={{ "is-active": props.params.shaperMode === m }}
+        <div class="chiptune__row">
+          <label class="chiptune__select">
+            <span class="slider__label">Shaper</span>
+            <select
+              aria-label="Shaper mode"
+              value={props.params.shaperMode}
               disabled={props.disabled}
-              onClick={() => props.onUpdate({ shaperMode: m })}
+              onChange={(e) =>
+                props.onUpdate({
+                  shaperMode: e.currentTarget.value as ShaperMode,
+                })
+              }
             >
-              {SHAPER_LABELS[m]}
-            </button>
-          ))}
-        </div>
-        <div class="chiptune__sliders">
+              {SHAPER_MODES.map((m) => (
+                <option value={m}>{SHAPER_LABELS[m]}</option>
+              ))}
+            </select>
+          </label>
           <Slider
             label="Drive"
             min={0}
@@ -138,7 +145,6 @@ export const ChiptuneEditor: Component<ChiptuneEditorProps> = (props) => {
             step={0.01}
             value={props.params.shaperAmount}
             disabled={props.disabled || props.params.shaperMode === "none"}
-            hint="0 = bypass"
             onInput={(v) => props.onUpdate({ shaperAmount: v })}
           />
         </div>
@@ -210,8 +216,8 @@ interface LfoSectionProps {
 const LfoSection: Component<LfoSectionProps> = (props) => (
   <div class="chiptune__group">
     <span class="chiptune__group-label">{props.label}</span>
-    <label class="lfo__target">
-      <span class="samplemeta__label">Target</span>
+    <label class="chiptune__select">
+      <span class="slider__label">Target</span>
       <select
         aria-label={`${props.ariaLabel} target`}
         value={props.lfo.target}
@@ -225,7 +231,7 @@ const LfoSection: Component<LfoSectionProps> = (props) => (
         ))}
       </select>
     </label>
-    <div class="chiptune__sliders">
+    <div class="chiptune__row">
       <Slider
         label="Cycle multiplier"
         min={props.multMin}
@@ -295,29 +301,30 @@ const OscillatorSliders: Component<OscillatorSlidersProps> = (props) => (
         }
         onInput={(v) => props.onUpdate({ shapeIndex: v })}
       />
-      <Slider
-        label="Phase split"
-        min={PHASE_SPLIT_MIN}
-        max={PHASE_SPLIT_MAX}
-        step={0.01}
-        value={props.osc.phaseSplit}
-        disabled={props.disabled}
-        onInput={(v) => props.onUpdate({ phaseSplit: v })}
-      />
-      <Slider
-        label="Ratio"
-        min={RATIO_MIN}
-        max={RATIO_MAX}
-        step={1}
-        value={props.osc.ratio}
-        disabled={props.disabled}
-        // Snap to powers of two so the cycle stays octave-aligned and the
-        // shorter cycle wraps cleanly inside the longer one.
-        snap={snapRatioToMusical}
-        format={(v) => `${v}×`}
-        hint="1× ─ 2× ─ 4× ─ 8×"
-        onInput={(v) => props.onUpdate({ ratio: v })}
-      />
+      <div class="chiptune__row">
+        <Slider
+          label="Phase split"
+          min={PHASE_SPLIT_MIN}
+          max={PHASE_SPLIT_MAX}
+          step={0.01}
+          value={props.osc.phaseSplit}
+          disabled={props.disabled}
+          onInput={(v) => props.onUpdate({ phaseSplit: v })}
+        />
+        <Slider
+          label="Ratio"
+          min={RATIO_MIN}
+          max={RATIO_MAX}
+          step={1}
+          value={props.osc.ratio}
+          disabled={props.disabled}
+          // Snap to powers of two so the cycle stays octave-aligned and the
+          // shorter cycle wraps cleanly inside the longer one.
+          snap={snapRatioToMusical}
+          format={(v) => `${v}×`}
+          onInput={(v) => props.onUpdate({ ratio: v })}
+        />
+      </div>
     </div>
   </div>
 );

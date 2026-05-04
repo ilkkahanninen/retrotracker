@@ -47,7 +47,6 @@ export interface Oscillator {
 }
 
 export type CombineMode =
-  | "sum" // o1 + amount · o2  (additive, can clip)
   | "morph" // (1-amount)·o1 + amount·o2  (level-preserving crossfade)
   | "ring" // (1-amount)·o1 + amount·(o1·o2)  (ring modulation)
   | "am" // o1 · (1 + amount · o2)  (amplitude modulation)
@@ -57,7 +56,6 @@ export type CombineMode =
   | "xor"; // 8-bit signed XOR, blended with o1 by amount
 
 export const COMBINE_MODES: readonly CombineMode[] = [
-  "sum",
   "morph",
   "ring",
   "am",
@@ -68,7 +66,6 @@ export const COMBINE_MODES: readonly CombineMode[] = [
 ] as const;
 
 export const COMBINE_LABELS: Readonly<Record<CombineMode, string>> = {
-  sum: "Sum",
   morph: "Morph",
   ring: "Ring",
   am: "AM",
@@ -507,11 +504,6 @@ export function generateChiptuneCycle(p: ChiptuneParams): WavData {
     const o2 = oscSample(phase2, osc2);
     let s: number;
     switch (p.combineMode) {
-      case "sum": {
-        const o1 = oscSample(phase1, osc1);
-        s = o1 + combineAmt * o2;
-        break;
-      }
       case "morph": {
         const o1 = oscSample(phase1, osc1);
         s = (1 - combineAmt) * o1 + combineAmt * o2;
@@ -598,11 +590,15 @@ export function chiptuneFromJson(v: unknown): ChiptuneParams | null {
   if (typeof x["cycleFrames"] !== "number") return null;
   if (typeof x["amplitude"] !== "number") return null;
   if (typeof x["combineAmount"] !== "number") return null;
-  if (
-    typeof x["combineMode"] !== "string" ||
-    !(COMBINE_MODES as readonly string[]).includes(x["combineMode"])
-  )
-    return null;
+  // Unknown / removed combineMode (e.g. legacy "sum") falls back to
+  // "morph" — keeps the rest of a saved chiptune intact rather than
+  // failing the whole parse over a single retired mode.
+  const rawCombineMode = x["combineMode"];
+  const combineMode: CombineMode =
+    typeof rawCombineMode === "string" &&
+    (COMBINE_MODES as readonly string[]).includes(rawCombineMode)
+      ? (rawCombineMode as CombineMode)
+      : "morph";
   // `lfo` is optional for back-compat with payloads saved before the
   // LFO addition — those restore with the LFO disabled (defaultLfo).
   // `lfo2` is also optional, missing in payloads predating the second
@@ -628,7 +624,7 @@ export function chiptuneFromJson(v: unknown): ChiptuneParams | null {
     amplitude: clamp(x["amplitude"], 0, 1),
     osc1: o1,
     osc2: o2,
-    combineMode: x["combineMode"] as CombineMode,
+    combineMode,
     combineAmount: x["combineAmount"],
     shaperMode,
     shaperAmount,

@@ -135,20 +135,6 @@ describe('generateChiptuneCycle — combine modes', () => {
     osc2: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 },  // square
   };
 
-  it('sum at amount=0 ≡ osc1 only', () => {
-    const a = generateChiptuneCycle(withDefaults({
-      cycleFrames: 16, amplitude: 1, ...baseOscs,
-      combineMode: 'morph', combineAmount: 0,
-    }));
-    const b = generateChiptuneCycle(withDefaults({
-      cycleFrames: 16, amplitude: 1, ...baseOscs,
-      combineMode: 'sum', combineAmount: 0,
-    }));
-    for (let i = 0; i < 16; i++) {
-      expect(b.channels[0]![i]!).toBeCloseTo(a.channels[0]![i]!, 9);
-    }
-  });
-
   it('morph at amount=0.5 ≡ average of osc1 and osc2', () => {
     const w = generateChiptuneCycle(withDefaults({
       cycleFrames: 16, amplitude: 1, ...baseOscs,
@@ -226,11 +212,24 @@ describe('chiptuneFromJson', () => {
     expect(restored).toEqual(orig);
   });
 
-  it('rejects non-objects and missing fields', () => {
+  it('rejects non-objects and missing required fields', () => {
     expect(chiptuneFromJson(null)).toBeNull();
     expect(chiptuneFromJson({})).toBeNull();
-    expect(chiptuneFromJson({ ...defaultChiptuneParams(), combineMode: 'bogus' }))
-      .toBeNull();
+  });
+
+  it('falls back to morph for unknown / removed combineMode (e.g. legacy "sum")', () => {
+    // Retired modes shouldn't drop the whole preset on load — they fall
+    // back to morph so the rest of the saved chiptune still restores.
+    const restored = chiptuneFromJson({
+      ...defaultChiptuneParams(),
+      combineMode: 'sum',
+    });
+    expect(restored?.combineMode).toBe('morph');
+    const bogus = chiptuneFromJson({
+      ...defaultChiptuneParams(),
+      combineMode: 'totally-made-up',
+    });
+    expect(bogus?.combineMode).toBe('morph');
   });
 
   it('snaps cycleFrames to the nearest octave-aligned (musical) value', () => {
