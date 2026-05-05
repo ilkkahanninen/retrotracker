@@ -138,6 +138,7 @@ const NOTE_TIPS: TipSection[] = [
     items: [
       { keys: 'A W S E D F T G Y H U J', action: 'piano (current octave)', position: true },
       { keys: 'K O L P ;',               action: 'piano (octave + 1)',     position: true },
+      { keys: 'Shift + piano key',       action: 'preview note (no commit)' },
       { keys: 'Z / X',                   action: 'octave − / +',           position: true },
       { keys: '.', action: 'clear field' },
       { keys: 'Backspace', action: 'pull cell up' },

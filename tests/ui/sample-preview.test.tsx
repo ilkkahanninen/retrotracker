@@ -66,6 +66,43 @@ describe('piano keys in sample view: preview only', () => {
   });
 });
 
+describe('Shift+piano in pattern view: preview only', () => {
+  it('Shift+A does not write a cell to the song', () => {
+    setView('pattern');
+    setCursor({ order: 0, row: 0, channel: 0, field: 'note' });
+    render(() => <App />);
+    const before = song();
+    // Drive a raw KeyboardEvent so we can set shiftKey directly. userEvent's
+    // {Shift>}a syntax also produces a capital 'A' which would still match
+    // the position-based code KeyA — but going raw makes the intent obvious.
+    window.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'A', code: 'KeyA', shiftKey: true,
+    }));
+    expect(song()).toBe(before);
+  });
+
+  it('Shift+A previews regardless of cursor field (works on hex fields too)', () => {
+    setView('pattern');
+    setCursor({ order: 0, row: 0, channel: 0, field: 'sampleHi' });
+    render(() => <App />);
+    const before = song();
+    window.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'A', code: 'KeyA', shiftKey: true,
+    }));
+    // Shift gate keeps the hex-digit path from firing, and the new shift
+    // piano shortcut doesn't commit either.
+    expect(song()).toBe(before);
+  });
+
+  it('plain A (no shift) on the note field still writes a cell', async () => {
+    setView('pattern');
+    setCursor({ order: 0, row: 0, channel: 0, field: 'note' });
+    render(() => <App />);
+    await userEvent.setup().keyboard('a');
+    expect(song()!.patterns[0]!.rows[0]![0]!.period).toBeGreaterThan(0);
+  });
+});
+
 describe('octave change works in sample view', () => {
   it("'x' raises the current octave", async () => {
     setView('sample');

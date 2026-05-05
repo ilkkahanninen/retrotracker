@@ -2139,6 +2139,7 @@ export const App: Component = () => {
       stepRowPageUp,
       stepRowPageDown,
       onPianoKey,
+      previewPianoKey: previewSampleAtPitch,
       enterHexDigit,
       transposeAtCursor,
       repeatLastEffectFromAbove,

@@ -96,6 +96,12 @@ export interface AppKeybindHandlers {
   stepRowPageUp: (c: Cursor, n: number) => Cursor;
   stepRowPageDown: (c: Cursor, n: number) => Cursor;
   onPianoKey: (offset: number) => void;
+  /**
+   * Audition the current sample at the keyboard-mapped pitch without writing
+   * to the song. Bound to Shift+piano-row keys in pattern view so the user
+   * can preview a note before deciding to commit it.
+   */
+  previewPianoKey: (offset: number) => void;
   enterHexDigit: (digit: number) => void;
   transposeAtCursor: (delta: number) => void;
   repeatLastEffectFromAbove: () => void;
@@ -424,6 +430,23 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
           transport() !== "playing" &&
           (view() === "sample" || cursor().field === "note"),
         run: () => h.onPianoKey(offset),
+        runUp: () => {
+          stopEnginePreview();
+          preview.stopPreview();
+        },
+      }),
+    );
+    // Shift+piano: preview-only, no commit. Mirrors sample view's piano
+    // behaviour so the user can audition a note from anywhere in the
+    // pattern grid (any cursor field) before deciding to type it for real.
+    cleanups.push(
+      registerShortcut({
+        key: k,
+        position: true,
+        shift: true,
+        description: `Preview note (offset ${offset})`,
+        when: () => transport() !== "playing",
+        run: () => h.previewPianoKey(offset),
         runUp: () => {
           stopEnginePreview();
           preview.stopPreview();
