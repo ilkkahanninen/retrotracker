@@ -1,6 +1,11 @@
-import type { Component } from "solid-js";
+import { For, type Component } from "solid-js";
 import type { AmigaModel } from "../core/audio/paula";
-import { settings, setPaulaModel } from "../state/settings";
+import {
+  setColorScheme,
+  setPaulaModel,
+  settings,
+} from "../state/settings";
+import { COLOR_SCHEMES } from "../state/theme";
 
 const PAULA_MODELS: { value: AmigaModel; label: string; hint: string }[] = [
   {
@@ -16,17 +21,21 @@ const PAULA_MODELS: { value: AmigaModel; label: string; hint: string }[] = [
 ];
 
 /**
- * Drop focus from radios after the user picks one, so subsequent global
- * shortcuts (Space to play, F2/F3/F4/F5 to switch view, …) flow through
- * the keybind dispatcher instead of being swallowed by the focused
- * radio. Same pattern as SampleView's blur-on-commit for selects and
- * checkboxes — the dispatcher's `focusKind` returns 'text' for any
- * focused INPUT, which silences bare-key shortcuts. Mirrors the
- * approach from commit 57a6133.
+ * Drop focus from radios / selects after the user picks one, so
+ * subsequent global shortcuts (Space to play, F2/F3/F4/F5 to switch
+ * view, ⌘⇧A to toggle Paula model, …) flow through the keybind
+ * dispatcher instead of being swallowed by the still-focused control.
+ * Same pattern as SampleView's blur-on-commit (commit 57a6133); range
+ * sliders are intentionally NOT blurred — the dispatcher's `focusKind`
+ * already lets letters through while a range has focus, and dragging
+ * with the keyboard requires the slider to keep focus.
  */
 const blurOnCommit = (e: Event) => {
   const t = e.target;
-  if (t instanceof HTMLInputElement && t.type === "radio") {
+  if (
+    t instanceof HTMLSelectElement
+    || (t instanceof HTMLInputElement && (t.type === "radio" || t.type === "checkbox"))
+  ) {
     t.blur();
   }
 };
@@ -39,20 +48,38 @@ export const SettingsView: Component = () => {
       <fieldset class="settingsview__field">
         <legend class="settingsview__label">Paula filter model (⌘⇧A toggles)</legend>
         <div class="settingsview__radios">
-          {PAULA_MODELS.map((m) => (
-            <label class="settingsview__radio">
-              <input
-                type="radio"
-                name="paula-model"
-                value={m.value}
-                checked={settings().paulaModel === m.value}
-                onChange={() => setPaulaModel(m.value)}
-              />
-              <span class="settingsview__radio-label">{m.label}</span>
-              <span class="settingsview__hint">{m.hint}</span>
-            </label>
-          ))}
+          <For each={PAULA_MODELS}>
+            {(m) => (
+              <label class="settingsview__radio">
+                <input
+                  type="radio"
+                  name="paula-model"
+                  value={m.value}
+                  checked={settings().paulaModel === m.value}
+                  onChange={() => setPaulaModel(m.value)}
+                />
+                <span class="settingsview__radio-label">{m.label}</span>
+                <span class="settingsview__hint">{m.hint}</span>
+              </label>
+            )}
+          </For>
         </div>
+      </fieldset>
+
+      <fieldset class="settingsview__field">
+        <legend class="settingsview__label">Color scheme</legend>
+        <select
+          class="settingsview__select"
+          value={settings().colorScheme}
+          onChange={(e) => setColorScheme(e.currentTarget.value as never)}
+        >
+          <For each={COLOR_SCHEMES}>
+            {(s) => <option value={s.id}>{s.label}</option>}
+          </For>
+        </select>
+        <span class="settingsview__hint">
+          Overrides the editor's CSS variables — applies live to every view.
+        </span>
       </fieldset>
     </section>
   );

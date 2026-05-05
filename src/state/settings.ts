@@ -5,23 +5,29 @@ import type { AmigaModel } from '../core/audio/paula';
  * App-wide preferences. Stored in its own localStorage key — separate
  * from the project session (`retrotracker:session:v1`) — because settings
  * outlive any individual `.mod` / `.retro` file: a user's preferred Amiga
- * model should follow the user, not the song.
+ * model, theme, and contrast level should follow the user, not the song.
  *
- * Schema is intentionally tiny right now (one field). Add new keys with
- * sensible defaults; missing keys in stored payloads fall back to the
- * defaults below, so older saved settings forward-compat without a
- * version bump.
+ * Missing keys in stored payloads fall back to the defaults below, so
+ * older saved settings forward-compat without a version bump.
  */
 
 const STORAGE_KEY = 'retrotracker:settings:v1';
 
+export type ColorSchemeId = 'default' | 'light' | 'high-contrast' | 'amber';
+
 export interface Settings {
   paulaModel: AmigaModel;
+  colorScheme: ColorSchemeId;
 }
 
 const DEFAULTS: Settings = {
   paulaModel: 'A1200',
+  colorScheme: 'default',
 };
+
+function isColorSchemeId(v: unknown): v is ColorSchemeId {
+  return v === 'default' || v === 'light' || v === 'high-contrast' || v === 'amber';
+}
 
 function load(): Settings {
   try {
@@ -34,7 +40,10 @@ function load(): Settings {
       obj['paulaModel'] === 'A500' ? 'A500'
       : obj['paulaModel'] === 'A1200' ? 'A1200'
       : DEFAULTS.paulaModel;
-    return { paulaModel };
+    const colorScheme: ColorSchemeId = isColorSchemeId(obj['colorScheme'])
+      ? obj['colorScheme']
+      : DEFAULTS.colorScheme;
+    return { paulaModel, colorScheme };
   } catch {
     return { ...DEFAULTS };
   }
@@ -64,7 +73,11 @@ export function setPaulaModel(model: AmigaModel): void {
   setSettings({ paulaModel: model });
 }
 
-/** Flip between A1200 and A500. Bound to F11 in `appKeybinds`. */
+/** Flip between A1200 and A500. Bound to ⌘⇧A in `appKeybinds`. */
 export function togglePaulaModel(): void {
   setPaulaModel(settings().paulaModel === 'A1200' ? 'A500' : 'A1200');
+}
+
+export function setColorScheme(scheme: ColorSchemeId): void {
+  setSettings({ colorScheme: scheme });
 }
