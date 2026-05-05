@@ -5,10 +5,10 @@
  * main bundle.
  */
 
-import type { AmigaModel } from './paula';
+import type { AmigaModel } from "./paula";
 
 export interface PreviewSetMsg {
-  type: 'set';
+  type: "set";
   /** Int8 sample data (PT format, byte = signed 8-bit). */
   data: Int8Array;
   /** Paula period (113..856 typical). Pitches the voice. */
@@ -22,16 +22,16 @@ export interface PreviewSetMsg {
 }
 
 export interface PreviewStopMsg {
-  type: 'stop';
+  type: "stop";
 }
 
 export interface PreviewSetAmigaModelMsg {
-  type: 'setAmigaModel';
+  type: "setAmigaModel";
   model: AmigaModel;
 }
 
 export interface PreviewSetStereoSepMsg {
-  type: 'setStereoSeparation';
+  type: "setStereoSeparation";
   /** Percentage 0..100. Same shape as `Settings.stereoSeparation`. */
   sep: number;
 }

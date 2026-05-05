@@ -91,7 +91,12 @@ import {
   clearSelection,
 } from "./state/selection";
 import { clipboardSlice, setClipboardSlice } from "./state/clipboard";
-import { isChannelMuted, resetChannelMute, toggleMute, toggleSolo } from "./state/channelMute";
+import {
+  isChannelMuted,
+  resetChannelMute,
+  toggleMute,
+  toggleSolo,
+} from "./state/channelMute";
 import { resetChannelLevels } from "./state/channelLevel";
 import {
   patternNames,
@@ -492,7 +497,9 @@ export const App: Component = () => {
         const bytes = new Uint8Array(await file.arrayBuffer());
         decoded.push({ wb: workbenchFromWav(bytes, file.name) });
       } catch (err) {
-        setError(`${file.name}: ${err instanceof Error ? err.message : String(err)}`);
+        setError(
+          `${file.name}: ${err instanceof Error ? err.message : String(err)}`,
+        );
         return;
       }
     }
@@ -645,8 +652,12 @@ export const App: Component = () => {
   // Falls back to the full 0..63 range when no song is loaded yet.
   const visibleRows = (order: number): { first: number; last: number } => {
     const s = song();
-    return s ? visibleRowRangeForOrder(s, order) ?? { first: 0, last: ROWS_PER_PATTERN - 1 }
-             : { first: 0, last: ROWS_PER_PATTERN - 1 };
+    return s
+      ? (visibleRowRangeForOrder(s, order) ?? {
+          first: 0,
+          last: ROWS_PER_PATTERN - 1,
+        })
+      : { first: 0, last: ROWS_PER_PATTERN - 1 };
   };
   const stepRowUp = (c: ReturnType<typeof cursor>) => ({
     ...c,
@@ -1485,7 +1496,8 @@ export const App: Component = () => {
     // effects (crop / cut) precede the loop-aware effect.
     const ctx = (() => {
       if (!old || old.loopLengthWords <= 1 || old.data.length <= 0) return null;
-      const sourceFrames = materializeSource(wb.source).channels[0]?.length ?? 0;
+      const sourceFrames =
+        materializeSource(wb.source).channels[0]?.length ?? 0;
       if (sourceFrames <= 0) return null;
       const ratio = sourceFrames / old.data.length;
       const loopStartByte = old.loopStartWords * 2;
@@ -1539,10 +1551,11 @@ export const App: Component = () => {
           volume: old.volume,
           finetune: old.finetune,
           name: old.name,
-          ...(loopFields ?? scaledLoop ?? {
-            loopStartWords: old.loopStartWords,
-            loopLengthWords: old.loopLengthWords,
-          }),
+          ...(loopFields ??
+            scaledLoop ?? {
+              loopStartWords: old.loopStartWords,
+              loopLengthWords: old.loopLengthWords,
+            }),
         };
     return replaceSampleData(song, slot, data, meta);
   };
@@ -1584,7 +1597,10 @@ export const App: Component = () => {
     const sourceName = `Bnc P${patNum.toString(16).toUpperCase()} R${sel.startRow
       .toString(16)
       .toUpperCase()
-      .padStart(2, "0")}-${sel.endRow.toString(16).toUpperCase().padStart(2, "0")}`;
+      .padStart(
+        2,
+        "0",
+      )}-${sel.endRow.toString(16).toUpperCase().padStart(2, "0")}`;
     const wb = workbenchFromWavData(result.wav, sourceName);
     setError(null);
     commitEditWithWorkbenches((state) => ({
@@ -1761,7 +1777,11 @@ export const App: Component = () => {
     if (wb.source.kind !== "sampler") return;
     if (wb.chain.length === 0) return;
 
-    let burned = runChain(materializeSource(wb.source), wb.chain, runContextForSlot(slot, wb));
+    let burned = runChain(
+      materializeSource(wb.source),
+      wb.chain,
+      runContextForSlot(slot, wb),
+    );
 
     // Auto-truncate at loop end. The bytes past `loopEnd` are never heard
     // (live worklet already plays through `songForPlayback` which truncates
@@ -1776,8 +1796,12 @@ export const App: Component = () => {
         // Map slot int8-byte loopEnd into burned-WAV frame space — same
         // ratio writeWorkbenchToSongPure uses for its run-context.
         const ratio = sourceFrames / sample.data.length;
-        const loopEndByte = (sample.loopStartWords + sample.loopLengthWords) * 2;
-        const loopEndFrame = Math.min(sourceFrames, Math.floor(loopEndByte * ratio));
+        const loopEndByte =
+          (sample.loopStartWords + sample.loopLengthWords) * 2;
+        const loopEndFrame = Math.min(
+          sourceFrames,
+          Math.floor(loopEndByte * ratio),
+        );
         if (loopEndFrame > 0 && loopEndFrame < sourceFrames) {
           burned = {
             sampleRate: burned.sampleRate,
@@ -1809,7 +1833,8 @@ export const App: Component = () => {
     wb: SampleWorkbench,
   ): { loopStartFrame: number; loopEndFrame: number } | null => {
     const sample = song()?.samples[slot];
-    if (!sample || sample.loopLengthWords <= 1 || sample.data.length <= 0) return null;
+    if (!sample || sample.loopLengthWords <= 1 || sample.data.length <= 0)
+      return null;
     const sourceFrames = materializeSource(wb.source).channels[0]?.length ?? 0;
     if (sourceFrames <= 0) return null;
     const ratio = sourceFrames / sample.data.length;
@@ -1915,10 +1940,7 @@ export const App: Component = () => {
     // "empty sampler" view — same UX as a fresh slot, with the Load WAV
     // button waiting. The current chiptune half is stashed as alt so
     // toggling back restores it untouched.
-    updateCurrentWorkbench(
-      { ...emptySamplerWorkbench(), alt: stash },
-      NO_LOOP,
-    );
+    updateCurrentWorkbench({ ...emptySamplerWorkbench(), alt: stash }, NO_LOOP);
   };
 
   /**
@@ -1964,8 +1986,12 @@ export const App: Component = () => {
     const slot = currentSample() - 1;
     if (getWorkbench(slot)) return;
     const sample = song()?.samples[slot];
-    if (!sample || sample.lengthWords <= 0 || sample.data.byteLength <= 0) return;
-    const sourceName = (sample.name.trim() || `Sample ${slot + 1}`).slice(0, 22);
+    if (!sample || sample.lengthWords <= 0 || sample.data.byteLength <= 0)
+      return;
+    const sourceName = (sample.name.trim() || `Sample ${slot + 1}`).slice(
+      0,
+      22,
+    );
     setWorkbench(slot, workbenchFromInt8(sample.data, sourceName));
   };
 
@@ -2221,11 +2247,11 @@ export const App: Component = () => {
         hint: "⌘E",
         onClick: bounceSelectionToSample,
         disabled:
-          playing
-          || view() === "sample"
-          || !song()
-          || !selection()
-          || nextFreeSlot(song(), -1) === null,
+          playing ||
+          view() === "sample" ||
+          !song() ||
+          !selection() ||
+          nextFreeSlot(song(), -1) === null,
       },
     ];
   };
@@ -2398,7 +2424,11 @@ export const App: Component = () => {
 
       <aside class="app__samples">
         <h2>Samples</h2>
-        <SampleList song={song()} onSelect={selectSample} onRename={renameSample} />
+        <SampleList
+          song={song()}
+          onSelect={selectSample}
+          onRename={renameSample}
+        />
       </aside>
 
       <main class="app__main">
@@ -2447,7 +2477,12 @@ export const App: Component = () => {
                       type="text"
                       maxLength={20}
                       value={s().title}
-                      ref={(el) => queueMicrotask(() => { el.focus(); el.select(); })}
+                      ref={(el) =>
+                        queueMicrotask(() => {
+                          el.focus();
+                          el.select();
+                        })
+                      }
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           e.preventDefault();
@@ -2458,7 +2493,8 @@ export const App: Component = () => {
                         }
                       }}
                       onBlur={(e) => {
-                        if (editingTitle()) commitTitleEdit(e.currentTarget.value);
+                        if (editingTitle())
+                          commitTitleEdit(e.currentTarget.value);
                       }}
                     />
                   </Show>

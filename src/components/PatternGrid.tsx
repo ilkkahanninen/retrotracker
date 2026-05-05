@@ -1,25 +1,60 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack, type Component } from 'solid-js';
-import type { Note, Song } from '../core/mod/types';
-import { CHANNELS } from '../core/mod/types';
-import { PERIOD_TABLE } from '../core/mod/format';
-import { flattenSong } from '../core/mod/flatten';
-import { beatsPerBar, rowsPerBeat } from '../state/gridConfig';
-import { cursor, setCursor, jumpRequest, type Cursor, type Field } from '../state/cursor';
-import { setPlayPos, transport } from '../state/song';
 import {
-  selection, setSelection, setSelectionAnchor, makeSelection,
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+  untrack,
+  type Component,
+} from "solid-js";
+import type { Note, Song } from "../core/mod/types";
+import { CHANNELS } from "../core/mod/types";
+import { PERIOD_TABLE } from "../core/mod/format";
+import { flattenSong } from "../core/mod/flatten";
+import { beatsPerBar, rowsPerBeat } from "../state/gridConfig";
+import {
+  cursor,
+  setCursor,
+  jumpRequest,
+  type Cursor,
+  type Field,
+} from "../state/cursor";
+import { setPlayPos, transport } from "../state/song";
+import {
+  selection,
+  setSelection,
+  setSelectionAnchor,
+  makeSelection,
   selectionContains,
-} from '../state/selection';
+} from "../state/selection";
 import {
-  mutedChannels, soloedChannels, toggleMute, toggleSolo,
-} from '../state/channelMute';
-import { channelLevels } from '../state/channelLevel';
-import { useWindowListener } from './hooks';
+  mutedChannels,
+  soloedChannels,
+  toggleMute,
+  toggleSolo,
+} from "../state/channelMute";
+import { channelLevels } from "../state/channelLevel";
+import { useWindowListener } from "./hooks";
 
-const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'] as const;
+const NOTE_NAMES = [
+  "C-",
+  "C#",
+  "D-",
+  "D#",
+  "E-",
+  "F-",
+  "F#",
+  "G-",
+  "G#",
+  "A-",
+  "A#",
+  "B-",
+] as const;
 
 function periodToNoteName(period: number): string {
-  if (period === 0) return '---';
+  if (period === 0) return "---";
   // Mirrors pt2-clone setPeriod's first-greater-or-equal scan in finetune 0,
   // which is the canonical way to map a stored Paula period to a note slot.
   const row = PERIOD_TABLE[0]!;
@@ -29,7 +64,7 @@ function periodToNoteName(period: number): string {
       return `${NOTE_NAMES[i % 12]}${oct}`;
     }
   }
-  return '???';
+  return "???";
 }
 
 interface SampleChars {
@@ -38,7 +73,7 @@ interface SampleChars {
 }
 
 function sampleChars(note: Note): SampleChars {
-  if (note.sample === 0) return { hi: '.', lo: '.' };
+  if (note.sample === 0) return { hi: ".", lo: "." };
   const hi = ((note.sample >> 4) & 0xf).toString(16).toUpperCase();
   const lo = (note.sample & 0xf).toString(16).toUpperCase();
   return { hi, lo };
@@ -56,7 +91,7 @@ interface EffectChars {
  *  an empty cell, since arpeggio 000 IS the empty state. */
 function effectChars(note: Note, forceShow: boolean): EffectChars {
   if (!forceShow && note.effect === 0 && note.effectParam === 0) {
-    return { cmd: '.', hi: '.', lo: '.' };
+    return { cmd: ".", hi: ".", lo: "." };
   }
   const cmd = note.effect.toString(16).toUpperCase();
   const hi = ((note.effectParam >> 4) & 0x0f).toString(16).toUpperCase();
@@ -130,7 +165,10 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
     const top = scrollTop();
     const h = viewportHeight();
     const startIdx = Math.max(0, Math.floor(top / ROW_HEIGHT) - ROW_BUFFER);
-    const endIdx = Math.min(total, Math.ceil((top + h) / ROW_HEIGHT) + ROW_BUFFER);
+    const endIdx = Math.min(
+      total,
+      Math.ceil((top + h) / ROW_HEIGHT) + ROW_BUFFER,
+    );
     return { start: startIdx, end: endIdx };
   });
 
@@ -152,7 +190,7 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
   onMount(() => {
     if (!scroller) return;
     setViewportHeight(scroller.clientHeight);
-    const RO = (typeof ResizeObserver !== 'undefined') ? ResizeObserver : null;
+    const RO = typeof ResizeObserver !== "undefined" ? ResizeObserver : null;
     if (!RO) return;
     const ro = new RO((entries) => {
       const entry = entries[0];
@@ -210,7 +248,10 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
   let firstJump = true;
   createEffect(() => {
     jumpRequest();
-    if (firstJump) { firstJump = false; return; }
+    if (firstJump) {
+      firstJump = false;
+      return;
+    }
     if (untrack(() => props.active)) return;
     const idx = untrack(cursorFlatIndex);
     if (idx < 0 || !scroller) return;
@@ -218,7 +259,11 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
   });
 
   /** True if the cursor is on (this row, this channel, this field). Hidden during playback. */
-  const isCursorAt = (rowIdx: number, channel: number, field: Field): boolean => {
+  const isCursorAt = (
+    rowIdx: number,
+    channel: number,
+    field: Field,
+  ): boolean => {
     if (props.active) return false;
     if (rowIdx !== cursorFlatIndex()) return false;
     const c = cursor();
@@ -252,7 +297,7 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
     // The cursor follows the drag's active end so shift-arrow after the
     // drag continues to extend from the original anchor. Field is preserved
     // (the drag doesn't change which sub-column the user is editing).
-    if (transport() !== 'playing') {
+    if (transport() !== "playing") {
       const c = cursor();
       if (c.row !== row || c.channel !== channel || c.order !== order) {
         setCursor({ ...c, order, row, channel });
@@ -263,24 +308,30 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
       setSelection(null);
       return;
     }
-    setSelection(makeSelection(
-      order,
-      dragAnchor.row, dragAnchor.channel,
-      row, channel,
-    ));
+    setSelection(
+      makeSelection(order, dragAnchor.row, dragAnchor.channel, row, channel),
+    );
   };
 
   /** Resolve a pointer position to (order, row, channel) via the cell's
    *  data-* attributes. Returns null when the pointer isn't over a cell. */
-  const cellAtPoint = (clientX: number, clientY: number): { order: number; row: number; channel: number } | null => {
+  const cellAtPoint = (
+    clientX: number,
+    clientY: number,
+  ): { order: number; row: number; channel: number } | null => {
     const el = document.elementFromPoint(clientX, clientY);
     if (!(el instanceof Element)) return null;
-    const cell = el.closest('.patgrid__cell[data-row]') as HTMLElement | null;
+    const cell = el.closest(".patgrid__cell[data-row]") as HTMLElement | null;
     if (!cell) return null;
-    const order = parseInt(cell.dataset['order'] ?? '', 10);
-    const row = parseInt(cell.dataset['row'] ?? '', 10);
-    const channel = parseInt(cell.dataset['channel'] ?? '', 10);
-    if (!Number.isFinite(order) || !Number.isFinite(row) || !Number.isFinite(channel)) return null;
+    const order = parseInt(cell.dataset["order"] ?? "", 10);
+    const row = parseInt(cell.dataset["row"] ?? "", 10);
+    const channel = parseInt(cell.dataset["channel"] ?? "", 10);
+    if (
+      !Number.isFinite(order) ||
+      !Number.isFinite(row) ||
+      !Number.isFinite(channel)
+    )
+      return null;
     return { order, row, channel };
   };
 
@@ -296,8 +347,8 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
   const onWindowMouseUp = () => {
     dragAnchor = null;
   };
-  useWindowListener('mousemove', onWindowMouseMove);
-  useWindowListener('mouseup', onWindowMouseUp);
+  useWindowListener("mousemove", onWindowMouseMove);
+  useWindowListener("mouseup", onWindowMouseUp);
 
   return (
     <div class="patgrid">
@@ -319,23 +370,34 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                 type="button"
                 tabindex={-1}
                 class="patgrid__chbtn"
-                classList={{ 'patgrid__chbtn--active': mutedChannels()[c] === true }}
+                classList={{
+                  "patgrid__chbtn--active": mutedChannels()[c] === true,
+                }}
                 onClick={() => toggleMute(c)}
                 title={`Mute channel ${c + 1} (Alt+${c + 1})`}
-              >M</button>
+              >
+                M
+              </button>
               <button
                 type="button"
                 tabindex={-1}
                 class="patgrid__chbtn"
-                classList={{ 'patgrid__chbtn--active': soloedChannels()[c] === true }}
+                classList={{
+                  "patgrid__chbtn--active": soloedChannels()[c] === true,
+                }}
                 onClick={() => toggleSolo(c)}
                 title={`Solo channel ${c + 1} (Alt+Shift+${c + 1})`}
-              >S</button>
+              >
+                S
+              </button>
             </span>
           )}
         </For>
       </div>
-      <Show when={flat().length > 0} fallback={<p class="placeholder">No pattern</p>}>
+      <Show
+        when={flat().length > 0}
+        fallback={<p class="placeholder">No pattern</p>}
+      >
         <div
           class="patgrid__rows"
           ref={(el) => (scroller = el)}
@@ -356,7 +418,9 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                 stable refs this relies on. */}
             <For each={visibleRows()}>
               {(item, sliceIdx) => {
-                const flatIdx = createMemo(() => visibleRange().start + sliceIdx());
+                const flatIdx = createMemo(
+                  () => visibleRange().start + sliceIdx(),
+                );
                 const isBeat = createMemo(() => {
                   const b = rowsPerBeat();
                   return b > 0 && item.rowIndex % b === 0;
@@ -370,15 +434,20 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                     class="patgrid__row"
                     style={{ top: `${flatIdx() * ROW_HEIGHT}px` }}
                     classList={{
-                      'patgrid__row--beat': isBeat() && !isBar(),
-                      'patgrid__row--bar': isBar(),
-                      'patgrid__row--boundary': item.boundaryAbove,
-                      'patgrid__row--active': props.active && flatIdx() === activeFlatIndex(),
-                      'patgrid__row--cursor': !props.active && flatIdx() === activeFlatIndex(),
+                      "patgrid__row--beat": isBeat() && !isBar(),
+                      "patgrid__row--bar": isBar(),
+                      "patgrid__row--boundary": item.boundaryAbove,
+                      "patgrid__row--active":
+                        props.active && flatIdx() === activeFlatIndex(),
+                      "patgrid__row--cursor":
+                        !props.active && flatIdx() === activeFlatIndex(),
                     }}
                   >
                     <span class="patgrid__num">
-                      {item.rowIndex.toString(16).toUpperCase().padStart(2, '0')}
+                      {item.rowIndex
+                        .toString(16)
+                        .toUpperCase()
+                        .padStart(2, "0")}
                     </span>
                     <For each={item.cells}>
                       {(note, ch) => {
@@ -388,17 +457,21 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                         // otherwise typing arpeggio (effect 0xy) starting with
                         // `0` looks identical to an empty cell until the user
                         // types the next nibble.
-                        const cursorOnEffect = createMemo(() =>
-                          isCursorAt(flatIdx(), ch(), 'effectCmd')
-                          || isCursorAt(flatIdx(), ch(), 'effectHi')
-                          || isCursorAt(flatIdx(), ch(), 'effectLo'),
+                        const cursorOnEffect = createMemo(
+                          () =>
+                            isCursorAt(flatIdx(), ch(), "effectCmd") ||
+                            isCursorAt(flatIdx(), ch(), "effectHi") ||
+                            isCursorAt(flatIdx(), ch(), "effectLo"),
                         );
-                        const eff = createMemo(() => effectChars(note, cursorOnEffect()));
+                        const eff = createMemo(() =>
+                          effectChars(note, cursorOnEffect()),
+                        );
                         const samp = createMemo(() => sampleChars(note));
-                        const blank = createMemo(() =>
-                          note.effect === 0
-                          && note.effectParam === 0
-                          && !cursorOnEffect(),
+                        const blank = createMemo(
+                          () =>
+                            note.effect === 0 &&
+                            note.effectParam === 0 &&
+                            !cursorOnEffect(),
                         );
                         // mousedown → place the cursor at this cell's sub-field
                         // AND open a drag anchor on this cell. The cell-level
@@ -408,8 +481,10 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                         const focusAndDrag = (e: MouseEvent, field: Field) => {
                           if (e.button !== 0) return;
                           props.onCellClick?.({
-                            order: item.order, row: item.rowIndex,
-                            channel: ch(), field,
+                            order: item.order,
+                            row: item.rowIndex,
+                            channel: ch(),
+                            field,
                           });
                           startDrag(item.order, item.rowIndex, ch());
                         };
@@ -426,19 +501,28 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                         return (
                           <span
                             class="patgrid__cell"
-                            classList={{ 'patgrid__cell--selected': isSelected() }}
+                            classList={{
+                              "patgrid__cell--selected": isSelected(),
+                            }}
                             attr:data-order={item.order}
                             attr:data-row={item.rowIndex}
                             attr:data-channel={ch()}
-                            onMouseDown={(e) => focusAndDrag(e, 'note')}
+                            onMouseDown={(e) => focusAndDrag(e, "note")}
                           >
                             <span
                               class="patgrid__note"
                               classList={{
-                                'patgrid__part--empty': note.period === 0,
-                                'patgrid__field--cursor': isCursorAt(flatIdx(), ch(), 'note'),
+                                "patgrid__part--empty": note.period === 0,
+                                "patgrid__field--cursor": isCursorAt(
+                                  flatIdx(),
+                                  ch(),
+                                  "note",
+                                ),
                               }}
-                              onMouseDown={(e) => { e.stopPropagation(); focusAndDrag(e, 'note'); }}
+                              onMouseDown={(e) => {
+                                e.stopPropagation();
+                                focusAndDrag(e, "note");
+                              }}
                             >
                               {periodToNoteName(note.period)}
                             </span>
@@ -446,20 +530,34 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                               <span
                                 class="patgrid__samp-char"
                                 classList={{
-                                  'patgrid__part--empty': note.sample === 0,
-                                  'patgrid__field--cursor': isCursorAt(flatIdx(), ch(), 'sampleHi'),
+                                  "patgrid__part--empty": note.sample === 0,
+                                  "patgrid__field--cursor": isCursorAt(
+                                    flatIdx(),
+                                    ch(),
+                                    "sampleHi",
+                                  ),
                                 }}
-                                onMouseDown={(e) => { e.stopPropagation(); focusAndDrag(e, 'sampleHi'); }}
+                                onMouseDown={(e) => {
+                                  e.stopPropagation();
+                                  focusAndDrag(e, "sampleHi");
+                                }}
                               >
                                 {samp().hi}
                               </span>
                               <span
                                 class="patgrid__samp-char"
                                 classList={{
-                                  'patgrid__part--empty': note.sample === 0,
-                                  'patgrid__field--cursor': isCursorAt(flatIdx(), ch(), 'sampleLo'),
+                                  "patgrid__part--empty": note.sample === 0,
+                                  "patgrid__field--cursor": isCursorAt(
+                                    flatIdx(),
+                                    ch(),
+                                    "sampleLo",
+                                  ),
                                 }}
-                                onMouseDown={(e) => { e.stopPropagation(); focusAndDrag(e, 'sampleLo'); }}
+                                onMouseDown={(e) => {
+                                  e.stopPropagation();
+                                  focusAndDrag(e, "sampleLo");
+                                }}
                               >
                                 {samp().lo}
                               </span>
@@ -468,30 +566,51 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                               <span
                                 class="patgrid__eff-char"
                                 classList={{
-                                  'patgrid__part--empty': blank(),
-                                  'patgrid__field--cursor': isCursorAt(flatIdx(), ch(), 'effectCmd'),
+                                  "patgrid__part--empty": blank(),
+                                  "patgrid__field--cursor": isCursorAt(
+                                    flatIdx(),
+                                    ch(),
+                                    "effectCmd",
+                                  ),
                                 }}
-                                onMouseDown={(e) => { e.stopPropagation(); focusAndDrag(e, 'effectCmd'); }}
+                                onMouseDown={(e) => {
+                                  e.stopPropagation();
+                                  focusAndDrag(e, "effectCmd");
+                                }}
                               >
                                 {eff().cmd}
                               </span>
                               <span
                                 class="patgrid__eff-char"
                                 classList={{
-                                  'patgrid__part--empty': blank(),
-                                  'patgrid__field--cursor': isCursorAt(flatIdx(), ch(), 'effectHi'),
+                                  "patgrid__part--empty": blank(),
+                                  "patgrid__field--cursor": isCursorAt(
+                                    flatIdx(),
+                                    ch(),
+                                    "effectHi",
+                                  ),
                                 }}
-                                onMouseDown={(e) => { e.stopPropagation(); focusAndDrag(e, 'effectHi'); }}
+                                onMouseDown={(e) => {
+                                  e.stopPropagation();
+                                  focusAndDrag(e, "effectHi");
+                                }}
                               >
                                 {eff().hi}
                               </span>
                               <span
                                 class="patgrid__eff-char"
                                 classList={{
-                                  'patgrid__part--empty': blank(),
-                                  'patgrid__field--cursor': isCursorAt(flatIdx(), ch(), 'effectLo'),
+                                  "patgrid__part--empty": blank(),
+                                  "patgrid__field--cursor": isCursorAt(
+                                    flatIdx(),
+                                    ch(),
+                                    "effectLo",
+                                  ),
                                 }}
-                                onMouseDown={(e) => { e.stopPropagation(); focusAndDrag(e, 'effectLo'); }}
+                                onMouseDown={(e) => {
+                                  e.stopPropagation();
+                                  focusAndDrag(e, "effectLo");
+                                }}
                               >
                                 {eff().lo}
                               </span>

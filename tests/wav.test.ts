@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { readWav, writeWav } from '../src/core/audio/wav';
-import { compareChannels } from './lib/compare';
+import { describe, expect, it } from "vitest";
+import { readWav, writeWav } from "../src/core/audio/wav";
+import { compareChannels } from "./lib/compare";
 
-describe('WAV round-trip', () => {
-  it('writes and reads 16-bit stereo', () => {
+describe("WAV round-trip", () => {
+  it("writes and reads 16-bit stereo", () => {
     const frames = 1024;
     const left = new Float32Array(frames);
     const right = new Float32Array(frames);
@@ -23,12 +23,15 @@ describe('WAV round-trip', () => {
     for (const peak of result.peakDiff) expect(peak).toBeLessThan(1e-3);
   });
 
-  it('writes and reads 24-bit mono', () => {
+  it("writes and reads 24-bit mono", () => {
     const frames = 512;
     const ch = new Float32Array(frames);
     for (let i = 0; i < frames; i++) ch[i] = (i / frames) * 2 - 1;
 
-    const buf = writeWav({ sampleRate: 48000, channels: [ch] }, { bitsPerSample: 24 });
+    const buf = writeWav(
+      { sampleRate: 48000, channels: [ch] },
+      { bitsPerSample: 24 },
+    );
     const decoded = readWav(buf);
     expect(decoded.sampleRate).toBe(48000);
     expect(decoded.channels).toHaveLength(1);

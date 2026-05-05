@@ -39,7 +39,12 @@ The `Replayer` is the only thing that knows ProTracker. The mixer is the only th
 ```ts
 class Replayer {
   constructor(song: Song, opts: ReplayerOptions);
-  process(left: Float32Array, right: Float32Array, frames: number, offset: number): void;
+  process(
+    left: Float32Array,
+    right: Float32Array,
+    frames: number,
+    offset: number,
+  ): void;
   setChannelMuted(channel: number, muted: boolean): void;
   setAmigaModel(model: AmigaModel): void;
   setStereoSeparation(sep: number): void;
@@ -66,19 +71,19 @@ The replayer keeps a fractional-sample accumulator so the gap between ticks trac
 
 All standard effects `0xx..Fxx` and most extended `Exy`. Notable PT-specific behaviors (all per pt2-clone):
 
-| Effect           | Quirk                                                                           |
-| ---------------- | ------------------------------------------------------------------------------- |
-| `Dxx` PatternBreak | Param is decimal-encoded (`Dxy` jumps to row `x*10 + y`), not hex.            |
-| `E0x` SetFilter    | LED filter — `E00 = on`, `E01 = off`. Off by default.                         |
-| `E3x` Glissando    | Tone-portamento snaps to PERIOD_TABLE entries; basePeriod stays smooth.       |
-| `E4x` VibratoWaveform | Value 3 also = square (PT2.3D bug, preserved).                             |
-| `E7x` TremoloWaveform | Ramp tremolo uses `vibratoPos` for half-check (PT bug, preserved).         |
-| `E5y` SetFinetune  | Applied **before** period lookup so the new finetune affects the same row.    |
-| `E9y` Retrigger    | Period reload on retrigger uses base period, not the vibrated effective.      |
-| `EC0` NoteCut      | Cuts at tick 0 via the `setPeriod → checkMoreEffects` path.                   |
-| `ECy` NoteCut      | Sets volume = 0 at tick `y`; leaves period alone.                              |
-| `EFy` InvertLoop   | Bit-inverts loop-region bytes **destructively** in place — re-parse to clean. |
-| `Fxx` SetSpeed     | `< 0x20`: speed (ticks/row). `>= 0x20`: tempo (BPM), deferred 1 tick.         |
+| Effect                | Quirk                                                                         |
+| --------------------- | ----------------------------------------------------------------------------- |
+| `Dxx` PatternBreak    | Param is decimal-encoded (`Dxy` jumps to row `x*10 + y`), not hex.            |
+| `E0x` SetFilter       | LED filter — `E00 = on`, `E01 = off`. Off by default.                         |
+| `E3x` Glissando       | Tone-portamento snaps to PERIOD_TABLE entries; basePeriod stays smooth.       |
+| `E4x` VibratoWaveform | Value 3 also = square (PT2.3D bug, preserved).                                |
+| `E7x` TremoloWaveform | Ramp tremolo uses `vibratoPos` for half-check (PT bug, preserved).            |
+| `E5y` SetFinetune     | Applied **before** period lookup so the new finetune affects the same row.    |
+| `E9y` Retrigger       | Period reload on retrigger uses base period, not the vibrated effective.      |
+| `EC0` NoteCut         | Cuts at tick 0 via the `setPeriod → checkMoreEffects` path.                   |
+| `ECy` NoteCut         | Sets volume = 0 at tick `y`; leaves period alone.                             |
+| `EFy` InvertLoop      | Bit-inverts loop-region bytes **destructively** in place — re-parse to clean. |
+| `Fxx` SetSpeed        | `< 0x20`: speed (ticks/row). `>= 0x20`: tempo (BPM), deferred 1 tick.         |
 
 Period clamp is `[113, 856]` — the original Amiga DMA hardware limit. Notes outside this range are clamped at trigger.
 
@@ -109,17 +114,17 @@ See [src/core/audio/types.ts](../src/core/audio/types.ts):
 
 ```ts
 interface ReplayerOptions {
-  sampleRate: number;          // 44100, 48000, …
-  clock?: 'PAL' | 'NTSC';      // PAL is the PT default
-  initialSpeed?: number;       // default 6
-  initialTempo?: number;       // default 125 BPM
-  stereoSeparation?: number;   // 0..100; pt2-clone default 20
-  loop?: boolean;              // live: true, offline: false
+  sampleRate: number; // 44100, 48000, …
+  clock?: "PAL" | "NTSC"; // PAL is the PT default
+  initialSpeed?: number; // default 6
+  initialTempo?: number; // default 125 BPM
+  stereoSeparation?: number; // 0..100; pt2-clone default 20
+  loop?: boolean; // live: true, offline: false
   initialOrder?: number;
   initialRow?: number;
-  loopPattern?: boolean;       // F7 mode
+  loopPattern?: boolean; // F7 mode
   mixerFactory?: (sampleRate: number) => Mixer;
-  amigaModel?: AmigaModel;     // 'A500' | 'A1200', default 'A1200'
+  amigaModel?: AmigaModel; // 'A500' | 'A1200', default 'A1200'
 }
 ```
 
@@ -134,7 +139,12 @@ interface Mixer {
   setVolume(channel, volume: number): void;
   startDMA(channel, byteOffset?: number): void;
   stopDMA(channel): void;
-  generate(left: Float32Array, right: Float32Array, frames: number, offset: number): void;
+  generate(
+    left: Float32Array,
+    right: Float32Array,
+    frames: number,
+    offset: number,
+  ): void;
   setLEDFilter(on: boolean): void;
   setStereoSeparation(sep: number): void;
 }
@@ -169,10 +179,14 @@ The replayer never branches on which mixer is active. Two implementations:
 
 ```ts
 const engine = await AudioEngine.create();
-engine.load(song);          // postMessage: load
-await engine.play();        // postMessage: play
-engine.onPosition = (order, row) => { /* … */ };
-engine.onLevels   = (peaks)         => { /* … */ };
+engine.load(song); // postMessage: load
+await engine.play(); // postMessage: play
+engine.onPosition = (order, row) => {
+  /* … */
+};
+engine.onLevels = (peaks) => {
+  /* … */
+};
 ```
 
 Public methods are 1:1 with the message types:
@@ -185,15 +199,15 @@ Public methods are 1:1 with the message types:
 
 The worklet ([src/core/audio/worklet.ts](../src/core/audio/worklet.ts)) is an `AudioWorkletProcessor` that owns a `Replayer` and proxies tracker commands across the `MessagePort`:
 
-| Main → worklet              | Worklet → main                              |
-| --------------------------- | ------------------------------------------- |
-| `load { song }`             | `pos { order, row }` (on row crossings)     |
-| `play`                      | `level { peaks: number[4] }` (~30 Hz)       |
-| `playFrom { order, row, loopPattern }` |                                  |
-| `stop`                      |                                             |
-| `setChannelMuted { ch, muted }` |                                         |
-| `setAmigaModel { model }`   |                                             |
-| `setStereoSeparation { sep }` |                                           |
+| Main → worklet                         | Worklet → main                          |
+| -------------------------------------- | --------------------------------------- |
+| `load { song }`                        | `pos { order, row }` (on row crossings) |
+| `play`                                 | `level { peaks: number[4] }` (~30 Hz)   |
+| `playFrom { order, row, loopPattern }` |                                         |
+| `stop`                                 |                                         |
+| `setChannelMuted { ch, muted }`        |                                         |
+| `setAmigaModel { model }`              |                                         |
+| `setStereoSeparation { sep }`          |                                         |
 
 The worklet caches mute gates, Paula model, and stereo separation so they survive the `Replayer` recreation that happens at song-end loop. Live playback never reports end-of-song to the main thread — when the replayer ends, the worklet rebuilds it with `loop: true` and keeps mixing, so transport state stays consistent.
 

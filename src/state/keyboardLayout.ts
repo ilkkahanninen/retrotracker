@@ -1,5 +1,5 @@
-import { createSignal } from 'solid-js';
-import { KEY_CODE_MAP } from './shortcuts';
+import { createSignal } from "solid-js";
+import { KEY_CODE_MAP } from "./shortcuts";
 
 /**
  * Translate position-based shortcut keys to the user's actual keycap
@@ -29,12 +29,12 @@ interface KeyboardApi {
 }
 
 function getKeyboardApi(): KeyboardApi | null {
-  if (typeof navigator === 'undefined') return null;
+  if (typeof navigator === "undefined") return null;
   // `navigator.keyboard` is a non-standard, Chromium-only field. We do
   // unknown-cast to keep TS quiet — the runtime guard below is what
   // actually decides whether the API is usable.
   const kb = (navigator as unknown as { keyboard?: KeyboardApi }).keyboard;
-  if (!kb || typeof kb.getLayoutMap !== 'function') return null;
+  if (!kb || typeof kb.getLayoutMap !== "function") return null;
   return kb;
 }
 
@@ -49,15 +49,17 @@ export function initKeyboardLayout(): void {
   const kb = getKeyboardApi();
   if (!kb) return;
   const refresh = () => {
-    kb.getLayoutMap().then(setLayoutMap).catch(() => {
-      // The promise can reject in restricted contexts (sandboxed iframes,
-      // permission-policy blocks). Falling back to QWERTY labels is fine.
-    });
+    kb.getLayoutMap()
+      .then(setLayoutMap)
+      .catch(() => {
+        // The promise can reject in restricted contexts (sandboxed iframes,
+        // permission-policy blocks). Falling back to QWERTY labels is fine.
+      });
   };
   refresh();
   // Re-read whenever the OS reports a layout change so a user toggling
   // between input sources sees the help text update without a reload.
-  kb.addEventListener?.('layoutchange', refresh);
+  kb.addEventListener?.("layoutchange", refresh);
 }
 
 /**
@@ -96,7 +98,7 @@ export function remapPositionKeys(text: string): string {
   const map = layoutMap();
   if (!map) return text;
   return text
-    .split('')
+    .split("")
     .map((ch) => {
       const code = KEY_CODE_MAP[ch.toLowerCase()];
       if (!code) return ch;
@@ -104,7 +106,7 @@ export function remapPositionKeys(text: string): string {
       if (!label) return ch;
       return ch === ch.toLowerCase() ? label : label.toUpperCase();
     })
-    .join('');
+    .join("");
 }
 
 /** Test hook: replace the layout map directly without touching navigator. */

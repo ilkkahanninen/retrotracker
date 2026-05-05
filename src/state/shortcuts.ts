@@ -1,4 +1,4 @@
-import { redo, undo } from './song';
+import { redo, undo } from "./song";
 
 /**
  * Keyboard shortcut registry.
@@ -50,9 +50,9 @@ export interface Shortcut {
 }
 
 const registered: Shortcut[] = [
-  { key: 'z', mod: true,             description: 'Undo', run: undo },
-  { key: 'z', mod: true, shift: true, description: 'Redo', run: redo },
-  { key: 'y', mod: true,             description: 'Redo', run: redo },
+  { key: "z", mod: true, description: "Undo", run: undo },
+  { key: "z", mod: true, shift: true, description: "Redo", run: redo },
+  { key: "y", mod: true, description: "Redo", run: redo },
 ];
 
 /** Add a shortcut at runtime. Returns a function that removes it. */
@@ -77,59 +77,80 @@ export function getShortcuts(): readonly Shortcut[] {
  * with non-QWERTY layouts get Cmd+Z at the right glyph.
  */
 export const KEY_CODE_MAP: Readonly<Record<string, string>> = {
-  ' ':          'Space',
-  tab:          'Tab',
-  enter:        'Enter',
-  escape:       'Escape',
-  backspace:    'Backspace',
-  delete:       'Delete',
-  arrowup:      'ArrowUp',
-  arrowdown:    'ArrowDown',
-  arrowleft:    'ArrowLeft',
-  arrowright:   'ArrowRight',
-  pageup:       'PageUp',
-  pagedown:     'PageDown',
-  home:         'Home',
-  end:          'End',
+  " ": "Space",
+  tab: "Tab",
+  enter: "Enter",
+  escape: "Escape",
+  backspace: "Backspace",
+  delete: "Delete",
+  arrowup: "ArrowUp",
+  arrowdown: "ArrowDown",
+  arrowleft: "ArrowLeft",
+  arrowright: "ArrowRight",
+  pageup: "PageUp",
+  pagedown: "PageDown",
+  home: "Home",
+  end: "End",
   // Digits and a couple of OEM punctuation keys: registering a `key: '1', shift: true`
   // shortcut would otherwise miss because `event.key` becomes '!' under shift on
   // US layout. Matching by `event.code` (`Digit1`) catches it regardless.
-  '0':          'Digit0',
-  '1':          'Digit1',
-  '2':          'Digit2',
-  '3':          'Digit3',
-  '4':          'Digit4',
-  '5':          'Digit5',
-  '6':          'Digit6',
-  '7':          'Digit7',
-  '8':          'Digit8',
-  '9':          'Digit9',
-  '-':          'Minus',
-  '=':          'Equal',
-  ',':          'Comma',
-  '.':          'Period',
-  ';':          'Semicolon',
-  '/':          'Slash',
-  "'":          'Quote',
-  '[':          'BracketLeft',
-  ']':          'BracketRight',
-  '\\':         'Backslash',
-  '`':          'Backquote',
+  "0": "Digit0",
+  "1": "Digit1",
+  "2": "Digit2",
+  "3": "Digit3",
+  "4": "Digit4",
+  "5": "Digit5",
+  "6": "Digit6",
+  "7": "Digit7",
+  "8": "Digit8",
+  "9": "Digit9",
+  "-": "Minus",
+  "=": "Equal",
+  ",": "Comma",
+  ".": "Period",
+  ";": "Semicolon",
+  "/": "Slash",
+  "'": "Quote",
+  "[": "BracketLeft",
+  "]": "BracketRight",
+  "\\": "Backslash",
+  "`": "Backquote",
   // Letter keys — only consulted in position-mode (`position: true`).
   // Default-mode matching deliberately ignores these via `isLetterKey`,
   // so an AZERTY user pressing the Q letter doesn't fire a Cmd+A
   // shortcut just because Q sits at the QWERTY-A physical position.
-  a: 'KeyA', b: 'KeyB', c: 'KeyC', d: 'KeyD', e: 'KeyE', f: 'KeyF',
-  g: 'KeyG', h: 'KeyH', i: 'KeyI', j: 'KeyJ', k: 'KeyK', l: 'KeyL',
-  m: 'KeyM', n: 'KeyN', o: 'KeyO', p: 'KeyP', q: 'KeyQ', r: 'KeyR',
-  s: 'KeyS', t: 'KeyT', u: 'KeyU', v: 'KeyV', w: 'KeyW', x: 'KeyX',
-  y: 'KeyY', z: 'KeyZ',
+  a: "KeyA",
+  b: "KeyB",
+  c: "KeyC",
+  d: "KeyD",
+  e: "KeyE",
+  f: "KeyF",
+  g: "KeyG",
+  h: "KeyH",
+  i: "KeyI",
+  j: "KeyJ",
+  k: "KeyK",
+  l: "KeyL",
+  m: "KeyM",
+  n: "KeyN",
+  o: "KeyO",
+  p: "KeyP",
+  q: "KeyQ",
+  r: "KeyR",
+  s: "KeyS",
+  t: "KeyT",
+  u: "KeyU",
+  v: "KeyV",
+  w: "KeyW",
+  x: "KeyX",
+  y: "KeyY",
+  z: "KeyZ",
 };
 
 /** True for single-letter shortcut keys (`a`..`z`). The matcher uses
  *  this to suppress the code-fallback in default mode — see KEY_CODE_MAP. */
 function isLetterKey(k: string): boolean {
-  return k.length === 1 && k >= 'a' && k <= 'z';
+  return k.length === 1 && k >= "a" && k <= "z";
 }
 
 /**
@@ -188,23 +209,29 @@ function matchesKeyOnly(e: KeyboardEvent, s: Shortcut): boolean {
  * Mod-key shortcuts (⌘S, ⌘Z, …) always fire regardless, so global app
  * actions stay reachable.
  */
-type FocusKind = 'text' | 'range' | 'select' | null;
+type FocusKind = "text" | "range" | "select" | null;
 
 function focusKind(): FocusKind {
-  const el = typeof document === 'undefined' ? null : document.activeElement;
+  const el = typeof document === "undefined" ? null : document.activeElement;
   if (!el) return null;
-  if (el instanceof HTMLInputElement && el.type === 'range') return 'range';
+  if (el instanceof HTMLInputElement && el.type === "range") return "range";
   const tag = el.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA') return 'text';
-  if (tag === 'SELECT') return 'select';
-  if (el instanceof HTMLElement && el.isContentEditable) return 'text';
+  if (tag === "INPUT" || tag === "TEXTAREA") return "text";
+  if (tag === "SELECT") return "select";
+  if (el instanceof HTMLElement && el.isContentEditable) return "text";
   return null;
 }
 
 /** Keys a focused range input consumes natively — leave these to the slider. */
 const RANGE_NAV_KEYS: ReadonlySet<string> = new Set([
-  'arrowup', 'arrowdown', 'arrowleft', 'arrowright',
-  'pageup', 'pagedown', 'home', 'end',
+  "arrowup",
+  "arrowdown",
+  "arrowleft",
+  "arrowright",
+  "pageup",
+  "pagedown",
+  "home",
+  "end",
 ]);
 
 /**
@@ -228,11 +255,11 @@ export function installShortcuts(target: Window = window): () => void {
       if (!s.mod) {
         // Text inputs / selects consume bare keystrokes; skip plain-key
         // shortcuts so typing into the field works.
-        if (kind === 'text' || kind === 'select') continue;
+        if (kind === "text" || kind === "select") continue;
         // Range inputs natively consume navigation keys — let the slider
         // keep arrow/page/home/end. Letters and digits pass through so
         // piano notes (a/s/d/…) audition while the slider has focus.
-        if (kind === 'range' && RANGE_NAV_KEYS.has(s.key)) continue;
+        if (kind === "range" && RANGE_NAV_KEYS.has(s.key)) continue;
       }
       e.preventDefault();
       if (s.runUp && e.repeat) return;
@@ -250,10 +277,10 @@ export function installShortcuts(target: Window = window): () => void {
       return;
     }
   };
-  target.addEventListener('keydown', downHandler);
-  target.addEventListener('keyup', upHandler);
+  target.addEventListener("keydown", downHandler);
+  target.addEventListener("keyup", upHandler);
   return () => {
-    target.removeEventListener('keydown', downHandler);
-    target.removeEventListener('keyup', upHandler);
+    target.removeEventListener("keydown", downHandler);
+    target.removeEventListener("keyup", upHandler);
   };
 }

@@ -19,8 +19,8 @@ export function readWav(buf: ArrayBufferLike | Uint8Array): WavData {
   const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
   const view = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
 
-  if (readAscii(u8, 0, 4) !== 'RIFF') throw new Error('Not a RIFF file');
-  if (readAscii(u8, 8, 4) !== 'WAVE') throw new Error('Not a WAVE file');
+  if (readAscii(u8, 0, 4) !== "RIFF") throw new Error("Not a RIFF file");
+  if (readAscii(u8, 8, 4) !== "WAVE") throw new Error("Not a WAVE file");
 
   let off = 12;
   let fmtFound = false;
@@ -35,13 +35,13 @@ export function readWav(buf: ArrayBufferLike | Uint8Array): WavData {
     const chunkId = readAscii(u8, off, 4);
     const chunkSize = view.getUint32(off + 4, true);
     const body = off + 8;
-    if (chunkId === 'fmt ') {
+    if (chunkId === "fmt ") {
       audioFormat = view.getUint16(body, true);
       numChannels = view.getUint16(body + 2, true);
       sampleRate = view.getUint32(body + 4, true);
       bitsPerSample = view.getUint16(body + 14, true);
       fmtFound = true;
-    } else if (chunkId === 'data') {
+    } else if (chunkId === "data") {
       dataOff = body;
       dataLen = chunkSize;
       break;
@@ -49,27 +49,38 @@ export function readWav(buf: ArrayBufferLike | Uint8Array): WavData {
     off = body + chunkSize + (chunkSize & 1); // pad to even
   }
 
-  if (!fmtFound) throw new Error('WAV missing fmt chunk');
-  if (dataOff < 0) throw new Error('WAV missing data chunk');
-  if (numChannels < 1 || numChannels > 2) throw new Error(`Unsupported channel count: ${numChannels}`);
+  if (!fmtFound) throw new Error("WAV missing fmt chunk");
+  if (dataOff < 0) throw new Error("WAV missing data chunk");
+  if (numChannels < 1 || numChannels > 2)
+    throw new Error(`Unsupported channel count: ${numChannels}`);
 
   // Format 1 = PCM int, 3 = IEEE float, 0xFFFE = WAVE_FORMAT_EXTENSIBLE.
   // Extensible carries a sub-format GUID; for sample loading we just trust
   // the bit depth and treat int/float by depth alone.
   const isFloat = audioFormat === 3;
-  if (audioFormat !== 1 && audioFormat !== 3 && audioFormat !== 0xFFFE) {
-    throw new Error(`Unsupported WAV format: ${audioFormat} (need PCM int or float)`);
+  if (audioFormat !== 1 && audioFormat !== 3 && audioFormat !== 0xfffe) {
+    throw new Error(
+      `Unsupported WAV format: ${audioFormat} (need PCM int or float)`,
+    );
   }
   if (isFloat && bitsPerSample !== 32) {
     throw new Error(`Unsupported float bit depth: ${bitsPerSample}`);
   }
-  if (!isFloat && bitsPerSample !== 8 && bitsPerSample !== 16 && bitsPerSample !== 24) {
+  if (
+    !isFloat &&
+    bitsPerSample !== 8 &&
+    bitsPerSample !== 16 &&
+    bitsPerSample !== 24
+  ) {
     throw new Error(`Unsupported PCM bit depth: ${bitsPerSample}`);
   }
 
   const bytesPerSample = bitsPerSample / 8;
   const frames = Math.floor(dataLen / (bytesPerSample * numChannels));
-  const channels: Float32Array[] = Array.from({ length: numChannels }, () => new Float32Array(frames));
+  const channels: Float32Array[] = Array.from(
+    { length: numChannels },
+    () => new Float32Array(frames),
+  );
 
   if (bitsPerSample === 8) {
     // 8-bit WAV is UNSIGNED — 128 is silence.
@@ -102,7 +113,10 @@ export function readWav(buf: ArrayBufferLike | Uint8Array): WavData {
     // 32-bit float.
     for (let i = 0; i < frames; i++) {
       for (let c = 0; c < numChannels; c++) {
-        channels[c]![i] = view.getFloat32(dataOff + (i * numChannels + c) * 4, true);
+        channels[c]![i] = view.getFloat32(
+          dataOff + (i * numChannels + c) * 4,
+          true,
+        );
       }
     }
   }
@@ -114,23 +128,27 @@ export interface WriteWavOptions {
   bitsPerSample?: 16 | 24;
 }
 
-export function writeWav(data: WavData, opts: WriteWavOptions = {}): Uint8Array {
+export function writeWav(
+  data: WavData,
+  opts: WriteWavOptions = {},
+): Uint8Array {
   const bps = opts.bitsPerSample ?? 16;
   const nch = data.channels.length;
-  if (nch < 1) throw new Error('Need at least one channel');
+  if (nch < 1) throw new Error("Need at least one channel");
   const frames = data.channels[0]!.length;
   for (const ch of data.channels) {
-    if (ch.length !== frames) throw new Error('Channels must have equal length');
+    if (ch.length !== frames)
+      throw new Error("Channels must have equal length");
   }
   const bytesPerSample = bps / 8;
   const dataLen = frames * nch * bytesPerSample;
   const total = 44 + dataLen;
   const u8 = new Uint8Array(total);
   const view = new DataView(u8.buffer);
-  writeAscii(u8, 0, 'RIFF');
+  writeAscii(u8, 0, "RIFF");
   view.setUint32(4, total - 8, true);
-  writeAscii(u8, 8, 'WAVE');
-  writeAscii(u8, 12, 'fmt ');
+  writeAscii(u8, 8, "WAVE");
+  writeAscii(u8, 12, "fmt ");
   view.setUint32(16, 16, true); // fmt chunk size
   view.setUint16(20, 1, true); // PCM
   view.setUint16(22, nch, true);
@@ -138,7 +156,7 @@ export function writeWav(data: WavData, opts: WriteWavOptions = {}): Uint8Array 
   view.setUint32(28, data.sampleRate * nch * bytesPerSample, true);
   view.setUint16(32, nch * bytesPerSample, true);
   view.setUint16(34, bps, true);
-  writeAscii(u8, 36, 'data');
+  writeAscii(u8, 36, "data");
   view.setUint32(40, dataLen, true);
 
   let off = 44;
@@ -166,7 +184,7 @@ export function writeWav(data: WavData, opts: WriteWavOptions = {}): Uint8Array 
 }
 
 function readAscii(u8: Uint8Array, off: number, len: number): string {
-  let s = '';
+  let s = "";
   for (let i = 0; i < len; i++) s += String.fromCharCode(u8[off + i]!);
   return s;
 }

@@ -1,5 +1,5 @@
-import { createSignal } from 'solid-js';
-import { CHANNELS } from '../core/mod/types';
+import { createSignal } from "solid-js";
+import { CHANNELS } from "../core/mod/types";
 
 /**
  * Per-channel mute and solo state for live playback. Kept session-only —
@@ -10,8 +10,10 @@ import { CHANNELS } from '../core/mod/types';
  */
 const initial = (): boolean[] => Array.from({ length: CHANNELS }, () => false);
 
-const [mutedChannels, setMutedRaw] = createSignal<readonly boolean[]>(initial());
-const [soloedChannels, setSoloedRaw] = createSignal<readonly boolean[]>(initial());
+const [mutedChannels, setMutedRaw] =
+  createSignal<readonly boolean[]>(initial());
+const [soloedChannels, setSoloedRaw] =
+  createSignal<readonly boolean[]>(initial());
 
 export { mutedChannels, soloedChannels };
 

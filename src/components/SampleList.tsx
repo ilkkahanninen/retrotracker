@@ -1,7 +1,7 @@
-import { For, Show, createSignal, type Component } from 'solid-js';
-import type { Song } from '../core/mod/types';
-import { currentSample } from '../state/edit';
-import { SAMPLE_NAME_MAX } from '../core/mod/sampleImport';
+import { For, Show, createSignal, type Component } from "solid-js";
+import type { Song } from "../core/mod/types";
+import { currentSample } from "../state/edit";
+import { SAMPLE_NAME_MAX } from "../core/mod/sampleImport";
 
 interface Props {
   song: Song | null;
@@ -28,7 +28,10 @@ export const SampleList: Component<Props> = (props) => {
   };
 
   return (
-    <Show when={props.song} fallback={<p class="placeholder">No song loaded</p>}>
+    <Show
+      when={props.song}
+      fallback={<p class="placeholder">No song loaded</p>}
+    >
       {(s) => (
         <ol>
           <For each={s().samples}>
@@ -38,39 +41,47 @@ export const SampleList: Component<Props> = (props) => {
               return (
                 <li
                   classList={{
-                    'sample--empty':   sample.lengthWords === 0,
-                    'sample--current': currentSample() === slot(),
+                    "sample--empty": sample.lengthWords === 0,
+                    "sample--current": currentSample() === slot(),
                   }}
                   onClick={() => {
                     if (isEditing()) return;
                     props.onSelect(slot());
                   }}
                   onDblClick={() => setEditingSlot(slot())}
-                  title={`Select sample ${slot().toString(16).toUpperCase().padStart(2, '0')} — double-click to rename`}
+                  title={`Select sample ${slot().toString(16).toUpperCase().padStart(2, "0")} — double-click to rename`}
                 >
-                  <span class="num">{slot().toString(16).toUpperCase().padStart(2, '0')}</span>
+                  <span class="num">
+                    {slot().toString(16).toUpperCase().padStart(2, "0")}
+                  </span>
                   <Show
                     when={isEditing()}
-                    fallback={<span class="name">{sample.name || '—'}</span>}
+                    fallback={<span class="name">{sample.name || "—"}</span>}
                   >
                     <input
                       class="sample__name-input"
                       type="text"
                       maxLength={SAMPLE_NAME_MAX}
                       value={sample.name}
-                      ref={(el) => queueMicrotask(() => { el.focus(); el.select(); })}
+                      ref={(el) =>
+                        queueMicrotask(() => {
+                          el.focus();
+                          el.select();
+                        })
+                      }
                       onClick={(e) => e.stopPropagation()}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
+                        if (e.key === "Enter") {
                           e.preventDefault();
                           submitRename(slot(), e.currentTarget.value);
-                        } else if (e.key === 'Escape') {
+                        } else if (e.key === "Escape") {
                           e.preventDefault();
                           setEditingSlot(null);
                         }
                       }}
                       onBlur={(e) => {
-                        if (editingSlot() === slot()) submitRename(slot(), e.currentTarget.value);
+                        if (editingSlot() === slot())
+                          submitRename(slot(), e.currentTarget.value);
                       }}
                     />
                   </Show>

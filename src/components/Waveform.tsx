@@ -227,8 +227,14 @@ export const Waveform: Component<WaveformProps> = (props) => {
     const sp = viewSpan();
     let s = viewStart() + dist;
     let e = s + sp;
-    if (s < 0) { s = 0; e = sp; }
-    if (e > len) { e = len; s = Math.max(0, len - sp); }
+    if (s < 0) {
+      s = 0;
+      e = sp;
+    }
+    if (e > len) {
+      e = len;
+      s = Math.max(0, len - sp);
+    }
     setViewStart(Math.round(s));
     setViewEnd(Math.round(e));
   };
@@ -266,8 +272,14 @@ export const Waveform: Component<WaveformProps> = (props) => {
 
     let s = anchorByte - t * newSp;
     let en = s + newSp;
-    if (s < 0) { s = 0; en = newSp; }
-    if (en > len) { en = len; s = Math.max(0, len - newSp); }
+    if (s < 0) {
+      s = 0;
+      en = newSp;
+    }
+    if (en > len) {
+      en = len;
+      s = Math.max(0, len - newSp);
+    }
     setViewStart(Math.floor(s));
     setViewEnd(Math.ceil(en));
   };
@@ -333,7 +345,10 @@ export const Waveform: Component<WaveformProps> = (props) => {
       let prev: number | null = null;
       for (let x = 0; x < W; x++) {
         const bucketStart = start + Math.floor(x * samplesPerPixel);
-        const bucketEnd = Math.min(end, start + Math.floor((x + 1) * samplesPerPixel));
+        const bucketEnd = Math.min(
+          end,
+          start + Math.floor((x + 1) * samplesPerPixel),
+        );
         if (bucketStart >= bucketEnd) continue;
         let mn = 127;
         let mx = -128;
@@ -394,8 +409,10 @@ export const Waveform: Component<WaveformProps> = (props) => {
         // Edge lines only drawn if the original selection edge is inside
         // the view, so a clipped-off edge doesn't read as the real boundary.
         ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
-        if (sel.start >= start && sel.start < end) ctx.fillRect(Math.floor(x0), 0, 1, H);
-        if (sel.end >= start && sel.end <= end) ctx.fillRect(Math.max(0, Math.floor(x1) - 1), 0, 1, H);
+        if (sel.start >= start && sel.start < end)
+          ctx.fillRect(Math.floor(x0), 0, 1, H);
+        if (sel.end >= start && sel.end <= end)
+          ctx.fillRect(Math.max(0, Math.floor(x1) - 1), 0, 1, H);
       }
     }
 

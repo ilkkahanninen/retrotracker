@@ -6,23 +6,23 @@ The design rule: the UI should never reach into core. It always goes through sta
 
 ## The big signals
 
-| Signal                              | Owner file                                 | Type                            |
-| ----------------------------------- | ------------------------------------------ | ------------------------------- |
-| `song`                              | [song.ts](../src/state/song.ts)            | `Song \| null`                  |
-| `transport`                         | [song.ts](../src/state/song.ts)            | `'idle' \| 'ready' \| 'playing'` |
-| `playMode`                          | [song.ts](../src/state/song.ts)            | `'song' \| 'pattern' \| null`   |
-| `playPos`                           | [song.ts](../src/state/song.ts)            | `{ order, row }`                |
-| `dirty`                             | [song.ts](../src/state/song.ts)            | `boolean`                       |
-| `cursor`                            | [cursor.ts](../src/state/cursor.ts)        | `{ order, row, channel, field }` |
-| `selection`                         | [selection.ts](../src/state/selection.ts)  | `PatternSelection \| null`      |
-| `clipboardSlice`                    | [clipboard.ts](../src/state/clipboard.ts)  | `Note[][] \| null`              |
-| `currentSample`, `currentOctave`, `editStep` | [edit.ts](../src/state/edit.ts)   | numbers                         |
-| `view`                              | [view.ts](../src/state/view.ts)            | `'pattern' \| 'sample'`         |
-| `mutedChannels`, `soloedChannels`   | [channelMute.ts](../src/state/channelMute.ts) | `Set<number>`                |
-| `channelLevels`                     | [channelLevel.ts](../src/state/channelLevel.ts) | `number[4]`                |
-| `workbenches`                       | [sampleWorkbench.ts](../src/state/sampleWorkbench.ts) | `Map<slot, SampleWorkbench>` |
-| `settings`                          | [settings.ts](../src/state/settings.ts)    | `{ paulaModel, colorScheme, uiScale, stereoSeparation }` |
-| `patternNames`                      | [patternNames.ts](../src/state/patternNames.ts) | `Record<patternIndex, string>` |
+| Signal                                       | Owner file                                            | Type                                                     |
+| -------------------------------------------- | ----------------------------------------------------- | -------------------------------------------------------- |
+| `song`                                       | [song.ts](../src/state/song.ts)                       | `Song \| null`                                           |
+| `transport`                                  | [song.ts](../src/state/song.ts)                       | `'idle' \| 'ready' \| 'playing'`                         |
+| `playMode`                                   | [song.ts](../src/state/song.ts)                       | `'song' \| 'pattern' \| null`                            |
+| `playPos`                                    | [song.ts](../src/state/song.ts)                       | `{ order, row }`                                         |
+| `dirty`                                      | [song.ts](../src/state/song.ts)                       | `boolean`                                                |
+| `cursor`                                     | [cursor.ts](../src/state/cursor.ts)                   | `{ order, row, channel, field }`                         |
+| `selection`                                  | [selection.ts](../src/state/selection.ts)             | `PatternSelection \| null`                               |
+| `clipboardSlice`                             | [clipboard.ts](../src/state/clipboard.ts)             | `Note[][] \| null`                                       |
+| `currentSample`, `currentOctave`, `editStep` | [edit.ts](../src/state/edit.ts)                       | numbers                                                  |
+| `view`                                       | [view.ts](../src/state/view.ts)                       | `'pattern' \| 'sample'`                                  |
+| `mutedChannels`, `soloedChannels`            | [channelMute.ts](../src/state/channelMute.ts)         | `Set<number>`                                            |
+| `channelLevels`                              | [channelLevel.ts](../src/state/channelLevel.ts)       | `number[4]`                                              |
+| `workbenches`                                | [sampleWorkbench.ts](../src/state/sampleWorkbench.ts) | `Map<slot, SampleWorkbench>`                             |
+| `settings`                                   | [settings.ts](../src/state/settings.ts)               | `{ paulaModel, colorScheme, uiScale, stereoSeparation }` |
+| `patternNames`                               | [patternNames.ts](../src/state/patternNames.ts)       | `Record<patternIndex, string>`                           |
 
 ## Edit history
 
@@ -63,8 +63,19 @@ Constraints baked into commit:
 [cursor.ts](../src/state/cursor.ts) — the editing position in the pattern grid:
 
 ```ts
-type Field = 'note' | 'sampleHi' | 'sampleLo' | 'effectCmd' | 'effectHi' | 'effectLo';
-interface Cursor { order: number; row: number; channel: number; field: Field; }
+type Field =
+  | "note"
+  | "sampleHi"
+  | "sampleLo"
+  | "effectCmd"
+  | "effectHi"
+  | "effectLo";
+interface Cursor {
+  order: number;
+  row: number;
+  channel: number;
+  field: Field;
+}
 ```
 
 Pure movement helpers (`moveLeft`, `moveRight`, `moveUp`, `moveDown`, `pageUp`, `pageDown`, `tabNext`, `tabPrev`) take a cursor + (optionally) a song and return a new cursor. Up/Down navigate the **flat list** ([flatten.ts](../src/core/mod/flatten.ts)) so reaching the last visible row of a pattern walks into the next pattern naturally. Hidden rows (Dxx-truncated) snap to the closest visible row at-or-before the cursor.
@@ -112,10 +123,10 @@ Preview audio runs through a separate `AudioWorklet` voice (the "preview worklet
 
 ```ts
 interface Settings {
-  paulaModel: 'A500' | 'A1200';
-  colorScheme: 'default' | 'light' | 'high-contrast' | 'amber';
-  uiScale: number;             // 75..150 percent
-  stereoSeparation: number;    // 0..100 percent
+  paulaModel: "A500" | "A1200";
+  colorScheme: "default" | "light" | "high-contrast" | "amber";
+  uiScale: number; // 75..150 percent
+  stereoSeparation: number; // 0..100 percent
 }
 ```
 
@@ -161,21 +172,21 @@ The "raw" setter (`setWorkbenchesRaw`) is exported so the song-history code in `
 
 ## Smaller pieces
 
-| File                          | What it owns                                                                |
-| ----------------------------- | --------------------------------------------------------------------------- |
-| [edit.ts](../src/state/edit.ts) | `currentSample` (1..31), `currentOctave` (1..3), `editStep` (rows to advance after note entry) |
-| [view.ts](../src/state/view.ts) | `view` ('pattern' \| 'sample')                                            |
-| [io.ts](../src/state/io.ts)     | Loaded filename, helpers for "Save As" naming                             |
-| [theme.ts](../src/state/theme.ts) | Reactive binding from `settings.colorScheme` to CSS variables           |
-| [keyboardLayout.ts](../src/state/keyboardLayout.ts) | Note-entry layout (QWERTY, Dvorak, etc.) and the row→note mapping |
-| [shortcuts.ts](../src/state/shortcuts.ts) | The user-facing keybinding model (used by [PatternHelp](../src/components/PatternHelp.tsx)) |
-| [appKeybinds.ts](../src/state/appKeybinds.ts) | The actual keydown router — translates events to actions          |
-| [platform.ts](../src/state/platform.ts) | `isMac()` for ⌘ vs. Ctrl decisions                                  |
-| [info.ts](../src/state/info.ts) | The "info" text editor's state (stored in `.retro`, never in `.mod`)     |
-| [gridConfig.ts](../src/state/gridConfig.ts) | Pattern-grid display preferences (row-hex highlighting cadence)   |
-| [channelLevel.ts](../src/state/channelLevel.ts) | Per-channel peak amplitudes for the VU meters                 |
-| [channelMute.ts](../src/state/channelMute.ts) | Mute / solo flags. `isChannelMuted(ch)` combines both: any solo wins, else mute decides |
-| [patternNames.ts](../src/state/patternNames.ts) | User-given pattern names (project-only — never written to .mod) |
+| File                                                | What it owns                                                                                   |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| [edit.ts](../src/state/edit.ts)                     | `currentSample` (1..31), `currentOctave` (1..3), `editStep` (rows to advance after note entry) |
+| [view.ts](../src/state/view.ts)                     | `view` ('pattern' \| 'sample')                                                                 |
+| [io.ts](../src/state/io.ts)                         | Loaded filename, helpers for "Save As" naming                                                  |
+| [theme.ts](../src/state/theme.ts)                   | Reactive binding from `settings.colorScheme` to CSS variables                                  |
+| [keyboardLayout.ts](../src/state/keyboardLayout.ts) | Note-entry layout (QWERTY, Dvorak, etc.) and the row→note mapping                              |
+| [shortcuts.ts](../src/state/shortcuts.ts)           | The user-facing keybinding model (used by [PatternHelp](../src/components/PatternHelp.tsx))    |
+| [appKeybinds.ts](../src/state/appKeybinds.ts)       | The actual keydown router — translates events to actions                                       |
+| [platform.ts](../src/state/platform.ts)             | `isMac()` for ⌘ vs. Ctrl decisions                                                             |
+| [info.ts](../src/state/info.ts)                     | The "info" text editor's state (stored in `.retro`, never in `.mod`)                           |
+| [gridConfig.ts](../src/state/gridConfig.ts)         | Pattern-grid display preferences (row-hex highlighting cadence)                                |
+| [channelLevel.ts](../src/state/channelLevel.ts)     | Per-channel peak amplitudes for the VU meters                                                  |
+| [channelMute.ts](../src/state/channelMute.ts)       | Mute / solo flags. `isChannelMuted(ch)` combines both: any solo wins, else mute decides        |
+| [patternNames.ts](../src/state/patternNames.ts)     | User-given pattern names (project-only — never written to .mod)                                |
 
 ## Reactivity rules of thumb
 

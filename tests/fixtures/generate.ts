@@ -8,16 +8,16 @@
  * Usage: `npm run fixtures:generate`
  */
 
-import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { writeModule } from '../../src/core/mod/writer';
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { writeModule } from "../../src/core/mod/writer";
 import {
   emptyPattern,
   emptySample,
   emptySong,
   PERIOD_TABLE,
-} from '../../src/core/mod/format';
-import type { Note, Pattern, Sample, Song } from '../../src/core/mod/types';
+} from "../../src/core/mod/format";
+import type { Note, Pattern, Sample, Song } from "../../src/core/mod/types";
 
 // ─── Sample synthesis ──────────────────────────────────────────────────────
 
@@ -27,7 +27,8 @@ function triangleSample(words: number, peak = 100): Int8Array {
   const data = new Int8Array(len);
   for (let i = 0; i < len; i++) {
     const phase = i / len; // 0..1
-    const v = phase < 0.5 ? -peak + phase * 4 * peak : peak - (phase - 0.5) * 4 * peak;
+    const v =
+      phase < 0.5 ? -peak + phase * 4 * peak : peak - (phase - 0.5) * 4 * peak;
     data[i] = Math.round(v);
   }
   return data;
@@ -54,8 +55,18 @@ function sineSample(words: number, peak = 100): Int8Array {
 // ─── Note helpers ──────────────────────────────────────────────────────────
 
 const NOTE_OFFSET: Record<string, number> = {
-  'C-': 0, 'C#': 1, 'D-': 2, 'D#': 3, 'E-': 4, 'F-': 5,
-  'F#': 6, 'G-': 7, 'G#': 8, 'A-': 9, 'A#': 10, 'B-': 11,
+  "C-": 0,
+  "C#": 1,
+  "D-": 2,
+  "D#": 3,
+  "E-": 4,
+  "F-": 5,
+  "F#": 6,
+  "G-": 7,
+  "G#": 8,
+  "A-": 9,
+  "A#": 10,
+  "B-": 11,
 };
 
 /** Look up a finetune-0 period by name like 'C-2', 'F#3'. */
@@ -136,7 +147,7 @@ const SIN = sineSample(32);
 
 const triLooped: SampleSpec = {
   slot: 1,
-  name: 'triangle',
+  name: "triangle",
   data: TRI,
   volume: 64,
   finetune: 0,
@@ -146,7 +157,7 @@ const triLooped: SampleSpec = {
 
 const sqrLooped: SampleSpec = {
   slot: 2,
-  name: 'square',
+  name: "square",
   data: SQR,
   volume: 64,
   finetune: 0,
@@ -156,7 +167,7 @@ const sqrLooped: SampleSpec = {
 
 const sinLooped: SampleSpec = {
   slot: 3,
-  name: 'sine',
+  name: "sine",
   data: SIN,
   volume: 64,
   finetune: 0,
@@ -173,13 +184,13 @@ const sinLooped: SampleSpec = {
  */
 function fixtureBaseline(): Song {
   const rows: RowSpec[] = [];
-  const notes = ['C-2', 'E-2', 'G-2', 'C-3'];
+  const notes = ["C-2", "E-2", "G-2", "C-3"];
   for (let i = 0; i < 64; i++) {
     if (i % 16 === 0) rows.push([{ note: notes[i / 16]!, sample: 1 }]);
     else rows.push([]);
   }
   return makeSong({
-    title: 'baseline',
+    title: "baseline",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -193,7 +204,7 @@ function fixtureBaseline(): Song {
 function fixtureResampling(): Song {
   const scale: string[] = [];
   for (let oct = 1; oct <= 3; oct++) {
-    for (const n of ['C-', 'D-', 'E-', 'F-', 'G-', 'A-', 'B-']) {
+    for (const n of ["C-", "D-", "E-", "F-", "G-", "A-", "B-"]) {
       scale.push(`${n}${oct}`);
     }
   }
@@ -207,7 +218,7 @@ function fixtureResampling(): Song {
     }
   }
   return makeSong({
-    title: 'resampling',
+    title: "resampling",
     samples: [sqrLooped],
     patterns: [makePattern(rows)],
   });
@@ -221,16 +232,20 @@ function fixtureResampling(): Song {
 function fixtureAmigaFilter(): Song {
   const rows: RowSpec[] = [];
   // Trigger a sustained note on row 0
-  rows.push([{ note: 'C-3', sample: 2 }]);
+  rows.push([{ note: "C-3", sample: 2 }]);
   for (let i = 1; i < 64; i++) {
-    if (i === 8)  rows.push([{ effect: 0xE, param: 0x01 }]); // filter on
-    else if (i === 24) rows.push([{ effect: 0xE, param: 0x00 }]); // filter off
-    else if (i === 40) rows.push([{ effect: 0xE, param: 0x01 }]); // on
-    else if (i === 56) rows.push([{ effect: 0xE, param: 0x00 }]); // off
+    if (i === 8)
+      rows.push([{ effect: 0xe, param: 0x01 }]); // filter on
+    else if (i === 24)
+      rows.push([{ effect: 0xe, param: 0x00 }]); // filter off
+    else if (i === 40)
+      rows.push([{ effect: 0xe, param: 0x01 }]); // on
+    else if (i === 56)
+      rows.push([{ effect: 0xe, param: 0x00 }]); // off
     else rows.push([]);
   }
   return makeSong({
-    title: 'amiga-filter',
+    title: "amiga-filter",
     samples: [sqrLooped],
     patterns: [makePattern(rows)],
   });
@@ -242,16 +257,16 @@ function fixtureAmigaFilter(): Song {
  */
 function fixtureVibratoWaveforms(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0] = [{ note: 'C-3', sample: 1, effect: 0xE, param: 0x40 }]; // sine
+  rows[0] = [{ note: "C-3", sample: 1, effect: 0xe, param: 0x40 }]; // sine
   for (let i = 1; i < 16; i++) rows[i] = [{ effect: 0x4, param: 0x44 }];
-  rows[16] = [{ effect: 0xE, param: 0x41 }]; // ramp
+  rows[16] = [{ effect: 0xe, param: 0x41 }]; // ramp
   for (let i = 17; i < 32; i++) rows[i] = [{ effect: 0x4, param: 0x44 }];
-  rows[32] = [{ effect: 0xE, param: 0x42 }]; // square
+  rows[32] = [{ effect: 0xe, param: 0x42 }]; // square
   for (let i = 33; i < 48; i++) rows[i] = [{ effect: 0x4, param: 0x44 }];
-  rows[48] = [{ effect: 0xE, param: 0x43 }]; // random
+  rows[48] = [{ effect: 0xe, param: 0x43 }]; // random
   for (let i = 49; i < 64; i++) rows[i] = [{ effect: 0x4, param: 0x44 }];
   return makeSong({
-    title: 'vibrato-waveforms',
+    title: "vibrato-waveforms",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -262,16 +277,16 @@ function fixtureVibratoWaveforms(): Song {
  */
 function fixtureTremoloWaveforms(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0] = [{ note: 'C-3', sample: 1, effect: 0xE, param: 0x70 }]; // sine
+  rows[0] = [{ note: "C-3", sample: 1, effect: 0xe, param: 0x70 }]; // sine
   for (let i = 1; i < 16; i++) rows[i] = [{ effect: 0x7, param: 0x44 }];
-  rows[16] = [{ effect: 0xE, param: 0x71 }]; // ramp
+  rows[16] = [{ effect: 0xe, param: 0x71 }]; // ramp
   for (let i = 17; i < 32; i++) rows[i] = [{ effect: 0x7, param: 0x44 }];
-  rows[32] = [{ effect: 0xE, param: 0x72 }]; // square
+  rows[32] = [{ effect: 0xe, param: 0x72 }]; // square
   for (let i = 33; i < 48; i++) rows[i] = [{ effect: 0x7, param: 0x44 }];
-  rows[48] = [{ effect: 0xE, param: 0x73 }]; // random
+  rows[48] = [{ effect: 0xe, param: 0x73 }]; // random
   for (let i = 49; i < 64; i++) rows[i] = [{ effect: 0x7, param: 0x44 }];
   return makeSong({
-    title: 'tremolo-waveforms',
+    title: "tremolo-waveforms",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -286,15 +301,15 @@ function fixtureTremoloWaveforms(): Song {
 function fixtureGlissando(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   // Half 1: smooth tone porta (E30 = off)
-  rows[0]  = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0x30 }];
-  rows[8]  = [{ note: 'G-2', effect: 0x3, param: 0x08 }];
+  rows[0] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0x30 }];
+  rows[8] = [{ note: "G-2", effect: 0x3, param: 0x08 }];
   for (let i = 9; i < 32; i++) rows[i] = [{ effect: 0x3, param: 0x00 }];
   // Half 2: glissando on
-  rows[32] = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0x31 }];
-  rows[40] = [{ note: 'G-2', effect: 0x3, param: 0x08 }];
+  rows[32] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0x31 }];
+  rows[40] = [{ note: "G-2", effect: 0x3, param: 0x08 }];
   for (let i = 41; i < 64; i++) rows[i] = [{ effect: 0x3, param: 0x00 }];
   return makeSong({
-    title: 'glissando',
+    title: "glissando",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -307,16 +322,20 @@ function fixtureGlissando(): Song {
  */
 function fixturePanning(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0]  = [{ note: 'C-3', sample: 1, effect: 0x8, param: 0x00 },
-              { note: 'E-3', sample: 1, effect: 0x8, param: 0x40 },
-              { note: 'G-3', sample: 1, effect: 0x8, param: 0xC0 },
-              { note: 'C-3', sample: 1, effect: 0x8, param: 0xFF }];
-  rows[16] = [{ effect: 0x8, param: 0xFF },
-              { effect: 0x8, param: 0xC0 },
-              { effect: 0x8, param: 0x40 },
-              { effect: 0x8, param: 0x00 }];
+  rows[0] = [
+    { note: "C-3", sample: 1, effect: 0x8, param: 0x00 },
+    { note: "E-3", sample: 1, effect: 0x8, param: 0x40 },
+    { note: "G-3", sample: 1, effect: 0x8, param: 0xc0 },
+    { note: "C-3", sample: 1, effect: 0x8, param: 0xff },
+  ];
+  rows[16] = [
+    { effect: 0x8, param: 0xff },
+    { effect: 0x8, param: 0xc0 },
+    { effect: 0x8, param: 0x40 },
+    { effect: 0x8, param: 0x00 },
+  ];
   return makeSong({
-    title: 'panning',
+    title: "panning",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -329,13 +348,13 @@ function fixturePanning(): Song {
  */
 function fixtureInvertLoop(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0]  = [{ note: 'C-3', sample: 1 }];
-  rows[8]  = [{ effect: 0xE, param: 0xF1 }];
-  rows[24] = [{ effect: 0xE, param: 0xF8 }];
-  rows[40] = [{ effect: 0xE, param: 0xFF }];
-  rows[56] = [{ effect: 0xE, param: 0xF0 }]; // off
+  rows[0] = [{ note: "C-3", sample: 1 }];
+  rows[8] = [{ effect: 0xe, param: 0xf1 }];
+  rows[24] = [{ effect: 0xe, param: 0xf8 }];
+  rows[40] = [{ effect: 0xe, param: 0xff }];
+  rows[56] = [{ effect: 0xe, param: 0xf0 }]; // off
   return makeSong({
-    title: 'invert-loop',
+    title: "invert-loop",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -344,17 +363,17 @@ function fixtureInvertLoop(): Song {
 /** 08-arpeggio — sustained note with major/minor/octave arpeggios at 0xy. */
 function fixtureArpeggio(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0] = [{ note: 'C-2', sample: 1 }];
+  rows[0] = [{ note: "C-2", sample: 1 }];
   // Major triad: +4, +7
   for (let i = 4; i < 16; i++) rows[i] = [{ effect: 0x0, param: 0x47 }];
   // Minor triad: +3, +7
   for (let i = 20; i < 32; i++) rows[i] = [{ effect: 0x0, param: 0x37 }];
   // Octave: +12 = 0x0C
-  for (let i = 36; i < 48; i++) rows[i] = [{ effect: 0x0, param: 0x0C }];
+  for (let i = 36; i < 48; i++) rows[i] = [{ effect: 0x0, param: 0x0c }];
   // Suspended fifth: +5 only
   for (let i = 52; i < 60; i++) rows[i] = [{ effect: 0x0, param: 0x05 }];
   return makeSong({
-    title: 'arpeggio',
+    title: "arpeggio",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -363,13 +382,13 @@ function fixtureArpeggio(): Song {
 /** 09-slide-up — sustained note with slide-up (1xx) at varying speeds. */
 function fixtureSlideUp(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0] = [{ note: 'C-2', sample: 1 }];
+  rows[0] = [{ note: "C-2", sample: 1 }];
   for (let i = 4; i < 12; i++) rows[i] = [{ effect: 0x1, param: 0x02 }];
   for (let i = 16; i < 24; i++) rows[i] = [{ effect: 0x1, param: 0x08 }];
-  rows[28] = [{ note: 'C-2', sample: 1 }];
+  rows[28] = [{ note: "C-2", sample: 1 }];
   for (let i = 32; i < 48; i++) rows[i] = [{ effect: 0x1, param: 0x10 }];
   return makeSong({
-    title: 'slide-up',
+    title: "slide-up",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -378,13 +397,13 @@ function fixtureSlideUp(): Song {
 /** 10-slide-down — sustained note with slide-down (2xx) at varying speeds. */
 function fixtureSlideDown(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0] = [{ note: 'C-3', sample: 1 }];
+  rows[0] = [{ note: "C-3", sample: 1 }];
   for (let i = 4; i < 12; i++) rows[i] = [{ effect: 0x2, param: 0x02 }];
   for (let i = 16; i < 24; i++) rows[i] = [{ effect: 0x2, param: 0x08 }];
-  rows[28] = [{ note: 'C-3', sample: 1 }];
+  rows[28] = [{ note: "C-3", sample: 1 }];
   for (let i = 32; i < 48; i++) rows[i] = [{ effect: 0x2, param: 0x10 }];
   return makeSong({
-    title: 'slide-down',
+    title: "slide-down",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -393,16 +412,16 @@ function fixtureSlideDown(): Song {
 /** 11-tone-porta-vol-slide — 3xx target then 5xy continues with vol slide. */
 function fixtureTonePortaVolSlide(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0] = [{ note: 'C-2', sample: 1 }];
-  rows[4] = [{ note: 'G-2', effect: 0x3, param: 0x08 }];
+  rows[0] = [{ note: "C-2", sample: 1 }];
+  rows[4] = [{ note: "G-2", effect: 0x3, param: 0x08 }];
   for (let i = 5; i < 12; i++) rows[i] = [{ effect: 0x3, param: 0x00 }];
   for (let i = 12; i < 20; i++) rows[i] = [{ effect: 0x5, param: 0x40 }]; // vol up + porta
   for (let i = 20; i < 28; i++) rows[i] = [{ effect: 0x5, param: 0x04 }]; // vol down + porta
-  rows[32] = [{ note: 'C-3', effect: 0x3, param: 0x10 }];
+  rows[32] = [{ note: "C-3", effect: 0x3, param: 0x10 }];
   for (let i = 33; i < 40; i++) rows[i] = [{ effect: 0x3, param: 0x00 }];
   for (let i = 40; i < 48; i++) rows[i] = [{ effect: 0x5, param: 0x08 }];
   return makeSong({
-    title: 'tone-porta-vol-slide',
+    title: "tone-porta-vol-slide",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -411,14 +430,14 @@ function fixtureTonePortaVolSlide(): Song {
 /** 12-vibrato-vol-slide — 4xy vibrato then 6xy continues with vol slide. */
 function fixtureVibratoVolSlide(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0] = [{ note: 'C-3', sample: 1, effect: 0x4, param: 0x46 }];
+  rows[0] = [{ note: "C-3", sample: 1, effect: 0x4, param: 0x46 }];
   for (let i = 1; i < 8; i++) rows[i] = [{ effect: 0x4, param: 0x00 }];
   for (let i = 8; i < 16; i++) rows[i] = [{ effect: 0x6, param: 0x40 }]; // vol up + vib
   for (let i = 16; i < 24; i++) rows[i] = [{ effect: 0x6, param: 0x04 }]; // vol down + vib
   for (let i = 24; i < 40; i++) rows[i] = [{ effect: 0x4, param: 0x00 }]; // vib alone
   for (let i = 40; i < 48; i++) rows[i] = [{ effect: 0x6, param: 0x80 }]; // vol up faster
   return makeSong({
-    title: 'vibrato-vol-slide',
+    title: "vibrato-vol-slide",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -432,7 +451,7 @@ function fixtureVibratoVolSlide(): Song {
 function fixtureSampleOffset(): Song {
   const triLong: SampleSpec = {
     slot: 1,
-    name: 'tri-long',
+    name: "tri-long",
     data: triangleSample(512), // 1024 bytes
     volume: 64,
     finetune: 0,
@@ -440,12 +459,12 @@ function fixtureSampleOffset(): Song {
     loopLengthWords: 512,
   };
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0]  = [{ note: 'C-2', sample: 1 }];
-  rows[16] = [{ note: 'C-2', sample: 1, effect: 0x9, param: 0x01 }]; // offset 256
-  rows[32] = [{ note: 'C-2', sample: 1, effect: 0x9, param: 0x02 }]; // offset 512
-  rows[48] = [{ note: 'C-2', sample: 1, effect: 0x9, param: 0x03 }]; // offset 768
+  rows[0] = [{ note: "C-2", sample: 1 }];
+  rows[16] = [{ note: "C-2", sample: 1, effect: 0x9, param: 0x01 }]; // offset 256
+  rows[32] = [{ note: "C-2", sample: 1, effect: 0x9, param: 0x02 }]; // offset 512
+  rows[48] = [{ note: "C-2", sample: 1, effect: 0x9, param: 0x03 }]; // offset 768
   return makeSong({
-    title: 'sample-offset',
+    title: "sample-offset",
     samples: [triLong],
     patterns: [makePattern(rows)],
   });
@@ -454,14 +473,14 @@ function fixtureSampleOffset(): Song {
 /** 14-volume-slide — sustained note with Axx slides up and down. */
 function fixtureVolumeSlide(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0] = [{ note: 'C-2', sample: 1 }];
-  for (let i = 4; i < 12; i++) rows[i] = [{ effect: 0xA, param: 0x04 }]; // down 4
-  for (let i = 16; i < 24; i++) rows[i] = [{ effect: 0xA, param: 0x40 }]; // up 4
-  for (let i = 28; i < 36; i++) rows[i] = [{ effect: 0xA, param: 0x08 }]; // down 8
-  for (let i = 40; i < 48; i++) rows[i] = [{ effect: 0xA, param: 0x80 }]; // up 8
-  for (let i = 52; i < 60; i++) rows[i] = [{ effect: 0xA, param: 0x0F }]; // down 15
+  rows[0] = [{ note: "C-2", sample: 1 }];
+  for (let i = 4; i < 12; i++) rows[i] = [{ effect: 0xa, param: 0x04 }]; // down 4
+  for (let i = 16; i < 24; i++) rows[i] = [{ effect: 0xa, param: 0x40 }]; // up 4
+  for (let i = 28; i < 36; i++) rows[i] = [{ effect: 0xa, param: 0x08 }]; // down 8
+  for (let i = 40; i < 48; i++) rows[i] = [{ effect: 0xa, param: 0x80 }]; // up 8
+  for (let i = 52; i < 60; i++) rows[i] = [{ effect: 0xa, param: 0x0f }]; // down 15
   return makeSong({
-    title: 'volume-slide',
+    title: "volume-slide",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -474,16 +493,16 @@ function fixtureVolumeSlide(): Song {
  */
 function fixturePositionJump(): Song {
   const pat0: RowSpec[] = new Array(64).fill(0).map(() => []);
-  pat0[0]  = [{ note: 'C-2', sample: 1 }];
-  pat0[8]  = [{ note: 'E-2', sample: 1 }];
-  pat0[16] = [{ note: 'G-2', sample: 1 }];
-  pat0[32] = [{ effect: 0xB, param: 0x01 }];
+  pat0[0] = [{ note: "C-2", sample: 1 }];
+  pat0[8] = [{ note: "E-2", sample: 1 }];
+  pat0[16] = [{ note: "G-2", sample: 1 }];
+  pat0[32] = [{ effect: 0xb, param: 0x01 }];
   const pat1: RowSpec[] = new Array(64).fill(0).map(() => []);
-  pat1[0]  = [{ note: 'C-3', sample: 1 }];
-  pat1[8]  = [{ note: 'E-3', sample: 1 }];
-  pat1[16] = [{ effect: 0xB, param: 0x00 }];
+  pat1[0] = [{ note: "C-3", sample: 1 }];
+  pat1[8] = [{ note: "E-3", sample: 1 }];
+  pat1[16] = [{ effect: 0xb, param: 0x00 }];
   return makeSong({
-    title: 'position-jump',
+    title: "position-jump",
     samples: [triLooped],
     patterns: [makePattern(pat0), makePattern(pat1)],
   });
@@ -492,16 +511,16 @@ function fixturePositionJump(): Song {
 /** 16-set-volume — sustained note with various Cxx volume sets. */
 function fixtureSetVolume(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0]  = [{ note: 'C-2', sample: 1 }];
-  rows[8]  = [{ effect: 0xC, param: 0x20 }]; // 32
-  rows[16] = [{ effect: 0xC, param: 0x10 }]; // 16
-  rows[24] = [{ effect: 0xC, param: 0x00 }]; // silence
-  rows[32] = [{ note: 'C-2', sample: 1, effect: 0xC, param: 0x40 }]; // re-trigger full
-  rows[40] = [{ effect: 0xC, param: 0x30 }];
-  rows[48] = [{ effect: 0xC, param: 0x60 }]; // clamp to 64
-  rows[56] = [{ effect: 0xC, param: 0x08 }];
+  rows[0] = [{ note: "C-2", sample: 1 }];
+  rows[8] = [{ effect: 0xc, param: 0x20 }]; // 32
+  rows[16] = [{ effect: 0xc, param: 0x10 }]; // 16
+  rows[24] = [{ effect: 0xc, param: 0x00 }]; // silence
+  rows[32] = [{ note: "C-2", sample: 1, effect: 0xc, param: 0x40 }]; // re-trigger full
+  rows[40] = [{ effect: 0xc, param: 0x30 }];
+  rows[48] = [{ effect: 0xc, param: 0x60 }]; // clamp to 64
+  rows[56] = [{ effect: 0xc, param: 0x08 }];
   return makeSong({
-    title: 'set-volume',
+    title: "set-volume",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -513,14 +532,14 @@ function fixtureSetVolume(): Song {
  */
 function fixturePatternBreak(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0]  = [{ note: 'C-2', sample: 1 }];
-  rows[8]  = [{ note: 'E-2', sample: 1 }];
-  rows[16] = [{ note: 'G-2', sample: 1 }];
-  rows[24] = [{ effect: 0xD, param: 0x10 }]; // break to row 10 (decimal)
-  rows[32] = [{ note: 'C-3', sample: 1 }];   // skipped on first pass
-  rows[40] = [{ note: 'E-3', sample: 1 }];
+  rows[0] = [{ note: "C-2", sample: 1 }];
+  rows[8] = [{ note: "E-2", sample: 1 }];
+  rows[16] = [{ note: "G-2", sample: 1 }];
+  rows[24] = [{ effect: 0xd, param: 0x10 }]; // break to row 10 (decimal)
+  rows[32] = [{ note: "C-3", sample: 1 }]; // skipped on first pass
+  rows[40] = [{ note: "E-3", sample: 1 }];
   return makeSong({
-    title: 'pattern-break',
+    title: "pattern-break",
     samples: [triLooped],
     patterns: [makePattern(rows)],
     orders: [0, 0],
@@ -530,16 +549,16 @@ function fixturePatternBreak(): Song {
 /** 18-set-speed — Fxx speed and tempo changes. */
 function fixtureSetSpeed(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0]  = [{ note: 'C-2', sample: 1 }];
-  rows[8]  = [{ effect: 0xF, param: 0x03 }]; // speed 3
-  rows[16] = [{ note: 'E-2', sample: 1 }];
-  rows[24] = [{ effect: 0xF, param: 0x06 }]; // speed 6
-  rows[32] = [{ effect: 0xF, param: 0x40 }]; // tempo 64
-  rows[40] = [{ note: 'G-2', sample: 1 }];
-  rows[48] = [{ effect: 0xF, param: 0x7D }]; // tempo 125
-  rows[56] = [{ note: 'C-3', sample: 1 }];
+  rows[0] = [{ note: "C-2", sample: 1 }];
+  rows[8] = [{ effect: 0xf, param: 0x03 }]; // speed 3
+  rows[16] = [{ note: "E-2", sample: 1 }];
+  rows[24] = [{ effect: 0xf, param: 0x06 }]; // speed 6
+  rows[32] = [{ effect: 0xf, param: 0x40 }]; // tempo 64
+  rows[40] = [{ note: "G-2", sample: 1 }];
+  rows[48] = [{ effect: 0xf, param: 0x7d }]; // tempo 125
+  rows[56] = [{ note: "C-3", sample: 1 }];
   return makeSong({
-    title: 'set-speed',
+    title: "set-speed",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -548,16 +567,16 @@ function fixtureSetSpeed(): Song {
 /** 19-fine-slide-up — E1y at varying y. */
 function fixtureFineSlideUp(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0]  = [{ note: 'C-2', sample: 1 }];
-  rows[4]  = [{ effect: 0xE, param: 0x11 }];
-  rows[8]  = [{ effect: 0xE, param: 0x12 }];
-  rows[12] = [{ effect: 0xE, param: 0x14 }];
-  rows[16] = [{ effect: 0xE, param: 0x18 }];
-  rows[20] = [{ effect: 0xE, param: 0x1F }];
-  rows[28] = [{ note: 'C-2', sample: 1 }];
-  for (let i = 32; i < 60; i += 2) rows[i] = [{ effect: 0xE, param: 0x12 }];
+  rows[0] = [{ note: "C-2", sample: 1 }];
+  rows[4] = [{ effect: 0xe, param: 0x11 }];
+  rows[8] = [{ effect: 0xe, param: 0x12 }];
+  rows[12] = [{ effect: 0xe, param: 0x14 }];
+  rows[16] = [{ effect: 0xe, param: 0x18 }];
+  rows[20] = [{ effect: 0xe, param: 0x1f }];
+  rows[28] = [{ note: "C-2", sample: 1 }];
+  for (let i = 32; i < 60; i += 2) rows[i] = [{ effect: 0xe, param: 0x12 }];
   return makeSong({
-    title: 'fine-slide-up',
+    title: "fine-slide-up",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -566,16 +585,16 @@ function fixtureFineSlideUp(): Song {
 /** 20-fine-slide-down — E2y at varying y. */
 function fixtureFineSlideDown(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0]  = [{ note: 'C-3', sample: 1 }];
-  rows[4]  = [{ effect: 0xE, param: 0x21 }];
-  rows[8]  = [{ effect: 0xE, param: 0x22 }];
-  rows[12] = [{ effect: 0xE, param: 0x24 }];
-  rows[16] = [{ effect: 0xE, param: 0x28 }];
-  rows[20] = [{ effect: 0xE, param: 0x2F }];
-  rows[28] = [{ note: 'C-3', sample: 1 }];
-  for (let i = 32; i < 60; i += 2) rows[i] = [{ effect: 0xE, param: 0x22 }];
+  rows[0] = [{ note: "C-3", sample: 1 }];
+  rows[4] = [{ effect: 0xe, param: 0x21 }];
+  rows[8] = [{ effect: 0xe, param: 0x22 }];
+  rows[12] = [{ effect: 0xe, param: 0x24 }];
+  rows[16] = [{ effect: 0xe, param: 0x28 }];
+  rows[20] = [{ effect: 0xe, param: 0x2f }];
+  rows[28] = [{ note: "C-3", sample: 1 }];
+  for (let i = 32; i < 60; i += 2) rows[i] = [{ effect: 0xe, param: 0x22 }];
   return makeSong({
-    title: 'fine-slide-down',
+    title: "fine-slide-down",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -588,16 +607,16 @@ function fixtureFineSlideDown(): Song {
  */
 function fixtureSetFinetune(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0]  = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0x50 }];
-  rows[8]  = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0x51 }];
-  rows[16] = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0x53 }];
-  rows[24] = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0x57 }]; // +7
-  rows[32] = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0x58 }]; // -8
-  rows[40] = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0x5C }]; // -4
-  rows[48] = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0x5F }]; // -1
-  rows[56] = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0x50 }];
+  rows[0] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0x50 }];
+  rows[8] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0x51 }];
+  rows[16] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0x53 }];
+  rows[24] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0x57 }]; // +7
+  rows[32] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0x58 }]; // -8
+  rows[40] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0x5c }]; // -4
+  rows[48] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0x5f }]; // -1
+  rows[56] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0x50 }];
   return makeSong({
-    title: 'set-finetune',
+    title: "set-finetune",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -610,14 +629,14 @@ function fixtureSetFinetune(): Song {
  */
 function fixturePatternLoop(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0]  = [{ note: 'C-2', sample: 1 }];
-  rows[8]  = [{ effect: 0xE, param: 0x60 }];
-  rows[16] = [{ note: 'E-2', sample: 1 }];
-  rows[24] = [{ note: 'G-2', sample: 1 }];
-  rows[32] = [{ effect: 0xE, param: 0x62 }];
-  rows[48] = [{ note: 'C-3', sample: 1 }];
+  rows[0] = [{ note: "C-2", sample: 1 }];
+  rows[8] = [{ effect: 0xe, param: 0x60 }];
+  rows[16] = [{ note: "E-2", sample: 1 }];
+  rows[24] = [{ note: "G-2", sample: 1 }];
+  rows[32] = [{ effect: 0xe, param: 0x62 }];
+  rows[48] = [{ note: "C-3", sample: 1 }];
   return makeSong({
-    title: 'pattern-loop',
+    title: "pattern-loop",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -626,14 +645,14 @@ function fixturePatternLoop(): Song {
 /** 23-retrigger — sustained note with E9y at varying intervals. */
 function fixtureRetrigger(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0]  = [{ note: 'C-2', sample: 1 }];
-  for (let i = 4; i < 12; i++) rows[i] = [{ effect: 0xE, param: 0x94 }]; // every 4 ticks
-  for (let i = 16; i < 24; i++) rows[i] = [{ effect: 0xE, param: 0x92 }]; // every 2 ticks
-  for (let i = 28; i < 36; i++) rows[i] = [{ effect: 0xE, param: 0x91 }]; // every tick
-  for (let i = 40; i < 48; i++) rows[i] = [{ effect: 0xE, param: 0x96 }]; // every 6 ticks
-  for (let i = 52; i < 60; i++) rows[i] = [{ effect: 0xE, param: 0x93 }];
+  rows[0] = [{ note: "C-2", sample: 1 }];
+  for (let i = 4; i < 12; i++) rows[i] = [{ effect: 0xe, param: 0x94 }]; // every 4 ticks
+  for (let i = 16; i < 24; i++) rows[i] = [{ effect: 0xe, param: 0x92 }]; // every 2 ticks
+  for (let i = 28; i < 36; i++) rows[i] = [{ effect: 0xe, param: 0x91 }]; // every tick
+  for (let i = 40; i < 48; i++) rows[i] = [{ effect: 0xe, param: 0x96 }]; // every 6 ticks
+  for (let i = 52; i < 60; i++) rows[i] = [{ effect: 0xe, param: 0x93 }];
   return makeSong({
-    title: 'retrigger',
+    title: "retrigger",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -642,15 +661,15 @@ function fixtureRetrigger(): Song {
 /** 24-fine-vol-up — EAy fine volume up after starting low (Cxx). */
 function fixtureFineVolUp(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0]  = [{ note: 'C-2', sample: 1, effect: 0xC, param: 0x10 }]; // start at 16
-  rows[4]  = [{ effect: 0xE, param: 0xA2 }];
-  rows[8]  = [{ effect: 0xE, param: 0xA4 }];
-  rows[12] = [{ effect: 0xE, param: 0xA8 }];
-  rows[16] = [{ effect: 0xE, param: 0xAF }]; // up 15, clamps to 64
-  rows[24] = [{ note: 'C-2', sample: 1, effect: 0xC, param: 0x08 }]; // restart at 8
-  for (let i = 28; i < 56; i += 4) rows[i] = [{ effect: 0xE, param: 0xA4 }];
+  rows[0] = [{ note: "C-2", sample: 1, effect: 0xc, param: 0x10 }]; // start at 16
+  rows[4] = [{ effect: 0xe, param: 0xa2 }];
+  rows[8] = [{ effect: 0xe, param: 0xa4 }];
+  rows[12] = [{ effect: 0xe, param: 0xa8 }];
+  rows[16] = [{ effect: 0xe, param: 0xaf }]; // up 15, clamps to 64
+  rows[24] = [{ note: "C-2", sample: 1, effect: 0xc, param: 0x08 }]; // restart at 8
+  for (let i = 28; i < 56; i += 4) rows[i] = [{ effect: 0xe, param: 0xa4 }];
   return makeSong({
-    title: 'fine-vol-up',
+    title: "fine-vol-up",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -659,15 +678,15 @@ function fixtureFineVolUp(): Song {
 /** 25-fine-vol-down — EBy fine volume down from full. */
 function fixtureFineVolDown(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0]  = [{ note: 'C-2', sample: 1 }];
-  rows[4]  = [{ effect: 0xE, param: 0xB2 }];
-  rows[8]  = [{ effect: 0xE, param: 0xB4 }];
-  rows[12] = [{ effect: 0xE, param: 0xB8 }];
-  rows[16] = [{ effect: 0xE, param: 0xBF }]; // down 15, clamps to 0
-  rows[24] = [{ note: 'C-2', sample: 1 }];   // re-trigger
-  for (let i = 28; i < 56; i += 4) rows[i] = [{ effect: 0xE, param: 0xB4 }];
+  rows[0] = [{ note: "C-2", sample: 1 }];
+  rows[4] = [{ effect: 0xe, param: 0xb2 }];
+  rows[8] = [{ effect: 0xe, param: 0xb4 }];
+  rows[12] = [{ effect: 0xe, param: 0xb8 }];
+  rows[16] = [{ effect: 0xe, param: 0xbf }]; // down 15, clamps to 0
+  rows[24] = [{ note: "C-2", sample: 1 }]; // re-trigger
+  for (let i = 28; i < 56; i += 4) rows[i] = [{ effect: 0xe, param: 0xb4 }];
   return makeSong({
-    title: 'fine-vol-down',
+    title: "fine-vol-down",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -679,14 +698,14 @@ function fixtureFineVolDown(): Song {
  */
 function fixtureNoteCut(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0]  = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0xC2 }];
-  rows[8]  = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0xC4 }];
-  rows[16] = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0xC1 }];
-  rows[24] = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0xC5 }];
-  rows[32] = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0xC0 }]; // cut at tick 0
-  rows[40] = [{ note: 'C-2', sample: 1 }]; // no cut
+  rows[0] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0xc2 }];
+  rows[8] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0xc4 }];
+  rows[16] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0xc1 }];
+  rows[24] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0xc5 }];
+  rows[32] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0xc0 }]; // cut at tick 0
+  rows[40] = [{ note: "C-2", sample: 1 }]; // no cut
   return makeSong({
-    title: 'note-cut',
+    title: "note-cut",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -698,14 +717,14 @@ function fixtureNoteCut(): Song {
  */
 function fixtureNoteDelay(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0]  = [{ note: 'C-2', sample: 1, effect: 0xE, param: 0xD0 }]; // no delay
-  rows[8]  = [{ note: 'E-2', sample: 1, effect: 0xE, param: 0xD2 }];
-  rows[16] = [{ note: 'G-2', sample: 1, effect: 0xE, param: 0xD4 }];
-  rows[24] = [{ note: 'C-3', sample: 1, effect: 0xE, param: 0xD5 }];
-  rows[32] = [{ note: 'E-3', sample: 1, effect: 0xE, param: 0xD3 }];
-  rows[40] = [{ note: 'G-3', sample: 1, effect: 0xE, param: 0xD1 }];
+  rows[0] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0xd0 }]; // no delay
+  rows[8] = [{ note: "E-2", sample: 1, effect: 0xe, param: 0xd2 }];
+  rows[16] = [{ note: "G-2", sample: 1, effect: 0xe, param: 0xd4 }];
+  rows[24] = [{ note: "C-3", sample: 1, effect: 0xe, param: 0xd5 }];
+  rows[32] = [{ note: "E-3", sample: 1, effect: 0xe, param: 0xd3 }];
+  rows[40] = [{ note: "G-3", sample: 1, effect: 0xe, param: 0xd1 }];
   return makeSong({
-    title: 'note-delay',
+    title: "note-delay",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -717,14 +736,14 @@ function fixtureNoteDelay(): Song {
  */
 function fixturePatternDelay(): Song {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
-  rows[0]  = [{ note: 'C-2', sample: 1 }];
-  rows[4]  = [{ note: 'E-2', sample: 1, effect: 0xE, param: 0xE3 }];
-  rows[12] = [{ note: 'G-2', sample: 1, effect: 0xE, param: 0xE5 }];
-  rows[24] = [{ note: 'C-3', sample: 1, effect: 0xE, param: 0xE2 }];
-  rows[32] = [{ note: 'E-3', sample: 1 }];
-  rows[40] = [{ note: 'G-3', sample: 1, effect: 0xE, param: 0xE1 }];
+  rows[0] = [{ note: "C-2", sample: 1 }];
+  rows[4] = [{ note: "E-2", sample: 1, effect: 0xe, param: 0xe3 }];
+  rows[12] = [{ note: "G-2", sample: 1, effect: 0xe, param: 0xe5 }];
+  rows[24] = [{ note: "C-3", sample: 1, effect: 0xe, param: 0xe2 }];
+  rows[32] = [{ note: "E-3", sample: 1 }];
+  rows[40] = [{ note: "G-3", sample: 1, effect: 0xe, param: 0xe1 }];
   return makeSong({
-    title: 'pattern-delay',
+    title: "pattern-delay",
     samples: [triLooped],
     patterns: [makePattern(rows)],
   });
@@ -733,39 +752,39 @@ function fixturePatternDelay(): Song {
 // ─── Wire-up ───────────────────────────────────────────────────────────────
 
 const FIXTURES: Record<string, () => Song> = {
-  '00-baseline': fixtureBaseline,
-  '01-resampling': fixtureResampling,
-  '02-amiga-filter': fixtureAmigaFilter,
-  '03-vibrato-waveforms': fixtureVibratoWaveforms,
-  '04-tremolo-waveforms': fixtureTremoloWaveforms,
-  '05-glissando': fixtureGlissando,
-  '06-panning': fixturePanning,
-  '07-invert-loop': fixtureInvertLoop,
-  '08-arpeggio': fixtureArpeggio,
-  '09-slide-up': fixtureSlideUp,
-  '10-slide-down': fixtureSlideDown,
-  '11-tone-porta-vol-slide': fixtureTonePortaVolSlide,
-  '12-vibrato-vol-slide': fixtureVibratoVolSlide,
-  '13-sample-offset': fixtureSampleOffset,
-  '14-volume-slide': fixtureVolumeSlide,
-  '15-position-jump': fixturePositionJump,
-  '16-set-volume': fixtureSetVolume,
-  '17-pattern-break': fixturePatternBreak,
-  '18-set-speed': fixtureSetSpeed,
-  '19-fine-slide-up': fixtureFineSlideUp,
-  '20-fine-slide-down': fixtureFineSlideDown,
-  '21-set-finetune': fixtureSetFinetune,
-  '22-pattern-loop': fixturePatternLoop,
-  '23-retrigger': fixtureRetrigger,
-  '24-fine-vol-up': fixtureFineVolUp,
-  '25-fine-vol-down': fixtureFineVolDown,
-  '26-note-cut': fixtureNoteCut,
-  '27-note-delay': fixtureNoteDelay,
-  '28-pattern-delay': fixturePatternDelay,
+  "00-baseline": fixtureBaseline,
+  "01-resampling": fixtureResampling,
+  "02-amiga-filter": fixtureAmigaFilter,
+  "03-vibrato-waveforms": fixtureVibratoWaveforms,
+  "04-tremolo-waveforms": fixtureTremoloWaveforms,
+  "05-glissando": fixtureGlissando,
+  "06-panning": fixturePanning,
+  "07-invert-loop": fixtureInvertLoop,
+  "08-arpeggio": fixtureArpeggio,
+  "09-slide-up": fixtureSlideUp,
+  "10-slide-down": fixtureSlideDown,
+  "11-tone-porta-vol-slide": fixtureTonePortaVolSlide,
+  "12-vibrato-vol-slide": fixtureVibratoVolSlide,
+  "13-sample-offset": fixtureSampleOffset,
+  "14-volume-slide": fixtureVolumeSlide,
+  "15-position-jump": fixturePositionJump,
+  "16-set-volume": fixtureSetVolume,
+  "17-pattern-break": fixturePatternBreak,
+  "18-set-speed": fixtureSetSpeed,
+  "19-fine-slide-up": fixtureFineSlideUp,
+  "20-fine-slide-down": fixtureFineSlideDown,
+  "21-set-finetune": fixtureSetFinetune,
+  "22-pattern-loop": fixturePatternLoop,
+  "23-retrigger": fixtureRetrigger,
+  "24-fine-vol-up": fixtureFineVolUp,
+  "25-fine-vol-down": fixtureFineVolDown,
+  "26-note-cut": fixtureNoteCut,
+  "27-note-delay": fixtureNoteDelay,
+  "28-pattern-delay": fixturePatternDelay,
 };
 
 function main(): void {
-  const outDir = new URL('./', import.meta.url).pathname;
+  const outDir = new URL("./", import.meta.url).pathname;
   for (const [name, build] of Object.entries(FIXTURES)) {
     const path = join(outDir, `${name}.mod`);
     const buf = writeModule(build());

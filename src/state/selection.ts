@@ -1,4 +1,4 @@
-import { createSignal } from 'solid-js';
+import { createSignal } from "solid-js";
 
 /**
  * A rectangular selection inside a pattern.
@@ -19,7 +19,9 @@ export interface PatternSelection {
   endChannel: number;
 }
 
-export const [selection, setSelection] = createSignal<PatternSelection | null>(null);
+export const [selection, setSelection] = createSignal<PatternSelection | null>(
+  null,
+);
 
 /**
  * The anchor cell of the current selection — the corner that stays put
@@ -43,15 +45,17 @@ export const [selectionAnchor, setSelectionAnchor] = createSignal<{
 /** Build a normalised selection (`start <= end` on both axes). */
 export function makeSelection(
   order: number,
-  rowA: number, chA: number,
-  rowB: number, chB: number,
+  rowA: number,
+  chA: number,
+  rowB: number,
+  chB: number,
 ): PatternSelection {
   return {
     order,
-    startRow:     Math.min(rowA, rowB),
-    endRow:       Math.max(rowA, rowB),
+    startRow: Math.min(rowA, rowB),
+    endRow: Math.max(rowA, rowB),
     startChannel: Math.min(chA, chB),
-    endChannel:   Math.max(chA, chB),
+    endChannel: Math.max(chA, chB),
   };
 }
 
@@ -64,16 +68,24 @@ export function clearSelection(): void {
 /** Test whether a (row, channel) lies inside the selection. */
 export function selectionContains(
   sel: PatternSelection,
-  row: number, channel: number,
+  row: number,
+  channel: number,
 ): boolean {
-  return row     >= sel.startRow     && row     <= sel.endRow
-      && channel >= sel.startChannel && channel <= sel.endChannel;
+  return (
+    row >= sel.startRow &&
+    row <= sel.endRow &&
+    channel >= sel.startChannel &&
+    channel <= sel.endChannel
+  );
 }
 
 /** Frame count covered by the selection (rows × channels). */
-export function selectionSize(sel: PatternSelection): { rows: number; channels: number } {
+export function selectionSize(sel: PatternSelection): {
+  rows: number;
+  channels: number;
+} {
   return {
-    rows:     sel.endRow     - sel.startRow     + 1,
+    rows: sel.endRow - sel.startRow + 1,
     channels: sel.endChannel - sel.startChannel + 1,
   };
 }

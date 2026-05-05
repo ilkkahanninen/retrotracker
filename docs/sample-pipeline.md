@@ -19,10 +19,10 @@ The implementation lives at [src/core/audio/sampleWorkbench.ts](../src/core/audi
 
 ```ts
 interface SampleWorkbench {
-  source: SampleSource;          // 'sampler' (WAV) | 'chiptune' (synth params)
-  chain: EffectNode[];           // pure WavData → WavData fns, runs left-to-right
-  pt: PtTransformerParams;       // terminal mono+resample+quantise stage
-  alt: WorkbenchAlt | null;      // stash of the OTHER kind so toggle preserves both
+  source: SampleSource; // 'sampler' (WAV) | 'chiptune' (synth params)
+  chain: EffectNode[]; // pure WavData → WavData fns, runs left-to-right
+  pt: PtTransformerParams; // terminal mono+resample+quantise stage
+  alt: WorkbenchAlt | null; // stash of the OTHER kind so toggle preserves both
 }
 ```
 
@@ -32,8 +32,8 @@ State (`workbenches: Map<slot, SampleWorkbench>`) lives in [state/sampleWorkbenc
 
 ```ts
 type SampleSource =
-  | { kind: 'sampler';  wav: WavData; sourceName: string }
-  | { kind: 'chiptune'; params: ChiptuneParams };
+  | { kind: "sampler"; wav: WavData; sourceName: string }
+  | { kind: "chiptune"; params: ChiptuneParams };
 ```
 
 `materializeSource(src)` is the only place that knows how to turn either kind into a `WavData`. The chain and PT stages are kind-agnostic.
@@ -46,18 +46,18 @@ type SampleSource =
 
 The current effect set:
 
-| `kind`      | Params                                                                | Notes                                                  |
-| ----------- | --------------------------------------------------------------------- | ------------------------------------------------------ |
-| `gain`      | `{ gain }`                                                            | Whole-buffer.                                          |
-| `normalize` | (none)                                                                | Whole-buffer; no-op on silence.                        |
-| `reverse`   | `{ startFrame, endFrame }`                                            | Range-aware; outside the range, audio passes through.  |
-| `crop`      | `{ startFrame, endFrame }`                                            | Keeps the range.                                       |
-| `cut`       | `{ startFrame, endFrame }`                                            | Removes the range.                                     |
-| `fadeIn`    | `{ startFrame, endFrame }`                                            | Linear 0→1 ramp inside the range only.                 |
-| `fadeOut`   | `{ startFrame, endFrame }`                                            | Linear 1→0 ramp inside the range only.                 |
-| `filter`    | `{ type: 'lowpass'\|'highpass', cutoff: Hz, q }`                      | Biquad. Cutoff clamped to `[10, sampleRate/2)`.        |
-| `crossfade` | `{ length }`                                                          | Loop-aware: crossfades around the slot's loop point.   |
-| `shaper`    | `{ mode: ShaperMode, amount: 0..1 }`                                  | Six modes — see below.                                 |
+| `kind`      | Params                                           | Notes                                                 |
+| ----------- | ------------------------------------------------ | ----------------------------------------------------- |
+| `gain`      | `{ gain }`                                       | Whole-buffer.                                         |
+| `normalize` | (none)                                           | Whole-buffer; no-op on silence.                       |
+| `reverse`   | `{ startFrame, endFrame }`                       | Range-aware; outside the range, audio passes through. |
+| `crop`      | `{ startFrame, endFrame }`                       | Keeps the range.                                      |
+| `cut`       | `{ startFrame, endFrame }`                       | Removes the range.                                    |
+| `fadeIn`    | `{ startFrame, endFrame }`                       | Linear 0→1 ramp inside the range only.                |
+| `fadeOut`   | `{ startFrame, endFrame }`                       | Linear 1→0 ramp inside the range only.                |
+| `filter`    | `{ type: 'lowpass'\|'highpass', cutoff: Hz, q }` | Biquad. Cutoff clamped to `[10, sampleRate/2)`.       |
+| `crossfade` | `{ length }`                                     | Loop-aware: crossfades around the slot's loop point.  |
+| `shaper`    | `{ mode: ShaperMode, amount: 0..1 }`             | Six modes — see below.                                |
 
 Each is a pure `WavData → WavData` function (`applyGain`, `applyNormalize`, `applyReverse`, …). `applyEffect(effect, input, ctx)` dispatches by `kind`.
 
@@ -75,11 +75,11 @@ The terminal stage. Always present, never user-removable.
 
 ```ts
 interface PtTransformerParams {
-  monoMix: 'average' | 'left' | 'right';
+  monoMix: "average" | "left" | "right";
   /** PT note slot 0..35 the result should play at "original speed", or null for no resample. */
   targetNote: number | null;
-  resampleMode?: 'linear' | 'filteredLinear' | 'sinc';
-  dither?: boolean;          // TPDF dither at ±1 LSB before int8 round
+  resampleMode?: "linear" | "filteredLinear" | "sinc";
+  dither?: boolean; // TPDF dither at ±1 LSB before int8 round
 }
 ```
 
@@ -108,15 +108,15 @@ Source → chain → PT → int8. This is what `App.tsx` calls in `commitEditWit
 
 ### Workbench constructors
 
-| Function                                                              | Use                                              |
-| --------------------------------------------------------------------- | ------------------------------------------------ |
-| `workbenchFromWav(bytes, filename)`                                   | User dragged in a WAV file.                      |
-| `workbenchFromWavData(wav, sourceName)`                               | Already-parsed WAV.                              |
-| `workbenchFromChiptune(params, sourceName)`                           | Switch slot to chiptune.                         |
-| `workbenchFromInt8(data, sourceName)`                                 | Wrap a slot's existing int8 — no resample on output (the int8 IS the output). |
-| `emptySamplerWorkbench()`                                             | Fresh empty sampler slot.                        |
-| `defaultEffect(kind, input)`                                          | Sensible default params for each effect kind, sized to the current input length. |
-| `workbenchToAlt(wb, loop?)`                                           | Snapshot one half before a kind flip.            |
+| Function                                    | Use                                                                              |
+| ------------------------------------------- | -------------------------------------------------------------------------------- |
+| `workbenchFromWav(bytes, filename)`         | User dragged in a WAV file.                                                      |
+| `workbenchFromWavData(wav, sourceName)`     | Already-parsed WAV.                                                              |
+| `workbenchFromChiptune(params, sourceName)` | Switch slot to chiptune.                                                         |
+| `workbenchFromInt8(data, sourceName)`       | Wrap a slot's existing int8 — no resample on output (the int8 IS the output).    |
+| `emptySamplerWorkbench()`                   | Fresh empty sampler slot.                                                        |
+| `defaultEffect(kind, input)`                | Sensible default params for each effect kind, sized to the current input length. |
+| `workbenchToAlt(wb, loop?)`                 | Snapshot one half before a kind flip.                                            |
 
 ## Chiptune synth
 
@@ -126,42 +126,42 @@ Source → chain → PT → int8. This is what `App.tsx` calls in `commitEditWit
 
 ```ts
 interface ChiptuneParams {
-  cycleFrames: number;          // 8..256, snapped to powers of 2 → octave-aligned
-  amplitude: number;            // final scale 0..1
+  cycleFrames: number; // 8..256, snapped to powers of 2 → octave-aligned
+  amplitude: number; // final scale 0..1
   osc1: Oscillator;
   osc2: Oscillator;
-  combineMode: CombineMode;     // morph | ring | am | fm | min | max | xor
-  combineAmount: number;        // 0..1 (0..2 for FM — modulation depth in radians)
-  shaperMode: ShaperMode;       // post-combine waveshaper
-  shaperAmount: number;         // 0..1, 0 = bypass
-  lfo: Lfo;                     // primary LFO; defines rendered length
-  lfo2: Lfo;                    // secondary LFO; cycleMultiplier divides lfo's
+  combineMode: CombineMode; // morph | ring | am | fm | min | max | xor
+  combineAmount: number; // 0..1 (0..2 for FM — modulation depth in radians)
+  shaperMode: ShaperMode; // post-combine waveshaper
+  shaperAmount: number; // 0..1, 0 = bypass
+  lfo: Lfo; // primary LFO; defines rendered length
+  lfo2: Lfo; // secondary LFO; cycleMultiplier divides lfo's
 }
 
 interface Oscillator {
-  shapeIndex: number;     // continuous [0..3]: sine→triangle→square→saw
-  phaseSplit: number;     // [0.05..0.95]: where the warped phase reaches 0.5 in the cycle
-  ratio: number;          // power-of-two — how many cycles fit in the base cycle
+  shapeIndex: number; // continuous [0..3]: sine→triangle→square→saw
+  phaseSplit: number; // [0.05..0.95]: where the warped phase reaches 0.5 in the cycle
+  ratio: number; // power-of-two — how many cycles fit in the base cycle
 }
 
 interface Lfo {
-  cycleMultiplier: number;  // power-of-two for lfo, divisor of that for lfo2
-  amplitude: number;        // 0..1; scaled by target's natural range
-  target: LfoTarget;        // which param it modulates
+  cycleMultiplier: number; // power-of-two for lfo, divisor of that for lfo2
+  amplitude: number; // 0..1; scaled by target's natural range
+  target: LfoTarget; // which param it modulates
 }
 ```
 
 ### Combine modes
 
-| Mode    | Math                                                  |
-| ------- | ----------------------------------------------------- |
-| `morph` | `(1 − a)·o1 + a·o2` (level-preserving crossfade)      |
-| `ring`  | `(1 − a)·o1 + a·(o1·o2)` (ring modulation)            |
-| `am`    | `o1 · (1 + a·o2)` (amplitude modulation)              |
-| `fm`    | `o1` with phase modulated by `a · o2`                 |
-| `min`   | `(1 − a)·o1 + a·min(o1, o2)`                          |
-| `max`   | `(1 − a)·o1 + a·max(o1, o2)`                          |
-| `xor`   | 8-bit signed XOR, blended with `o1` by `a`            |
+| Mode    | Math                                             |
+| ------- | ------------------------------------------------ |
+| `morph` | `(1 − a)·o1 + a·o2` (level-preserving crossfade) |
+| `ring`  | `(1 − a)·o1 + a·(o1·o2)` (ring modulation)       |
+| `am`    | `o1 · (1 + a·o2)` (amplitude modulation)         |
+| `fm`    | `o1` with phase modulated by `a · o2`            |
+| `min`   | `(1 − a)·o1 + a·min(o1, o2)`                     |
+| `max`   | `(1 − a)·o1 + a·max(o1, o2)`                     |
+| `xor`   | 8-bit signed XOR, blended with `o1` by `a`       |
 
 ### LFO targets
 
@@ -190,14 +190,14 @@ These constraints keep the result musically clean:
 
 [src/core/audio/shapers.ts](../src/core/audio/shapers.ts) — six waveshaping modes used by both the chiptune synth (post-combine) and the sample-pipeline `shaper` effect:
 
-| Mode          | Behavior                                                    |
-| ------------- | ----------------------------------------------------------- |
-| `hardClip`    | `clamp(x, -1, 1)` — brick-wall.                             |
-| `softClip`    | `tanh`-shaped.                                              |
-| `wavefold`    | Triangle-fold: signal exceeding `[-1, 1]` reflects back.    |
-| `chebyshev3`  | 3rd-order Chebyshev — adds a clean third harmonic.          |
-| `chebyshev5`  | 5th-order Chebyshev — adds clean third + fifth.             |
-| `bitcrush`    | Quantises to discrete levels; amount ↔ bit depth.           |
+| Mode         | Behavior                                                 |
+| ------------ | -------------------------------------------------------- |
+| `hardClip`   | `clamp(x, -1, 1)` — brick-wall.                          |
+| `softClip`   | `tanh`-shaped.                                           |
+| `wavefold`   | Triangle-fold: signal exceeding `[-1, 1]` reflects back. |
+| `chebyshev3` | 3rd-order Chebyshev — adds a clean third harmonic.       |
+| `chebyshev5` | 5th-order Chebyshev — adds clean third + fifth.          |
+| `bitcrush`   | Quantises to discrete levels; amount ↔ bit depth.        |
 
 `applyShaper(x, mode, amount)` — `amount` is a wet/dry blend, with `0 = bypass` and `1 = full effect` regardless of mode. Output is bounded to `[-1, 1]`.
 
@@ -212,7 +212,7 @@ These constraints keep the result musically clean:
 ```ts
 interface WavData {
   sampleRate: number;
-  channels: Float32Array[];   // 1 or 2
+  channels: Float32Array[]; // 1 or 2
 }
 ```
 

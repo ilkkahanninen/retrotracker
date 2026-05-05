@@ -1,6 +1,6 @@
-import type { Song } from '../mod/types';
-import { Replayer } from './replayer';
-import type { RenderOptions, RenderedAudio } from './types';
+import type { Song } from "../mod/types";
+import { Replayer } from "./replayer";
+import type { RenderOptions, RenderedAudio } from "./types";
 
 const CHUNK = 1024;
 

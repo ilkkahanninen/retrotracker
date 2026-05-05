@@ -1,4 +1,4 @@
-import { onCleanup } from 'solid-js';
+import { onCleanup } from "solid-js";
 
 /**
  * Register a window-level event listener for the lifetime of the current

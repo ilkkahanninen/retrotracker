@@ -1,6 +1,6 @@
-import { createSignal } from 'solid-js';
-import type { Sample } from '../core/mod/types';
-import { PAULA_CLOCK_PAL } from '../core/mod/format';
+import { createSignal } from "solid-js";
+import type { Sample } from "../core/mod/types";
+import { PAULA_CLOCK_PAL } from "../core/mod/format";
 
 /**
  * Tracks the playhead of the currently-auditioned sample so the waveform
@@ -37,7 +37,10 @@ interface ActivePreview {
 
 let active: ActivePreview | null = null;
 
-const [position, setPosition] = createSignal<{ slot: number; frame: number } | null>(null);
+const [position, setPosition] = createSignal<{
+  slot: number;
+  frame: number;
+} | null>(null);
 
 /** Reactive accessor: `{ slot, frame }` while a preview is playing, else null. */
 export const previewFrame = position;
@@ -49,7 +52,11 @@ export const previewFrame = position;
  * looped samples the caller must invoke `stopPreview()` (typically on
  * keyup) — this mirrors how the audio engine treats looped previews.
  */
-export function startPreview(slot: number, sample: Sample, period: number): void {
+export function startPreview(
+  slot: number,
+  sample: Sample,
+  period: number,
+): void {
   stopPreview();
   if (period <= 0 || sample.data.byteLength === 0) return;
   const paulaRate = PAULA_CLOCK_PAL / (period * 2);
@@ -77,7 +84,10 @@ export function startPreview(slot: number, sample: Sample, period: number): void
         const beyond = playedFrames - a.loopStart;
         frame = a.loopStart + Math.floor(beyond % a.loopLen);
       }
-      setPosition({ slot: a.slot, frame: Math.min(len - 1, Math.max(0, frame)) });
+      setPosition({
+        slot: a.slot,
+        frame: Math.min(len - 1, Math.max(0, frame)),
+      });
       a.raf = requestAnimationFrame(tick);
     } else if (playedFrames >= len) {
       stopPreview();
@@ -106,7 +116,10 @@ export function stopPreview(): void {
  */
 export function activePreview(): { slot: number; period: number } | null {
   if (!active) return null;
-  return { slot: active.slot, period: PAULA_CLOCK_PAL / (active.paulaRate * 2) };
+  return {
+    slot: active.slot,
+    period: PAULA_CLOCK_PAL / (active.paulaRate * 2),
+  };
 }
 
 /**

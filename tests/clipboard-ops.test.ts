@@ -1,13 +1,24 @@
-import { describe, expect, it } from 'vitest';
-import { readSlice, clearRange, pasteSlice } from '../src/core/mod/clipboardOps';
-import { emptyPattern, emptySong, PERIOD_TABLE, emptyNote } from '../src/core/mod/format';
-import type { Note, Song } from '../src/core/mod/types';
+import { describe, expect, it } from "vitest";
+import {
+  readSlice,
+  clearRange,
+  pasteSlice,
+} from "../src/core/mod/clipboardOps";
+import {
+  emptyPattern,
+  emptySong,
+  PERIOD_TABLE,
+  emptyNote,
+} from "../src/core/mod/format";
+import type { Note, Song } from "../src/core/mod/types";
 
 /**
  * Build a minimal song with a single pattern at order 0. Cells can be
  * stamped at construction so each test has self-contained fixtures.
  */
-function songWithCells(stamps: Array<{ row: number; ch: number; note: Partial<Note> }>): Song {
+function songWithCells(
+  stamps: Array<{ row: number; ch: number; note: Partial<Note> }>,
+): Song {
   const s = emptySong();
   s.patterns = [emptyPattern()];
   s.songLength = 1;
@@ -22,15 +33,23 @@ const C2 = PERIOD_TABLE[0]![12]!;
 const D2 = PERIOD_TABLE[0]![14]!;
 const E2 = PERIOD_TABLE[0]![16]!;
 
-describe('readSlice', () => {
-  it('returns a 2-D copy of the requested range', () => {
+describe("readSlice", () => {
+  it("returns a 2-D copy of the requested range", () => {
     const s = songWithCells([
       { row: 1, ch: 0, note: { period: C2, sample: 1 } },
       { row: 1, ch: 1, note: { period: D2, sample: 2 } },
-      { row: 2, ch: 0, note: { period: E2, sample: 3, effect: 0xC, effectParam: 0x40 } },
+      {
+        row: 2,
+        ch: 0,
+        note: { period: E2, sample: 3, effect: 0xc, effectParam: 0x40 },
+      },
     ]);
     const slice = readSlice(s, {
-      order: 0, startRow: 1, endRow: 2, startChannel: 0, endChannel: 1,
+      order: 0,
+      startRow: 1,
+      endRow: 2,
+      startChannel: 0,
+      endChannel: 1,
     });
     expect(slice).not.toBeNull();
     expect(slice!).toHaveLength(2);
@@ -41,30 +60,66 @@ describe('readSlice', () => {
     expect(slice![1]![1]!.period).toBe(0); // unset cell → empty note
   });
 
-  it('returns FRESH note copies — mutating the slice does not touch the song', () => {
+  it("returns FRESH note copies — mutating the slice does not touch the song", () => {
     const s = songWithCells([{ row: 0, ch: 0, note: { period: C2 } }]);
     const slice = readSlice(s, {
-      order: 0, startRow: 0, endRow: 0, startChannel: 0, endChannel: 0,
+      order: 0,
+      startRow: 0,
+      endRow: 0,
+      startChannel: 0,
+      endChannel: 0,
     })!;
     slice[0]![0]!.period = 999;
     expect(s.patterns[0]!.rows[0]![0]!.period).toBe(C2);
   });
 
-  it('returns null on out-of-range orders / unmapped patterns', () => {
+  it("returns null on out-of-range orders / unmapped patterns", () => {
     const s = emptySong();
-    expect(readSlice(s, { order: -1, startRow: 0, endRow: 0, startChannel: 0, endChannel: 0 })).toBeNull();
-    expect(readSlice(s, { order: 99, startRow: 0, endRow: 0, startChannel: 0, endChannel: 0 })).toBeNull();
+    expect(
+      readSlice(s, {
+        order: -1,
+        startRow: 0,
+        endRow: 0,
+        startChannel: 0,
+        endChannel: 0,
+      }),
+    ).toBeNull();
+    expect(
+      readSlice(s, {
+        order: 99,
+        startRow: 0,
+        endRow: 0,
+        startChannel: 0,
+        endChannel: 0,
+      }),
+    ).toBeNull();
   });
 
-  it('returns null when the rectangle is empty (end < start)', () => {
+  it("returns null when the rectangle is empty (end < start)", () => {
     const s = songWithCells([]);
-    expect(readSlice(s, { order: 0, startRow: 5, endRow: 4, startChannel: 0, endChannel: 0 })).toBeNull();
-    expect(readSlice(s, { order: 0, startRow: 0, endRow: 0, startChannel: 2, endChannel: 1 })).toBeNull();
+    expect(
+      readSlice(s, {
+        order: 0,
+        startRow: 5,
+        endRow: 4,
+        startChannel: 0,
+        endChannel: 0,
+      }),
+    ).toBeNull();
+    expect(
+      readSlice(s, {
+        order: 0,
+        startRow: 0,
+        endRow: 0,
+        startChannel: 2,
+        endChannel: 1,
+      }),
+    ).toBeNull();
   });
 });
 
-describe('clearRange', () => {
-  it('zeroes every cell inside the rectangle', () => {
+describe("clearRange", () => {
+  it("zeroes every cell inside the rectangle", () => {
     const s = songWithCells([
       { row: 1, ch: 0, note: { period: C2 } },
       { row: 1, ch: 1, note: { period: D2 } },
@@ -72,7 +127,11 @@ describe('clearRange', () => {
       { row: 5, ch: 0, note: { period: C2 } }, // outside the clear → preserved
     ]);
     const next = clearRange(s, {
-      order: 0, startRow: 1, endRow: 2, startChannel: 0, endChannel: 1,
+      order: 0,
+      startRow: 1,
+      endRow: 2,
+      startChannel: 0,
+      endChannel: 1,
     });
     expect(next.patterns[0]!.rows[1]![0]!.period).toBe(0);
     expect(next.patterns[0]!.rows[1]![1]!.period).toBe(0);
@@ -81,26 +140,41 @@ describe('clearRange', () => {
     expect(next.patterns[0]!.rows[5]![0]!.period).toBe(C2);
   });
 
-  it('returns the same Song reference on a no-op (unmapped order)', () => {
+  it("returns the same Song reference on a no-op (unmapped order)", () => {
     const s = emptySong();
-    const next = clearRange(s, { order: 99, startRow: 0, endRow: 0, startChannel: 0, endChannel: 0 });
+    const next = clearRange(s, {
+      order: 99,
+      startRow: 0,
+      endRow: 0,
+      startChannel: 0,
+      endChannel: 0,
+    });
     expect(next).toBe(s);
   });
 
-  it('does not mutate the input Song', () => {
+  it("does not mutate the input Song", () => {
     const s = songWithCells([{ row: 0, ch: 0, note: { period: C2 } }]);
     const before = s.patterns[0]!.rows[0]![0]!.period;
-    clearRange(s, { order: 0, startRow: 0, endRow: 0, startChannel: 0, endChannel: 0 });
+    clearRange(s, {
+      order: 0,
+      startRow: 0,
+      endRow: 0,
+      startChannel: 0,
+      endChannel: 0,
+    });
     expect(s.patterns[0]!.rows[0]![0]!.period).toBe(before);
   });
 });
 
-describe('pasteSlice', () => {
-  it('stamps the slice at the given (row, channel)', () => {
+describe("pasteSlice", () => {
+  it("stamps the slice at the given (row, channel)", () => {
     const s = songWithCells([]);
     const slice: Note[][] = [
-      [{ period: C2, sample: 1, effect: 0, effectParam: 0 }, { period: D2, sample: 2, effect: 0, effectParam: 0 }],
-      [{ period: E2, sample: 3, effect: 0xC, effectParam: 0x40 }, emptyNote()],
+      [
+        { period: C2, sample: 1, effect: 0, effectParam: 0 },
+        { period: D2, sample: 2, effect: 0, effectParam: 0 },
+      ],
+      [{ period: E2, sample: 3, effect: 0xc, effectParam: 0x40 }, emptyNote()],
     ];
     const next = pasteSlice(s, slice, 0, 10, 1);
     expect(next.patterns[0]!.rows[10]![1]!.period).toBe(C2);
@@ -109,7 +183,7 @@ describe('pasteSlice', () => {
     expect(next.patterns[0]!.rows[11]![2]!.period).toBe(0);
   });
 
-  it('clips rows past the bottom of the pattern', () => {
+  it("clips rows past the bottom of the pattern", () => {
     const s = songWithCells([]);
     const slice: Note[][] = [
       [{ period: C2, sample: 0, effect: 0, effectParam: 0 }],
@@ -124,7 +198,7 @@ describe('pasteSlice', () => {
     // No row 64 — the third slice row simply vanishes, no error.
   });
 
-  it('clips channels past the right edge', () => {
+  it("clips channels past the right edge", () => {
     const s = songWithCells([]);
     const slice: Note[][] = [
       [
@@ -140,7 +214,7 @@ describe('pasteSlice', () => {
     // No channel 4 — the third cell is clipped.
   });
 
-  it('returns the same Song reference for an empty slice', () => {
+  it("returns the same Song reference for an empty slice", () => {
     const s = songWithCells([]);
     expect(pasteSlice(s, [], 0, 0, 0)).toBe(s);
   });

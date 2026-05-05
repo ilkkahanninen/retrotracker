@@ -1,10 +1,14 @@
-import { createSignal } from 'solid-js';
-import type { Song } from '../core/mod/types';
+import { createSignal } from "solid-js";
+import type { Song } from "../core/mod/types";
 import {
-  workbenches as workbenchesSig, setWorkbenchesRaw,
+  workbenches as workbenchesSig,
+  setWorkbenchesRaw,
   type WorkbenchMap,
-} from './sampleWorkbench';
-import { patternNames as patternNamesSig, loadPatternNames } from './patternNames';
+} from "./sampleWorkbench";
+import {
+  patternNames as patternNamesSig,
+  loadPatternNames,
+} from "./patternNames";
 
 /**
  * Loaded song. Held as a signal so the UI reactively re-renders on swap;
@@ -13,19 +17,22 @@ import { patternNames as patternNamesSig, loadPatternNames } from './patternName
  */
 export const [song, setSong] = createSignal<Song | null>(null);
 
-export type Transport = 'idle' | 'ready' | 'playing';
-export const [transport, setTransport] = createSignal<Transport>('idle');
+export type Transport = "idle" | "ready" | "playing";
+export const [transport, setTransport] = createSignal<Transport>("idle");
 
 /**
  * Which mode the transport is currently in. The header's combined Play
  * button reads this to highlight the active mode without changing its
  * label. `null` when stopped.
  */
-export type PlayMode = 'song' | 'pattern';
+export type PlayMode = "song" | "pattern";
 export const [playMode, setPlayMode] = createSignal<PlayMode | null>(null);
 
 /** Last (order, row) reported by the worklet — drives the pattern grid cursor. */
-export const [playPos, setPlayPos] = createSignal<{ order: number; row: number }>({ order: 0, row: 0 });
+export const [playPos, setPlayPos] = createSignal<{
+  order: number;
+  row: number;
+}>({ order: 0, row: 0 });
 
 /**
  * "Has the song been edited since the last save / load?" Drives the
@@ -88,26 +95,31 @@ export const canRedo = () => future().length > 0;
  * to keep the contract local).
  */
 function applyCommit(next: EditState): void {
-  if (transport() === 'playing') return;
+  if (transport() === "playing") return;
   const currentSong = song();
   if (!currentSong) return;
   const currentWb = workbenchesSig();
   const currentNames = patternNamesSig();
   if (
-    next.song === currentSong
-    && next.workbenches === currentWb
-    && next.patternNames === currentNames
-  ) return;
+    next.song === currentSong &&
+    next.workbenches === currentWb &&
+    next.patternNames === currentNames
+  )
+    return;
 
   const prev = past();
-  const trimmed = prev.length >= HISTORY_LIMIT
-    ? prev.slice(prev.length - HISTORY_LIMIT + 1)
-    : prev;
-  setPast([...trimmed, {
-    song: currentSong,
-    workbenches: currentWb,
-    patternNames: currentNames,
-  }]);
+  const trimmed =
+    prev.length >= HISTORY_LIMIT
+      ? prev.slice(prev.length - HISTORY_LIMIT + 1)
+      : prev;
+  setPast([
+    ...trimmed,
+    {
+      song: currentSong,
+      workbenches: currentWb,
+      patternNames: currentNames,
+    },
+  ]);
   setFuture([]);
   setSong(next.song);
   if (next.workbenches !== currentWb) setWorkbenchesRaw(next.workbenches);
@@ -125,7 +137,7 @@ function applyCommit(next: EditState): void {
  * the transport is currently playing.
  */
 export function commitEdit(transform: (song: Song) => Song): void {
-  if (transport() === 'playing') return;
+  if (transport() === "playing") return;
   const current = song();
   if (!current) return;
   const next = transform(current);
@@ -150,7 +162,7 @@ export function commitEdit(transform: (song: Song) => Song): void {
 export function commitEditWithWorkbenches(
   transform: (state: EditState) => EditState,
 ): void {
-  if (transport() === 'playing') return;
+  if (transport() === "playing") return;
   const current = song();
   if (!current) return;
   const before: EditState = {
@@ -160,16 +172,17 @@ export function commitEditWithWorkbenches(
   };
   const next = transform(before);
   if (
-    next.song === before.song
-    && next.workbenches === before.workbenches
-    && next.patternNames === before.patternNames
-  ) return;
+    next.song === before.song &&
+    next.workbenches === before.workbenches &&
+    next.patternNames === before.patternNames
+  )
+    return;
   applyCommit(next);
 }
 
 /** Pop the latest entry off the undo stack and restore it. No-op while playing. */
 export function undo(): void {
-  if (transport() === 'playing') return;
+  if (transport() === "playing") return;
   const list = past();
   if (list.length === 0) return;
   const previous = list[list.length - 1]!;
@@ -178,21 +191,26 @@ export function undo(): void {
   const currentNames = patternNamesSig();
   setPast(list.slice(0, -1));
   if (currentSong) {
-    setFuture([...future(), {
-      song: currentSong,
-      workbenches: currentWb,
-      patternNames: currentNames,
-    }]);
+    setFuture([
+      ...future(),
+      {
+        song: currentSong,
+        workbenches: currentWb,
+        patternNames: currentNames,
+      },
+    ]);
   }
   setSong(previous.song);
-  if (previous.workbenches !== currentWb) setWorkbenchesRaw(previous.workbenches);
-  if (previous.patternNames !== currentNames) loadPatternNames(previous.patternNames);
+  if (previous.workbenches !== currentWb)
+    setWorkbenchesRaw(previous.workbenches);
+  if (previous.patternNames !== currentNames)
+    loadPatternNames(previous.patternNames);
   setDirty(true);
 }
 
 /** Replay the most recently undone edit. No-op while playing. */
 export function redo(): void {
-  if (transport() === 'playing') return;
+  if (transport() === "playing") return;
   const list = future();
   if (list.length === 0) return;
   const next = list[list.length - 1]!;
@@ -201,11 +219,14 @@ export function redo(): void {
   const currentNames = patternNamesSig();
   setFuture(list.slice(0, -1));
   if (currentSong) {
-    setPast([...past(), {
-      song: currentSong,
-      workbenches: currentWb,
-      patternNames: currentNames,
-    }]);
+    setPast([
+      ...past(),
+      {
+        song: currentSong,
+        workbenches: currentWb,
+        patternNames: currentNames,
+      },
+    ]);
   }
   setSong(next.song);
   if (next.workbenches !== currentWb) setWorkbenchesRaw(next.workbenches);

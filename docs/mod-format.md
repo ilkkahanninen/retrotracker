@@ -13,34 +13,34 @@ const NUM_SAMPLES = 31;
 const MAX_ORDERS = 128;
 
 interface Sample {
-  name: string;            // 22-byte ASCII, null-padded
-  lengthWords: number;     // length in 16-bit words; bytes = lengthWords * 2
-  finetune: number;        // signed 4-bit, encoded 0..15 (8..15 = -8..-1)
-  volume: number;          // 0..64
+  name: string; // 22-byte ASCII, null-padded
+  lengthWords: number; // length in 16-bit words; bytes = lengthWords * 2
+  finetune: number; // signed 4-bit, encoded 0..15 (8..15 = -8..-1)
+  volume: number; // 0..64
   loopStartWords: number;
   loopLengthWords: number; // <= 1 means "no loop"
-  data: Int8Array;         // signed 8-bit PCM
+  data: Int8Array; // signed 8-bit PCM
 }
 
 interface Note {
-  period: number;          // Paula period; 0 = no note
-  sample: number;          // 1..31; 0 = no sample change
-  effect: number;          // command nibble 0x0..0xF
-  effectParam: number;     // parameter byte 0x00..0xFF
+  period: number; // Paula period; 0 = no note
+  sample: number; // 1..31; 0 = no sample change
+  effect: number; // command nibble 0x0..0xF
+  effectParam: number; // parameter byte 0x00..0xFF
 }
 
 interface Pattern {
-  rows: Note[][];          // [ROWS_PER_PATTERN][CHANNELS]
+  rows: Note[][]; // [ROWS_PER_PATTERN][CHANNELS]
 }
 
 interface Song {
-  title: string;           // 20-byte ASCII
-  samples: Sample[];       // exactly 31 entries (samples 1..31; index 0 = sample #1)
-  songLength: number;      // 1..128
+  title: string; // 20-byte ASCII
+  samples: Sample[]; // exactly 31 entries (samples 1..31; index 0 = sample #1)
+  songLength: number; // 1..128
   restartPosition: number; // historic NoiseTracker byte; PT writes 127
-  orders: number[];        // length 128, padded with zeros past songLength
-  patterns: Pattern[];     // unique patterns; count = max(orders) + 1
-  signature: string;       // always "M.K."
+  orders: number[]; // length 128, padded with zeros past songLength
+  patterns: Pattern[]; // unique patterns; count = max(orders) + 1
+  signature: string; // always "M.K."
 }
 ```
 
@@ -93,45 +93,45 @@ Offset   Size    Field
 
 ### `Effect` (high nibble of effect byte)
 
-| Code | Name                           |
-| ---- | ------------------------------ |
-| `0`  | Arpeggio                       |
-| `1`  | SlideUp                        |
-| `2`  | SlideDown                      |
-| `3`  | TonePortamento                 |
-| `4`  | Vibrato                        |
-| `5`  | TonePortamentoVolumeSlide      |
-| `6`  | VibratoVolumeSlide             |
-| `7`  | Tremolo                        |
-| `8`  | Unused (PT 2.3D ignores this)  |
-| `9`  | SetSampleOffset                |
-| `A`  | VolumeSlide                    |
-| `B`  | PositionJump                   |
-| `C`  | SetVolume                      |
-| `D`  | PatternBreak (decimal-encoded) |
+| Code | Name                                         |
+| ---- | -------------------------------------------- |
+| `0`  | Arpeggio                                     |
+| `1`  | SlideUp                                      |
+| `2`  | SlideDown                                    |
+| `3`  | TonePortamento                               |
+| `4`  | Vibrato                                      |
+| `5`  | TonePortamentoVolumeSlide                    |
+| `6`  | VibratoVolumeSlide                           |
+| `7`  | Tremolo                                      |
+| `8`  | Unused (PT 2.3D ignores this)                |
+| `9`  | SetSampleOffset                              |
+| `A`  | VolumeSlide                                  |
+| `B`  | PositionJump                                 |
+| `C`  | SetVolume                                    |
+| `D`  | PatternBreak (decimal-encoded)               |
 | `E`  | Extended (sub-command in hi-nibble of param) |
-| `F`  | SetSpeed (`<0x20`) / SetTempo (`>=0x20`) |
+| `F`  | SetSpeed (`<0x20`) / SetTempo (`>=0x20`)     |
 
 ### `ExtendedEffect` (high nibble of param when effect = `E`)
 
-| Code | Name              | Notes                                                          |
-| ---- | ----------------- | -------------------------------------------------------------- |
-| `0`  | SetFilter         | LED filter; `00 = on`, `01 = off`                              |
-| `1`  | FineSlideUp       |                                                                |
-| `2`  | FineSlideDown     |                                                                |
-| `3`  | Glissando         | Tone-porta snaps to PERIOD_TABLE entries                       |
-| `4`  | VibratoWaveform   | 0=sine, 1=ramp, 2/3=square. Bit 2 = retain on note.            |
-| `5`  | SetFinetune       | Applied **before** the period lookup on the same row           |
-| `6`  | PatternLoop       | Per-channel loop-row + count                                   |
+| Code | Name              | Notes                                                                            |
+| ---- | ----------------- | -------------------------------------------------------------------------------- |
+| `0`  | SetFilter         | LED filter; `00 = on`, `01 = off`                                                |
+| `1`  | FineSlideUp       |                                                                                  |
+| `2`  | FineSlideDown     |                                                                                  |
+| `3`  | Glissando         | Tone-porta snaps to PERIOD_TABLE entries                                         |
+| `4`  | VibratoWaveform   | 0=sine, 1=ramp, 2/3=square. Bit 2 = retain on note.                              |
+| `5`  | SetFinetune       | Applied **before** the period lookup on the same row                             |
+| `6`  | PatternLoop       | Per-channel loop-row + count                                                     |
 | `7`  | TremoloWaveform   | Same waveform encoding as E4x (uses `vibratoPos` for half — a PT bug, preserved) |
-| `8`  | Unused            |                                                                |
-| `9`  | Retrigger         |                                                                |
-| `A`  | FineVolumeSlideUp |                                                                |
-| `B`  | FineVolumeSlideDn |                                                                |
-| `C`  | NoteCut           | Tick-based; `EC0` cuts at tick 0                                |
-| `D`  | NoteDelay         |                                                                |
-| `E`  | PatternDelay      | Repeats current row N more times                                |
-| `F`  | InvertLoop        | Bit-inverts loop-region bytes destructively                     |
+| `8`  | Unused            |                                                                                  |
+| `9`  | Retrigger         |                                                                                  |
+| `A`  | FineVolumeSlideUp |                                                                                  |
+| `B`  | FineVolumeSlideDn |                                                                                  |
+| `C`  | NoteCut           | Tick-based; `EC0` cuts at tick 0                                                 |
+| `D`  | NoteDelay         |                                                                                  |
+| `E`  | PatternDelay      | Repeats current row N more times                                                 |
+| `F`  | InvertLoop        | Bit-inverts loop-region bytes destructively                                      |
 
 ## Period table
 

@@ -1,22 +1,22 @@
-import { describe, expect, it } from 'vitest';
-import { projectToBytes, projectFromBytes } from '../src/state/persistence';
-import { defaultChiptuneParams } from '../src/core/audio/chiptune';
-import { emptySong } from '../src/core/mod/format';
-import { INITIAL_CURSOR } from '../src/state/cursor';
+import { describe, expect, it } from "vitest";
+import { projectToBytes, projectFromBytes } from "../src/state/persistence";
+import { defaultChiptuneParams } from "../src/core/audio/chiptune";
+import { emptySong } from "../src/core/mod/format";
+import { INITIAL_CURSOR } from "../src/state/cursor";
 
 const baseInputs = () => ({
   song: emptySong(),
   filename: null,
-  infoText: '',
-  view: 'sample' as const,
+  infoText: "",
+  view: "sample" as const,
   cursor: { ...INITIAL_CURSOR },
   currentSample: 1,
   currentOctave: 2,
   editStep: 1,
 });
 
-describe('persistence: chiptune source round-trip', () => {
-  it('persists chiptune params per slot through projectToBytes / projectFromBytes', () => {
+describe("persistence: chiptune source round-trip", () => {
+  it("persists chiptune params per slot through projectToBytes / projectFromBytes", () => {
     // Pick a cycleFrames that's already on the musical (octave-aligned)
     // grid so the round-trip is bit-identical — `chiptuneFromJson` snaps
     // off-grid values, which is the right behaviour but would muddle this
@@ -27,7 +27,7 @@ describe('persistence: chiptune source round-trip', () => {
       amplitude: 0.7,
       osc1: { shapeIndex: 1.5, phaseSplit: 0.3, ratio: 2 },
       osc2: { shapeIndex: 2.75, phaseSplit: 0.6, ratio: 1 },
-      combineMode: 'fm' as const,
+      combineMode: "fm" as const,
       combineAmount: 0.4,
     };
     const bytes = projectToBytes({
@@ -36,10 +36,13 @@ describe('persistence: chiptune source round-trip', () => {
     });
     const restored = projectFromBytes(bytes);
     expect(restored).not.toBeNull();
-    expect(restored!.chiptuneSources).toEqual({ 0: params, 5: defaultChiptuneParams() });
+    expect(restored!.chiptuneSources).toEqual({
+      0: params,
+      5: defaultChiptuneParams(),
+    });
   });
 
-  it('omits chiptuneSources when the map is empty (back-compat with v=1 readers)', () => {
+  it("omits chiptuneSources when the map is empty (back-compat with v=1 readers)", () => {
     const bytes = projectToBytes(baseInputs());
     const text = new TextDecoder().decode(bytes);
     const parsed = JSON.parse(text);
@@ -47,7 +50,7 @@ describe('persistence: chiptune source round-trip', () => {
     expect(parsed.chiptuneSources).toBeUndefined();
   });
 
-  it('writes v=2 when chiptune slots are present', () => {
+  it("writes v=2 when chiptune slots are present", () => {
     const bytes = projectToBytes({
       ...baseInputs(),
       chiptuneSources: { 0: defaultChiptuneParams() },
@@ -57,7 +60,7 @@ describe('persistence: chiptune source round-trip', () => {
     expect(parsed.v).toBe(2);
   });
 
-  it('drops slot entries with corrupt params instead of failing the whole load', () => {
+  it("drops slot entries with corrupt params instead of failing the whole load", () => {
     // Hand-craft a payload with one valid + one corrupt slot.
     const bytes = projectToBytes({
       ...baseInputs(),
@@ -65,14 +68,14 @@ describe('persistence: chiptune source round-trip', () => {
     });
     const text = new TextDecoder().decode(bytes);
     const parsed = JSON.parse(text);
-    parsed.chiptuneSources['7'] = { combineMode: 'bogus' };
+    parsed.chiptuneSources["7"] = { combineMode: "bogus" };
     const tampered = new TextEncoder().encode(JSON.stringify(parsed));
     const restored = projectFromBytes(tampered);
     expect(restored).not.toBeNull();
     expect(restored!.chiptuneSources).toEqual({ 0: defaultChiptuneParams() });
   });
 
-  it('returns an empty chiptuneSources record for v=1 payloads', () => {
+  it("returns an empty chiptuneSources record for v=1 payloads", () => {
     // A "v=1" payload — same shape as today's bytes when no chiptune slots
     // exist. The loader must still yield a (materialised) empty record.
     const bytes = projectToBytes(baseInputs());
@@ -82,36 +85,39 @@ describe('persistence: chiptune source round-trip', () => {
   });
 });
 
-describe('persistence: sampler chain round-trip', () => {
+describe("persistence: sampler chain round-trip", () => {
   // Regression: the shaper effect (added later than gain/filter/crossfade)
   // wasn't covered in `parseEffectNode`, so it was silently dropped on reload.
   // Keep one assertion per effect kind so a future addition can't slip
   // through the parser the same way.
-  it('round-trips every effect kind through the chain', () => {
+  it("round-trips every effect kind through the chain", () => {
     const wav = {
       sampleRate: 22050,
       channels: [new Float32Array([0, 0.5, -0.5, 0.25])],
     };
     const chain = [
-      { kind: 'gain', params: { gain: 1.5 } },
-      { kind: 'normalize' },
-      { kind: 'reverse',  params: { startFrame: 0, endFrame: 4 } },
-      { kind: 'crop',     params: { startFrame: 1, endFrame: 4 } },
-      { kind: 'cut',      params: { startFrame: 0, endFrame: 1 } },
-      { kind: 'fadeIn',   params: { startFrame: 0, endFrame: 2 } },
-      { kind: 'fadeOut',  params: { startFrame: 2, endFrame: 4 } },
-      { kind: 'filter',   params: { type: 'lowpass' as const, cutoff: 4000, q: 0.707 } },
-      { kind: 'crossfade', params: { length: 16 } },
-      { kind: 'shaper',   params: { mode: 'softClip' as const, amount: 0.7 } },
+      { kind: "gain", params: { gain: 1.5 } },
+      { kind: "normalize" },
+      { kind: "reverse", params: { startFrame: 0, endFrame: 4 } },
+      { kind: "crop", params: { startFrame: 1, endFrame: 4 } },
+      { kind: "cut", params: { startFrame: 0, endFrame: 1 } },
+      { kind: "fadeIn", params: { startFrame: 0, endFrame: 2 } },
+      { kind: "fadeOut", params: { startFrame: 2, endFrame: 4 } },
+      {
+        kind: "filter",
+        params: { type: "lowpass" as const, cutoff: 4000, q: 0.707 },
+      },
+      { kind: "crossfade", params: { length: 16 } },
+      { kind: "shaper", params: { mode: "softClip" as const, amount: 0.7 } },
     ] as const;
     const bytes = projectToBytes({
       ...baseInputs(),
       samplerSources: {
         0: {
-          sourceName: 'test',
+          sourceName: "test",
           wav,
           chain: [...chain] as never,
-          pt: { monoMix: 'average', targetNote: 12 },
+          pt: { monoMix: "average", targetNote: 12 },
         },
       },
     });
@@ -124,32 +130,32 @@ describe('persistence: sampler chain round-trip', () => {
     }
     // Spot-check the shaper params explicitly — the regression that motivated
     // this whole block.
-    const shaper = restoredChain.find((n) => n.kind === 'shaper');
+    const shaper = restoredChain.find((n) => n.kind === "shaper");
     expect(shaper).toBeDefined();
-    if (shaper && shaper.kind === 'shaper') {
-      expect(shaper.params.mode).toBe('softClip');
+    if (shaper && shaper.kind === "shaper") {
+      expect(shaper.params.mode).toBe("softClip");
       expect(shaper.params.amount).toBeCloseTo(0.7, 6);
     }
   });
 
-  it('drops a shaper node with an unknown mode rather than crashing the load', () => {
+  it("drops a shaper node with an unknown mode rather than crashing the load", () => {
     const wav = { sampleRate: 22050, channels: [new Float32Array([0])] };
     const bytes = projectToBytes({
       ...baseInputs(),
       samplerSources: {
         0: {
-          sourceName: 'test',
+          sourceName: "test",
           wav,
-          chain: [{ kind: 'gain', params: { gain: 1 } }],
-          pt: { monoMix: 'average', targetNote: 12 },
+          chain: [{ kind: "gain", params: { gain: 1 } }],
+          pt: { monoMix: "average", targetNote: 12 },
         },
       },
     });
     // Tamper: replace the gain with a shaper that has a bogus mode.
     const text = new TextDecoder().decode(bytes);
     const parsed = JSON.parse(text);
-    parsed.samplerSources['0'].chain = [
-      { kind: 'shaper', params: { mode: 'bogus', amount: 0.5 } },
+    parsed.samplerSources["0"].chain = [
+      { kind: "shaper", params: { mode: "bogus", amount: 0.5 } },
     ];
     const tampered = new TextEncoder().encode(JSON.stringify(parsed));
     const restored = projectFromBytes(tampered);

@@ -1,12 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cleanup, render } from '@solidjs/testing-library';
-import userEvent from '@testing-library/user-event';
-import { App } from '../../src/App';
-import { setCursor, INITIAL_CURSOR, cursor } from '../../src/state/cursor';
-import { setSong, setTransport, setPlayPos, clearHistory, song } from '../../src/state/song';
-import { setCurrentSample, setCurrentOctave } from '../../src/state/edit';
-import { emptyPattern, emptySong } from '../../src/core/mod/format';
-import type { Song } from '../../src/core/mod/types';
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { cleanup, render } from "@solidjs/testing-library";
+import userEvent from "@testing-library/user-event";
+import { App } from "../../src/App";
+import { setCursor, INITIAL_CURSOR, cursor } from "../../src/state/cursor";
+import {
+  setSong,
+  setTransport,
+  setPlayPos,
+  clearHistory,
+  song,
+} from "../../src/state/song";
+import { setCurrentSample, setCurrentOctave } from "../../src/state/edit";
+import { emptyPattern, emptySong } from "../../src/core/mod/format";
+import type { Song } from "../../src/core/mod/types";
 
 /** A song with N patterns and orders [0, 1, …, N-1]. */
 function songWith(numPatterns: number): Song {
@@ -20,7 +26,7 @@ function songWith(numPatterns: number): Song {
 function resetState() {
   setSong(null);
   setPlayPos({ order: 0, row: 0 });
-  setTransport('idle');
+  setTransport("idle");
   clearHistory();
   setCursor({ ...INITIAL_CURSOR });
   setCurrentSample(1);
@@ -33,157 +39,183 @@ afterEach(() => {
   resetState();
 });
 
-describe('order list: click navigation', () => {
-  it('clicking a slot moves the cursor onto that order, row 0', async () => {
+describe("order list: click navigation", () => {
+  it("clicking a slot moves the cursor onto that order, row 0", async () => {
     setSong(songWith(3));
     const { container } = render(() => <App />);
     const user = userEvent.setup();
-    const items = container.querySelectorAll<HTMLElement>('.orderlist li');
+    const items = container.querySelectorAll<HTMLElement>(".orderlist li");
     expect(items).toHaveLength(3);
     await user.click(items[2]!);
     expect(cursor()).toMatchObject({ order: 2, row: 0 });
   });
 
-  it('the cursor slot carries .orderlist__item--cursor when stopped', async () => {
+  it("the cursor slot carries .orderlist__item--cursor when stopped", async () => {
     setSong(songWith(3));
     const { container } = render(() => <App />);
     const user = userEvent.setup();
-    const items = container.querySelectorAll<HTMLElement>('.orderlist li');
+    const items = container.querySelectorAll<HTMLElement>(".orderlist li");
     await user.click(items[1]!);
-    expect(items[1]!.classList.contains('orderlist__item--cursor')).toBe(true);
-    expect(items[0]!.classList.contains('orderlist__item--cursor')).toBe(false);
+    expect(items[1]!.classList.contains("orderlist__item--cursor")).toBe(true);
+    expect(items[0]!.classList.contains("orderlist__item--cursor")).toBe(false);
   });
 });
 
-describe('order list: [ / ] step pattern at slot', () => {
+describe("order list: [ / ] step pattern at slot", () => {
   // Position-mapped — drive raw KeyboardEvents so the matcher can see the
   // physical-key code (`BracketLeft` / `BracketRight`) regardless of
   // userEvent's keyboard-syntax escaping rules around brackets.
-  function pressBracket(side: 'left' | 'right', mods: { meta?: boolean; shift?: boolean } = {}) {
-    window.dispatchEvent(new KeyboardEvent('keydown', {
-      key: side === 'left' ? '[' : ']',
-      code: side === 'left' ? 'BracketLeft' : 'BracketRight',
-      metaKey: mods.meta ?? false,
-      shiftKey: mods.shift ?? false,
-    }));
+  function pressBracket(
+    side: "left" | "right",
+    mods: { meta?: boolean; shift?: boolean } = {},
+  ) {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: side === "left" ? "[" : "]",
+        code: side === "left" ? "BracketLeft" : "BracketRight",
+        metaKey: mods.meta ?? false,
+        shiftKey: mods.shift ?? false,
+      }),
+    );
   }
 
   it("']' increments orders[cursor.order]", () => {
     setSong(songWith(3));
     render(() => <App />);
     expect(song()!.orders[0]).toBe(0);
-    pressBracket('right');
+    pressBracket("right");
     expect(song()!.orders[0]).toBe(1);
   });
 
   it("'[' decrements orders[cursor.order] and clamps at 0", () => {
     setSong(songWith(3));
     render(() => <App />);
-    setCursor({ order: 2, row: 0, channel: 0, field: 'note' }); // slot 2 → pattern 2
-    pressBracket('left');
+    setCursor({ order: 2, row: 0, channel: 0, field: "note" }); // slot 2 → pattern 2
+    pressBracket("left");
     expect(song()!.orders[2]).toBe(1);
-    pressBracket('left');
+    pressBracket("left");
     expect(song()!.orders[2]).toBe(0);
-    pressBracket('left');
+    pressBracket("left");
     expect(song()!.orders[2]).toBe(0); // clamped
   });
 
   it("']' auto-grows the patterns array when stepping past the last existing one", () => {
     setSong(songWith(2)); // 2 patterns
     render(() => <App />);
-    setCursor({ order: 1, row: 0, channel: 0, field: 'note' }); // slot 1 → pattern 1
-    pressBracket('right');
+    setCursor({ order: 1, row: 0, channel: 0, field: "note" }); // slot 1 → pattern 1
+    pressBracket("right");
     expect(song()!.patterns).toHaveLength(3);
     expect(song()!.orders[1]).toBe(2);
   });
 });
 
-describe('order list: insert / delete slot', () => {
-  function pressBracket(side: 'left' | 'right', mods: { meta?: boolean; shift?: boolean } = {}) {
-    window.dispatchEvent(new KeyboardEvent('keydown', {
-      key: side === 'left' ? '[' : ']',
-      code: side === 'left' ? 'BracketLeft' : 'BracketRight',
-      metaKey: mods.meta ?? false,
-      shiftKey: mods.shift ?? false,
-    }));
+describe("order list: insert / delete slot", () => {
+  function pressBracket(
+    side: "left" | "right",
+    mods: { meta?: boolean; shift?: boolean } = {},
+  ) {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: side === "left" ? "[" : "]",
+        code: side === "left" ? "BracketLeft" : "BracketRight",
+        metaKey: mods.meta ?? false,
+        shiftKey: mods.shift ?? false,
+      }),
+    );
   }
 
-  it('Cmd+] inserts a new slot at the cursor and bumps songLength', () => {
+  it("Cmd+] inserts a new slot at the cursor and bumps songLength", () => {
     setSong(songWith(2));
     render(() => <App />);
     expect(song()!.songLength).toBe(2);
-    pressBracket('right', { meta: true });
+    pressBracket("right", { meta: true });
     expect(song()!.songLength).toBe(3);
     expect(song()!.orders[0]).toBe(0); // duplicated from the previous slot 0
     expect(song()!.orders[1]).toBe(0);
     expect(song()!.orders[2]).toBe(1); // old slot 1 pushed right
   });
 
-  it('Cmd+[ deletes the slot under the cursor and shrinks songLength', () => {
+  it("Cmd+[ deletes the slot under the cursor and shrinks songLength", () => {
     setSong(songWith(3));
     render(() => <App />);
-    setCursor({ order: 1, row: 0, channel: 0, field: 'note' });
-    pressBracket('left', { meta: true });
+    setCursor({ order: 1, row: 0, channel: 0, field: "note" });
+    pressBracket("left", { meta: true });
     expect(song()!.songLength).toBe(2);
     expect(song()!.orders[1]).toBe(2); // the previous slot 2 pulled left
   });
 
-  it('Cmd+[ clamps the cursor when deleting the last slot', () => {
+  it("Cmd+[ clamps the cursor when deleting the last slot", () => {
     setSong(songWith(2));
     render(() => <App />);
-    setCursor({ order: 1, row: 0, channel: 0, field: 'note' });
-    pressBracket('left', { meta: true });
+    setCursor({ order: 1, row: 0, channel: 0, field: "note" });
+    pressBracket("left", { meta: true });
     expect(song()!.songLength).toBe(1);
     expect(cursor().order).toBe(0);
   });
 
-  it('Cmd+[ no-ops when the song already has only one slot', () => {
+  it("Cmd+[ no-ops when the song already has only one slot", () => {
     setSong(songWith(1));
     render(() => <App />);
-    pressBracket('left', { meta: true });
+    pressBracket("left", { meta: true });
     expect(song()!.songLength).toBe(1);
   });
 });
 
-describe('order list: new blank pattern at slot', () => {
-  it('Option+[ appends a new pattern and points the slot at it', () => {
+describe("order list: new blank pattern at slot", () => {
+  it("Option+[ appends a new pattern and points the slot at it", () => {
     setSong(songWith(2));
     render(() => <App />);
-    window.dispatchEvent(new KeyboardEvent('keydown', {
-      key: '[', code: 'BracketLeft', altKey: true,
-    }));
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "[",
+        code: "BracketLeft",
+        altKey: true,
+      }),
+    );
     expect(song()!.patterns).toHaveLength(3);
     expect(song()!.orders[0]).toBe(2);
   });
 });
 
-describe('order list: duplicate pattern at slot', () => {
-  it('Option+] copies the current pattern and points the slot at the copy', () => {
+describe("order list: duplicate pattern at slot", () => {
+  it("Option+] copies the current pattern and points the slot at the copy", () => {
     const s = songWith(2);
-    s.patterns[0]!.rows[3]![1] = { period: 428, sample: 5, effect: 0xC, effectParam: 0x40 };
+    s.patterns[0]!.rows[3]![1] = {
+      period: 428,
+      sample: 5,
+      effect: 0xc,
+      effectParam: 0x40,
+    };
     setSong(s);
     render(() => <App />);
-    window.dispatchEvent(new KeyboardEvent('keydown', {
-      key: ']', code: 'BracketRight', altKey: true,
-    }));
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "]",
+        code: "BracketRight",
+        altKey: true,
+      }),
+    );
     expect(song()!.patterns).toHaveLength(3);
     expect(song()!.orders[0]).toBe(2);
     const copied = song()!.patterns[2]!.rows[3]![1]!;
     expect(copied.period).toBe(428);
     expect(copied.sample).toBe(5);
-    expect(copied.effect).toBe(0xC);
+    expect(copied.effect).toBe(0xc);
     expect(copied.effectParam).toBe(0x40);
   });
 });
 
-describe('order editing is suppressed during playback', () => {
+describe("order editing is suppressed during playback", () => {
   it("']' is a no-op while transport is playing", () => {
     setSong(songWith(3));
     render(() => <App />);
-    setTransport('playing');
-    window.dispatchEvent(new KeyboardEvent('keydown', {
-      key: ']', code: 'BracketRight',
-    }));
+    setTransport("playing");
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "]",
+        code: "BracketRight",
+      }),
+    );
     expect(song()!.orders[0]).toBe(0);
   });
 });
@@ -202,49 +234,49 @@ function tool(container: HTMLElement, label: string): HTMLButtonElement {
   return btn;
 }
 
-describe('order toolbar buttons', () => {
-  it('Next button increments the slot pattern', async () => {
+describe("order toolbar buttons", () => {
+  it("Next button increments the slot pattern", async () => {
     setSong(songWith(3));
     const { container } = render(() => <App />);
     const user = userEvent.setup();
     expect(song()!.orders[0]).toBe(0);
-    await user.click(tool(container, 'Next pattern at slot'));
+    await user.click(tool(container, "Next pattern at slot"));
     expect(song()!.orders[0]).toBe(1);
   });
 
-  it('Previous button decrements and is disabled at pattern 0', async () => {
+  it("Previous button decrements and is disabled at pattern 0", async () => {
     setSong(songWith(3));
     const { container } = render(() => <App />);
     const user = userEvent.setup();
     // Slot 0 → pattern 0 → button disabled.
-    expect(tool(container, 'Previous pattern at slot').disabled).toBe(true);
-    setCursor({ order: 2, row: 0, channel: 0, field: 'note' });
-    expect(tool(container, 'Previous pattern at slot').disabled).toBe(false);
-    await user.click(tool(container, 'Previous pattern at slot'));
+    expect(tool(container, "Previous pattern at slot").disabled).toBe(true);
+    setCursor({ order: 2, row: 0, channel: 0, field: "note" });
+    expect(tool(container, "Previous pattern at slot").disabled).toBe(false);
+    await user.click(tool(container, "Previous pattern at slot"));
     expect(song()!.orders[2]).toBe(1);
   });
 
-  it('Insert button grows songLength', async () => {
+  it("Insert button grows songLength", async () => {
     setSong(songWith(2));
     const { container } = render(() => <App />);
     const user = userEvent.setup();
-    await user.click(tool(container, 'Insert slot'));
+    await user.click(tool(container, "Insert slot"));
     expect(song()!.songLength).toBe(3);
   });
 
-  it('Insert advances the cursor onto the newly-created slot', async () => {
+  it("Insert advances the cursor onto the newly-created slot", async () => {
     setSong(songWith(3));
-    setCursor({ order: 1, row: 0, channel: 0, field: 'note' });
+    setCursor({ order: 1, row: 0, channel: 0, field: "note" });
     const { container } = render(() => <App />);
     const user = userEvent.setup();
-    await user.click(tool(container, 'Insert slot'));
+    await user.click(tool(container, "Insert slot"));
     // [0,1,2] with cursor on 1 → [0,1,1,2]; the new (duplicate) slot is at
     // index 2 and the cursor advances there.
     expect(cursor().order).toBe(2);
     expect(song()!.orders.slice(0, 4)).toEqual([0, 1, 1, 2]);
   });
 
-  it('Insert via Cmd+] at MAX_ORDERS leaves the cursor put (no-op insertOrder)', () => {
+  it("Insert via Cmd+] at MAX_ORDERS leaves the cursor put (no-op insertOrder)", () => {
     // The toolbar button gates on `songLength < 128` so it disables itself,
     // but the Cmd+] shortcut only checks transport — without our songLength
     // before/after diff the handler would still bump the cursor on a no-op
@@ -255,80 +287,98 @@ describe('order toolbar buttons', () => {
     s.songLength = 128;
     for (let i = 0; i < 128; i++) s.orders[i] = 0;
     setSong(s);
-    setCursor({ order: 5, row: 0, channel: 0, field: 'note' });
+    setCursor({ order: 5, row: 0, channel: 0, field: "note" });
     render(() => <App />);
-    window.dispatchEvent(new KeyboardEvent('keydown', {
-      key: ']', code: 'BracketRight', metaKey: true,
-    }));
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "]",
+        code: "BracketRight",
+        metaKey: true,
+      }),
+    );
     expect(cursor().order).toBe(5);
     expect(song()!.songLength).toBe(128);
   });
 
-  it('Delete button shrinks songLength and disables at length 1', async () => {
+  it("Delete button shrinks songLength and disables at length 1", async () => {
     setSong(songWith(2));
     const { container } = render(() => <App />);
     const user = userEvent.setup();
-    await user.click(tool(container, 'Delete slot'));
+    await user.click(tool(container, "Delete slot"));
     expect(song()!.songLength).toBe(1);
-    expect(tool(container, 'Delete slot').disabled).toBe(true);
+    expect(tool(container, "Delete slot").disabled).toBe(true);
   });
 
-  it('New blank button appends a pattern and points the slot at it', async () => {
+  it("New blank button appends a pattern and points the slot at it", async () => {
     setSong(songWith(2));
     const { container } = render(() => <App />);
     const user = userEvent.setup();
-    await user.click(tool(container, 'New blank pattern'));
+    await user.click(tool(container, "New blank pattern"));
     expect(song()!.patterns).toHaveLength(3);
     expect(song()!.orders[0]).toBe(2);
   });
 
-  it('Duplicate button copies the current pattern and points the slot at the copy', async () => {
+  it("Duplicate button copies the current pattern and points the slot at the copy", async () => {
     const s = songWith(2);
-    s.patterns[0]!.rows[7]![2] = { period: 320, sample: 3, effect: 0, effectParam: 0 };
+    s.patterns[0]!.rows[7]![2] = {
+      period: 320,
+      sample: 3,
+      effect: 0,
+      effectParam: 0,
+    };
     setSong(s);
     const { container } = render(() => <App />);
     const user = userEvent.setup();
-    await user.click(tool(container, 'Duplicate pattern'));
+    await user.click(tool(container, "Duplicate pattern"));
     expect(song()!.patterns).toHaveLength(3);
     expect(song()!.orders[0]).toBe(2);
     expect(song()!.patterns[2]!.rows[7]![2]!.period).toBe(320);
     expect(song()!.patterns[2]!.rows[7]![2]!.sample).toBe(3);
   });
 
-  it('every toolbar button is disabled while transport is playing', () => {
+  it("every toolbar button is disabled while transport is playing", () => {
     setSong(songWith(3));
     const { container } = render(() => <App />);
-    setTransport('playing');
+    setTransport("playing");
     for (const label of [
-      'Previous pattern at slot',
-      'Next pattern at slot',
-      'Insert slot',
-      'Delete slot',
-      'New blank pattern',
-      'Duplicate pattern',
+      "Previous pattern at slot",
+      "Next pattern at slot",
+      "Insert slot",
+      "Delete slot",
+      "New blank pattern",
+      "Duplicate pattern",
     ]) {
       expect(tool(container, label).disabled).toBe(true);
     }
   });
 });
 
-describe('Clean up button', () => {
+describe("Clean up button", () => {
   function cleanupBtn(container: HTMLElement): HTMLButtonElement {
     const btn = container.querySelector<HTMLButtonElement>(
-      '.orderfooter button',
+      ".orderfooter button",
     );
-    if (!btn) throw new Error('Clean up button not found');
+    if (!btn) throw new Error("Clean up button not found");
     return btn;
   }
 
-  it('renumbers patterns in order of appearance and discards unused ones', async () => {
+  it("renumbers patterns in order of appearance and discards unused ones", async () => {
     // README example: orders [4,5,0,0,1] over six patterns → [0,1,2,2,3].
     const s = emptySong();
     s.patterns = Array.from({ length: 6 }, emptyPattern);
     s.songLength = 5;
-    s.orders[0] = 4; s.orders[1] = 5; s.orders[2] = 0; s.orders[3] = 0; s.orders[4] = 1;
+    s.orders[0] = 4;
+    s.orders[1] = 5;
+    s.orders[2] = 0;
+    s.orders[3] = 0;
+    s.orders[4] = 1;
     // Stamp something distinctive into pattern 4 so we can verify it survives.
-    s.patterns[4]!.rows[0]![0] = { period: 428, sample: 1, effect: 0, effectParam: 0 };
+    s.patterns[4]!.rows[0]![0] = {
+      period: 428,
+      sample: 1,
+      effect: 0,
+      effectParam: 0,
+    };
     setSong(s);
     const { container } = render(() => <App />);
     const user = userEvent.setup();
@@ -339,10 +389,10 @@ describe('Clean up button', () => {
     expect(song()!.patterns[0]!.rows[0]![0]!.period).toBe(428);
   });
 
-  it('is disabled while transport is playing', () => {
+  it("is disabled while transport is playing", () => {
     setSong(songWith(3));
     const { container } = render(() => <App />);
-    setTransport('playing');
+    setTransport("playing");
     expect(cleanupBtn(container).disabled).toBe(true);
   });
 });

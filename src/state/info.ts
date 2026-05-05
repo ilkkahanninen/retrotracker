@@ -1,4 +1,4 @@
-import { createSignal } from 'solid-js';
+import { createSignal } from "solid-js";
 
 /**
  * Free-form info text the user can attach to a song. On `.mod` export,
@@ -15,7 +15,7 @@ import { createSignal } from 'solid-js';
  * silently dropped at export time; the editor doesn't enforce either
  * limit so the user can paste / type freely.
  */
-export const [infoText, setInfoText] = createSignal<string>('');
+export const [infoText, setInfoText] = createSignal<string>("");
 
 /** Per-sample-slot capacity for the info text, in characters. */
 export const INFO_LINE_WIDTH = 22;
@@ -47,7 +47,7 @@ export function wrapInfoText(
   // Normalise CRLF/CR so the paragraph split is consistent regardless of
   // where the textarea content originated (paste from a Windows source,
   // synthetic test input, etc.).
-  const paragraphs = text.replace(/\r\n?/g, '\n').split('\n');
+  const paragraphs = text.replace(/\r\n?/g, "\n").split("\n");
 
   for (const para of paragraphs) {
     if (out.length >= max) break;
@@ -63,7 +63,10 @@ export function wrapInfoText(
       let breakAt = -1;
       const start = Math.min(width, rest.length - 1);
       for (let i = start; i > 0; i--) {
-        if (/\s/.test(rest[i] ?? '')) { breakAt = i; break; }
+        if (/\s/.test(rest[i] ?? "")) {
+          breakAt = i;
+          break;
+        }
       }
       if (breakAt <= 0) {
         // No whitespace inside the window — hard cut. Better truncate
@@ -94,6 +97,6 @@ export function wrapInfoText(
  */
 export function infoTextFromSampleNames(names: readonly string[]): string {
   const arr = [...names];
-  while (arr.length > 0 && arr[arr.length - 1] === '') arr.pop();
-  return arr.join('\n');
+  while (arr.length > 0 && arr[arr.length - 1] === "") arr.pop();
+  return arr.join("\n");
 }

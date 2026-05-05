@@ -1,5 +1,5 @@
-import { createSignal } from 'solid-js';
-import { CHANNELS } from '../core/mod/types';
+import { createSignal } from "solid-js";
+import { CHANNELS } from "../core/mod/types";
 
 /**
  * Per-channel peak amplitudes for the VU meter UI. Updated at ~30 Hz from
@@ -12,7 +12,8 @@ import { CHANNELS } from '../core/mod/types';
  */
 const initial = (): number[] => Array.from({ length: CHANNELS }, () => 0);
 
-const [channelLevels, setChannelLevels] = createSignal<readonly number[]>(initial());
+const [channelLevels, setChannelLevels] =
+  createSignal<readonly number[]>(initial());
 
 export { channelLevels, setChannelLevels };
 

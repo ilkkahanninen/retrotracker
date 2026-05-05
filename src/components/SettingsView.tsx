@@ -34,8 +34,9 @@ const PAULA_MODELS: { value: AmigaModel; label: string }[] = [
 const blurOnCommit = (e: Event) => {
   const t = e.target;
   if (
-    t instanceof HTMLSelectElement
-    || (t instanceof HTMLInputElement && (t.type === "radio" || t.type === "checkbox"))
+    t instanceof HTMLSelectElement ||
+    (t instanceof HTMLInputElement &&
+      (t.type === "radio" || t.type === "checkbox"))
   ) {
     t.blur();
   }
@@ -50,7 +51,9 @@ export const SettingsView: Component = () => {
         <span class="settingsview__group-label">Audio</span>
 
         <div class="settingsview__field">
-          <span class="settingsview__label">Paula filter model (⌘⇧A toggles)</span>
+          <span class="settingsview__label">
+            Paula filter model (⌘⇧A toggles)
+          </span>
           <div class="settingsview__radios">
             <For each={PAULA_MODELS}>
               {(m) => (

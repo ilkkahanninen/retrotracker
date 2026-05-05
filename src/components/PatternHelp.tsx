@@ -1,14 +1,34 @@
-import { For, Show, createSignal, onCleanup, onMount, type Component } from 'solid-js';
-import type { Note, Song } from '../core/mod/types';
-import { PERIOD_TABLE } from '../core/mod/format';
-import type { Cursor, Field } from '../state/cursor';
-import { selection } from '../state/selection';
-import { registerShortcut } from '../state/shortcuts';
-import { view } from '../state/view';
-import { remapPositionKeys } from '../state/keyboardLayout';
-import { ALT_LABEL, MOD_LABEL } from '../state/platform';
+import {
+  For,
+  Show,
+  createSignal,
+  onCleanup,
+  onMount,
+  type Component,
+} from "solid-js";
+import type { Note, Song } from "../core/mod/types";
+import { PERIOD_TABLE } from "../core/mod/format";
+import type { Cursor, Field } from "../state/cursor";
+import { selection } from "../state/selection";
+import { registerShortcut } from "../state/shortcuts";
+import { view } from "../state/view";
+import { remapPositionKeys } from "../state/keyboardLayout";
+import { ALT_LABEL, MOD_LABEL } from "../state/platform";
 
-const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'] as const;
+const NOTE_NAMES = [
+  "C-",
+  "C#",
+  "D-",
+  "D#",
+  "E-",
+  "F-",
+  "F#",
+  "G-",
+  "G#",
+  "A-",
+  "A#",
+  "B-",
+] as const;
 
 /**
  * Map a stored Paula period back to its note slot (finetune-0 row, first
@@ -24,7 +44,7 @@ function periodToNoteName(period: number): string | null {
       return `${NOTE_NAMES[i % 12]}${oct}`;
     }
   }
-  return '???';
+  return "???";
 }
 
 /**
@@ -45,61 +65,139 @@ interface EffectExplanation {
   param?: string;
 }
 
-function explainEffect(effect: number, paramByte: number): EffectExplanation | null {
+function explainEffect(
+  effect: number,
+  paramByte: number,
+): EffectExplanation | null {
   if (effect === 0 && paramByte === 0) return null;
   const hi = (paramByte >> 4) & 0xf;
   const lo = paramByte & 0xf;
   switch (effect) {
-    case 0x0: return { name: 'Arpeggio', hi: 'halftones up (1st tick)', lo: 'halftones up (2nd tick)' };
-    case 0x1: return { name: 'Slide up', param: 'period units / tick' };
-    case 0x2: return { name: 'Slide down', param: 'period units / tick' };
-    case 0x3: return { name: 'Tone portamento', param: 'slide speed (0 = continue)' };
-    case 0x4: return { name: 'Vibrato', hi: 'speed', lo: 'depth' };
-    case 0x5: return { name: 'Tone portamento + volume slide', hi: 'volume up', lo: 'volume down' };
-    case 0x6: return { name: 'Vibrato + volume slide', hi: 'volume up', lo: 'volume down' };
-    case 0x7: return { name: 'Tremolo', hi: 'speed', lo: 'depth' };
-    case 0x8: return { name: 'Set panning (ignored in PT 2.3D)', param: 'pan position' };
-    case 0x9: return { name: 'Sample offset', param: `start at $${paramByte.toString(16).toUpperCase().padStart(2, '0')}00 bytes` };
-    case 0xa: return { name: 'Volume slide', hi: 'volume up', lo: 'volume down' };
-    case 0xb: return { name: 'Position jump', param: `to order $${paramByte.toString(16).toUpperCase().padStart(2, '0')}` };
-    case 0xc: return { name: 'Set volume', param: `${paramByte} (0..64)` };
-    case 0xd: return { name: 'Pattern break', param: `to row ${hi * 10 + lo} (decimal xy)` };
-    case 0xe: return explainExtended(hi, lo);
+    case 0x0:
+      return {
+        name: "Arpeggio",
+        hi: "halftones up (1st tick)",
+        lo: "halftones up (2nd tick)",
+      };
+    case 0x1:
+      return { name: "Slide up", param: "period units / tick" };
+    case 0x2:
+      return { name: "Slide down", param: "period units / tick" };
+    case 0x3:
+      return { name: "Tone portamento", param: "slide speed (0 = continue)" };
+    case 0x4:
+      return { name: "Vibrato", hi: "speed", lo: "depth" };
+    case 0x5:
+      return {
+        name: "Tone portamento + volume slide",
+        hi: "volume up",
+        lo: "volume down",
+      };
+    case 0x6:
+      return {
+        name: "Vibrato + volume slide",
+        hi: "volume up",
+        lo: "volume down",
+      };
+    case 0x7:
+      return { name: "Tremolo", hi: "speed", lo: "depth" };
+    case 0x8:
+      return {
+        name: "Set panning (ignored in PT 2.3D)",
+        param: "pan position",
+      };
+    case 0x9:
+      return {
+        name: "Sample offset",
+        param: `start at $${paramByte.toString(16).toUpperCase().padStart(2, "0")}00 bytes`,
+      };
+    case 0xa:
+      return { name: "Volume slide", hi: "volume up", lo: "volume down" };
+    case 0xb:
+      return {
+        name: "Position jump",
+        param: `to order $${paramByte.toString(16).toUpperCase().padStart(2, "0")}`,
+      };
+    case 0xc:
+      return { name: "Set volume", param: `${paramByte} (0..64)` };
+    case 0xd:
+      return {
+        name: "Pattern break",
+        param: `to row ${hi * 10 + lo} (decimal xy)`,
+      };
+    case 0xe:
+      return explainExtended(hi, lo);
     case 0xf:
-      if (paramByte === 0) return { name: 'Stop song', param: 'F00 halts playback' };
+      if (paramByte === 0)
+        return { name: "Stop song", param: "F00 halts playback" };
       return paramByte < 0x20
-        ? { name: 'Set speed', param: `${paramByte} ticks/row` }
-        : { name: 'Set tempo', param: `${paramByte} BPM` };
+        ? { name: "Set speed", param: `${paramByte} ticks/row` }
+        : { name: "Set tempo", param: `${paramByte} BPM` };
     default:
-      return { name: `Effect ${effect.toString(16).toUpperCase()}`, param: 'unknown' };
+      return {
+        name: `Effect ${effect.toString(16).toUpperCase()}`,
+        param: "unknown",
+      };
   }
 }
 
 function explainExtended(sub: number, val: number): EffectExplanation {
-  const WAVES = ['sine', 'ramp', 'square', 'random'] as const;
+  const WAVES = ["sine", "ramp", "square", "random"] as const;
   switch (sub) {
-    case 0x0: return { name: 'E0x Set filter', param: val === 0 ? 'LED filter off' : 'LED filter on' };
-    case 0x1: return { name: 'E1x Fine slide up', param: `${val} period units` };
-    case 0x2: return { name: 'E2x Fine slide down', param: `${val} period units` };
-    case 0x3: return { name: 'E3x Glissando', param: val === 0 ? 'off' : 'on (snap to halftone)' };
-    case 0x4: return { name: 'E4x Vibrato waveform', param: WAVES[val & 3]! };
-    case 0x5: return { name: 'E5x Set finetune', param: val < 8 ? `+${val}` : `${val - 16}` };
-    case 0x6: return { name: 'E6x Pattern loop', param: val === 0 ? 'set loop point' : `play ${val}× more` };
-    case 0x7: return { name: 'E7x Tremolo waveform', param: WAVES[val & 3]! };
-    case 0x8: return { name: 'E8x Unused', param: 'no effect' };
-    case 0x9: return { name: 'E9x Retrigger', param: `every ${val} ticks` };
-    case 0xa: return { name: 'EAx Fine volume up', param: `+${val}` };
-    case 0xb: return { name: 'EBx Fine volume down', param: `-${val}` };
-    case 0xc: return { name: 'ECx Note cut', param: `at tick ${val}` };
-    case 0xd: return { name: 'EDx Note delay', param: `${val} ticks` };
-    case 0xe: return { name: 'EEx Pattern delay', param: `${val} rows` };
-    case 0xf: return { name: 'EFx Invert loop', param: `speed ${val}` };
-    default: return { name: `Extended E${sub.toString(16).toUpperCase()}x`, param: 'unknown' };
+    case 0x0:
+      return {
+        name: "E0x Set filter",
+        param: val === 0 ? "LED filter off" : "LED filter on",
+      };
+    case 0x1:
+      return { name: "E1x Fine slide up", param: `${val} period units` };
+    case 0x2:
+      return { name: "E2x Fine slide down", param: `${val} period units` };
+    case 0x3:
+      return {
+        name: "E3x Glissando",
+        param: val === 0 ? "off" : "on (snap to halftone)",
+      };
+    case 0x4:
+      return { name: "E4x Vibrato waveform", param: WAVES[val & 3]! };
+    case 0x5:
+      return {
+        name: "E5x Set finetune",
+        param: val < 8 ? `+${val}` : `${val - 16}`,
+      };
+    case 0x6:
+      return {
+        name: "E6x Pattern loop",
+        param: val === 0 ? "set loop point" : `play ${val}× more`,
+      };
+    case 0x7:
+      return { name: "E7x Tremolo waveform", param: WAVES[val & 3]! };
+    case 0x8:
+      return { name: "E8x Unused", param: "no effect" };
+    case 0x9:
+      return { name: "E9x Retrigger", param: `every ${val} ticks` };
+    case 0xa:
+      return { name: "EAx Fine volume up", param: `+${val}` };
+    case 0xb:
+      return { name: "EBx Fine volume down", param: `-${val}` };
+    case 0xc:
+      return { name: "ECx Note cut", param: `at tick ${val}` };
+    case 0xd:
+      return { name: "EDx Note delay", param: `${val} ticks` };
+    case 0xe:
+      return { name: "EEx Pattern delay", param: `${val} rows` };
+    case 0xf:
+      return { name: "EFx Invert loop", param: `speed ${val}` };
+    default:
+      return {
+        name: `Extended E${sub.toString(16).toUpperCase()}x`,
+        param: "unknown",
+      };
   }
 }
 
 function effectCellText(note: Note): string {
-  if (note.effect === 0 && note.effectParam === 0) return '...';
+  if (note.effect === 0 && note.effectParam === 0) return "...";
   const cmd = note.effect.toString(16).toUpperCase();
   const hi = ((note.effectParam >> 4) & 0xf).toString(16).toUpperCase();
   const lo = (note.effectParam & 0xf).toString(16).toUpperCase();
@@ -130,67 +228,81 @@ interface Tip {
    */
   position?: boolean;
 }
-interface TipSection { title: string; items: Tip[]; }
+interface TipSection {
+  title: string;
+  items: Tip[];
+}
 
 const NOTE_TIPS: TipSection[] = [
   {
-    title: 'Note entry',
+    title: "Note entry",
     items: [
-      { keys: 'A W S E D F T G Y H U J', action: 'piano (current octave)', position: true },
-      { keys: 'K O L P ;',               action: 'piano (octave + 1)',     position: true },
-      { keys: 'Shift + piano key',       action: 'preview note (no commit)' },
-      { keys: 'Z / X',                   action: 'octave − / +',           position: true },
-      { keys: '.', action: 'clear field' },
-      { keys: 'Backspace', action: 'pull cell up' },
-      { keys: 'Shift + Backspace', action: 'pull row up' },
-      { keys: 'Return', action: 'push cell down' },
-      { keys: 'Shift + Return', action: 'push row down' },
+      {
+        keys: "A W S E D F T G Y H U J",
+        action: "piano (current octave)",
+        position: true,
+      },
+      { keys: "K O L P ;", action: "piano (octave + 1)", position: true },
+      { keys: "Shift + piano key", action: "preview note (no commit)" },
+      { keys: "Z / X", action: "octave − / +", position: true },
+      { keys: ".", action: "clear field" },
+      { keys: "Backspace", action: "pull cell up" },
+      { keys: "Shift + Backspace", action: "pull row up" },
+      { keys: "Return", action: "push cell down" },
+      { keys: "Shift + Return", action: "push row down" },
     ],
   },
   {
-    title: 'Edit step',
+    title: "Edit step",
     items: [
       // `< / >` and `/` are position-mapped (Comma / Period / Slash physical
       // keys). The renderer remaps each glyph to the user's keycap label
       // via `remapPositionKeys`, so a Nordic user sees the right keycap.
-      { keys: '< / >', action: 'edit step − / +', position: true },
-      { keys: '/', action: 'reset edit step to 1', position: true },
+      { keys: "< / >", action: "edit step − / +", position: true },
+      { keys: "/", action: "reset edit step to 1", position: true },
     ],
   },
   {
-    title: 'Order / pattern',
+    title: "Order / pattern",
     items: [
-      { keys: '[ / ]', action: 'previous / next pattern at slot', position: true },
+      {
+        keys: "[ / ]",
+        action: "previous / next pattern at slot",
+        position: true,
+      },
       // Chord help strings stay literal — `remapPositionKeys` is per-character
       // and would mangle "Cmd"-style words on non-QWERTY layouts.
-      { keys: `${MOD_LABEL} + [`, action: 'delete order slot' },
-      { keys: `${MOD_LABEL} + ]`, action: 'insert order slot' },
-      { keys: `${ALT_LABEL} + [`, action: 'new blank pattern at slot' },
-      { keys: `${ALT_LABEL} + ]`, action: 'duplicate pattern at slot' },
+      { keys: `${MOD_LABEL} + [`, action: "delete order slot" },
+      { keys: `${MOD_LABEL} + ]`, action: "insert order slot" },
+      { keys: `${ALT_LABEL} + [`, action: "new blank pattern at slot" },
+      { keys: `${ALT_LABEL} + ]`, action: "duplicate pattern at slot" },
     ],
   },
   {
-    title: 'Sample',
+    title: "Sample",
     items: [
-      { keys: '1 – 0', action: 'select samples 1 – 10' },
-      { keys: 'Shift + 1 – 0', action: 'select samples 11 – 20' },
-      { keys: '− / =', action: 'previous / next sample' },
+      { keys: "1 – 0", action: "select samples 1 – 10" },
+      { keys: "Shift + 1 – 0", action: "select samples 11 – 20" },
+      { keys: "− / =", action: "previous / next sample" },
     ],
   },
   {
-    title: 'Play',
+    title: "Play",
     items: [
-      { keys: 'Space', action: 'play song / stop' },
-      { keys: `${ALT_LABEL} + Space`, action: 'play pattern (loop)' },
-      { keys: 'Shift + Space', action: 'play song from cursor' },
-      { keys: `${ALT_LABEL} + Shift + Space`, action: 'play pattern from cursor' },
+      { keys: "Space", action: "play song / stop" },
+      { keys: `${ALT_LABEL} + Space`, action: "play pattern (loop)" },
+      { keys: "Shift + Space", action: "play song from cursor" },
+      {
+        keys: `${ALT_LABEL} + Shift + Space`,
+        action: "play pattern from cursor",
+      },
     ],
   },
   {
-    title: 'Channels',
+    title: "Channels",
     items: [
-      { keys: `${ALT_LABEL} + 1 – 4`, action: 'mute channel' },
-      { keys: `${ALT_LABEL} + Shift + 1 – 4`, action: 'solo channel' },
+      { keys: `${ALT_LABEL} + 1 – 4`, action: "mute channel" },
+      { keys: `${ALT_LABEL} + Shift + 1 – 4`, action: "solo channel" },
     ],
   },
 ];
@@ -203,22 +315,22 @@ const NOTE_TIPS: TipSection[] = [
  * and our replayer does the same.
  */
 const EFFECT_LIST: ReadonlyArray<{ code: string; name: string }> = [
-  { code: '0xy', name: 'Arpeggio' },
-  { code: '1xx', name: 'Slide up' },
-  { code: '2xx', name: 'Slide down' },
-  { code: '3xx', name: 'Tone portamento' },
-  { code: '4xy', name: 'Vibrato' },
-  { code: '5xy', name: 'Tone porta + vol slide' },
-  { code: '6xy', name: 'Vibrato + vol slide' },
-  { code: '7xy', name: 'Tremolo' },
-  { code: '8xx', name: '(unused in PT 2.3D)' },
-  { code: '9xx', name: 'Sample offset' },
-  { code: 'Axy', name: 'Volume slide' },
-  { code: 'Bxx', name: 'Position jump' },
-  { code: 'Cxx', name: 'Set volume' },
-  { code: 'Dxy', name: 'Pattern break' },
-  { code: 'Exy', name: 'Extended (E0..EF)' },
-  { code: 'Fxx', name: 'Speed (<$20) / Tempo (≥$20)' },
+  { code: "0xy", name: "Arpeggio" },
+  { code: "1xx", name: "Slide up" },
+  { code: "2xx", name: "Slide down" },
+  { code: "3xx", name: "Tone portamento" },
+  { code: "4xy", name: "Vibrato" },
+  { code: "5xy", name: "Tone porta + vol slide" },
+  { code: "6xy", name: "Vibrato + vol slide" },
+  { code: "7xy", name: "Tremolo" },
+  { code: "8xx", name: "(unused in PT 2.3D)" },
+  { code: "9xx", name: "Sample offset" },
+  { code: "Axy", name: "Volume slide" },
+  { code: "Bxx", name: "Position jump" },
+  { code: "Cxx", name: "Set volume" },
+  { code: "Dxy", name: "Pattern break" },
+  { code: "Exy", name: "Extended (E0..EF)" },
+  { code: "Fxx", name: "Speed (<$20) / Tempo (≥$20)" },
 ];
 
 /**
@@ -228,31 +340,31 @@ const EFFECT_LIST: ReadonlyArray<{ code: string; name: string }> = [
  * user reading the help shouldn't wonder whether they were forgotten.
  */
 const EXTENDED_EFFECT_LIST: ReadonlyArray<{ code: string; name: string }> = [
-  { code: 'E0x', name: 'Set filter (LED on/off)' },
-  { code: 'E1x', name: 'Fine slide up' },
-  { code: 'E2x', name: 'Fine slide down' },
-  { code: 'E3x', name: 'Glissando on/off' },
-  { code: 'E4x', name: 'Vibrato waveform' },
-  { code: 'E5x', name: 'Set finetune' },
-  { code: 'E6x', name: 'Pattern loop' },
-  { code: 'E7x', name: 'Tremolo waveform' },
-  { code: 'E8x', name: '(unused in PT 2.3D)' },
-  { code: 'E9x', name: 'Retrigger note' },
-  { code: 'EAx', name: 'Fine volume up' },
-  { code: 'EBx', name: 'Fine volume down' },
-  { code: 'ECx', name: 'Note cut' },
-  { code: 'EDx', name: 'Note delay' },
-  { code: 'EEx', name: 'Pattern delay' },
-  { code: 'EFx', name: 'Invert loop' },
+  { code: "E0x", name: "Set filter (LED on/off)" },
+  { code: "E1x", name: "Fine slide up" },
+  { code: "E2x", name: "Fine slide down" },
+  { code: "E3x", name: "Glissando on/off" },
+  { code: "E4x", name: "Vibrato waveform" },
+  { code: "E5x", name: "Set finetune" },
+  { code: "E6x", name: "Pattern loop" },
+  { code: "E7x", name: "Tremolo waveform" },
+  { code: "E8x", name: "(unused in PT 2.3D)" },
+  { code: "E9x", name: "Retrigger note" },
+  { code: "EAx", name: "Fine volume up" },
+  { code: "EBx", name: "Fine volume down" },
+  { code: "ECx", name: "Note cut" },
+  { code: "EDx", name: "Note delay" },
+  { code: "EEx", name: "Pattern delay" },
+  { code: "EFx", name: "Invert loop" },
 ];
 
 const EFFECT_TIPS: TipSection[] = [
   {
-    title: 'Hex digits',
+    title: "Hex digits",
     items: [
-      { keys: '0 – 9, A – F', action: 'enter nibble' },
-      { keys: '.', action: 'clear field' },
-      { keys: ',', action: 'repeat last effect' },
+      { keys: "0 – 9, A – F", action: "enter nibble" },
+      { keys: ".", action: "clear field" },
+      { keys: ",", action: "repeat last effect" },
     ],
   },
 ];
@@ -261,29 +373,29 @@ const EFFECT_TIPS: TipSection[] = [
  *  in both the note-column and selection contexts, so we show it in
  *  either mode rather than burying it inside one of them. */
 const TRANSPOSE_TIPS: TipSection = {
-  title: 'Transpose',
+  title: "Transpose",
   items: [
-    { keys: 'Shift + − / =', action: 'transpose −/+ semitone' },
-    { keys: `${MOD_LABEL} + Shift + − / =`, action: 'transpose −/+ octave' },
+    { keys: "Shift + − / =", action: "transpose −/+ semitone" },
+    { keys: `${MOD_LABEL} + Shift + − / =`, action: "transpose −/+ octave" },
   ],
 };
 
 const SELECTION_TIPS: TipSection = {
-  title: 'Selection',
+  title: "Selection",
   items: [
-    { keys: `${MOD_LABEL} + C`, action: 'copy' },
-    { keys: `${MOD_LABEL} + X`, action: 'cut' },
-    { keys: `${MOD_LABEL} + V`, action: 'paste at cursor' },
-    { keys: `${MOD_LABEL} + A`, action: 'select all (channel, then pattern)' },
-    { keys: `${MOD_LABEL} + E`, action: 'bounce to next free sample slot' },
-    { keys: 'Shift + arrows', action: 'extend selection' },
-    { keys: 'Backspace', action: 'clear cells' },
+    { keys: `${MOD_LABEL} + C`, action: "copy" },
+    { keys: `${MOD_LABEL} + X`, action: "cut" },
+    { keys: `${MOD_LABEL} + V`, action: "paste at cursor" },
+    { keys: `${MOD_LABEL} + A`, action: "select all (channel, then pattern)" },
+    { keys: `${MOD_LABEL} + E`, action: "bounce to next free sample slot" },
+    { keys: "Shift + arrows", action: "extend selection" },
+    { keys: "Backspace", action: "clear cells" },
   ],
 };
 
 /** True when the cursor field addresses any part of the effect column. */
 function isEffectField(f: Field): boolean {
-  return f === 'effectCmd' || f === 'effectHi' || f === 'effectLo';
+  return f === "effectCmd" || f === "effectHi" || f === "effectLo";
 }
 
 interface Props {
@@ -315,10 +427,10 @@ export const PatternHelp: Component<Props> = (props) => {
   // jsdom. Restrict to pattern view because the help pane only exists there.
   onMount(() => {
     const cleanup = registerShortcut({
-      key: '/',
+      key: "/",
       shift: true,
-      description: 'Toggle pattern-view help tips (?)',
-      when: () => view() === 'pattern',
+      description: "Toggle pattern-view help tips (?)",
+      when: () => view() === "pattern",
       run: () => setTipsOpen((v) => !v),
     });
     onCleanup(cleanup);
@@ -360,7 +472,7 @@ export const PatternHelp: Component<Props> = (props) => {
   const sampleName = () => {
     const slot = sampleSlot();
     if (slot === null) return null;
-    return props.song.samples[slot - 1]?.name ?? '';
+    return props.song.samples[slot - 1]?.name ?? "";
   };
 
   const effect = () => {
@@ -369,12 +481,15 @@ export const PatternHelp: Component<Props> = (props) => {
   };
 
   return (
-    <div class="patternhelp" classList={{ 'patternhelp--open': tipsOpen() }}>
+    <div class="patternhelp" classList={{ "patternhelp--open": tipsOpen() }}>
       <div class="patternhelp__row">
         <span class="patternhelp__seg">
           <span class="patternhelp__label">Note</span>
           <span class="patternhelp__value">
-            <Show when={noteName()} fallback={<span class="patternhelp__muted">—</span>}>
+            <Show
+              when={noteName()}
+              fallback={<span class="patternhelp__muted">—</span>}
+            >
               {(n) => <>{n()}</>}
             </Show>
           </span>
@@ -391,7 +506,7 @@ export const PatternHelp: Component<Props> = (props) => {
                 const name = sampleName();
                 return (
                   <>
-                    {slot.toString(16).toUpperCase().padStart(2, '0')}
+                    {slot.toString(16).toUpperCase().padStart(2, "0")}
                     <Show when={name}>
                       <span class="patternhelp__sub"> · {name}</span>
                     </Show>
@@ -408,14 +523,18 @@ export const PatternHelp: Component<Props> = (props) => {
               when={effect()}
               fallback={
                 <>
-                  <span class="patternhelp__mono">{cell() ? effectCellText(cell()!) : '...'}</span>
+                  <span class="patternhelp__mono">
+                    {cell() ? effectCellText(cell()!) : "..."}
+                  </span>
                   <span class="patternhelp__muted"> · none</span>
                 </>
               }
             >
               {(ex) => (
                 <>
-                  <span class="patternhelp__mono">{effectCellText(cell()!)}</span>
+                  <span class="patternhelp__mono">
+                    {effectCellText(cell()!)}
+                  </span>
                   <span class="patternhelp__sub"> · {ex().name}</span>
                   <Show when={ex().param}>
                     {(p) => <span class="patternhelp__sub"> ({p()})</span>}
@@ -423,11 +542,16 @@ export const PatternHelp: Component<Props> = (props) => {
                   <Show when={ex().hi !== undefined && ex().lo !== undefined}>
                     {(() => {
                       const c = cell()!;
-                      const hi = ((c.effectParam >> 4) & 0xf).toString(16).toUpperCase();
-                      const lo = (c.effectParam & 0xf).toString(16).toUpperCase();
+                      const hi = ((c.effectParam >> 4) & 0xf)
+                        .toString(16)
+                        .toUpperCase();
+                      const lo = (c.effectParam & 0xf)
+                        .toString(16)
+                        .toUpperCase();
                       return (
                         <span class="patternhelp__sub">
-                          {' '}({hi} = {ex().hi}, {lo} = {ex().lo})
+                          {" "}
+                          ({hi} = {ex().hi}, {lo} = {ex().lo})
                         </span>
                       );
                     })()}
@@ -443,9 +567,9 @@ export const PatternHelp: Component<Props> = (props) => {
           onClick={() => setTipsOpen((v) => !v)}
           aria-expanded={tipsOpen()}
           aria-controls="patternhelp-tips"
-          title={tipsOpen() ? 'Hide tips (?)' : 'Show tips (?)'}
+          title={tipsOpen() ? "Hide tips (?)" : "Show tips (?)"}
         >
-          {tipsOpen() ? 'Hide tips' : 'Show tips'}
+          {tipsOpen() ? "Hide tips" : "Show tips"}
         </button>
       </div>
       <Show when={tipsOpen()}>
@@ -459,9 +583,13 @@ export const PatternHelp: Component<Props> = (props) => {
                     {(item) => (
                       <li class="patternhelp__tip">
                         <kbd class="patternhelp__kbd">
-                          {item.position ? remapPositionKeys(item.keys) : item.keys}
+                          {item.position
+                            ? remapPositionKeys(item.keys)
+                            : item.keys}
                         </kbd>
-                        <span class="patternhelp__tip-action">{item.action}</span>
+                        <span class="patternhelp__tip-action">
+                          {item.action}
+                        </span>
                       </li>
                     )}
                   </For>

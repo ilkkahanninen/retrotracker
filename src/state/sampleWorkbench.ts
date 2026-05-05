@@ -1,5 +1,5 @@
-import { createSignal } from 'solid-js';
-import type { SampleWorkbench } from '../core/audio/sampleWorkbench';
+import { createSignal } from "solid-js";
+import type { SampleWorkbench } from "../core/audio/sampleWorkbench";
 
 /** Per-slot map of session-only sample workbenches. */
 export type WorkbenchMap = Map<number, SampleWorkbench>;
@@ -53,14 +53,21 @@ export function clearAllWorkbenches(): void {
  * `new Map(workbenches())` themselves because the workbench-snapshot story
  * is sensitive to *who* mutates the map and *when*.
  */
-export function withWorkbench(map: WorkbenchMap, slot: number, wb: SampleWorkbench): WorkbenchMap {
+export function withWorkbench(
+  map: WorkbenchMap,
+  slot: number,
+  wb: SampleWorkbench,
+): WorkbenchMap {
   const next = new Map(map);
   next.set(slot, wb);
   return next;
 }
 
 /** Pure: a copy of `map` with `slot` removed. */
-export function withoutWorkbench(map: WorkbenchMap, slot: number): WorkbenchMap {
+export function withoutWorkbench(
+  map: WorkbenchMap,
+  slot: number,
+): WorkbenchMap {
   if (!map.has(slot)) return map;
   const next = new Map(map);
   next.delete(slot);

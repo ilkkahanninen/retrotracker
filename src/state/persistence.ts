@@ -1,24 +1,24 @@
-import { parseModule } from '../core/mod/parser';
-import { writeModule } from '../core/mod/writer';
-import type { Song } from '../core/mod/types';
-import { FIELDS, type Cursor, type Field } from './cursor';
-import type { View } from './view';
-import type { ChiptuneParams } from '../core/audio/chiptune';
-import { chiptuneFromJson } from '../core/audio/chiptune';
-import type { WavData } from '../core/audio/wav';
-import { readWav, writeWav } from '../core/audio/wav';
+import { parseModule } from "../core/mod/parser";
+import { writeModule } from "../core/mod/writer";
+import type { Song } from "../core/mod/types";
+import { FIELDS, type Cursor, type Field } from "./cursor";
+import type { View } from "./view";
+import type { ChiptuneParams } from "../core/audio/chiptune";
+import { chiptuneFromJson } from "../core/audio/chiptune";
+import type { WavData } from "../core/audio/wav";
+import { readWav, writeWav } from "../core/audio/wav";
 import type {
   EffectNode,
   MonoMix,
   PtTransformerParams,
   ResampleMode,
-} from '../core/audio/sampleWorkbench';
+} from "../core/audio/sampleWorkbench";
 import {
   DEFAULT_RESAMPLE_MODE,
   DEFAULT_TARGET_NOTE,
   RESAMPLE_MODES,
-} from '../core/audio/sampleWorkbench';
-import { SHAPER_MODES, type ShaperMode } from '../core/audio/shapers';
+} from "../core/audio/sampleWorkbench";
+import { SHAPER_MODES, type ShaperMode } from "../core/audio/shapers";
 
 /**
  * Local-storage session persistence.
@@ -56,7 +56,7 @@ import { SHAPER_MODES, type ShaperMode } from '../core/audio/shapers';
  * stays bit-identical to the original v=1 format.
  */
 
-const STORAGE_KEY = 'retrotracker:session:v1';
+const STORAGE_KEY = "retrotracker:session:v1";
 
 type SchemaVersion = 1 | 2 | 3 | 4;
 
@@ -154,7 +154,7 @@ export interface SessionInputs {
  *  `setInfoText` without a fallback at every call site. */
 export type LoadedSession = Omit<
   SessionInputs,
-  'infoText' | 'chiptuneSources' | 'samplerSources' | 'patternNames'
+  "infoText" | "chiptuneSources" | "samplerSources" | "patternNames"
 > & {
   infoText: string;
   /** Always materialised on load — empty record when none persisted. */
@@ -171,9 +171,12 @@ function bytesToBase64(bytes: Uint8Array): string {
   // String.fromCharCode argument-list cap (~64KB on V8). A typical .mod
   // sits under that anyway, but big sample data can push past.
   const CHUNK = 0x8000;
-  let out = '';
+  let out = "";
   for (let i = 0; i < bytes.length; i += CHUNK) {
-    out += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK)));
+    out += String.fromCharCode.apply(
+      null,
+      Array.from(bytes.subarray(i, i + CHUNK)),
+    );
   }
   return btoa(out);
 }
@@ -213,26 +216,37 @@ function encodeSongCached(song: Song): string {
  *  so we re-use the lossless M.K. binary instead of inventing a JSON shape
  *  for the sample data.  Throws if `writeModule` rejects the song. */
 function buildPayload(state: SessionInputs): PersistedShape {
-  const hasChiptune    = !!state.chiptuneSources && Object.keys(state.chiptuneSources).length > 0;
-  const hasSampler     = !!state.samplerSources  && Object.keys(state.samplerSources).length > 0;
-  const hasPatternNames = !!state.patternNames   && Object.keys(state.patternNames).length > 0;
+  const hasChiptune =
+    !!state.chiptuneSources && Object.keys(state.chiptuneSources).length > 0;
+  const hasSampler =
+    !!state.samplerSources && Object.keys(state.samplerSources).length > 0;
+  const hasPatternNames =
+    !!state.patternNames && Object.keys(state.patternNames).length > 0;
   // Lowest version that fits the data — keeps a chiptune/sampler/names-free
   // session bit-identical to the original v=1 format and lets older builds
   // keep loading anything they can still understand.
-  const v: SchemaVersion = hasPatternNames ? 4 : hasSampler ? 3 : hasChiptune ? 2 : 1;
+  const v: SchemaVersion = hasPatternNames
+    ? 4
+    : hasSampler
+      ? 3
+      : hasChiptune
+        ? 2
+        : 1;
   return {
     v,
     songBase64: encodeSongCached(state.song),
     filename: state.filename,
-    infoText: state.infoText ?? '',
+    infoText: state.infoText ?? "",
     view: state.view,
     cursor: state.cursor,
     currentSample: state.currentSample,
     currentOctave: state.currentOctave,
     editStep: state.editStep,
-    ...(hasChiptune     ? { chiptuneSources: state.chiptuneSources } : {}),
-    ...(hasSampler      ? { samplerSources:  encodeSamplerSources(state.samplerSources!) } : {}),
-    ...(hasPatternNames ? { patternNames:    state.patternNames } : {}),
+    ...(hasChiptune ? { chiptuneSources: state.chiptuneSources } : {}),
+    ...(hasSampler
+      ? { samplerSources: encodeSamplerSources(state.samplerSources!) }
+      : {}),
+    ...(hasPatternNames ? { patternNames: state.patternNames } : {}),
   };
 }
 
@@ -269,12 +283,15 @@ function payloadToSession(parsed: unknown): LoadedSession | null {
   return {
     song,
     filename: parsed.filename ?? null,
-    infoText: typeof parsed.infoText === 'string' ? parsed.infoText : '',
+    infoText: typeof parsed.infoText === "string" ? parsed.infoText : "",
     view:
-      parsed.view === 'sample' ? 'sample'
-      : parsed.view === 'info' ? 'info'
-      : parsed.view === 'settings' ? 'settings'
-      : 'pattern',
+      parsed.view === "sample"
+        ? "sample"
+        : parsed.view === "info"
+          ? "info"
+          : parsed.view === "settings"
+            ? "settings"
+            : "pattern",
     cursor: sanitiseCursor(parsed.cursor),
     currentSample: clamp(parsed.currentSample, 1, 31, 1),
     currentOctave: clamp(parsed.currentOctave, 1, 3, 2),
@@ -296,24 +313,28 @@ function payloadToSession(parsed: unknown): LoadedSession | null {
  * them); when missing, they default to an empty chain and the standard PT
  * params (`average` mono mix, C-2 target note).
  */
-function parseSamplerSources(raw: unknown): Record<number, SamplerSourceInputs> {
-  if (!raw || typeof raw !== 'object') return {};
+function parseSamplerSources(
+  raw: unknown,
+): Record<number, SamplerSourceInputs> {
+  if (!raw || typeof raw !== "object") return {};
   const out: Record<number, SamplerSourceInputs> = {};
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     const slot = parseInt(k, 10);
     if (!Number.isFinite(slot) || slot < 0 || slot > 30) continue;
-    if (!v || typeof v !== 'object') continue;
+    if (!v || typeof v !== "object") continue;
     const entry = v as Record<string, unknown>;
-    const sourceName = typeof entry['sourceName'] === 'string' ? entry['sourceName'] : '';
-    const wavBase64  = typeof entry['wavBase64']  === 'string' ? entry['wavBase64']  : null;
+    const sourceName =
+      typeof entry["sourceName"] === "string" ? entry["sourceName"] : "";
+    const wavBase64 =
+      typeof entry["wavBase64"] === "string" ? entry["wavBase64"] : null;
     if (!wavBase64) continue;
     try {
       const wav = readWav(base64ToBytes(wavBase64));
       out[slot] = {
         sourceName,
         wav,
-        chain: parseEffectChain(entry['chain']),
-        pt: parsePtParams(entry['pt']),
+        chain: parseEffectChain(entry["chain"]),
+        pt: parsePtParams(entry["pt"]),
       };
     } catch {
       // Corrupt WAV bytes — drop this slot and continue.
@@ -336,63 +357,71 @@ function parseEffectChain(raw: unknown): EffectNode[] {
 
 /** Validate one EffectNode. Returns null on any structural mismatch. */
 function parseEffectNode(v: unknown): EffectNode | null {
-  if (!v || typeof v !== 'object') return null;
+  if (!v || typeof v !== "object") return null;
   const x = v as Record<string, unknown>;
-  const kind = x['kind'];
-  if (kind === 'normalize') return { kind: 'normalize' };
-  const p = x['params'];
-  if (!p || typeof p !== 'object') return null;
+  const kind = x["kind"];
+  if (kind === "normalize") return { kind: "normalize" };
+  const p = x["params"];
+  if (!p || typeof p !== "object") return null;
   const params = p as Record<string, unknown>;
-  if (kind === 'gain') {
-    if (typeof params['gain'] !== 'number') return null;
-    return { kind: 'gain', params: { gain: params['gain'] } };
+  if (kind === "gain") {
+    if (typeof params["gain"] !== "number") return null;
+    return { kind: "gain", params: { gain: params["gain"] } };
   }
-  if (kind === 'reverse' || kind === 'crop' || kind === 'cut'
-      || kind === 'fadeIn' || kind === 'fadeOut') {
-    if (typeof params['startFrame'] !== 'number') return null;
-    if (typeof params['endFrame']   !== 'number') return null;
+  if (
+    kind === "reverse" ||
+    kind === "crop" ||
+    kind === "cut" ||
+    kind === "fadeIn" ||
+    kind === "fadeOut"
+  ) {
+    if (typeof params["startFrame"] !== "number") return null;
+    if (typeof params["endFrame"] !== "number") return null;
     return {
       kind,
       params: {
-        startFrame: Math.max(0, Math.floor(params['startFrame'])),
-        endFrame:   Math.max(0, Math.floor(params['endFrame'])),
+        startFrame: Math.max(0, Math.floor(params["startFrame"])),
+        endFrame: Math.max(0, Math.floor(params["endFrame"])),
       },
     };
   }
-  if (kind === 'filter') {
-    const type = params['type'];
-    if (type !== 'lowpass' && type !== 'highpass') return null;
-    if (typeof params['cutoff'] !== 'number') return null;
-    if (typeof params['q']      !== 'number') return null;
+  if (kind === "filter") {
+    const type = params["type"];
+    if (type !== "lowpass" && type !== "highpass") return null;
+    if (typeof params["cutoff"] !== "number") return null;
+    if (typeof params["q"] !== "number") return null;
     return {
-      kind: 'filter',
+      kind: "filter",
       params: {
         type,
         // Soft-clamp here mirrors the runtime guards in `applyFilter`; an
         // out-of-range payload still loads, just snapped to a sane edge.
-        cutoff: Math.max(10, params['cutoff']),
-        q:      Math.max(0.05, Math.min(30, params['q'])),
+        cutoff: Math.max(10, params["cutoff"]),
+        q: Math.max(0.05, Math.min(30, params["q"])),
       },
     };
   }
-  if (kind === 'crossfade') {
-    if (typeof params['length'] !== 'number') return null;
+  if (kind === "crossfade") {
+    if (typeof params["length"] !== "number") return null;
     return {
-      kind: 'crossfade',
-      params: { length: Math.max(1, Math.floor(params['length'])) },
+      kind: "crossfade",
+      params: { length: Math.max(1, Math.floor(params["length"])) },
     };
   }
-  if (kind === 'shaper') {
-    const mode = params['mode'];
-    if (typeof mode !== 'string'
-        || !(SHAPER_MODES as readonly string[]).includes(mode)) return null;
-    if (typeof params['amount'] !== 'number') return null;
+  if (kind === "shaper") {
+    const mode = params["mode"];
+    if (
+      typeof mode !== "string" ||
+      !(SHAPER_MODES as readonly string[]).includes(mode)
+    )
+      return null;
+    if (typeof params["amount"] !== "number") return null;
     return {
-      kind: 'shaper',
+      kind: "shaper",
       params: {
         mode: mode as ShaperMode,
         // Soft-clamp here mirrors the runtime guard in `applyShaper`.
-        amount: Math.max(0, Math.min(1, params['amount'])),
+        amount: Math.max(0, Math.min(1, params["amount"])),
       },
     };
   }
@@ -403,31 +432,33 @@ function parseEffectNode(v: unknown): EffectNode | null {
  *  mismatch — keeps old v=3 payloads (no `pt` field) loadable. */
 function parsePtParams(raw: unknown): PtTransformerParams {
   const fallback: PtTransformerParams = {
-    monoMix: 'average',
+    monoMix: "average",
     targetNote: DEFAULT_TARGET_NOTE,
     resampleMode: DEFAULT_RESAMPLE_MODE,
     dither: false,
   };
-  if (!raw || typeof raw !== 'object') return fallback;
+  if (!raw || typeof raw !== "object") return fallback;
   const x = raw as Record<string, unknown>;
-  const mix = x['monoMix'];
+  const mix = x["monoMix"];
   const monoMix: MonoMix =
-    mix === 'left' ? 'left' : mix === 'right' ? 'right' : 'average';
-  const note = x['targetNote'];
+    mix === "left" ? "left" : mix === "right" ? "right" : "average";
+  const note = x["targetNote"];
   const targetNote =
-    note === null ? null
-    : typeof note === 'number' && note >= 0 && note < 36 ? Math.floor(note)
-    : DEFAULT_TARGET_NOTE;
-  const rs = x['resampleMode'];
+    note === null
+      ? null
+      : typeof note === "number" && note >= 0 && note < 36
+        ? Math.floor(note)
+        : DEFAULT_TARGET_NOTE;
+  const rs = x["resampleMode"];
   // Field added later — old payloads have nothing here, fall back to default.
-  const resampleMode: ResampleMode = (RESAMPLE_MODES as readonly string[]).includes(
-    rs as string,
-  )
+  const resampleMode: ResampleMode = (
+    RESAMPLE_MODES as readonly string[]
+  ).includes(rs as string)
     ? (rs as ResampleMode)
     : DEFAULT_RESAMPLE_MODE;
   // Dither defaults to false for back-compat — old projects' int8 stays
   // bit-identical until the user explicitly turns it on.
-  const dither = x['dither'] === true;
+  const dither = x["dither"] === true;
   return { monoMix, targetNote, resampleMode, dither };
 }
 
@@ -438,7 +469,7 @@ function parsePtParams(raw: unknown): PtTransformerParams {
  * [0, 30] — anything outside that range can't refer to a real PT sample slot.
  */
 function parseChiptuneSources(raw: unknown): Record<number, ChiptuneParams> {
-  if (!raw || typeof raw !== 'object') return {};
+  if (!raw || typeof raw !== "object") return {};
   const out: Record<number, ChiptuneParams> = {};
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     const slot = parseInt(k, 10);
@@ -456,14 +487,14 @@ function parseChiptuneSources(raw: unknown): Record<number, ChiptuneParams> {
  * empty-string entries from cluttering the map.
  */
 function parsePatternNames(raw: unknown): Record<number, string> {
-  if (!raw || typeof raw !== 'object') return {};
+  if (!raw || typeof raw !== "object") return {};
   const out: Record<number, string> = {};
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     const idx = parseInt(k, 10);
     if (!Number.isFinite(idx) || idx < 0 || idx > 127) continue;
-    if (typeof v !== 'string') continue;
+    if (typeof v !== "string") continue;
     const name = v.slice(0, 64);
-    if (name.trim() === '') continue;
+    if (name.trim() === "") continue;
     out[idx] = name;
   }
   return out;
@@ -505,7 +536,11 @@ export function loadSession(): LoadedSession | null {
 
 /** Drop the persisted session. */
 export function clearSession(): void {
-  try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
 // ── .retro project file format ────────────────────────────────────────────
@@ -525,7 +560,7 @@ export function projectToBytes(state: SessionInputs): Uint8Array {
 export function projectFromBytes(bytes: Uint8Array): LoadedSession | null {
   let text: string;
   try {
-    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
     return null;
   }
@@ -549,35 +584,43 @@ export function deriveProjectFilename(
   songTitle: string,
 ): string {
   const base = loadedName
-    ? loadedName.replace(/\.(mod|retro)$/i, '')
+    ? loadedName.replace(/\.(mod|retro)$/i, "")
     : songTitle.trim();
-  const sanitised = base.replace(/[^\w.\- ]+/g, '_').replace(/\s+/g, '_');
+  const sanitised = base.replace(/[^\w.\- ]+/g, "_").replace(/\s+/g, "_");
   const trimmed = sanitised.slice(0, 64);
-  return `${trimmed || 'untitled'}.retro`;
+  return `${trimmed || "untitled"}.retro`;
 }
 
 // ── Validation helpers ────────────────────────────────────────────────────
 
 function isPersistedShape(v: unknown): v is PersistedShape {
-  if (!v || typeof v !== 'object') return false;
+  if (!v || typeof v !== "object") return false;
   const x = v as Record<string, unknown>;
   // Accept v=1 (oldest, no source maps), v=2 (chiptuneSources added),
   // v=3 (samplerSources added) and v=4 (patternNames added). Per-slot
   // maps are validated entry-by-entry in their parse helpers so a single
   // corrupt slot doesn't fail the whole load.
-  return (x['v'] === 1 || x['v'] === 2 || x['v'] === 3 || x['v'] === 4)
-    && typeof x['songBase64'] === 'string'
-    && (x['filename'] === null || typeof x['filename'] === 'string')
-    && (x['infoText'] === undefined || typeof x['infoText'] === 'string')
-    && (x['view'] === 'pattern' || x['view'] === 'sample' || x['view'] === 'info' || x['view'] === 'settings')
-    && typeof x['cursor'] === 'object' && x['cursor'] !== null
-    && typeof x['currentSample'] === 'number'
-    && typeof x['currentOctave'] === 'number'
-    && typeof x['editStep'] === 'number';
+  return (
+    (x["v"] === 1 || x["v"] === 2 || x["v"] === 3 || x["v"] === 4) &&
+    typeof x["songBase64"] === "string" &&
+    (x["filename"] === null || typeof x["filename"] === "string") &&
+    (x["infoText"] === undefined || typeof x["infoText"] === "string") &&
+    (x["view"] === "pattern" ||
+      x["view"] === "sample" ||
+      x["view"] === "info" ||
+      x["view"] === "settings") &&
+    typeof x["cursor"] === "object" &&
+    x["cursor"] !== null &&
+    typeof x["currentSample"] === "number" &&
+    typeof x["currentOctave"] === "number" &&
+    typeof x["editStep"] === "number"
+  );
 }
 
 function sanitiseCursor(c: Cursor): Cursor {
-  const field: Field = (FIELDS as readonly string[]).includes(c.field) ? c.field : 'note';
+  const field: Field = (FIELDS as readonly string[]).includes(c.field)
+    ? c.field
+    : "note";
   return {
     order: clamp(c.order, 0, 127, 0),
     row: clamp(c.row, 0, 63, 0),
@@ -587,6 +630,6 @@ function sanitiseCursor(c: Cursor): Cursor {
 }
 
 function clamp(v: unknown, lo: number, hi: number, fallback: number): number {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return fallback;
+  if (typeof v !== "number" || !Number.isFinite(v)) return fallback;
   return Math.max(lo, Math.min(hi, Math.floor(v)));
 }

@@ -197,7 +197,6 @@ export const ChiptuneEditor: Component<ChiptuneEditorProps> = (props) => {
           props.onUpdate({ lfo2: { ...props.params.lfo2, ...patch } })
         }
       />
-
     </section>
   );
 };

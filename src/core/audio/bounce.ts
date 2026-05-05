@@ -10,14 +10,14 @@
  * while leaving room for our sinc resampler to do its work.
  */
 
-import type { Song } from '../mod/types';
-import type { PatternSelection } from '../../state/selection';
-import { CHANNELS, ROWS_PER_PATTERN, type Pattern } from '../mod/types';
-import { Effect, emptyNote, emptyPattern, emptySong } from '../mod/format';
-import { speedTempoAt } from '../mod/flatten';
-import { Replayer } from './replayer';
-import { CleanMixer } from './cleanMixer';
-import type { WavData } from './wav';
+import type { Song } from "../mod/types";
+import type { PatternSelection } from "../../state/selection";
+import { CHANNELS, ROWS_PER_PATTERN, type Pattern } from "../mod/types";
+import { Effect, emptyNote, emptyPattern, emptySong } from "../mod/format";
+import { speedTempoAt } from "../mod/flatten";
+import { Replayer } from "./replayer";
+import { CleanMixer } from "./cleanMixer";
+import type { WavData } from "./wav";
 
 /** CIA timer period for `tempo` BPM, mirroring `Replayer.samplesPerTick`. */
 const CIA_PAL_CLK = 709379.0;
@@ -137,7 +137,8 @@ export function bounceSelection(
 ): BounceResult | null {
   const sampleRate = opts.sampleRate ?? 44100;
   const tailFrames = Math.max(0, opts.tailFrames ?? 0);
-  if (sel.endRow < sel.startRow || sel.endChannel < sel.startChannel) return null;
+  if (sel.endRow < sel.startRow || sel.endChannel < sel.startChannel)
+    return null;
   const numRows = sel.endRow - sel.startRow + 1;
   if (numRows <= 0 || numRows > ROWS_PER_PATTERN) return null;
 

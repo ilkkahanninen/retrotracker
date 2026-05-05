@@ -1,17 +1,20 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from "vitest";
 import {
-  morphShape, splitPhase,
-  generateChiptuneCycle, defaultChiptuneParams, chiptuneFromJson,
+  morphShape,
+  splitPhase,
+  generateChiptuneCycle,
+  defaultChiptuneParams,
+  chiptuneFromJson,
   snapLfoMultiplierToDivisor,
   type ChiptuneParams,
-} from '../src/core/audio/chiptune';
+} from "../src/core/audio/chiptune";
 
 function withDefaults(patch: Partial<ChiptuneParams>): ChiptuneParams {
   return { ...defaultChiptuneParams(), ...patch };
 }
 
-describe('morphShape', () => {
-  it('returns a pure shape at integer indices', () => {
+describe("morphShape", () => {
+  it("returns a pure shape at integer indices", () => {
     // Chain: 0=sine 1=tri 2=stair 3=trap 4=sq 5=saw.
     // sine(0) = 0, sine(0.25) = 1
     expect(morphShape(0, 0)).toBeCloseTo(0, 6);
@@ -49,30 +52,30 @@ describe('morphShape', () => {
     expect(morphShape(0.75, 5)).toBe(-0.5);
   });
 
-  it('linearly blends between adjacent shapes for fractional indices', () => {
+  it("linearly blends between adjacent shapes for fractional indices", () => {
     // At idx=0.5 we expect 50% sine + 50% triangle. Pick p=0.125 where
     // sine and triangle differ so the blend is observable.
     const p = 0.125;
-    const sine = Math.sin(Math.PI * 2 * p);   // ≈ 0.7071
-    const tri  = 4 * p;                       // 0.5 (rising 0→1 region)
+    const sine = Math.sin(Math.PI * 2 * p); // ≈ 0.7071
+    const tri = 4 * p; // 0.5 (rising 0→1 region)
     expect(morphShape(p, 0.5)).toBeCloseTo(0.5 * sine + 0.5 * tri, 6);
   });
 
-  it('clamps to the saw at the top of the chain', () => {
+  it("clamps to the saw at the top of the chain", () => {
     // Saw at p=0.25 = 0.5 (rising region); same answer for index ≥ 5.
     expect(morphShape(0.25, 5)).toBe(0.5);
     expect(morphShape(0.25, 7)).toBe(0.5); // clamped to 5
   });
 });
 
-describe('splitPhase', () => {
-  it('is the identity at split=0.5', () => {
+describe("splitPhase", () => {
+  it("is the identity at split=0.5", () => {
     for (const t of [0, 0.1, 0.25, 0.5, 0.75, 0.9]) {
       expect(splitPhase(t, 0.5)).toBeCloseTo(t, 9);
     }
   });
 
-  it('at split=0.25, the cycle midpoint (phase=0.5) lands at t=0.25', () => {
+  it("at split=0.25, the cycle midpoint (phase=0.5) lands at t=0.25", () => {
     expect(splitPhase(0.25, 0.25)).toBeCloseTo(0.5, 9);
     // First quarter compressed: t=0 → phase=0, t=0.125 → phase=0.25
     expect(splitPhase(0, 0.25)).toBeCloseTo(0, 9);
@@ -81,21 +84,21 @@ describe('splitPhase', () => {
     expect(splitPhase(0.625, 0.25)).toBeCloseTo(0.75, 9);
   });
 
-  it('clamps split into the safe range', () => {
+  it("clamps split into the safe range", () => {
     // split=0 would divide by zero; effective lower bound is 0.05.
     expect(Number.isFinite(splitPhase(0.5, 0))).toBe(true);
     expect(Number.isFinite(splitPhase(0.5, 1))).toBe(true);
   });
 });
 
-describe('generateChiptuneCycle — basic shapes', () => {
-  it('produces a clean square at osc1=square, amount=0', () => {
+describe("generateChiptuneCycle — basic shapes", () => {
+  it("produces a clean square at osc1=square, amount=0", () => {
     const p = withDefaults({
       cycleFrames: 8,
       amplitude: 1,
       osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 },
       osc2: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 },
-      combineMode: 'morph',
+      combineMode: "morph",
       combineAmount: 0,
     });
     const w = generateChiptuneCycle(p);
@@ -105,41 +108,50 @@ describe('generateChiptuneCycle — basic shapes', () => {
     expect(ch.slice(4)).toEqual([-1, -1, -1, -1]);
   });
 
-  it('honours cycleFrames length', () => {
+  it("honours cycleFrames length", () => {
     const w = generateChiptuneCycle(withDefaults({ cycleFrames: 32 }));
     expect(w.channels[0]!.length).toBe(32);
   });
 
-  it('amplitude scales the output uniformly', () => {
-    const full = generateChiptuneCycle(withDefaults({
-      cycleFrames: 8,
-      amplitude: 1,
-      osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 },
-      combineAmount: 0,
-    }));
-    const half = generateChiptuneCycle(withDefaults({
-      cycleFrames: 8,
-      amplitude: 0.5,
-      osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 },
-      combineAmount: 0,
-    }));
+  it("amplitude scales the output uniformly", () => {
+    const full = generateChiptuneCycle(
+      withDefaults({
+        cycleFrames: 8,
+        amplitude: 1,
+        osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 },
+        combineAmount: 0,
+      }),
+    );
+    const half = generateChiptuneCycle(
+      withDefaults({
+        cycleFrames: 8,
+        amplitude: 0.5,
+        osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 },
+        combineAmount: 0,
+      }),
+    );
     for (let i = 0; i < 8; i++) {
       expect(half.channels[0]![i]!).toBeCloseTo(0.5 * full.channels[0]![i]!, 9);
     }
   });
 });
 
-describe('generateChiptuneCycle — combine modes', () => {
+describe("generateChiptuneCycle — combine modes", () => {
   const baseOscs = {
-    osc1: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 },  // sine
-    osc2: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 },  // square
+    osc1: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 }, // sine
+    osc2: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 }, // square
   };
 
-  it('morph at amount=0.5 ≡ average of osc1 and osc2', () => {
-    const w = generateChiptuneCycle(withDefaults({
-      cycleFrames: 16, amplitude: 1, ...baseOscs,
-      combineMode: 'morph', combineAmount: 0.5,
-    }));
+  it("morph at amount=0.5 ≡ average of osc1 and osc2", () => {
+    const w = generateChiptuneCycle(
+      withDefaults({
+        cycleFrames: 16,
+        amplitude: 1,
+        ...baseOscs,
+        combineMode: "morph",
+        combineAmount: 0.5,
+      }),
+    );
     for (let i = 0; i < 16; i++) {
       const t = i / 16;
       const o1 = Math.sin(Math.PI * 2 * t);
@@ -148,29 +160,43 @@ describe('generateChiptuneCycle — combine modes', () => {
     }
   });
 
-  it('fm at amount=0 ≡ osc1', () => {
-    const ref = generateChiptuneCycle(withDefaults({
-      cycleFrames: 16, ...baseOscs, combineMode: 'morph', combineAmount: 0,
-    }));
-    const fm = generateChiptuneCycle(withDefaults({
-      cycleFrames: 16, ...baseOscs, combineMode: 'fm', combineAmount: 0,
-    }));
+  it("fm at amount=0 ≡ osc1", () => {
+    const ref = generateChiptuneCycle(
+      withDefaults({
+        cycleFrames: 16,
+        ...baseOscs,
+        combineMode: "morph",
+        combineAmount: 0,
+      }),
+    );
+    const fm = generateChiptuneCycle(
+      withDefaults({
+        cycleFrames: 16,
+        ...baseOscs,
+        combineMode: "fm",
+        combineAmount: 0,
+      }),
+    );
     for (let i = 0; i < 16; i++) {
       expect(fm.channels[0]![i]!).toBeCloseTo(ref.channels[0]![i]!, 9);
     }
   });
 
-  it('ring at amount=1 with osc1=ones and osc2=square gives ±osc2', () => {
+  it("ring at amount=1 with osc1=ones and osc2=square gives ±osc2", () => {
     // Triangle at phase 0.25 = 0; pick osc1 = saw at phase 0.5 (=0)? Use a
     // simpler harness: osc1 = sine at phase 0.25 = 1.0, then ring with
     // osc2 = ±1 square equals ±1. We sample at one frame to verify the
     // multiplicative shape.
-    const w = generateChiptuneCycle(withDefaults({
-      cycleFrames: 4, amplitude: 1,
-      osc1: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 }, // sine: 0,1,0,-1
-      osc2: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 }, // square: 1,1,-1,-1
-      combineMode: 'ring', combineAmount: 1,
-    }));
+    const w = generateChiptuneCycle(
+      withDefaults({
+        cycleFrames: 4,
+        amplitude: 1,
+        osc1: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 }, // sine: 0,1,0,-1
+        osc2: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 }, // square: 1,1,-1,-1
+        combineMode: "ring",
+        combineAmount: 1,
+      }),
+    );
     // at amount=1 → (1-1)·o1 + 1·(o1·o2) = o1·o2
     // i=0: 0 · 1 = 0; i=1: 1 · 1 = 1; i=2: 0 · -1 = 0; i=3: -1 · -1 = 1
     const expected = [0, 1, 0, 1];
@@ -179,17 +205,21 @@ describe('generateChiptuneCycle — combine modes', () => {
     });
   });
 
-  it('xor at amount=1 produces 8-bit XOR of osc1 and osc2', () => {
+  it("xor at amount=1 produces 8-bit XOR of osc1 and osc2", () => {
     // osc1 = +1 (saw at end of cycle is just under +1 due to 2t-1; at i=0 of
     // the cycle saw=-1). Use two squares — at amount=1 the formula is
     // xor8(o1, o2).  square=1 → byte 127, square=-1 → byte 0x81 (-127). XOR
     // of 127 and 127 is 0; XOR of 127 and 0x81 is 0xFE → -2 → -2/127.
-    const w = generateChiptuneCycle(withDefaults({
-      cycleFrames: 8, amplitude: 1,
-      osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 }, // 1,1,1,1,-1,-1,-1,-1
-      osc2: { shapeIndex: 4, phaseSplit: 0.25, ratio: 1 }, // -1 except for first 25%
-      combineMode: 'xor', combineAmount: 1,
-    }));
+    const w = generateChiptuneCycle(
+      withDefaults({
+        cycleFrames: 8,
+        amplitude: 1,
+        osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 }, // 1,1,1,1,-1,-1,-1,-1
+        osc2: { shapeIndex: 4, phaseSplit: 0.25, ratio: 1 }, // -1 except for first 25%
+        combineMode: "xor",
+        combineAmount: 1,
+      }),
+    );
     // At i=0, phaseSplit 0.25 puts the +1 region in [0, 0.25) → t=0 ∈ +1.
     // o1=+1 (byte 127), o2=+1 (byte 127), 127 XOR 127 = 0 → 0/127 = 0.
     expect(w.channels[0]![0]!).toBeCloseTo(0, 6);
@@ -197,7 +227,7 @@ describe('generateChiptuneCycle — combine modes', () => {
     expect(w.channels[0]![4]!).toBeCloseTo(0, 6);
   });
 
-  it('is deterministic for identical params', () => {
+  it("is deterministic for identical params", () => {
     const p = defaultChiptuneParams();
     const a = generateChiptuneCycle(p);
     const b = generateChiptuneCycle(p);
@@ -205,14 +235,14 @@ describe('generateChiptuneCycle — combine modes', () => {
   });
 });
 
-describe('chiptuneFromJson', () => {
-  it('round-trips a default params object', () => {
+describe("chiptuneFromJson", () => {
+  it("round-trips a default params object", () => {
     const orig = defaultChiptuneParams();
     const restored = chiptuneFromJson(JSON.parse(JSON.stringify(orig)));
     expect(restored).toEqual(orig);
   });
 
-  it('rejects non-objects and missing required fields', () => {
+  it("rejects non-objects and missing required fields", () => {
     expect(chiptuneFromJson(null)).toBeNull();
     expect(chiptuneFromJson({})).toBeNull();
   });
@@ -222,29 +252,35 @@ describe('chiptuneFromJson', () => {
     // back to morph so the rest of the saved chiptune still restores.
     const restored = chiptuneFromJson({
       ...defaultChiptuneParams(),
-      combineMode: 'sum',
+      combineMode: "sum",
     });
-    expect(restored?.combineMode).toBe('morph');
+    expect(restored?.combineMode).toBe("morph");
     const bogus = chiptuneFromJson({
       ...defaultChiptuneParams(),
-      combineMode: 'totally-made-up',
+      combineMode: "totally-made-up",
     });
-    expect(bogus?.combineMode).toBe('morph');
+    expect(bogus?.combineMode).toBe("morph");
   });
 
-  it('snaps cycleFrames to the nearest octave-aligned (musical) value', () => {
+  it("snaps cycleFrames to the nearest octave-aligned (musical) value", () => {
     // 99 lies between 64 and 128; closer to 128.
     const p = chiptuneFromJson({ ...defaultChiptuneParams(), cycleFrames: 99 });
     expect(p?.cycleFrames).toBe(128);
     // Out-of-range values clamp into the [MIN, MAX] band first, then snap.
-    const big = chiptuneFromJson({ ...defaultChiptuneParams(), cycleFrames: 99999 });
+    const big = chiptuneFromJson({
+      ...defaultChiptuneParams(),
+      cycleFrames: 99999,
+    });
     expect(big?.cycleFrames).toBe(256);
     // Already-musical values pass through unchanged.
-    const exact = chiptuneFromJson({ ...defaultChiptuneParams(), cycleFrames: 64 });
+    const exact = chiptuneFromJson({
+      ...defaultChiptuneParams(),
+      cycleFrames: 64,
+    });
     expect(exact?.cycleFrames).toBe(64);
   });
 
-  it('clamps oscillator params to safe ranges', () => {
+  it("clamps oscillator params to safe ranges", () => {
     const p = chiptuneFromJson({
       ...defaultChiptuneParams(),
       osc1: { shapeIndex: 99, phaseSplit: -1, ratio: 1 },
@@ -256,7 +292,7 @@ describe('chiptuneFromJson', () => {
     expect(p?.osc2.phaseSplit).toBeCloseTo(0.95, 6);
   });
 
-  it('snaps ratio to the nearest power-of-two and back-fills missing ratio with 1', () => {
+  it("snaps ratio to the nearest power-of-two and back-fills missing ratio with 1", () => {
     const snapped = chiptuneFromJson({
       ...defaultChiptuneParams(),
       osc1: { shapeIndex: 0, phaseSplit: 0.5, ratio: 3 },
@@ -276,29 +312,35 @@ describe('chiptuneFromJson', () => {
   });
 });
 
-describe('generateChiptuneCycle — multi-cycle ratios', () => {
-  it('output length collapses to N / min(ratio): both ratios = 2 → length = N/2', () => {
-    const w = generateChiptuneCycle(withDefaults({
-      cycleFrames: 64,
-      osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 2 },
-      osc2: { shapeIndex: 4, phaseSplit: 0.5, ratio: 2 },
-      combineMode: 'morph', combineAmount: 0,
-    }));
+describe("generateChiptuneCycle — multi-cycle ratios", () => {
+  it("output length collapses to N / min(ratio): both ratios = 2 → length = N/2", () => {
+    const w = generateChiptuneCycle(
+      withDefaults({
+        cycleFrames: 64,
+        osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 2 },
+        osc2: { shapeIndex: 4, phaseSplit: 0.5, ratio: 2 },
+        combineMode: "morph",
+        combineAmount: 0,
+      }),
+    );
     expect(w.channels[0]!.length).toBe(32);
   });
 
-  it('higher-ratio osc wraps inside the longer cycle', () => {
+  it("higher-ratio osc wraps inside the longer cycle", () => {
     // osc1 (carrier) at ratio 1: one cycle in N=16 samples.
     // osc2 (modulator) at ratio 2: two cycles in the same span. Sum mode
     // makes the wrapping observable on its own. With osc1 silent (sine at
     // phase 0 = 0) we can isolate osc2's contribution.
-    const w = generateChiptuneCycle(withDefaults({
-      cycleFrames: 16,
-      amplitude: 1,
-      osc1: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 }, // sine
-      osc2: { shapeIndex: 4, phaseSplit: 0.5, ratio: 2 }, // square @ 2x
-      combineMode: 'morph', combineAmount: 1, // pure osc2
-    }));
+    const w = generateChiptuneCycle(
+      withDefaults({
+        cycleFrames: 16,
+        amplitude: 1,
+        osc1: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 }, // sine
+        osc2: { shapeIndex: 4, phaseSplit: 0.5, ratio: 2 }, // square @ 2x
+        combineMode: "morph",
+        combineAmount: 1, // pure osc2
+      }),
+    );
     const ch = Array.from(w.channels[0]!);
     expect(ch.length).toBe(16);
     // Square at ratio 2 across 16 samples wraps every 8 samples → high for
@@ -309,7 +351,7 @@ describe('generateChiptuneCycle — multi-cycle ratios', () => {
     expect(ch.slice(12, 16)).toEqual([-1, -1, -1, -1]);
   });
 
-  it('ratio 1 + ratio 1 matches single-cycle behaviour', () => {
+  it("ratio 1 + ratio 1 matches single-cycle behaviour", () => {
     // Sanity-check that the new code path is byte-equivalent to the old
     // single-cycle render when both ratios are at the fundamental.
     const single = generateChiptuneCycle(defaultChiptuneParams());
@@ -318,34 +360,40 @@ describe('generateChiptuneCycle — multi-cycle ratios', () => {
       osc1: { ...defaultChiptuneParams().osc1, ratio: 1 },
       osc2: { ...defaultChiptuneParams().osc2, ratio: 1 },
     });
-    expect(Array.from(single.channels[0]!)).toEqual(Array.from(explicit.channels[0]!));
+    expect(Array.from(single.channels[0]!)).toEqual(
+      Array.from(explicit.channels[0]!),
+    );
   });
 });
 
-describe('generateChiptuneCycle — LFO', () => {
-  it('with amplitude 0 and multiplier 1, the output matches the no-LFO render', () => {
+describe("generateChiptuneCycle — LFO", () => {
+  it("with amplitude 0 and multiplier 1, the output matches the no-LFO render", () => {
     const base = generateChiptuneCycle(defaultChiptuneParams());
     const off = generateChiptuneCycle({
       ...defaultChiptuneParams(),
-      lfo: { cycleMultiplier: 1, amplitude: 0, target: 'amplitude' },
+      lfo: { cycleMultiplier: 1, amplitude: 0, target: "amplitude" },
     });
     expect(Array.from(off.channels[0]!)).toEqual(Array.from(base.channels[0]!));
   });
 
-  it('cycleMultiplier extends the rendered output length', () => {
-    const m1 = generateChiptuneCycle(withDefaults({
-      cycleFrames: 32,
-      lfo: { cycleMultiplier: 1, amplitude: 0, target: 'amplitude' },
-    }));
-    const m4 = generateChiptuneCycle(withDefaults({
-      cycleFrames: 32,
-      lfo: { cycleMultiplier: 4, amplitude: 0, target: 'amplitude' },
-    }));
+  it("cycleMultiplier extends the rendered output length", () => {
+    const m1 = generateChiptuneCycle(
+      withDefaults({
+        cycleFrames: 32,
+        lfo: { cycleMultiplier: 1, amplitude: 0, target: "amplitude" },
+      }),
+    );
+    const m4 = generateChiptuneCycle(
+      withDefaults({
+        cycleFrames: 32,
+        lfo: { cycleMultiplier: 4, amplitude: 0, target: "amplitude" },
+      }),
+    );
     expect(m1.channels[0]!.length).toBe(32);
     expect(m4.channels[0]!.length).toBe(128);
   });
 
-  it('amplitude target with full amp shapes a triangle envelope on the output', () => {
+  it("amplitude target with full amp shapes a triangle envelope on the output", () => {
     // Drive a constant +1 carrier (square at phaseSplit 0.5 always at +1 in
     // the first half — pick cycleFrames=4 with osc1=square + amp=1 +
     // multiplier=4 so we can read off the LFO envelope clearly. We compare
@@ -356,9 +404,9 @@ describe('generateChiptuneCycle — LFO', () => {
       amplitude: 0.5, // base amp leaves headroom for the LFO to add to.
       osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 }, // square → ±1
       osc2: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 },
-      combineMode: 'morph',
+      combineMode: "morph",
       combineAmount: 0,
-      lfo: { cycleMultiplier: 4, amplitude: 1, target: 'amplitude' },
+      lfo: { cycleMultiplier: 4, amplitude: 1, target: "amplitude" },
     });
     const ch = w.channels[0]!;
     expect(ch.length).toBe(32);
@@ -369,7 +417,7 @@ describe('generateChiptuneCycle — LFO', () => {
     expect(Math.abs(ch[31]!)).toBeLessThan(Math.abs(ch[16]!));
   });
 
-  it('chiptuneFromJson back-fills `lfo` for older payloads', () => {
+  it("chiptuneFromJson back-fills `lfo` for older payloads", () => {
     const restored = chiptuneFromJson({
       ...defaultChiptuneParams(),
       // Strip the lfo as if loaded from a pre-LFO `.retro` file.
@@ -378,28 +426,28 @@ describe('generateChiptuneCycle — LFO', () => {
     expect(restored?.lfo).toEqual({
       cycleMultiplier: 1,
       amplitude: 0,
-      target: 'osc1Shape',
+      target: "osc1Shape",
     });
   });
 });
 
-describe('snapLfoMultiplierToDivisor', () => {
-  it('returns 1 when total is 1 (only valid divisor)', () => {
+describe("snapLfoMultiplierToDivisor", () => {
+  it("returns 1 when total is 1 (only valid divisor)", () => {
     expect(snapLfoMultiplierToDivisor(0, 1)).toBe(1);
     expect(snapLfoMultiplierToDivisor(5, 1)).toBe(1);
     expect(snapLfoMultiplierToDivisor(99, 1)).toBe(1);
   });
 
-  it('snaps to the nearest divisor of total', () => {
+  it("snaps to the nearest divisor of total", () => {
     // Divisors of 12: 1, 2, 3, 4, 6, 12.
     expect(snapLfoMultiplierToDivisor(1, 12)).toBe(1);
     expect(snapLfoMultiplierToDivisor(2, 12)).toBe(2);
-    expect(snapLfoMultiplierToDivisor(7, 12)).toBe(6);  // closer to 6 than 12
+    expect(snapLfoMultiplierToDivisor(7, 12)).toBe(6); // closer to 6 than 12
     expect(snapLfoMultiplierToDivisor(11, 12)).toBe(12);
     expect(snapLfoMultiplierToDivisor(20, 12)).toBe(12); // out-of-range → max divisor
   });
 
-  it('handles powers of two cleanly', () => {
+  it("handles powers of two cleanly", () => {
     // Divisors of 64: 1, 2, 4, 8, 16, 32, 64.
     for (const d of [1, 2, 4, 8, 16, 32, 64]) {
       expect(snapLfoMultiplierToDivisor(d, 64)).toBe(d);
@@ -410,7 +458,7 @@ describe('snapLfoMultiplierToDivisor', () => {
     expect(snapLfoMultiplierToDivisor(50, 64)).toBe(64);
   });
 
-  it('breaks ties toward the smaller (earlier) divisor', () => {
+  it("breaks ties toward the smaller (earlier) divisor", () => {
     // 5 is equidistant from 4 and 6 (divisors of 12); the earlier scan
     // wins. Documented here because it could surprise — equally-near
     // divisors always pick the slower (smaller-multiplier) LFO 2.
@@ -418,20 +466,20 @@ describe('snapLfoMultiplierToDivisor', () => {
     expect(snapLfoMultiplierToDivisor(6, 64)).toBe(4); // 4 and 8 both dist 2
   });
 
-  it('falls back to 1 on non-finite input', () => {
+  it("falls back to 1 on non-finite input", () => {
     expect(snapLfoMultiplierToDivisor(NaN, 12)).toBe(1);
     expect(snapLfoMultiplierToDivisor(Infinity, 12)).toBe(1);
   });
 });
 
-describe('generateChiptuneCycle — LFO 2', () => {
-  it('renders identical output to LFO 2 disabled when amp=0, regardless of m2', () => {
+describe("generateChiptuneCycle — LFO 2", () => {
+  it("renders identical output to LFO 2 disabled when amp=0, regardless of m2", () => {
     // LFO 2 with amp 0 must be a true no-op so users can park the slider
     // anywhere without affecting the audio.
     const baseline = generateChiptuneCycle(defaultChiptuneParams());
     const withInactive = generateChiptuneCycle({
       ...defaultChiptuneParams(),
-      lfo2: { cycleMultiplier: 4, amplitude: 0, target: 'amplitude' },
+      lfo2: { cycleMultiplier: 4, amplitude: 0, target: "amplitude" },
     });
     expect(Array.from(withInactive.channels[0]!)).toEqual(
       Array.from(baseline.channels[0]!),
@@ -440,16 +488,18 @@ describe('generateChiptuneCycle — LFO 2', () => {
 
   it("output length is set by LFO 1's multiplier; LFO 2 doesn't extend it", () => {
     // L = baseLen × m1 regardless of m2.
-    const w = generateChiptuneCycle(withDefaults({
-      cycleFrames: 16,
-      lfo:  { cycleMultiplier: 4, amplitude: 0, target: 'amplitude' },
-      lfo2: { cycleMultiplier: 2, amplitude: 1, target: 'osc1Shape' },
-    }));
+    const w = generateChiptuneCycle(
+      withDefaults({
+        cycleFrames: 16,
+        lfo: { cycleMultiplier: 4, amplitude: 0, target: "amplitude" },
+        lfo2: { cycleMultiplier: 2, amplitude: 1, target: "osc1Shape" },
+      }),
+    );
     // baseLen=16, m1=4 → L=64. m2=2 (divisor of 4) → period2=32.
     expect(w.channels[0]!.length).toBe(64);
   });
 
-  it('LFO 2 completes m1/m2 triangles inside the rendered output', () => {
+  it("LFO 2 completes m1/m2 triangles inside the rendered output", () => {
     // amp target so we can read off the envelope. m1=4, m2=2 means
     // LFO 2 does 2 triangles in L. Each triangle is 0→1→0, so the
     // envelope returns to base-amp every period2 = baseLen × m2 samples.
@@ -459,11 +509,11 @@ describe('generateChiptuneCycle — LFO 2', () => {
       amplitude: 0.5, // headroom so LFO can lift toward 1.0
       osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 }, // square → ±1
       osc2: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 },
-      combineMode: 'morph',
+      combineMode: "morph",
       combineAmount: 0,
       // LFO 1 silent (amp=0); we only want to see LFO 2's effect.
-      lfo:  { cycleMultiplier: 4, amplitude: 0, target: 'amplitude' },
-      lfo2: { cycleMultiplier: 2, amplitude: 1, target: 'amplitude' },
+      lfo: { cycleMultiplier: 4, amplitude: 0, target: "amplitude" },
+      lfo2: { cycleMultiplier: 2, amplitude: 1, target: "amplitude" },
     });
     const ch = w.channels[0]!;
     // baseLen=8, L=32, period2=16. Two LFO 2 triangles in L:
@@ -476,23 +526,27 @@ describe('generateChiptuneCycle — LFO 2', () => {
     expect(Math.abs(ch[24]!)).toBeCloseTo(1.0, 6);
   });
 
-  it('renderer auto-snaps a non-divisor m2 to a divisor of m1', () => {
+  it("renderer auto-snaps a non-divisor m2 to a divisor of m1", () => {
     // m2=5 isn't a divisor of m1=4; the renderer should snap it to one
     // (the nearest divisor of 4 to 5 is 4 itself).
-    const snapped = generateChiptuneCycle(withDefaults({
-      lfo:  { cycleMultiplier: 4, amplitude: 0, target: 'amplitude' },
-      lfo2: { cycleMultiplier: 5, amplitude: 0.5, target: 'osc1Shape' },
-    }));
-    const matched = generateChiptuneCycle(withDefaults({
-      lfo:  { cycleMultiplier: 4, amplitude: 0, target: 'amplitude' },
-      lfo2: { cycleMultiplier: 4, amplitude: 0.5, target: 'osc1Shape' },
-    }));
+    const snapped = generateChiptuneCycle(
+      withDefaults({
+        lfo: { cycleMultiplier: 4, amplitude: 0, target: "amplitude" },
+        lfo2: { cycleMultiplier: 5, amplitude: 0.5, target: "osc1Shape" },
+      }),
+    );
+    const matched = generateChiptuneCycle(
+      withDefaults({
+        lfo: { cycleMultiplier: 4, amplitude: 0, target: "amplitude" },
+        lfo2: { cycleMultiplier: 4, amplitude: 0.5, target: "osc1Shape" },
+      }),
+    );
     expect(Array.from(snapped.channels[0]!)).toEqual(
       Array.from(matched.channels[0]!),
     );
   });
 
-  it('chiptuneFromJson back-fills `lfo2` for older payloads', () => {
+  it("chiptuneFromJson back-fills `lfo2` for older payloads", () => {
     const restored = chiptuneFromJson({
       ...defaultChiptuneParams(),
       lfo2: undefined, // simulate a pre-LFO-2 saved file
@@ -500,7 +554,7 @@ describe('generateChiptuneCycle — LFO 2', () => {
     expect(restored?.lfo2).toEqual({
       cycleMultiplier: 1,
       amplitude: 0,
-      target: 'osc1Shape',
+      target: "osc1Shape",
     });
   });
 });

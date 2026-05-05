@@ -1,6 +1,6 @@
-import type { Note, Pattern, Sample, Song } from './types';
-import { MAX_ORDERS } from './types';
-import { emptyNote, emptyPattern, emptySample, PERIOD_TABLE } from './format';
+import type { Note, Pattern, Sample, Song } from "./types";
+import { MAX_ORDERS } from "./types";
+import { emptyNote, emptyPattern, emptySample, PERIOD_TABLE } from "./format";
 
 /**
  * Return a new Song with one cell's fields overridden, sharing every other
@@ -30,7 +30,10 @@ export function setCell(
   // Reference-equal short-circuit: skip building new arrays if nothing changed.
   let changed = false;
   for (const k of Object.keys(patch) as (keyof Note)[]) {
-    if (oldCell[k] !== patch[k]) { changed = true; break; }
+    if (oldCell[k] !== patch[k]) {
+      changed = true;
+      break;
+    }
   }
   if (!changed) return song;
 
@@ -49,7 +52,10 @@ export function setCell(
  * Resolve `(order)` to a concrete pattern + index, or null if the order is
  * out of range or unmapped. Shared by the row-shifting mutations below.
  */
-function resolvePattern(song: Song, order: number): { pattern: Pattern; patNum: number } | null {
+function resolvePattern(
+  song: Song,
+  order: number,
+): { pattern: Pattern; patNum: number } | null {
   if (order < 0 || order >= song.songLength) return null;
   const patNum = song.orders[order];
   if (patNum === undefined) return null;
@@ -77,7 +83,10 @@ function replaceChannelTail(
 ): Song {
   let changed = false;
   for (let i = 0; i < nextCells.length; i++) {
-    if (pattern.rows[fromRow + i]![channel] !== nextCells[i]) { changed = true; break; }
+    if (pattern.rows[fromRow + i]![channel] !== nextCells[i]) {
+      changed = true;
+      break;
+    }
   }
   if (!changed) return song;
 
@@ -102,7 +111,12 @@ function replaceChannelTail(
  *
  * No-op when the address is out of range.
  */
-export function deleteCellPullUp(song: Song, order: number, row: number, channel: number): Song {
+export function deleteCellPullUp(
+  song: Song,
+  order: number,
+  row: number,
+  channel: number,
+): Song {
   const ctx = resolvePattern(song, order);
   if (!ctx) return song;
   const { pattern, patNum } = ctx;
@@ -110,7 +124,8 @@ export function deleteCellPullUp(song: Song, order: number, row: number, channel
   if (channel < 0 || channel >= (pattern.rows[0]?.length ?? 0)) return song;
 
   const tail: Note[] = [];
-  for (let r = row + 1; r < pattern.rows.length; r++) tail.push(pattern.rows[r]![channel]!);
+  for (let r = row + 1; r < pattern.rows.length; r++)
+    tail.push(pattern.rows[r]![channel]!);
   tail.push(emptyNote());
   return replaceChannelTail(song, patNum, pattern, channel, row, tail);
 }
@@ -149,7 +164,11 @@ export function deleteRowPullUp(song: Song, order: number, row: number): Song {
  *
  * No-op when the address is out of range.
  */
-export function insertRowPushDown(song: Song, order: number, row: number): Song {
+export function insertRowPushDown(
+  song: Song,
+  order: number,
+  row: number,
+): Song {
   const ctx = resolvePattern(song, order);
   if (!ctx) return song;
   const { pattern, patNum } = ctx;
@@ -177,7 +196,12 @@ export function insertRowPushDown(song: Song, order: number, row: number): Song 
  *
  * No-op when the address is out of range.
  */
-export function insertCellPushDown(song: Song, order: number, row: number, channel: number): Song {
+export function insertCellPushDown(
+  song: Song,
+  order: number,
+  row: number,
+  channel: number,
+): Song {
   const ctx = resolvePattern(song, order);
   if (!ctx) return song;
   const { pattern, patNum } = ctx;
@@ -185,7 +209,8 @@ export function insertCellPushDown(song: Song, order: number, row: number, chann
   if (channel < 0 || channel >= (pattern.rows[0]?.length ?? 0)) return song;
 
   const tail: Note[] = [emptyNote()];
-  for (let r = row; r < pattern.rows.length - 1; r++) tail.push(pattern.rows[r]![channel]!);
+  for (let r = row; r < pattern.rows.length - 1; r++)
+    tail.push(pattern.rows[r]![channel]!);
   return replaceChannelTail(song, patNum, pattern, channel, row, tail);
 }
 
@@ -196,7 +221,11 @@ export function insertCellPushDown(song: Song, order: number, row: number, chann
  * out of range, the target pattern doesn't exist, or the slot already points
  * at it.
  */
-export function setOrderPattern(song: Song, order: number, patNum: number): Song {
+export function setOrderPattern(
+  song: Song,
+  order: number,
+  patNum: number,
+): Song {
   if (order < 0 || order >= song.songLength) return song;
   if (patNum < 0 || patNum >= song.patterns.length) return song;
   if (song.orders[order] === patNum) return song;
@@ -306,8 +335,13 @@ export function newPatternAtOrder(song: Song, order: number): Song {
  * Returns the same Song reference when nothing would change (orders already
  * canonical and no unused patterns to drop).
  */
-export function cleanupOrders(song: Song): { song: Song; remap: (number | undefined)[] } {
-  const remap: (number | undefined)[] = new Array(song.patterns.length).fill(undefined);
+export function cleanupOrders(song: Song): {
+  song: Song;
+  remap: (number | undefined)[];
+} {
+  const remap: (number | undefined)[] = new Array(song.patterns.length).fill(
+    undefined,
+  );
   const newPatterns: Pattern[] = [];
   for (let i = 0; i < song.songLength; i++) {
     const pat = song.orders[i] ?? 0;
@@ -328,7 +362,10 @@ export function cleanupOrders(song: Song): { song: Song; remap: (number | undefi
   let changed = newPatterns.length !== song.patterns.length;
   if (!changed) {
     for (let i = 0; i < song.orders.length; i++) {
-      if (newOrders[i] !== (song.orders[i] ?? 0)) { changed = true; break; }
+      if (newOrders[i] !== (song.orders[i] ?? 0)) {
+        changed = true;
+        break;
+      }
     }
   }
   if (!changed) return { song, remap };
@@ -376,13 +413,20 @@ export function duplicatePatternAtOrder(song: Song, order: number): Song {
  * loop editing stays non-destructive: drag the loop end inward, drag it
  * back out, the data is still there.
  */
-export function setSample(song: Song, slot: number, patch: Partial<Sample>): Song {
+export function setSample(
+  song: Song,
+  slot: number,
+  patch: Partial<Sample>,
+): Song {
   if (slot < 0 || slot >= song.samples.length) return song;
   const old = song.samples[slot];
   if (!old) return song;
   let changed = false;
   for (const k of Object.keys(patch) as (keyof Sample)[]) {
-    if (old[k] !== patch[k]) { changed = true; break; }
+    if (old[k] !== patch[k]) {
+      changed = true;
+      break;
+    }
   }
   if (!changed) return song;
   const newSample: Sample = { ...old, ...patch };
@@ -396,7 +440,7 @@ export function clearSample(song: Song, slot: number): Song {
   if (slot < 0 || slot >= song.samples.length) return song;
   const old = song.samples[slot];
   if (!old) return song;
-  if (old.lengthWords === 0 && old.name === '' && old.volume === 0) return song;
+  if (old.lengthWords === 0 && old.name === "" && old.volume === 0) return song;
   const newSamples: Sample[] = [...song.samples];
   newSamples[slot] = emptySample();
   return { ...song, samples: newSamples };
@@ -417,23 +461,28 @@ export function replaceSampleData(
   song: Song,
   slot: number,
   data: Int8Array,
-  meta: Partial<Pick<Sample, 'name' | 'volume' | 'finetune' | 'loopStartWords' | 'loopLengthWords'>> = {},
+  meta: Partial<
+    Pick<
+      Sample,
+      "name" | "volume" | "finetune" | "loopStartWords" | "loopLengthWords"
+    >
+  > = {},
 ): Song {
   if (slot < 0 || slot >= song.samples.length) return song;
 
   // Word-align: pad odd-length inputs by one zero byte so lengthWords is exact.
-  const aligned = data.byteLength % 2 === 0
-    ? data
-    : ((): Int8Array => {
-        const p = new Int8Array(data.byteLength + 1);
-        p.set(data);
-        return p;
-      })();
+  const aligned =
+    data.byteLength % 2 === 0
+      ? data
+      : ((): Int8Array => {
+          const p = new Int8Array(data.byteLength + 1);
+          p.set(data);
+          return p;
+        })();
   // Cap at PT's 16-bit lengthWords field.
   const MAX_BYTES = 65535 * 2;
-  const capped = aligned.byteLength > MAX_BYTES
-    ? aligned.subarray(0, MAX_BYTES)
-    : aligned;
+  const capped =
+    aligned.byteLength > MAX_BYTES ? aligned.subarray(0, MAX_BYTES) : aligned;
   const lengthWords = capped.byteLength >> 1;
 
   // Preserve any loop the caller supplied, but clamp it to the new length so
@@ -441,7 +490,10 @@ export function replaceSampleData(
   // pointing past the data. When no loop is passed, default to PT's no-loop
   // sentinel (0, 1) — matches replaceSampleData's pre-loop-passing behaviour.
   const loopStartReq = meta.loopStartWords ?? 0;
-  const loopStart = Math.max(0, Math.min(loopStartReq, Math.max(0, lengthWords - 1)));
+  const loopStart = Math.max(
+    0,
+    Math.min(loopStartReq, Math.max(0, lengthWords - 1)),
+  );
   const loopLenReq = meta.loopLengthWords ?? 1;
   const loopMax = Math.max(1, lengthWords - loopStart);
   const loopLen = Math.max(1, Math.min(loopLenReq, loopMax));
@@ -468,14 +520,20 @@ export function replaceSampleData(
  * model and avoids needing to scan back for the active sample on the
  * channel just to keep an exotic finetune intact across a transpose.
  */
-function transposePeriod(period: number, deltaSemitones: number): number | null {
+function transposePeriod(
+  period: number,
+  deltaSemitones: number,
+): number | null {
   if (period === 0) return null;
   const row = PERIOD_TABLE[0]!;
   // PT's `setPeriod` algorithm: first slot whose period is <= the stored
   // value (table is descending — slot 0 = C-1 = 856, slot 35 = B-3 = 113).
   let slot = -1;
   for (let i = 0; i < row.length; i++) {
-    if (period >= row[i]!) { slot = i; break; }
+    if (period >= row[i]!) {
+      slot = i;
+      break;
+    }
   }
   if (slot < 0) return null;
   // Clamp at the edges instead of refusing the whole transpose. A user
@@ -500,8 +558,10 @@ export function transposeRange(
   song: Song,
   range: {
     order: number;
-    startRow: number; endRow: number;
-    startChannel: number; endChannel: number;
+    startRow: number;
+    endRow: number;
+    startChannel: number;
+    endChannel: number;
   },
   deltaSemitones: number,
 ): Song {

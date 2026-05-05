@@ -22,16 +22,16 @@
  * deterministic so re-running the pipeline reproduces the int8 exactly.
  */
 
-import type { WavData } from './wav';
-import { readWav } from './wav';
-import { deriveSampleName, int8ToWav } from '../mod/sampleImport';
-import { PAULA_CLOCK_PAL, PERIOD_TABLE } from '../mod/format';
+import type { WavData } from "./wav";
+import { readWav } from "./wav";
+import { deriveSampleName, int8ToWav } from "../mod/sampleImport";
+import { PAULA_CLOCK_PAL, PERIOD_TABLE } from "../mod/format";
 import {
   type ChiptuneParams,
   defaultChiptuneParams,
   generateChiptuneCycle,
-} from './chiptune';
-import { applyShaper, type ShaperMode } from './shapers';
+} from "./chiptune";
+import { applyShaper, type ShaperMode } from "./shapers";
 
 /** PT note slot for "C-2" — the conventional default target for fresh imports. */
 export const DEFAULT_TARGET_NOTE = 12;
@@ -47,18 +47,18 @@ export const DEFAULT_TARGET_NOTE = 12;
  *
  * gain / normalize don't take a range — they apply to the whole input.
  */
-export type FilterType = 'lowpass' | 'highpass';
+export type FilterType = "lowpass" | "highpass";
 
 export type EffectNode =
-  | { kind: 'gain'; params: { gain: number } }
-  | { kind: 'normalize' }
-  | { kind: 'reverse';  params: { startFrame: number; endFrame: number } }
-  | { kind: 'crop';     params: { startFrame: number; endFrame: number } }
-  | { kind: 'cut';      params: { startFrame: number; endFrame: number } }
-  | { kind: 'fadeIn';   params: { startFrame: number; endFrame: number } }
-  | { kind: 'fadeOut';  params: { startFrame: number; endFrame: number } }
+  | { kind: "gain"; params: { gain: number } }
+  | { kind: "normalize" }
+  | { kind: "reverse"; params: { startFrame: number; endFrame: number } }
+  | { kind: "crop"; params: { startFrame: number; endFrame: number } }
+  | { kind: "cut"; params: { startFrame: number; endFrame: number } }
+  | { kind: "fadeIn"; params: { startFrame: number; endFrame: number } }
+  | { kind: "fadeOut"; params: { startFrame: number; endFrame: number } }
   | {
-      kind: 'filter';
+      kind: "filter";
       params: {
         /** 'lowpass' attenuates above cutoff, 'highpass' attenuates below. */
         type: FilterType;
@@ -69,14 +69,14 @@ export type EffectNode =
       };
     }
   | {
-      kind: 'crossfade';
+      kind: "crossfade";
       params: {
         /** Crossfade window length in source-frame units. */
         length: number;
       };
     }
   | {
-      kind: 'shaper';
+      kind: "shaper";
       params: {
         /** Waveshaper mode — see SHAPER_MODES in shapers.ts. */
         mode: ShaperMode;
@@ -85,24 +85,33 @@ export type EffectNode =
       };
     };
 
-export type EffectKind = EffectNode['kind'];
+export type EffectKind = EffectNode["kind"];
 
 export const EFFECT_KINDS: readonly EffectKind[] = [
-  'gain', 'normalize', 'reverse', 'crop', 'cut', 'fadeIn', 'fadeOut', 'filter', 'crossfade', 'shaper',
+  "gain",
+  "normalize",
+  "reverse",
+  "crop",
+  "cut",
+  "fadeIn",
+  "fadeOut",
+  "filter",
+  "crossfade",
+  "shaper",
 ] as const;
 
 /** Human-readable names for the picker UI. */
 export const EFFECT_LABELS: Readonly<Record<EffectKind, string>> = {
-  gain:      'Gain',
-  normalize: 'Normalize',
-  reverse:   'Reverse',
-  crop:      'Crop',
-  cut:       'Cut',
-  fadeIn:    'Fade in',
-  fadeOut:   'Fade out',
-  filter:    'Filter',
-  crossfade: 'Crossfade',
-  shaper:    'Shaper',
+  gain: "Gain",
+  normalize: "Normalize",
+  reverse: "Reverse",
+  crop: "Crop",
+  cut: "Cut",
+  fadeIn: "Fade in",
+  fadeOut: "Fade out",
+  filter: "Filter",
+  crossfade: "Crossfade",
+  shaper: "Shaper",
 };
 
 /**
@@ -122,11 +131,11 @@ export interface RunContext {
 }
 
 export const FILTER_TYPE_LABELS: Readonly<Record<FilterType, string>> = {
-  lowpass:  'Low-pass',
-  highpass: 'High-pass',
+  lowpass: "Low-pass",
+  highpass: "High-pass",
 };
 
-export type MonoMix = 'average' | 'left' | 'right';
+export type MonoMix = "average" | "left" | "right";
 
 /**
  * Sample-rate conversion algorithm used when the PT transformer resamples
@@ -147,21 +156,23 @@ export type MonoMix = 'average' | 'left' | 'right';
  *                    Highest quality, most CPU — but it's a one-shot offline
  *                    pass, so latency doesn't matter.
  */
-export type ResampleMode = 'linear' | 'filteredLinear' | 'sinc';
+export type ResampleMode = "linear" | "filteredLinear" | "sinc";
 
 export const RESAMPLE_MODES: readonly ResampleMode[] = [
-  'linear', 'filteredLinear', 'sinc',
+  "linear",
+  "filteredLinear",
+  "sinc",
 ] as const;
 
 export const RESAMPLE_LABELS: Readonly<Record<ResampleMode, string>> = {
-  linear:         'Linear (fastest)',
-  filteredLinear: 'Linear + LPF',
-  sinc:           'Sinc (best)',
+  linear: "Linear (fastest)",
+  filteredLinear: "Linear + LPF",
+  sinc: "Sinc (best)",
 };
 
 /** Default for fresh workbenches and persistence fallbacks. Linear keeps the
  *  historical behaviour for projects predating the `resampleMode` field. */
-export const DEFAULT_RESAMPLE_MODE: ResampleMode = 'linear';
+export const DEFAULT_RESAMPLE_MODE: ResampleMode = "linear";
 
 export interface PtTransformerParams {
   monoMix: MonoMix;
@@ -202,31 +213,38 @@ export interface PtTransformerParams {
  * WavData — they operate on raw audio.
  */
 export type SampleSource =
-  | { kind: 'sampler';  wav: WavData; sourceName: string }
-  | { kind: 'chiptune'; params: ChiptuneParams };
+  | { kind: "sampler"; wav: WavData; sourceName: string }
+  | { kind: "chiptune"; params: ChiptuneParams };
 
-export type SourceKind = SampleSource['kind'];
+export type SourceKind = SampleSource["kind"];
 
-export const SOURCE_KINDS: readonly SourceKind[] = ['sampler', 'chiptune'] as const;
+export const SOURCE_KINDS: readonly SourceKind[] = [
+  "sampler",
+  "chiptune",
+] as const;
 
 export const SOURCE_LABELS: Readonly<Record<SourceKind, string>> = {
-  sampler:  'Sampler',
-  chiptune: 'Chiptune',
+  sampler: "Sampler",
+  chiptune: "Chiptune",
 };
 
 /** Turn a source into the WavData the chain receives. Pure, deterministic. */
 export function materializeSource(src: SampleSource): WavData {
   switch (src.kind) {
-    case 'sampler':  return src.wav;
-    case 'chiptune': return generateChiptuneCycle(src.params);
+    case "sampler":
+      return src.wav;
+    case "chiptune":
+      return generateChiptuneCycle(src.params);
   }
 }
 
 /** Display name for the pipeline header. */
 export function sourceDisplayName(src: SampleSource): string {
   switch (src.kind) {
-    case 'sampler':  return src.sourceName;
-    case 'chiptune': return 'Chiptune';
+    case "sampler":
+      return src.sourceName;
+    case "chiptune":
+      return "Chiptune";
   }
 }
 
@@ -235,7 +253,7 @@ export function sourceDisplayName(src: SampleSource): string {
  * Chiptune samples are looping by nature; sampler results aren't.
  */
 export function sourceWantsFullLoop(src: SampleSource): boolean {
-  return src.kind === 'chiptune';
+  return src.kind === "chiptune";
 }
 
 /**
@@ -291,7 +309,10 @@ export function workbenchToAlt(
 
 // ─── Effects ──────────────────────────────────────────────────────────────
 
-function mapChannels(input: WavData, fn: (ch: Float32Array) => Float32Array): WavData {
+function mapChannels(
+  input: WavData,
+  fn: (ch: Float32Array) => Float32Array,
+): WavData {
   return { sampleRate: input.sampleRate, channels: input.channels.map(fn) };
 }
 
@@ -322,7 +343,11 @@ export function applyNormalize(input: WavData): WavData {
  * tail still plays forward, the head still plays forward, only the middle is
  * mirrored.
  */
-export function applyReverse(input: WavData, startFrame: number, endFrame: number): WavData {
+export function applyReverse(
+  input: WavData,
+  startFrame: number,
+  endFrame: number,
+): WavData {
   const len = input.channels[0]?.length ?? 0;
   const s = Math.max(0, Math.min(len, Math.floor(startFrame)));
   const e = Math.max(s, Math.min(len, Math.floor(endFrame)));
@@ -337,7 +362,11 @@ export function applyReverse(input: WavData, startFrame: number, endFrame: numbe
 }
 
 /** Slice frames in [startFrame, endFrame). Indices are clamped to the source range. */
-export function applyCrop(input: WavData, startFrame: number, endFrame: number): WavData {
+export function applyCrop(
+  input: WavData,
+  startFrame: number,
+  endFrame: number,
+): WavData {
   const len = input.channels[0]?.length ?? 0;
   const s = Math.max(0, Math.min(len, Math.floor(startFrame)));
   const e = Math.max(s, Math.min(len, Math.floor(endFrame)));
@@ -349,7 +378,11 @@ export function applyCrop(input: WavData, startFrame: number, endFrame: number):
  * Remove frames in [startFrame, endFrame) and concatenate what's left.
  * The inverse of crop: crop keeps the selection, cut keeps the rest.
  */
-export function applyCut(input: WavData, startFrame: number, endFrame: number): WavData {
+export function applyCut(
+  input: WavData,
+  startFrame: number,
+  endFrame: number,
+): WavData {
   const len = input.channels[0]?.length ?? 0;
   const s = Math.max(0, Math.min(len, Math.floor(startFrame)));
   const e = Math.max(s, Math.min(len, Math.floor(endFrame)));
@@ -368,7 +401,11 @@ export function applyCut(input: WavData, startFrame: number, endFrame: number): 
  * selection — it does NOT silence the tail or head). With start=0 and end=N
  * you get a classic head-fade equivalent to the old `frames=N` form.
  */
-export function applyFadeIn(input: WavData, startFrame: number, endFrame: number): WavData {
+export function applyFadeIn(
+  input: WavData,
+  startFrame: number,
+  endFrame: number,
+): WavData {
   const len = input.channels[0]?.length ?? 0;
   const s = Math.max(0, Math.min(len, Math.floor(startFrame)));
   const e = Math.max(s, Math.min(len, Math.floor(endFrame)));
@@ -390,7 +427,11 @@ export function applyFadeIn(input: WavData, startFrame: number, endFrame: number
  * the selection). With start=len-N and end=len you get a classic tail-fade
  * equivalent to the old `frames=N` form.
  */
-export function applyFadeOut(input: WavData, startFrame: number, endFrame: number): WavData {
+export function applyFadeOut(
+  input: WavData,
+  startFrame: number,
+  endFrame: number,
+): WavData {
   const len = input.channels[0]?.length ?? 0;
   const s = Math.max(0, Math.min(len, Math.floor(startFrame)));
   const e = Math.max(s, Math.min(len, Math.floor(endFrame)));
@@ -432,32 +473,40 @@ export function applyFilter(
 
   // RBJ cookbook coefficients (https://www.w3.org/TR/audio-eq-cookbook/).
   let b0: number, b1: number, b2: number;
-  if (type === 'lowpass') {
+  if (type === "lowpass") {
     b0 = (1 - cosW) * 0.5;
-    b1 =  1 - cosW;
+    b1 = 1 - cosW;
     b2 = (1 - cosW) * 0.5;
   } else {
     // highpass
-    b0 =  (1 + cosW) * 0.5;
+    b0 = (1 + cosW) * 0.5;
     b1 = -(1 + cosW);
-    b2 =  (1 + cosW) * 0.5;
+    b2 = (1 + cosW) * 0.5;
   }
   const a0 = 1 + alpha;
   const a1 = -2 * cosW;
   const a2 = 1 - alpha;
   // Normalise so a0 = 1; saves a divide per sample.
-  const nb0 = b0 / a0, nb1 = b1 / a0, nb2 = b2 / a0;
-  const na1 = a1 / a0, na2 = a2 / a0;
+  const nb0 = b0 / a0,
+    nb1 = b1 / a0,
+    nb2 = b2 / a0;
+  const na1 = a1 / a0,
+    na2 = a2 / a0;
 
   return mapChannels(input, (ch) => {
     const out = new Float32Array(ch.length);
-    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    let x1 = 0,
+      x2 = 0,
+      y1 = 0,
+      y2 = 0;
     for (let i = 0; i < ch.length; i++) {
       const x0 = ch[i]!;
       const y0 = nb0 * x0 + nb1 * x1 + nb2 * x2 - na1 * y1 - na2 * y2;
       out[i] = y0;
-      x2 = x1; x1 = x0;
-      y2 = y1; y1 = y0;
+      x2 = x1;
+      x1 = x0;
+      y2 = y1;
+      y1 = y0;
     }
     return out;
   });
@@ -511,11 +560,16 @@ export function applyCrossfade(
  * no range param. `mode === 'none'` is a fast pass-through, matching the
  * shaper-stage contract from chiptune.
  */
-export function applyShaperEffect(input: WavData, mode: ShaperMode, amount: number): WavData {
-  if (mode === 'none' || amount === 0) return input;
+export function applyShaperEffect(
+  input: WavData,
+  mode: ShaperMode,
+  amount: number,
+): WavData {
+  if (mode === "none" || amount === 0) return input;
   return mapChannels(input, (ch) => {
     const out = new Float32Array(ch.length);
-    for (let i = 0; i < ch.length; i++) out[i] = applyShaper(ch[i]!, mode, amount);
+    for (let i = 0; i < ch.length; i++)
+      out[i] = applyShaper(ch[i]!, mode, amount);
     return out;
   });
 }
@@ -526,21 +580,40 @@ export function applyEffect(
   ctx?: RunContext | null,
 ): WavData {
   switch (node.kind) {
-    case 'gain':       return applyGain(input, node.params.gain);
-    case 'normalize':  return applyNormalize(input);
-    case 'reverse':    return applyReverse(input, node.params.startFrame, node.params.endFrame);
-    case 'crop':       return applyCrop(input, node.params.startFrame, node.params.endFrame);
-    case 'cut':        return applyCut(input, node.params.startFrame, node.params.endFrame);
-    case 'fadeIn':     return applyFadeIn(input, node.params.startFrame, node.params.endFrame);
-    case 'fadeOut':    return applyFadeOut(input, node.params.startFrame, node.params.endFrame);
-    case 'filter':     return applyFilter(input, node.params.type, node.params.cutoff, node.params.q);
-    case 'shaper':     return applyShaperEffect(input, node.params.mode, node.params.amount);
-    case 'crossfade':
+    case "gain":
+      return applyGain(input, node.params.gain);
+    case "normalize":
+      return applyNormalize(input);
+    case "reverse":
+      return applyReverse(input, node.params.startFrame, node.params.endFrame);
+    case "crop":
+      return applyCrop(input, node.params.startFrame, node.params.endFrame);
+    case "cut":
+      return applyCut(input, node.params.startFrame, node.params.endFrame);
+    case "fadeIn":
+      return applyFadeIn(input, node.params.startFrame, node.params.endFrame);
+    case "fadeOut":
+      return applyFadeOut(input, node.params.startFrame, node.params.endFrame);
+    case "filter":
+      return applyFilter(
+        input,
+        node.params.type,
+        node.params.cutoff,
+        node.params.q,
+      );
+    case "shaper":
+      return applyShaperEffect(input, node.params.mode, node.params.amount);
+    case "crossfade":
       // Loop info comes from the run context — without it (slot has no
       // loop, or the chain ran outside `writeWorkbenchToSongPure`) the
       // effect is a pass-through.
       if (!ctx) return input;
-      return applyCrossfade(input, node.params.length, ctx.loopStartFrame, ctx.loopEndFrame);
+      return applyCrossfade(
+        input,
+        node.params.length,
+        ctx.loopStartFrame,
+        ctx.loopEndFrame,
+      );
   }
 }
 
@@ -612,7 +685,11 @@ function floatToInt8Dithered(buf: Float32Array): Int8Array {
  * as close to the source as the integer-frame target allows; non-empty
  * inputs always produce at least one output frame.
  */
-export function resampleLinear(input: Float32Array, fromRate: number, toRate: number): Float32Array {
+export function resampleLinear(
+  input: Float32Array,
+  fromRate: number,
+  toRate: number,
+): Float32Array {
   if (input.length === 0) return input;
   if (Math.abs(fromRate - toRate) < 1e-3) return input;
   const ratio = fromRate / toRate;
@@ -641,15 +718,19 @@ export function resampleLinear(input: Float32Array, fromRate: number, toRate: nu
  * Cutoff is set at 0.45 × toRate (a hair below Nyquist) to keep transition-
  * band ringing out of the audible passband. Q = 1/√2 (Butterworth-flat).
  */
-export function resampleFilteredLinear(input: Float32Array, fromRate: number, toRate: number): Float32Array {
+export function resampleFilteredLinear(
+  input: Float32Array,
+  fromRate: number,
+  toRate: number,
+): Float32Array {
   if (input.length === 0) return input;
   if (Math.abs(fromRate - toRate) < 1e-3) return input;
   // Upsample: nothing to alias, plain linear suffices.
   if (toRate >= fromRate) return resampleLinear(input, fromRate, toRate);
   const cutoff = toRate * 0.45;
   const wrap: WavData = { sampleRate: fromRate, channels: [input] };
-  const stage1 = applyFilter(wrap, 'lowpass', cutoff, Math.SQRT1_2);
-  const stage2 = applyFilter(stage1, 'lowpass', cutoff, Math.SQRT1_2);
+  const stage1 = applyFilter(wrap, "lowpass", cutoff, Math.SQRT1_2);
+  const stage2 = applyFilter(stage1, "lowpass", cutoff, Math.SQRT1_2);
   return resampleLinear(stage2.channels[0]!, fromRate, toRate);
 }
 
@@ -675,7 +756,11 @@ const LANCZOS_A = 6;
  * around 60 taps per output frame at a 5:1 downsample. One-shot offline,
  * so the user never feels it.
  */
-export function resampleSinc(input: Float32Array, fromRate: number, toRate: number): Float32Array {
+export function resampleSinc(
+  input: Float32Array,
+  fromRate: number,
+  toRate: number,
+): Float32Array {
   if (input.length === 0) return input;
   if (Math.abs(fromRate - toRate) < 1e-3) return input;
   const ratio = fromRate / toRate;
@@ -709,9 +794,12 @@ function resampleByMode(
   mode: ResampleMode,
 ): Float32Array {
   switch (mode) {
-    case 'linear':         return resampleLinear(input, fromRate, toRate);
-    case 'filteredLinear': return resampleFilteredLinear(input, fromRate, toRate);
-    case 'sinc':           return resampleSinc(input, fromRate, toRate);
+    case "linear":
+      return resampleLinear(input, fromRate, toRate);
+    case "filteredLinear":
+      return resampleFilteredLinear(input, fromRate, toRate);
+    case "sinc":
+      return resampleSinc(input, fromRate, toRate);
   }
 }
 
@@ -724,18 +812,21 @@ export function rateForTargetNote(noteIndex: number): number | null {
   const period = PERIOD_TABLE[0]?.[noteIndex];
   if (!period || period <= 0) return null;
   // PAULA_CLOCK_PAL is the doubled CPU clock; PT divides by (period * 2).
-  return (PAULA_CLOCK_PAL / 2) / period;
+  return PAULA_CLOCK_PAL / 2 / period;
 }
 
-export function transformToPt(audio: WavData, pt: PtTransformerParams): Int8Array {
+export function transformToPt(
+  audio: WavData,
+  pt: PtTransformerParams,
+): Int8Array {
   let mono: Float32Array;
   if (audio.channels.length === 0) {
     return new Int8Array(0);
   } else if (audio.channels.length === 1) {
     mono = audio.channels[0]!;
-  } else if (pt.monoMix === 'left') {
+  } else if (pt.monoMix === "left") {
     mono = audio.channels[0]!;
-  } else if (pt.monoMix === 'right') {
+  } else if (pt.monoMix === "right") {
     mono = audio.channels[1] ?? audio.channels[0]!;
   } else {
     mono = averageChannels(audio.channels);
@@ -746,7 +837,12 @@ export function transformToPt(audio: WavData, pt: PtTransformerParams): Int8Arra
   if (pt.targetNote !== null) {
     const targetRate = rateForTargetNote(pt.targetNote);
     if (targetRate !== null) {
-      mono = resampleByMode(mono, audio.sampleRate, targetRate, pt.resampleMode ?? DEFAULT_RESAMPLE_MODE);
+      mono = resampleByMode(
+        mono,
+        audio.sampleRate,
+        targetRate,
+        pt.resampleMode ?? DEFAULT_RESAMPLE_MODE,
+      );
     }
   }
 
@@ -767,8 +863,14 @@ export function runPipeline(
 // ─── Construction ─────────────────────────────────────────────────────────
 
 /** Decode a WAV file into a fresh workbench with an empty effect chain. */
-export function workbenchFromWav(bytes: Uint8Array, filename: string): SampleWorkbench {
-  return workbenchFromWavData(readWav(bytes), deriveSampleName(filename) || filename);
+export function workbenchFromWav(
+  bytes: Uint8Array,
+  filename: string,
+): SampleWorkbench {
+  return workbenchFromWavData(
+    readWav(bytes),
+    deriveSampleName(filename) || filename,
+  );
 }
 
 /**
@@ -781,12 +883,19 @@ export function workbenchFromWav(bytes: Uint8Array, filename: string): SampleWor
  * pipeline either, so the slot's int8 stays bit-identical until the user
  * actually edits the chain.
  */
-export function workbenchFromInt8(data: Int8Array, sourceName: string): SampleWorkbench {
+export function workbenchFromInt8(
+  data: Int8Array,
+  sourceName: string,
+): SampleWorkbench {
   const sampleRate = rateForTargetNote(DEFAULT_TARGET_NOTE) ?? 22050;
   return {
-    source: { kind: 'sampler', wav: int8ToWav(data, sampleRate), sourceName },
+    source: { kind: "sampler", wav: int8ToWav(data, sampleRate), sourceName },
     chain: [],
-    pt: { monoMix: 'average', targetNote: DEFAULT_TARGET_NOTE, resampleMode: DEFAULT_RESAMPLE_MODE },
+    pt: {
+      monoMix: "average",
+      targetNote: DEFAULT_TARGET_NOTE,
+      resampleMode: DEFAULT_RESAMPLE_MODE,
+    },
     alt: null,
   };
 }
@@ -797,9 +906,12 @@ export function workbenchFromInt8(data: Int8Array, sourceName: string): SampleWo
  * WAV bytes — re-running `readWav` would be wasted work and would also lose
  * the source name we stored separately.
  */
-export function workbenchFromWavData(wav: WavData, sourceName: string): SampleWorkbench {
+export function workbenchFromWavData(
+  wav: WavData,
+  sourceName: string,
+): SampleWorkbench {
   return {
-    source: { kind: 'sampler', wav, sourceName },
+    source: { kind: "sampler", wav, sourceName },
     chain: [],
     // Default to C-2: when the user triggers C-2 in a pattern, the sample
     // plays at its original speed. They can change the target (or set null
@@ -814,7 +926,11 @@ export function workbenchFromWavData(wav: WavData, sourceName: string): SampleWo
     //
     // Dither stays off by default — adding white noise to every export is a
     // taste call, so the user opts in via the Dither checkbox.
-    pt: { monoMix: 'average', targetNote: DEFAULT_TARGET_NOTE, resampleMode: 'sinc' },
+    pt: {
+      monoMix: "average",
+      targetNote: DEFAULT_TARGET_NOTE,
+      resampleMode: "sinc",
+    },
     alt: null,
   };
 }
@@ -828,9 +944,9 @@ export function workbenchFromChiptune(
   params: ChiptuneParams = defaultChiptuneParams(),
 ): SampleWorkbench {
   return {
-    source: { kind: 'chiptune', params },
+    source: { kind: "chiptune", params },
     chain: [],
-    pt: { monoMix: 'average', targetNote: null },
+    pt: { monoMix: "average", targetNote: null },
     alt: null,
   };
 }
@@ -848,12 +964,16 @@ export function workbenchFromChiptune(
 export function emptySamplerWorkbench(): SampleWorkbench {
   return {
     source: {
-      kind: 'sampler',
+      kind: "sampler",
       wav: { sampleRate: 22050, channels: [new Float32Array(0)] },
-      sourceName: '',
+      sourceName: "",
     },
     chain: [],
-    pt: { monoMix: 'average', targetNote: DEFAULT_TARGET_NOTE, resampleMode: DEFAULT_RESAMPLE_MODE },
+    pt: {
+      monoMix: "average",
+      targetNote: DEFAULT_TARGET_NOTE,
+      resampleMode: DEFAULT_RESAMPLE_MODE,
+    },
     alt: null,
   };
 }
@@ -867,28 +987,50 @@ export function emptySamplerWorkbench(): SampleWorkbench {
 export function defaultEffect(kind: EffectKind, input: WavData): EffectNode {
   const len = input.channels[0]?.length ?? 0;
   switch (kind) {
-    case 'gain':      return { kind: 'gain', params: { gain: 1 } };
-    case 'normalize': return { kind: 'normalize' };
-    case 'reverse':   return { kind: 'reverse', params: { startFrame: 0, endFrame: len } };
-    case 'crop':      return { kind: 'crop',    params: { startFrame: 0, endFrame: len } };
+    case "gain":
+      return { kind: "gain", params: { gain: 1 } };
+    case "normalize":
+      return { kind: "normalize" };
+    case "reverse":
+      return { kind: "reverse", params: { startFrame: 0, endFrame: len } };
+    case "crop":
+      return { kind: "crop", params: { startFrame: 0, endFrame: len } };
     // Default Cut is a noop (empty range) — the user fills in start/end
     // either by editing the param fields or, in the common case, by
     // selecting on the waveform and clicking "Cut".
-    case 'cut':       return { kind: 'cut',     params: { startFrame: 0, endFrame: 0 } };
-    case 'fadeIn':    return { kind: 'fadeIn',  params: { startFrame: 0, endFrame: Math.min(1024, len) } };
-    case 'fadeOut':   return { kind: 'fadeOut', params: { startFrame: Math.max(0, len - 1024), endFrame: len } };
+    case "cut":
+      return { kind: "cut", params: { startFrame: 0, endFrame: 0 } };
+    case "fadeIn":
+      return {
+        kind: "fadeIn",
+        params: { startFrame: 0, endFrame: Math.min(1024, len) },
+      };
+    case "fadeOut":
+      return {
+        kind: "fadeOut",
+        params: { startFrame: Math.max(0, len - 1024), endFrame: len },
+      };
     // 1 kHz / Q=0.707 — Butterworth-flat low-pass. Audible but tame
     // default that gives the user something to hear when they dial Q up
     // or sweep cutoff.
-    case 'filter':    return { kind: 'filter',  params: { type: 'lowpass', cutoff: 1000, q: 0.707 } };
+    case "filter":
+      return {
+        kind: "filter",
+        params: { type: "lowpass", cutoff: 1000, q: 0.707 },
+      };
     // Default crossfade window: a small fraction of the chain output, capped
     // at 4096 frames so it stays musical on long samples and tiny on short
     // ones. The actual cap is tightened at apply time by `applyCrossfade`
     // (≤ loopStart and ≤ loop length).
-    case 'crossfade': return { kind: 'crossfade', params: { length: Math.min(4096, Math.max(1, Math.floor(len / 16))) } };
+    case "crossfade":
+      return {
+        kind: "crossfade",
+        params: { length: Math.min(4096, Math.max(1, Math.floor(len / 16))) },
+      };
     // Soft clip at half-drive — audible without being aggressive, gives the
     // user something to hear immediately. They can pick a different mode or
     // dial drive from the param row.
-    case 'shaper':    return { kind: 'shaper',    params: { mode: 'softClip', amount: 0.5 } };
+    case "shaper":
+      return { kind: "shaper", params: { mode: "softClip", amount: 0.5 } };
   }
 }

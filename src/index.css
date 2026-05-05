@@ -16,13 +16,20 @@
   --waveform-height: 160px;
   --pat-row-height: 19px;
   --slider-min-width: 220px;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: "Inter", system-ui, sans-serif;
   color-scheme: dark;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
-html, body, #root { height: 100%; margin: 0; }
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
 
 body {
   background: var(--bg);
@@ -63,7 +70,9 @@ body {
     "header"
     "main";
 }
-.app--drag { outline-color: var(--accent); }
+.app--drag {
+  outline-color: var(--accent);
+}
 
 .app__header {
   grid-area: header;
@@ -77,9 +86,15 @@ body {
   align-items: center;
   padding: 0 16px;
 }
-.app__header > .app__header-left { justify-self: start; }
-.app__header > .viewtabs        { justify-self: center; }
-.app__header > .transport       { justify-self: end; }
+.app__header > .app__header-left {
+  justify-self: start;
+}
+.app__header > .viewtabs {
+  justify-self: center;
+}
+.app__header > .transport {
+  justify-self: end;
+}
 
 .app__header h1 {
   font-size: 14px;
@@ -91,7 +106,10 @@ body {
 /* Pattern / Sample view tabs share the same segmented look as the
  * transport's Play song / Play pattern group — one visual control split
  * into two halves, with the active half tinted in accent. */
-.viewtabs { display: inline-flex; align-items: center; }
+.viewtabs {
+  display: inline-flex;
+  align-items: center;
+}
 .viewtabs button {
   background: var(--panel-2);
   color: var(--fg);
@@ -124,7 +142,11 @@ body {
   z-index: 1;
 }
 
-.transport { display: inline-flex; align-items: center; gap: 8px; }
+.transport {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 .transport__label {
   color: var(--muted);
   text-transform: uppercase;
@@ -144,7 +166,9 @@ body {
 /* Generic dropdown menu — used by File ▾ and Edit ▾. The wrapper is
  * `position: relative` so the absolutely-positioned list floats just
  * below the trigger without affecting the header's flex layout. */
-.menu { position: relative; }
+.menu {
+  position: relative;
+}
 /* Shared style for the standard non-segmented toolbar buttons (File / Edit
  * dropdown trigger, sample-view file picker). The two class names are kept
  * for the tests that locate buttons by selector. */
@@ -160,7 +184,9 @@ body {
   user-select: none;
 }
 .menu__button:hover,
-.file-button:hover { border-color: var(--accent); }
+.file-button:hover {
+  border-color: var(--accent);
+}
 .menu__list {
   position: absolute;
   top: calc(100% + 4px);
@@ -174,7 +200,7 @@ body {
   min-width: 200px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   z-index: 10;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: "Inter", system-ui, sans-serif;
 }
 .menu__item {
   display: flex;
@@ -186,15 +212,19 @@ body {
   user-select: none;
   color: var(--fg);
 }
-.menu__item:hover { background: var(--accent-dim); }
+.menu__item:hover {
+  background: var(--accent-dim);
+}
 .menu__item--disabled {
   color: var(--muted);
   cursor: not-allowed;
 }
-.menu__item--disabled:hover { background: transparent; }
+.menu__item--disabled:hover {
+  background: transparent;
+}
 .menu__hint {
   color: var(--muted);
-  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
   font-size: 11px;
 }
 .menu__separator {
@@ -208,7 +238,7 @@ body {
  * limit it turns red so an oversized save attempt is obvious. */
 .filesize {
   color: var(--muted);
-  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
   font-size: 70%;
   padding: 4px 10px;
   border: 1px solid var(--grid-line);
@@ -216,14 +246,23 @@ body {
   user-select: none;
   white-space: nowrap;
 }
-.filesize--warn { color: var(--warn); border-color: var(--warn); }
-.filesize--err { color: var(--error); border-color: var(--error); }
+.filesize--warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.filesize--err {
+  color: var(--error);
+  border-color: var(--error);
+}
 
 /* Segmented Play song / Play pattern group: a single visual control with
  * a shared border. The two halves butt up against each other (no gap, no
  * inner radii) and the active half is tinted with the accent colour to
  * show which playmode is currently running. */
-.transport__group { display: inline-flex; align-items: center; }
+.transport__group {
+  display: inline-flex;
+  align-items: center;
+}
 .transport__btn {
   border-radius: 0;
   border: 1px solid var(--grid-line);
@@ -249,7 +288,11 @@ body {
   border-color: var(--accent);
   z-index: 1;
 }
-.transport__btn:disabled { color: var(--muted); cursor: not-allowed; opacity: 0.6; }
+.transport__btn:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
 .transport__btn--active {
   background: var(--accent);
   border-color: var(--accent);
@@ -257,13 +300,24 @@ body {
   z-index: 1;
 }
 
-.app__samples, .app__order { background: var(--panel); padding: 12px; overflow: auto; }
-.app__samples { grid-area: samples; }
-.app__order   { grid-area: order; }
+.app__samples,
+.app__order {
+  background: var(--panel);
+  padding: 12px;
+  overflow: auto;
+}
+.app__samples {
+  grid-area: samples;
+}
+.app__order {
+  grid-area: order;
+}
 /* Info and settings views don't reserve the samples column in their
  * grids — keep the always-rendered aside out of an implicit cell. */
 .app--view-info .app__samples,
-.app--view-settings .app__samples { display: none; }
+.app--view-settings .app__samples {
+  display: none;
+}
 
 .ordertools {
   position: sticky;
@@ -289,8 +343,14 @@ body {
   cursor: pointer;
   user-select: none;
 }
-.ordertools button:hover:not(:disabled) { border-color: var(--accent); }
-.ordertools button:disabled { color: var(--muted); cursor: not-allowed; opacity: 0.55; }
+.ordertools button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.ordertools button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
 
 .orderfooter {
   display: flex;
@@ -310,8 +370,14 @@ body {
   cursor: pointer;
   user-select: none;
 }
-.orderfooter button:hover:not(:disabled) { border-color: var(--accent); }
-.orderfooter button:disabled { color: var(--muted); cursor: not-allowed; opacity: 0.55; }
+.orderfooter button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.orderfooter button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
 .app__main {
   grid-area: main;
   background: var(--panel-2);
@@ -319,38 +385,70 @@ body {
   min-height: 0;
   overflow: hidden;
 }
-.app__main > .dropzone { place-self: center; }
+.app__main > .dropzone {
+  place-self: center;
+}
 .app__main > .patternpane,
 .app__main > .sampleview-wrapper,
 .app__main > .infoview-wrapper,
-.app__main > .settingsview-wrapper { min-height: 0; min-width: 0; }
+.app__main > .settingsview-wrapper {
+  min-height: 0;
+  min-width: 0;
+}
 .app__main > .infoview-wrapper,
-.app__main > .settingsview-wrapper { overflow: auto; padding: 24px 32px; }
+.app__main > .settingsview-wrapper {
+  overflow: auto;
+  padding: 24px 32px;
+}
 /* Both panes stay mounted; the inactive one is hidden via this class so
  * toggling the view is a single CSS swap instead of an unmount + remount
  * of the heavy pattern grid (~2400 spans + per-cell mousedown handlers). */
-.view-hidden { display: none !important; }
+.view-hidden {
+  display: none !important;
+}
 
-h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 8px; }
+h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
 
-.app__samples ol, .orderlist {
+.app__samples ol,
+.orderlist {
   list-style: none;
   padding: 0;
   margin: 0;
-  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
 }
-.app__samples li, .orderlist li {
-  display: flex; gap: 8px; padding: 2px 4px; border-radius: 4px;
+.app__samples li,
+.orderlist li {
+  display: flex;
+  gap: 8px;
+  padding: 2px 4px;
+  border-radius: 4px;
 }
-.app__samples li { cursor: pointer; user-select: none; }
-.app__samples li:hover, .orderlist li:hover { background: var(--panel-2); }
+.app__samples li {
+  cursor: pointer;
+  user-select: none;
+}
+.app__samples li:hover,
+.orderlist li:hover {
+  background: var(--panel-2);
+}
 .app__samples li.sample--current {
   background: var(--accent);
   color: var(--text-on-accent);
 }
 .app__samples li.sample--current .num,
-.app__samples li.sample--current .name { color: var(--text-on-accent); }
-.orderlist li { cursor: pointer; user-select: none; }
+.app__samples li.sample--current .name {
+  color: var(--text-on-accent);
+}
+.orderlist li {
+  cursor: pointer;
+  user-select: none;
+}
 .orderlist li.orderlist__item--cursor {
   background: var(--accent-dim);
 }
@@ -360,7 +458,9 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 }
 .orderlist li.orderlist__item--active .num,
 .orderlist li.orderlist__item--active .pat,
-.orderlist li.orderlist__item--active .orderlist__name { color: var(--text-on-accent); }
+.orderlist li.orderlist__item--active .orderlist__name {
+  color: var(--text-on-accent);
+}
 /* Pattern name (project-only, doesn't survive .mod export). Truncates so
  * a long name can't push the row past the order-list aside's width. */
 .orderlist__name {
@@ -384,7 +484,9 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   padding: 0 4px;
   outline: none;
 }
-.sample--empty { opacity: 0.35; }
+.sample--empty {
+  opacity: 0.35;
+}
 /* Inline rename input — sized to the .name span it replaces so the row
  * height doesn't jump when entering edit mode. */
 .sample__name-input {
@@ -404,11 +506,19 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
  * compounded with the accent background buries the text under a wash of
  * cyan. The accent fill is already a strong "this is the current slot"
  * cue, so drop the empty-dimming in that combination. */
-.app__samples li.sample--current.sample--empty { opacity: 1; }
-.num { color: var(--muted); }
-.pat { color: var(--accent); }
+.app__samples li.sample--current.sample--empty {
+  opacity: 1;
+}
+.num {
+  color: var(--muted);
+}
+.pat {
+  color: var(--accent);
+}
 
-.placeholder { color: var(--muted); }
+.placeholder {
+  color: var(--muted);
+}
 
 .dropzone {
   text-align: center;
@@ -423,10 +533,13 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   border-radius: 4px;
   font-size: 12px;
 }
-.dropzone .error { color: var(--error); margin-top: 16px; }
+.dropzone .error {
+  color: var(--error);
+  margin-top: 16px;
+}
 
 .songinfo {
-  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
   background: var(--panel);
   padding: 24px;
   border-radius: 12px;
@@ -438,13 +551,23 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   gap: 4px 16px;
   margin: 8px 0 16px;
 }
-.songinfo dt { color: var(--muted); }
-.songinfo dd { margin: 0; }
-.songinfo .hint { color: var(--muted); margin: 0; font-family: 'Inter', system-ui, sans-serif; }
+.songinfo dt {
+  color: var(--muted);
+}
+.songinfo dd {
+  margin: 0;
+}
+.songinfo .hint {
+  color: var(--muted);
+  margin: 0;
+  font-family: "Inter", system-ui, sans-serif;
+}
 
 .dropzone-wrap {
-  width: 100%; height: 100%;
-  display: grid; place-items: center;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
 }
 
 .patternpane {
@@ -461,11 +584,15 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   padding: 8px 16px;
   background: var(--panel);
   border-bottom: 1px solid var(--grid-line);
-  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
   font-size: 12px;
   color: var(--muted);
 }
-.patternpane__title { color: var(--fg); font-weight: 600; cursor: text; }
+.patternpane__title {
+  color: var(--fg);
+  font-weight: 600;
+  cursor: text;
+}
 /* Inline title editor — inherits the metapane's font so swapping in the
  * input on double-click doesn't shift the row's height. */
 .patternpane__title-input {
@@ -479,7 +606,9 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   outline: none;
   width: 22ch;
 }
-.patternpane__sep { opacity: 0.5; }
+.patternpane__sep {
+  opacity: 0.5;
+}
 .patternpane__editstep {
   display: inline-flex;
   align-items: center;
@@ -518,7 +647,7 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   background: var(--panel);
   border-top: 1px solid var(--grid-line);
   padding: 6px 16px;
-  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
   font-size: 12px;
   color: var(--muted);
   flex-shrink: 0;
@@ -535,7 +664,9 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   gap: 6px;
   min-width: 0;
 }
-.patternhelp__seg--wide { flex: 1 1 320px; }
+.patternhelp__seg--wide {
+  flex: 1 1 320px;
+}
 .patternhelp__label {
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -549,9 +680,15 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.patternhelp__mono { color: var(--accent); }
-.patternhelp__sub  { color: var(--muted); }
-.patternhelp__muted { color: var(--muted); }
+.patternhelp__mono {
+  color: var(--accent);
+}
+.patternhelp__sub {
+  color: var(--muted);
+}
+.patternhelp__muted {
+  color: var(--muted);
+}
 
 /* Tips toggle — sits right-aligned on the cell-info row. Stays subtle
  * (muted text, no fill) until hovered or expanded so it doesn't fight
@@ -569,7 +706,10 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   user-select: none;
   white-space: nowrap;
 }
-.patternhelp__toggle:hover { color: var(--fg); border-color: var(--accent); }
+.patternhelp__toggle:hover {
+  color: var(--fg);
+  border-color: var(--accent);
+}
 .patternhelp--open .patternhelp__toggle {
   color: var(--fg);
   border-color: var(--accent);
@@ -585,7 +725,7 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   padding: 10px 16px 12px;
   border-top: 1px solid var(--grid-line);
   background: var(--panel);
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: "Inter", system-ui, sans-serif;
   font-size: 12px;
   max-height: 50vh;
   overflow-y: auto;
@@ -615,7 +755,7 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   color: var(--fg);
 }
 .patternhelp__kbd {
-  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
   font-size: 11px;
   background: var(--panel-2);
   border: 1px solid var(--grid-line);
@@ -644,7 +784,7 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   display: flex;
   flex-direction: column;
   min-height: 0;
-  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
   font-size: 13px;
   line-height: 1.4;
 }
@@ -689,16 +829,25 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   line-height: var(--pat-row-height);
   box-sizing: border-box;
 }
-.patgrid__row--beat { background: rgba(255, 255, 255, 0.025); }
-.patgrid__row--bar  { background: rgba(94, 200, 255, 0.07); box-shadow: inset 2px 0 0 var(--accent); }
+.patgrid__row--beat {
+  background: rgba(255, 255, 255, 0.025);
+}
+.patgrid__row--bar {
+  background: rgba(94, 200, 255, 0.07);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
 /* Note: the boundary marker used to be a top border + margin; with rows
  * absolutely positioned we render a separate ::before line within the
  * row's own box so it stays aligned without growing the row height. */
 .patgrid__row--boundary {
   border-top: 2px dashed var(--muted);
 }
-.patgrid__part--empty { opacity: 0.3; }
-.patgrid__row--cursor { background: var(--accent-dim); }
+.patgrid__part--empty {
+  opacity: 0.3;
+}
+.patgrid__row--cursor {
+  background: var(--accent-dim);
+}
 .patgrid__row--active {
   background: var(--accent);
   color: var(--text-on-accent);
@@ -706,8 +855,12 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .patgrid__row--active .patgrid__num,
 .patgrid__row--active .patgrid__note,
 .patgrid__row--active .patgrid__samp,
-.patgrid__row--active .patgrid__eff { color: var(--text-on-accent); }
-.patgrid__row--active .patgrid__part--empty { opacity: 0.5; }
+.patgrid__row--active .patgrid__eff {
+  color: var(--text-on-accent);
+}
+.patgrid__row--active .patgrid__part--empty {
+  opacity: 0.5;
+}
 
 .patgrid__num {
   color: var(--muted);
@@ -720,11 +873,28 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   padding: 0 6px;
   border-left: 1px solid var(--grid-line);
 }
-.patgrid__note { min-width: 3ch; color: var(--fg); }
-.patgrid__samp { min-width: 2ch; color: var(--accent); display: inline-flex; }
-.patgrid__samp-char { display: inline-block; min-width: 1ch; }
-.patgrid__eff  { min-width: 3ch; color: var(--muted); display: inline-flex; }
-.patgrid__eff-char { display: inline-block; min-width: 1ch; }
+.patgrid__note {
+  min-width: 3ch;
+  color: var(--fg);
+}
+.patgrid__samp {
+  min-width: 2ch;
+  color: var(--accent);
+  display: inline-flex;
+}
+.patgrid__samp-char {
+  display: inline-block;
+  min-width: 1ch;
+}
+.patgrid__eff {
+  min-width: 3ch;
+  color: var(--muted);
+  display: inline-flex;
+}
+.patgrid__eff-char {
+  display: inline-block;
+  min-width: 1ch;
+}
 
 .patgrid__field--cursor {
   background: var(--accent);
@@ -744,7 +914,10 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   background: rgba(94, 200, 255, 0.18);
   /* box-shadow: inset 0 0 0 1px rgba(94, 200, 255, 0.45); */
 }
-.patgrid__cell { cursor: cell; user-select: none; }
+.patgrid__cell {
+  cursor: cell;
+  user-select: none;
+}
 
 /* Channel-header layout: name + compact M/S toggles. Header cells inherit
  * `cursor: cell` from .patgrid__cell so we restore the default cursor on
@@ -753,7 +926,9 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   align-items: center;
   cursor: default;
 }
-.patgrid__chnum { flex: none; }
+.patgrid__chnum {
+  flex: none;
+}
 /* VU meter — fills the gap between the channel label and the M/S buttons.
  * The fill width is set inline from the worklet's per-channel peak (0..1
  * clamped to 100%). Smooth-transition the width so the ~30 Hz signal reads
@@ -787,7 +962,10 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   border-radius: 2px;
   cursor: pointer;
 }
-.patgrid__chbtn:hover { color: var(--fg); border-color: var(--muted); }
+.patgrid__chbtn:hover {
+  color: var(--fg);
+  border-color: var(--muted);
+}
 .patgrid__chbtn--active {
   background: var(--accent);
   color: var(--text-on-accent);
@@ -836,8 +1014,14 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   cursor: pointer;
   user-select: none;
 }
-.sampleview__actions button:hover:not(:disabled) { border-color: var(--accent); }
-.sampleview__actions button:disabled { color: var(--muted); cursor: not-allowed; opacity: 0.55; }
+.sampleview__actions button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.sampleview__actions button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
 
 .waveform {
   position: relative;
@@ -864,8 +1048,12 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .waveform__playhead {
   pointer-events: none;
 }
-.waveform--grab     { cursor: ew-resize; }
-.waveform--grabbing { cursor: grabbing; }
+.waveform--grab {
+  cursor: ew-resize;
+}
+.waveform--grabbing {
+  cursor: grabbing;
+}
 
 .sampleview__selection {
   display: flex;
@@ -873,7 +1061,7 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   align-items: center;
   gap: 8px 12px;
   margin: 8px 0;
-  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
   font-size: 12px;
 }
 .sampleview__selection-info {
@@ -889,8 +1077,14 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   font: inherit;
   cursor: pointer;
 }
-.sampleview__selection button:hover:not(:disabled) { border-color: var(--accent); }
-.sampleview__selection button:disabled { color: var(--muted); cursor: not-allowed; opacity: 0.55; }
+.sampleview__selection button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.sampleview__selection button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
 /* Sits under a `.samplemeta__label` like the other meta controls. The
  * checkbox + "Enabled" share a single row below the LOOPING caption so
  * the field column-aligns with NAME / LENGTH / VOLUME / FINETUNE. */
@@ -903,7 +1097,9 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   font-size: 13px;
   user-select: none;
 }
-.samplemeta__check input[type="checkbox"] { accent-color: var(--accent); }
+.samplemeta__check input[type="checkbox"] {
+  accent-color: var(--accent);
+}
 
 .samplemeta {
   display: flex;
@@ -911,7 +1107,7 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   align-items: flex-end;
   gap: 8px 16px;
   margin: 8px 0;
-  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
 }
 .samplemeta label {
   display: flex;
@@ -944,8 +1140,12 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
      the longest plausible value, tight enough that all five fields fit on
      one line at typical viewport widths. */
 }
-.samplemeta input[type="text"]  { width: 220px; }
-.samplemeta input[type="number"] { width: 80px; }
+.samplemeta input[type="text"] {
+  width: 220px;
+}
+.samplemeta input[type="number"] {
+  width: 80px;
+}
 .samplemeta input:focus {
   outline: none;
   border-color: var(--accent);
@@ -988,7 +1188,7 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   margin: 0;
 }
 .pipeline__source {
-  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
   font-size: 11px;
   color: var(--muted);
 }
@@ -1028,7 +1228,10 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   border-color: var(--accent);
   color: var(--fg);
 }
-.effect-node__controls button:disabled { opacity: 0.3; cursor: not-allowed; }
+.effect-node__controls button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
 .effect-node__body {
   display: flex;
   align-items: center;
@@ -1037,7 +1240,7 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   flex: 1;
 }
 .effect-node__kind {
-  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
   color: var(--accent);
   min-width: 80px;
 }
@@ -1061,7 +1264,10 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   font-size: 12px;
   width: 100px;
 }
-.effect-node__param input:focus { outline: none; border-color: var(--accent); }
+.effect-node__param input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
 
 .pipeline__add select,
 .pipeline__transformer select {
@@ -1075,7 +1281,10 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   cursor: pointer;
 }
 .pipeline__add select:focus,
-.pipeline__transformer select:focus { outline: none; border-color: var(--accent); }
+.pipeline__transformer select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
 
 .pipeline__chain-actions {
   display: flex;
@@ -1093,7 +1302,7 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   margin-top: 4px;
 }
 .pipeline__transformer-label {
-  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
   color: var(--muted);
   font-size: 11px;
   text-transform: uppercase;
@@ -1117,7 +1326,9 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   max-width: 720px;
   margin: 0 auto;
 }
-.infoview h2 { margin-bottom: 0; }
+.infoview h2 {
+  margin-bottom: 0;
+}
 .infoview__field {
   display: flex;
   flex-direction: column;
@@ -1149,7 +1360,7 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   cursor: not-allowed;
 }
 .infoview__textarea {
-  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
   font-size: 12px;
   line-height: 1.4;
   resize: vertical;
@@ -1233,8 +1444,12 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   padding: 2px 0;
   font-size: 13px;
 }
-.settingsview__radio input { margin: 0; }
-.settingsview__radio-label { font-weight: 600; }
+.settingsview__radio input {
+  margin: 0;
+}
+.settingsview__radio-label {
+  font-weight: 600;
+}
 .settingsview__select {
   background: var(--bg);
   color: var(--fg);
@@ -1279,7 +1494,7 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   flex-direction: column;
   gap: 4px;
   font-size: 12px;
-  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
   min-width: var(--slider-min-width);
   flex: 1 1 var(--slider-min-width);
 }
@@ -1324,11 +1539,23 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   cursor: pointer;
   text-decoration: underline dotted;
 }
-.slider__hint-link:hover:not(:disabled) { color: var(--accent); }
-.slider__hint-link.is-active { color: var(--fg); font-weight: 600; }
-.slider__hint-link:disabled { cursor: not-allowed; }
-.slider--disabled { opacity: 0.55; cursor: not-allowed; }
-.slider--disabled .slider__range { cursor: not-allowed; }
+.slider__hint-link:hover:not(:disabled) {
+  color: var(--accent);
+}
+.slider__hint-link.is-active {
+  color: var(--fg);
+  font-weight: 600;
+}
+.slider__hint-link:disabled {
+  cursor: not-allowed;
+}
+.slider--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.slider--disabled .slider__range {
+  cursor: not-allowed;
+}
 
 /* When two sliders sit side-by-side in a horizontal row (sample meta,
    chain effect params), the right-aligned read-out of the first slider
@@ -1360,13 +1587,21 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   font-size: 12px;
   cursor: pointer;
 }
-.source-picker button + button { border-left: 1px solid var(--grid-line); }
-.source-picker button:hover:not(:disabled):not(.is-active) { color: var(--fg); }
+.source-picker button + button {
+  border-left: 1px solid var(--grid-line);
+}
+.source-picker button:hover:not(:disabled):not(.is-active) {
+  color: var(--fg);
+}
 .source-picker button.is-active {
   background: var(--accent);
   color: var(--bg);
 }
-.source-picker button:disabled { color: var(--muted); cursor: not-allowed; opacity: 0.55; }
+.source-picker button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
 
 /* ── Chiptune editor ────────────────────────────────────────────────── */
 
@@ -1396,10 +1631,18 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
        row's height, Synth's lighter content gets matching panel size
        with a little breathing room at the bottom. */
   }
-  .chiptune > :nth-child(1) { grid-area: synth; }
-  .chiptune > :nth-child(2) { grid-area: osc1; }
-  .chiptune > :nth-child(3) { grid-area: osc2; }
-  .chiptune > :nth-child(4) { grid-area: combine; }
+  .chiptune > :nth-child(1) {
+    grid-area: synth;
+  }
+  .chiptune > :nth-child(2) {
+    grid-area: osc1;
+  }
+  .chiptune > :nth-child(3) {
+    grid-area: osc2;
+  }
+  .chiptune > :nth-child(4) {
+    grid-area: combine;
+  }
 }
 /* Each group is its own visual section — subtle background panel and a
    header label, so the eye can navigate Synth / Oscillator 1 / Oscillator 2
@@ -1472,7 +1715,7 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
 }
 .chiptune__select select {
   width: 100%;
@@ -1485,4 +1728,7 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   font-size: 12px;
   cursor: pointer;
 }
-.chiptune__select select:focus { outline: none; border-color: var(--accent); }
+.chiptune__select select:focus {
+  outline: none;
+  border-color: var(--accent);
+}

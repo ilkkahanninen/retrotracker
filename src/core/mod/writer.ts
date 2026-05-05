@@ -1,5 +1,5 @@
-import { CHANNELS, MAX_ORDERS, NUM_SAMPLES, ROWS_PER_PATTERN } from './types';
-import type { Note, Pattern, Sample, Song } from './types';
+import { CHANNELS, MAX_ORDERS, NUM_SAMPLES, ROWS_PER_PATTERN } from "./types";
+import type { Note, Pattern, Sample, Song } from "./types";
 
 const HEADER_SIZE = 1084;
 
@@ -9,7 +9,9 @@ const HEADER_SIZE = 1084;
  */
 export function writeModule(song: Song): Uint8Array {
   if (song.samples.length !== NUM_SAMPLES) {
-    throw new Error(`Song must have exactly ${NUM_SAMPLES} samples (got ${song.samples.length})`);
+    throw new Error(
+      `Song must have exactly ${NUM_SAMPLES} samples (got ${song.samples.length})`,
+    );
   }
   if (song.orders.length !== MAX_ORDERS) {
     throw new Error(`Song must have exactly ${MAX_ORDERS} order entries`);
@@ -17,7 +19,10 @@ export function writeModule(song: Song): Uint8Array {
 
   const numPatterns = song.patterns.length;
   const patternBytes = numPatterns * ROWS_PER_PATTERN * CHANNELS * 4;
-  const sampleBytes = song.samples.reduce((sum, s) => sum + s.lengthWords * 2, 0);
+  const sampleBytes = song.samples.reduce(
+    (sum, s) => sum + s.lengthWords * 2,
+    0,
+  );
   const total = HEADER_SIZE + patternBytes + sampleBytes;
 
   const u8 = new Uint8Array(total);

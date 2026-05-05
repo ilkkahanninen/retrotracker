@@ -16,9 +16,9 @@
  * picks a target note and the resampler runs at human-scale ratios.
  */
 
-import type { Mixer } from './mixer';
-import type { AmigaModel } from './paula';
-import { PAULA_CLOCK_PAL } from '../mod/format';
+import type { Mixer } from "./mixer";
+import type { AmigaModel } from "./paula";
+import { PAULA_CLOCK_PAL } from "../mod/format";
 
 const PAULA_VOICES = 4;
 
@@ -125,7 +125,12 @@ export class CleanMixer implements Mixer {
     // chain, so the model selection has no effect here.
   }
 
-  generate(outL: Float64Array, outR: Float64Array, frames: number, offset: number): void {
+  generate(
+    outL: Float64Array,
+    outR: Float64Array,
+    frames: number,
+    offset: number,
+  ): void {
     for (let i = 0; i < frames; i++) {
       outL[offset + i] = 0;
       outR[offset + i] = 0;

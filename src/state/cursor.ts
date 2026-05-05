@@ -1,7 +1,7 @@
-import { createSignal } from 'solid-js';
-import type { Song } from '../core/mod/types';
-import { CHANNELS } from '../core/mod/types';
-import { flattenSong } from '../core/mod/flatten';
+import { createSignal } from "solid-js";
+import type { Song } from "../core/mod/types";
+import { CHANNELS } from "../core/mod/types";
+import { flattenSong } from "../core/mod/flatten";
 
 /**
  * Edit cursor.
@@ -16,12 +16,19 @@ import { flattenSong } from '../core/mod/flatten';
  */
 
 /** The six sub-fields inside one cell, in left-to-right cursor order. */
-export const FIELDS = ['note', 'sampleHi', 'sampleLo', 'effectCmd', 'effectHi', 'effectLo'] as const;
+export const FIELDS = [
+  "note",
+  "sampleHi",
+  "sampleLo",
+  "effectCmd",
+  "effectHi",
+  "effectLo",
+] as const;
 export type Field = (typeof FIELDS)[number];
 
 /** True if the field accepts a hex-digit (0..F) entry — every field except note. */
 export function isHexField(f: Field): boolean {
-  return f !== 'note';
+  return f !== "note";
 }
 
 export interface Cursor {
@@ -33,7 +40,12 @@ export interface Cursor {
   field: Field;
 }
 
-export const INITIAL_CURSOR: Cursor = { order: 0, row: 0, channel: 0, field: 'note' };
+export const INITIAL_CURSOR: Cursor = {
+  order: 0,
+  row: 0,
+  channel: 0,
+  field: "note",
+};
 
 export const [cursor, setCursor] = createSignal<Cursor>({ ...INITIAL_CURSOR });
 
@@ -139,5 +151,9 @@ export function tabNext(c: Cursor): Cursor {
 
 /** Shift+Tab → previous channel's note (wraps from first to last). */
 export function tabPrev(c: Cursor): Cursor {
-  return { ...c, channel: (c.channel - 1 + CHANNELS) % CHANNELS, field: FIELDS[0]! };
+  return {
+    ...c,
+    channel: (c.channel - 1 + CHANNELS) % CHANNELS,
+    field: FIELDS[0]!,
+  };
 }

@@ -1,4 +1,4 @@
-import type { Song, Sample } from '../mod/types';
+import type { Song, Sample } from "../mod/types";
 
 /**
  * Sidestep PT/Amiga's loopStart=0 quirk by feeding the live-playback path

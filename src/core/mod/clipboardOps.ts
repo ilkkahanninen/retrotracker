@@ -1,6 +1,6 @@
-import type { Note, Pattern, Song } from './types';
-import { CHANNELS } from './types';
-import { emptyNote } from './format';
+import type { Note, Pattern, Song } from "./types";
+import { CHANNELS } from "./types";
+import { emptyNote } from "./format";
 
 /**
  * Range over a single pattern (resolved via `song.orders[order]`). All
@@ -121,8 +121,10 @@ interface RangeContext {
   newPatterns: Pattern[];
   patNum: number;
   pattern: Pattern;
-  sR: number; eR: number;
-  sC: number; eC: number;
+  sR: number;
+  eR: number;
+  sC: number;
+  eC: number;
 }
 
 /**
@@ -130,7 +132,10 @@ interface RangeContext {
  * mutate `newPatterns[patNum]` without aliasing the original Song.
  * Returns null on the same conditions as `readSlice`.
  */
-function resolveAndCloneRange(song: Song, range: PatternRange): RangeContext | null {
+function resolveAndCloneRange(
+  song: Song,
+  range: PatternRange,
+): RangeContext | null {
   if (range.order < 0 || range.order >= song.songLength) return null;
   const patNum = song.orders[range.order];
   if (patNum === undefined) return null;

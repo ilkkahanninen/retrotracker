@@ -14,11 +14,7 @@
  */
 import type { WavData } from "./wav";
 import { PAULA_CLOCK_PAL, PERIOD_TABLE } from "../mod/format";
-import {
-  applyShaper,
-  SHAPER_MODES,
-  type ShaperMode,
-} from "./shapers";
+import { applyShaper, SHAPER_MODES, type ShaperMode } from "./shapers";
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -341,14 +337,7 @@ function saw(p: number): number {
 // neighbours should sound related. Reads as a smoothness/grit axis:
 // pure sine → soft triangle → digital stair → fat trapezoid → harsh
 // square → all-harmonic saw.
-const SHAPES = [
-  sine,
-  triangle,
-  stairTriangle,
-  trapezoid,
-  square,
-  saw,
-] as const;
+const SHAPES = [sine, triangle, stairTriangle, trapezoid, square, saw] as const;
 
 // ─── Building blocks ─────────────────────────────────────────────────────
 

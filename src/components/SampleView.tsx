@@ -208,8 +208,8 @@ export const SampleView: Component<Props> = (props) => {
   const blurOnCommit = (e: Event) => {
     const t = e.target;
     if (
-      t instanceof HTMLSelectElement
-      || (t instanceof HTMLInputElement && t.type === "checkbox")
+      t instanceof HTMLSelectElement ||
+      (t instanceof HTMLInputElement && t.type === "checkbox")
     ) {
       t.blur();
     }
@@ -351,7 +351,10 @@ export const SampleView: Component<Props> = (props) => {
             value={signedFinetune(sample()!.finetune)}
             disabled={editingDisabled()}
             snap={(v) =>
-              Math.max(PT_FINETUNE_MIN, Math.min(PT_FINETUNE_MAX, Math.round(v)))
+              Math.max(
+                PT_FINETUNE_MIN,
+                Math.min(PT_FINETUNE_MAX, Math.round(v)),
+              )
             }
             format={(v) => {
               const n = Math.round(v);

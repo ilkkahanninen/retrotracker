@@ -10,10 +10,12 @@
  * the OS doesn't change mid-session.
  */
 
-interface UserAgentData { platform?: string }
+interface UserAgentData {
+  platform?: string;
+}
 
 function detectIsMac(): boolean {
-  if (typeof navigator === 'undefined') return false;
+  if (typeof navigator === "undefined") return false;
   const nav = navigator as Navigator & { userAgentData?: UserAgentData };
   // Chromium ships userAgentData.platform as the canonical, non-deprecated
   // source. Returns "macOS" / "Windows" / "Linux" / "Android" / "iOS".
@@ -21,18 +23,18 @@ function detectIsMac(): boolean {
   if (ua) return /mac/i.test(ua);
   // Older browsers / Safari / Firefox: navigator.platform is deprecated
   // but still works. Mac values include "MacIntel", "MacPPC", "iPhone".
-  if (typeof nav.platform === 'string' && nav.platform) {
+  if (typeof nav.platform === "string" && nav.platform) {
     return /mac|iphone|ipad/i.test(nav.platform);
   }
   // Final fallback: userAgent string sniffing.
-  return /Mac|iPhone|iPad/i.test(nav.userAgent ?? '');
+  return /Mac|iPhone|iPad/i.test(nav.userAgent ?? "");
 }
 
 export const IS_MAC = detectIsMac();
 
 /** "Cmd" on macOS, "Ctrl" elsewhere — for the modifier the dispatcher
  *  matches when a shortcut declares `mod: true`. */
-export const MOD_LABEL = IS_MAC ? 'Cmd' : 'Ctrl';
+export const MOD_LABEL = IS_MAC ? "Cmd" : "Ctrl";
 
 /** "Option" on macOS, "Alt" elsewhere — for `alt: true` shortcuts. */
-export const ALT_LABEL = IS_MAC ? 'Option' : 'Alt';
+export const ALT_LABEL = IS_MAC ? "Option" : "Alt";

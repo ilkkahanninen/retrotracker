@@ -1,4 +1,4 @@
-import { createSignal } from 'solid-js';
+import { createSignal } from "solid-js";
 
 /**
  * Pattern-grid metric: how many rows make a beat, and how many beats make

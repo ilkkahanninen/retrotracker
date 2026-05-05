@@ -1,4 +1,4 @@
-import type { AmigaModel } from './paula';
+import type { AmigaModel } from "./paula";
 
 /**
  * Surface area the Replayer uses to push channel state at a sample mixer.
@@ -48,7 +48,12 @@ export interface Mixer {
   setAmigaModel(model: AmigaModel): void;
 
   /** Emit `frames` stereo Float64 samples at the mixer's output rate. */
-  generate(outL: Float64Array, outR: Float64Array, frames: number, offset: number): void;
+  generate(
+    outL: Float64Array,
+    outR: Float64Array,
+    frames: number,
+    offset: number,
+  ): void;
 
   /** Read pre-pan per-channel peaks for VU meters; resets the accumulator. */
   peakSnapshotAndReset(out: Float32Array): void;

@@ -1,4 +1,4 @@
-import { createSignal } from 'solid-js';
+import { createSignal } from "solid-js";
 
 /**
  * Top-level view selector. Four views share the main pane: the pattern
@@ -8,8 +8,8 @@ import { createSignal } from 'solid-js';
  * what the pattern grid stamps on note entry); info and settings drop
  * the sample list entirely.
  */
-export type View = 'pattern' | 'sample' | 'info' | 'settings';
+export type View = "pattern" | "sample" | "info" | "settings";
 
-export const VIEWS: readonly View[] = ['pattern', 'sample', 'info', 'settings'];
+export const VIEWS: readonly View[] = ["pattern", "sample", "info", "settings"];
 
-export const [view, setView] = createSignal<View>('pattern');
+export const [view, setView] = createSignal<View>("pattern");

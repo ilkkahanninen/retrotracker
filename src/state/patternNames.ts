@@ -1,4 +1,4 @@
-import { createSignal } from 'solid-js';
+import { createSignal } from "solid-js";
 
 /**
  * User-given pattern names — project-only state. They round-trip through
@@ -12,7 +12,9 @@ import { createSignal } from 'solid-js';
 
 export const PATTERN_NAME_MAX = 24;
 
-const [patternNames, setPatternNamesRaw] = createSignal<Record<number, string>>({});
+const [patternNames, setPatternNamesRaw] = createSignal<Record<number, string>>(
+  {},
+);
 
 export { patternNames };
 
@@ -27,7 +29,7 @@ export function setPatternName(patternIndex: number, name: string): void {
   const trimmed = name.slice(0, PATTERN_NAME_MAX);
   setPatternNamesRaw((prev) => {
     const next = { ...prev };
-    if (trimmed.trim() === '') delete next[patternIndex];
+    if (trimmed.trim() === "") delete next[patternIndex];
     else next[patternIndex] = trimmed;
     return next;
   });

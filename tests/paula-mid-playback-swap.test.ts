@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
-import { parseModule } from '../src/core/mod/parser';
-import { Replayer } from '../src/core/audio/replayer';
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "fs";
+import { parseModule } from "../src/core/mod/parser";
+import { Replayer } from "../src/core/audio/replayer";
 
 /**
  * Mid-playback Amiga-model swap should immediately retune the filters.
@@ -13,10 +13,10 @@ import { Replayer } from '../src/core/audio/replayer';
  * far closer to the corresponding tail of (2) than to (1) — proving the
  * swap actually took effect mid-stream.
  */
-describe('Paula mid-playback model swap', () => {
-  it('output tail after swap matches the target model, not the original', () => {
+describe("Paula mid-playback model swap", () => {
+  it("output tail after swap matches the target model, not the original", () => {
     const bytes = readFileSync(
-      new URL('./fixtures/00-baseline.mod', import.meta.url),
+      new URL("./fixtures/00-baseline.mod", import.meta.url),
     );
     const song = parseModule(
       bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
@@ -27,8 +27,8 @@ describe('Paula mid-playback model swap', () => {
     const SWAP_AT = SR / 4; // 250ms — past initial DMA priming
 
     function render(
-      initial: 'A1200' | 'A500',
-      swapTo: 'A1200' | 'A500' | null,
+      initial: "A1200" | "A500",
+      swapTo: "A1200" | "A500" | null,
     ): Float32Array {
       const r = new Replayer(song, {
         sampleRate: SR,
@@ -53,9 +53,9 @@ describe('Paula mid-playback model swap', () => {
       return L;
     }
 
-    const a1200 = render('A1200', null);
-    const a500 = render('A500', null);
-    const swapped = render('A1200', 'A500');
+    const a1200 = render("A1200", null);
+    const a500 = render("A500", null);
+    const swapped = render("A1200", "A500");
 
     // Compare tails (skip a 50ms settling window past the swap point so
     // the filter's RC history converges between the two streams).

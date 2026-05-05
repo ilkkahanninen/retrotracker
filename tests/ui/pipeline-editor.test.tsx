@@ -10,7 +10,11 @@ import {
   clearHistory,
   song,
 } from "../../src/state/song";
-import { currentSample, setCurrentSample, setCurrentOctave } from "../../src/state/edit";
+import {
+  currentSample,
+  setCurrentSample,
+  setCurrentOctave,
+} from "../../src/state/edit";
 import { setView } from "../../src/state/view";
 import {
   setWorkbench,
@@ -127,7 +131,8 @@ describe("pipeline: WAV load creates a workbench", () => {
 
     const wb = getWorkbench(1);
     expect(wb).toBeDefined();
-    if (wb!.source.kind !== "sampler") throw new Error("expected sampler source");
+    if (wb!.source.kind !== "sampler")
+      throw new Error("expected sampler source");
     expect(wb!.source.wav.sampleRate).toBe(44100);
     expect(wb!.source.wav.channels).toHaveLength(2);
     expect(wb!.chain).toEqual([]);
@@ -209,8 +214,13 @@ function findEffectButton(
  */
 function clickEditMenu(container: HTMLElement, label: string): void {
   let trigger: HTMLButtonElement | null = null;
-  for (const btn of container.querySelectorAll<HTMLButtonElement>(".menu__button")) {
-    if (btn.textContent?.startsWith("Edit")) { trigger = btn; break; }
+  for (const btn of container.querySelectorAll<HTMLButtonElement>(
+    ".menu__button",
+  )) {
+    if (btn.textContent?.startsWith("Edit")) {
+      trigger = btn;
+      break;
+    }
   }
   if (!trigger) throw new Error("Edit menu button not found");
   fireEvent.click(trigger);
@@ -339,7 +349,8 @@ describe("pipeline editor: resample-mode selector", () => {
     // round to identical int8 under both algorithms.
     const N = 256;
     const ch = new Float32Array(N);
-    for (let i = 0; i < N; i++) ch[i] = Math.sin((2 * Math.PI * 3000 * i) / 44100);
+    for (let i = 0; i < N; i++)
+      ch[i] = Math.sin((2 * Math.PI * 3000 * i) / 44100);
     seedSampleWithWorkbench({
       source: { sampleRate: 44100, channels: [ch] },
       sourceName: "demo",
@@ -378,7 +389,10 @@ describe("pipeline editor: dither toggle", () => {
     setView("sample");
     const { container } = render(() => <App />);
     seedSampleWithWorkbench({
-      source: { sampleRate: 44100, channels: [new Float32Array([0, 0.5, -0.5])] },
+      source: {
+        sampleRate: 44100,
+        channels: [new Float32Array([0, 0.5, -0.5])],
+      },
       sourceName: "demo",
       chain: [],
       pt: { monoMix: "average", targetNote: null, resampleMode: "linear" },
@@ -878,7 +892,9 @@ describe("pipeline editor: undo/redo restores chain alongside song", () => {
     // a sampler workbench is active. Pick by accessible label so we don't
     // accidentally click the loader.
     const clearBtn = Array.from(
-      container.querySelectorAll<HTMLButtonElement>(".sampleview__actions button"),
+      container.querySelectorAll<HTMLButtonElement>(
+        ".sampleview__actions button",
+      ),
     ).find((b) => b.textContent === "Clear sample")!;
     await userEvent.setup().click(clearBtn);
     expect(getWorkbench(0)).toBeUndefined();
@@ -893,12 +909,15 @@ describe("pipeline editor: undo/redo restores chain alongside song", () => {
 
 describe("pipeline editor: workbench is cleared on .mod load", () => {
   it("loading a fresh empty song clears any existing workbenches", () => {
-    setWorkbench(0, fixtureToWorkbench({
-      source: { sampleRate: 44100, channels: [new Float32Array([0])] },
-      sourceName: "demo",
-      chain: [],
-      pt: { monoMix: "average", targetNote: null },
-    }));
+    setWorkbench(
+      0,
+      fixtureToWorkbench({
+        source: { sampleRate: 44100, channels: [new Float32Array([0])] },
+        sourceName: "demo",
+        chain: [],
+        pt: { monoMix: "average", targetNote: null },
+      }),
+    );
     expect(getWorkbench(0)).toBeDefined();
     clearAllWorkbenches();
     expect(getWorkbench(0)).toBeUndefined();
@@ -922,7 +941,9 @@ describe("duplicate sample", () => {
     // Click Duplicate sample (the actions row holds Load WAV + Duplicate +
     // Clear; pick by accessible label).
     const dupBtn = Array.from(
-      container.querySelectorAll<HTMLButtonElement>(".sampleview__actions button"),
+      container.querySelectorAll<HTMLButtonElement>(
+        ".sampleview__actions button",
+      ),
     ).find((b) => b.textContent === "Duplicate sample")!;
     await userEvent.setup().click(dupBtn);
 
@@ -952,12 +973,18 @@ describe("source picker: alt-stash round-trip", () => {
     expect(song()!.samples[0]!.loopLengthWords).toBe(1);
 
     const pickerButtons = () =>
-      Array.from(container.querySelectorAll<HTMLButtonElement>(".source-picker button"));
-    await userEvent.setup().click(pickerButtons().find((b) => b.textContent === "Chiptune")!);
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(".source-picker button"),
+      );
+    await userEvent
+      .setup()
+      .click(pickerButtons().find((b) => b.textContent === "Chiptune")!);
     // Chiptune fully looped.
     expect(song()!.samples[0]!.loopLengthWords).toBeGreaterThan(1);
 
-    await userEvent.setup().click(pickerButtons().find((b) => b.textContent === "Sampler")!);
+    await userEvent
+      .setup()
+      .click(pickerButtons().find((b) => b.textContent === "Sampler")!);
     // Sampler half restored — loop should be back to the no-loop sentinel,
     // not the chiptune full-loop value.
     expect(song()!.samples[0]!.loopLengthWords).toBe(1);
@@ -981,7 +1008,9 @@ describe("source picker: alt-stash round-trip", () => {
     const pickerButtons = Array.from(
       container.querySelectorAll<HTMLButtonElement>(".source-picker button"),
     );
-    const chiptuneBtn = pickerButtons.find((b) => b.textContent === "Chiptune")!;
+    const chiptuneBtn = pickerButtons.find(
+      (b) => b.textContent === "Chiptune",
+    )!;
     await userEvent.setup().click(chiptuneBtn);
     const chiptuneWb = getWorkbench(0)!;
     expect(chiptuneWb.source.kind).toBe("chiptune");
@@ -993,7 +1022,8 @@ describe("source picker: alt-stash round-trip", () => {
     await userEvent.setup().click(samplerBtn);
     const restoredWb = getWorkbench(0)!;
     expect(restoredWb.source.kind).toBe("sampler");
-    if (restoredWb.source.kind !== "sampler") throw new Error("expected sampler");
+    if (restoredWb.source.kind !== "sampler")
+      throw new Error("expected sampler");
     expect(restoredWb.source.sourceName).toBe("stereo-test");
     // And the chiptune we just left is now the alt.
     expect(restoredWb.alt?.source.kind).toBe("chiptune");
@@ -1006,14 +1036,20 @@ describe("source picker: alt-stash round-trip", () => {
 
     // Start in chiptune (no prior sampler).
     const pickerButtons = () =>
-      Array.from(container.querySelectorAll<HTMLButtonElement>(".source-picker button"));
-    const chiptuneBtn = pickerButtons().find((b) => b.textContent === "Chiptune")!;
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(".source-picker button"),
+      );
+    const chiptuneBtn = pickerButtons().find(
+      (b) => b.textContent === "Chiptune",
+    )!;
     await userEvent.setup().click(chiptuneBtn);
     expect(getWorkbench(0)?.source.kind).toBe("chiptune");
 
     // Clicking Sampler with no alt-sampler drops into empty-sampler view —
     // same UX as a fresh slot — and stashes the chiptune as alt.
-    const samplerBtn = pickerButtons().find((b) => b.textContent === "Sampler")!;
+    const samplerBtn = pickerButtons().find(
+      (b) => b.textContent === "Sampler",
+    )!;
     await userEvent.setup().click(samplerBtn);
     const wb = getWorkbench(0)!;
     expect(wb.source.kind).toBe("sampler");
@@ -1031,7 +1067,8 @@ describe("source picker: alt-stash round-trip", () => {
     const populated = getWorkbench(0)!;
     expect(populated.source.kind).toBe("sampler");
     expect(populated.alt?.source.kind).toBe("chiptune");
-    if (populated.source.kind !== "sampler") throw new Error("expected sampler");
+    if (populated.source.kind !== "sampler")
+      throw new Error("expected sampler");
     expect(populated.source.wav.channels[0]!.length).toBeGreaterThan(0);
   });
 });

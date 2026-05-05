@@ -30,7 +30,7 @@ export class AudioEngine {
    * via `setPaulaModel`. The preview worklet is created lazily, so we
    * also re-apply this on first construction in `ensurePreviewNode`.
    */
-  private paulaModel: AmigaModel = 'A1200';
+  private paulaModel: AmigaModel = "A1200";
   /** Cached stereo separation, same lazy-preview reasoning as `paulaModel`. */
   private stereoSeparation = 20;
   /** Called whenever the replayer crosses a row boundary during playback. */
@@ -89,9 +89,15 @@ export class AudioEngine {
     // overridden it yet. Without this, opening the sample editor for the
     // first time after the user picked A500 would still preview through
     // A1200 filters until the next setPaulaModel call.
-    const modelMsg: PreviewMsg = { type: "setAmigaModel", model: this.paulaModel };
+    const modelMsg: PreviewMsg = {
+      type: "setAmigaModel",
+      model: this.paulaModel,
+    };
     node.port.postMessage(modelMsg);
-    const sepMsg: PreviewMsg = { type: "setStereoSeparation", sep: this.stereoSeparation };
+    const sepMsg: PreviewMsg = {
+      type: "setStereoSeparation",
+      sep: this.stereoSeparation,
+    };
     node.port.postMessage(sepMsg);
     return node;
   }

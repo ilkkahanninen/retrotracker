@@ -20,11 +20,11 @@ export function deriveExportFilename(
   songTitle: string,
 ): string {
   const base = loadedName
-    ? loadedName.replace(/\.mod$/i, '')
+    ? loadedName.replace(/\.mod$/i, "")
     : songTitle.trim();
-  const sanitised = base.replace(/[^\w.\- ]+/g, '_').replace(/\s+/g, '_');
+  const sanitised = base.replace(/[^\w.\- ]+/g, "_").replace(/\s+/g, "_");
   const trimmed = sanitised.slice(0, 64);
-  return `${trimmed || 'untitled'}.mod`;
+  return `${trimmed || "untitled"}.mod`;
 }
 
 /**
@@ -40,7 +40,11 @@ export const io = {
    * does with the file. .mod / .retro callers can pass a more specific
    * type if they like.
    */
-  download(filename: string, bytes: Uint8Array, mimeType: string = 'application/octet-stream'): void {
+  download(
+    filename: string,
+    bytes: Uint8Array,
+    mimeType: string = "application/octet-stream",
+  ): void {
     // Copy into a fresh ArrayBuffer so we never hand a SharedArrayBuffer to
     // Blob (TS narrows Uint8Array.buffer to ArrayBufferLike, which Blob's
     // BlobPart parameter doesn't accept).
@@ -48,7 +52,7 @@ export const io = {
     new Uint8Array(buf).set(bytes);
     const blob = new Blob([buf], { type: mimeType });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
     a.download = filename;
     document.body.appendChild(a);

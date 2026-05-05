@@ -1,5 +1,5 @@
-import { createSignal } from 'solid-js';
-import type { Note } from '../core/mod/types';
+import { createSignal } from "solid-js";
+import type { Note } from "../core/mod/types";
 
 /**
  * In-memory pattern clipboard: a 2-D rectangle of Notes (rows × channels).
@@ -15,4 +15,5 @@ export interface ClipboardSlice {
   rows: Note[][];
 }
 
-export const [clipboardSlice, setClipboardSlice] = createSignal<ClipboardSlice | null>(null);
+export const [clipboardSlice, setClipboardSlice] =
+  createSignal<ClipboardSlice | null>(null);

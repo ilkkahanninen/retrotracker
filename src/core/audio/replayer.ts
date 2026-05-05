@@ -1,14 +1,10 @@
-import type { Note, Song } from '../mod/types';
-import { CHANNELS, ROWS_PER_PATTERN } from '../mod/types';
-import {
-  Effect,
-  ExtendedEffect,
-  PERIOD_TABLE,
-} from '../mod/format';
-import type { ReplayerOptions } from './types';
-import { Paula } from './paula';
-import type { AmigaModel } from './paula';
-import type { Mixer } from './mixer';
+import type { Note, Song } from "../mod/types";
+import { CHANNELS, ROWS_PER_PATTERN } from "../mod/types";
+import { Effect, ExtendedEffect, PERIOD_TABLE } from "../mod/format";
+import type { ReplayerOptions } from "./types";
+import { Paula } from "./paula";
+import type { AmigaModel } from "./paula";
+import type { Mixer } from "./mixer";
 
 /**
  * ProTracker M.K. replayer.
@@ -39,8 +35,8 @@ import type { Mixer } from './mixer';
 
 /** PT sine table — 32 entries, positive half. Sign comes from phase bit 5. */
 const SINE_TABLE: readonly number[] = [
-  0, 24, 49, 74, 97, 120, 141, 161, 180, 197, 212, 224, 235, 244, 250, 253,
-  255, 253, 250, 244, 235, 224, 212, 197, 180, 161, 141, 120, 97, 74, 49, 24,
+  0, 24, 49, 74, 97, 120, 141, 161, 180, 197, 212, 224, 235, 244, 250, 253, 255,
+  253, 250, 244, 235, 224, 212, 197, 180, 161, 141, 120, 97, 74, 49, 24,
 ];
 
 const MIN_PERIOD = 113;
@@ -49,17 +45,17 @@ const PT_AMIGA_LIMITS = { min: 113, max: 856 } as const;
 
 interface ChannelState {
   // Active sample
-  sampleNum: number;       // 1..31; 0 = none assigned yet
-  playing: boolean;        // tracker-side notion of "voice should be live"
+  sampleNum: number; // 1..31; 0 = none assigned yet
+  playing: boolean; // tracker-side notion of "voice should be live"
 
   // Pitch
-  period: number;          // current effective period (after vibrato)
-  basePeriod: number;      // period without vibrato offset
-  finetune: number;        // 0..15 (signed nibble encoding)
-  noteIndex: number;       // index 0..35 in period table (for arpeggio)
+  period: number; // current effective period (after vibrato)
+  basePeriod: number; // period without vibrato offset
+  finetune: number; // 0..15 (signed nibble encoding)
+  noteIndex: number; // index 0..35 in period table (for arpeggio)
 
   // Volume
-  volume: number;          // 0..64
+  volume: number; // 0..64
   /** Tremolo override volume for this tick. -1 = no override (use ch.volume).
    *  Reset at every tick boundary; tickTremolo sets it to base+delta. */
   effectiveVolume: number;
@@ -87,13 +83,13 @@ interface ChannelState {
   /** Byte index into the active sample's data; the next byte to be inverted
    *  by updateFunk. Initialized at note trigger to the loop start. */
   wavestartBytes: number;
-  volumeSlide: number;     // packed Axx parameter
+  volumeSlide: number; // packed Axx parameter
   arpHi: number;
   arpLo: number;
   sampleOffset: number;
-  retrigInterval: number;  // E9y
-  noteCutTick: number;     // ECy: -1 = none
-  noteDelayTick: number;   // EDy: -1 = none
+  retrigInterval: number; // E9y
+  noteCutTick: number; // ECy: -1 = none
+  noteDelayTick: number; // EDy: -1 = none
   pendingNote: Note | null;
 
   // Pattern loop (per-channel)
@@ -110,16 +106,16 @@ interface ChannelState {
 }
 
 interface SongState {
-  speed: number;           // ticks per row
-  tempo: number;           // BPM
-  tickInRow: number;       // 0..speed-1
-  row: number;             // 0..63
+  speed: number; // ticks per row
+  tempo: number; // BPM
+  tickInRow: number; // 0..speed-1
+  row: number; // 0..63
   orderIndex: number;
-  patternDelay: number;    // EEy: extra row repeats remaining
-  jumpToOrder: number;     // -1 = none
-  jumpToRow: number;       // -1 = none
+  patternDelay: number; // EEy: extra row repeats remaining
+  jumpToOrder: number; // -1 = none
+  jumpToRow: number; // -1 = none
   ended: boolean;
-  visited: Set<number>;    // (orderIndex << 8 | row) keys
+  visited: Set<number>; // (orderIndex << 8 | row) keys
   /** Fxx tempo change is queued and applied at the START of the next tick
    *  (CIA quirk: the chip doesn't read its new timer value until the next
    *  interrupt fires). -1 = nothing pending. */
@@ -206,13 +202,19 @@ export class Replayer {
     this.loopPattern = opts.loopPattern ?? false;
     this.paula = opts.mixerFactory
       ? opts.mixerFactory(opts.sampleRate)
-      : new Paula(opts.sampleRate, opts.amigaModel ?? 'A1200');
+      : new Paula(opts.sampleRate, opts.amigaModel ?? "A1200");
     const sep = Math.max(0, Math.min(100, opts.stereoSeparation ?? 20));
     this.sideFactor = (sep / 100) * 0.5;
     for (let i = 0; i < CHANNELS; i++) this.channels.push(newChannel());
 
-    const startOrder = Math.max(0, Math.min(song.songLength - 1, opts.initialOrder ?? 0));
-    const startRow = Math.max(0, Math.min(ROWS_PER_PATTERN - 1, opts.initialRow ?? 0));
+    const startOrder = Math.max(
+      0,
+      Math.min(song.songLength - 1, opts.initialOrder ?? 0),
+    );
+    const startRow = Math.max(
+      0,
+      Math.min(ROWS_PER_PATTERN - 1, opts.initialRow ?? 0),
+    );
 
     this.state = {
       speed: opts.initialSpeed ?? 6,
@@ -236,9 +238,14 @@ export class Replayer {
     this.syncPaula();
   }
 
-  process(left: Float32Array, right: Float32Array, frames: number, offset = 0): void {
+  process(
+    left: Float32Array,
+    right: Float32Array,
+    frames: number,
+    offset = 0,
+  ): void {
     if (left.length < offset + frames || right.length < offset + frames) {
-      throw new Error('Output buffer too small');
+      throw new Error("Output buffer too small");
     }
 
     let pos = offset;
@@ -427,7 +434,8 @@ export class Replayer {
         ch.pendingTrigger = false;
       }
       if (ch.pendingTrigger) {
-        const sample = ch.sampleNum > 0 ? this.song.samples[ch.sampleNum - 1] : undefined;
+        const sample =
+          ch.sampleNum > 0 ? this.song.samples[ch.sampleNum - 1] : undefined;
         if (sample && sample.data.byteLength > 0) {
           // pt2-clone sampleOffset (replayer.c:847-862): n_length -= newOffset
           // (in words). Pass the post-offset length so Paula doesn't read past
@@ -443,7 +451,10 @@ export class Replayer {
           // data so loopEnd == sampleEnd before storing — see
           // truncateSampleAtLoopEnd in core/mod/mutations.ts.
           const offsetWords = ch.pendingStartOffsetBytes >> 1;
-          const initialLengthWords = Math.max(1, sample.lengthWords - offsetWords);
+          const initialLengthWords = Math.max(
+            1,
+            sample.lengthWords - offsetWords,
+          );
           this.paula.setSample(
             ci,
             sample.data,
@@ -452,7 +463,14 @@ export class Replayer {
             sample.loopStartWords * 2,
             sample.loopLengthWords,
           );
-          this.paula.setVolume(ci, muted ? 0 : (ch.effectiveVolume >= 0 ? ch.effectiveVolume : ch.volume));
+          this.paula.setVolume(
+            ci,
+            muted
+              ? 0
+              : ch.effectiveVolume >= 0
+                ? ch.effectiveVolume
+                : ch.volume,
+          );
           this.paula.setPeriod(ci, ch.period);
           this.paula.startDMA(ci);
         }
@@ -460,16 +478,20 @@ export class Replayer {
         ch.pendingStartOffsetBytes = 0;
       } else if (ch.playing) {
         this.paula.setPeriod(ci, ch.period);
-        this.paula.setVolume(ci, muted ? 0 : (ch.effectiveVolume >= 0 ? ch.effectiveVolume : ch.volume));
+        this.paula.setVolume(
+          ci,
+          muted ? 0 : ch.effectiveVolume >= 0 ? ch.effectiveVolume : ch.volume,
+        );
       }
     }
   }
 
   private advanceRow(): void {
     if (this.state.jumpToRow >= 0 || this.state.jumpToOrder >= 0) {
-      let order = this.state.jumpToOrder >= 0
-        ? this.state.jumpToOrder
-        : this.state.orderIndex + 1;
+      let order =
+        this.state.jumpToOrder >= 0
+          ? this.state.jumpToOrder
+          : this.state.orderIndex + 1;
       const row = this.state.jumpToRow >= 0 ? this.state.jumpToRow : 0;
       this.state.jumpToOrder = -1;
       this.state.jumpToRow = -1;
@@ -569,7 +591,10 @@ export class Replayer {
       note.effect === Effect.TonePortamentoVolumeSlide;
 
     // EDy — note delay. Defer the trigger; just remember it.
-    if (note.effect === Effect.Extended && (note.effectParam >> 4) === ExtendedEffect.NoteDelay) {
+    if (
+      note.effect === Effect.Extended &&
+      note.effectParam >> 4 === ExtendedEffect.NoteDelay
+    ) {
       const ticks = note.effectParam & 0x0f;
       if (ticks > 0) {
         ch.noteDelayTick = ticks;
@@ -592,16 +617,18 @@ export class Replayer {
 
     // E5y — must apply BEFORE the period lookup so this row's note plays at
     // the new finetune. Mirrors pt2-clone playVoice (replayer.c:1110-1114).
-    if (note.effect === Effect.Extended && (note.effectParam >> 4) === ExtendedEffect.SetFinetune) {
+    if (
+      note.effect === Effect.Extended &&
+      note.effectParam >> 4 === ExtendedEffect.SetFinetune
+    ) {
       ch.finetune = note.effectParam & 0x0f;
     }
 
     // Note trigger (period set).
     if (note.period > 0) {
       const noteIndex = findNoteIndex(note.period);
-      const targetPeriod = noteIndex >= 0
-        ? PERIOD_TABLE[ch.finetune]![noteIndex]!
-        : note.period;
+      const targetPeriod =
+        noteIndex >= 0 ? PERIOD_TABLE[ch.finetune]![noteIndex]! : note.period;
 
       if (isToneporta) {
         ch.portToTarget = targetPeriod;
@@ -669,7 +696,8 @@ export class Replayer {
       case Effect.SetSampleOffset: {
         if (p > 0) ch.sampleOffset = p;
         const offset = ch.sampleOffset * 256;
-        const sample = ch.sampleNum > 0 ? this.song.samples[ch.sampleNum - 1] : undefined;
+        const sample =
+          ch.sampleNum > 0 ? this.song.samples[ch.sampleNum - 1] : undefined;
         if (sample && note.period > 0 && ch.pendingTrigger) {
           if (offset < sample.data.byteLength) {
             ch.pendingStartOffsetBytes = offset;
@@ -832,7 +860,8 @@ export class Replayer {
         ch.pendingNote = null;
         if (pending.period > 0 && ch.sampleNum > 0) {
           const idx = findNoteIndex(pending.period);
-          const period = idx >= 0 ? PERIOD_TABLE[ch.finetune]![idx]! : pending.period;
+          const period =
+            idx >= 0 ? PERIOD_TABLE[ch.finetune]![idx]! : pending.period;
           ch.basePeriod = period;
           ch.period = period;
           if (idx >= 0) ch.noteIndex = idx;
@@ -1004,7 +1033,12 @@ export class Replayer {
    * filters, and 2× FIR downsampling internally; we apply mid/side stereo
    * separation and the final NORM_FACTOR/PAULA_VOICES = 0.5 scaling here.
    */
-  private mixChunk(left: Float32Array, right: Float32Array, offset: number, frames: number): void {
+  private mixChunk(
+    left: Float32Array,
+    right: Float32Array,
+    offset: number,
+    frames: number,
+  ): void {
     if (this.scratchL.length < frames) {
       this.scratchL = new Float64Array(frames);
       this.scratchR = new Float64Array(frames);
@@ -1020,7 +1054,7 @@ export class Replayer {
       const mid = (dL + dR) * 0.5;
       const sideVal = (dL - dR) * side;
       // NORM_FACTOR (2.0) / PAULA_VOICES (4) = 0.5
-      left[offset + i]  = (mid + sideVal) * 0.5;
+      left[offset + i] = (mid + sideVal) * 0.5;
       right[offset + i] = (mid - sideVal) * 0.5;
     }
   }

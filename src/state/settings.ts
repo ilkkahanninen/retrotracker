@@ -1,5 +1,5 @@
-import { createSignal } from 'solid-js';
-import type { AmigaModel } from '../core/audio/paula';
+import { createSignal } from "solid-js";
+import type { AmigaModel } from "../core/audio/paula";
 
 /**
  * App-wide preferences. Stored in its own localStorage key — separate
@@ -11,9 +11,9 @@ import type { AmigaModel } from '../core/audio/paula';
  * older saved settings forward-compat without a version bump.
  */
 
-const STORAGE_KEY = 'retrotracker:settings:v1';
+const STORAGE_KEY = "retrotracker:settings:v1";
 
-export type ColorSchemeId = 'default' | 'light' | 'high-contrast' | 'amber';
+export type ColorSchemeId = "default" | "light" | "high-contrast" | "amber";
 
 /** UI scale slider range, expressed as a percentage of the natural size. */
 export const UI_SCALE_MIN = 75;
@@ -39,23 +39,26 @@ export interface Settings {
 }
 
 const DEFAULTS: Settings = {
-  paulaModel: 'A1200',
-  colorScheme: 'default',
+  paulaModel: "A1200",
+  colorScheme: "default",
   uiScale: UI_SCALE_DEFAULT,
   stereoSeparation: STEREO_SEP_DEFAULT,
 };
 
 function isColorSchemeId(v: unknown): v is ColorSchemeId {
-  return v === 'default' || v === 'light' || v === 'high-contrast' || v === 'amber';
+  return (
+    v === "default" || v === "light" || v === "high-contrast" || v === "amber"
+  );
 }
 
 function clampUiScale(n: unknown): number {
-  if (typeof n !== 'number' || !Number.isFinite(n)) return DEFAULTS.uiScale;
+  if (typeof n !== "number" || !Number.isFinite(n)) return DEFAULTS.uiScale;
   return Math.max(UI_SCALE_MIN, Math.min(UI_SCALE_MAX, Math.round(n)));
 }
 
 function clampStereoSep(n: unknown): number {
-  if (typeof n !== 'number' || !Number.isFinite(n)) return DEFAULTS.stereoSeparation;
+  if (typeof n !== "number" || !Number.isFinite(n))
+    return DEFAULTS.stereoSeparation;
   return Math.max(STEREO_SEP_MIN, Math.min(STEREO_SEP_MAX, Math.round(n)));
 }
 
@@ -64,17 +67,19 @@ function load(): Settings {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULTS };
     const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return { ...DEFAULTS };
+    if (!parsed || typeof parsed !== "object") return { ...DEFAULTS };
     const obj = parsed as Record<string, unknown>;
     const paulaModel: AmigaModel =
-      obj['paulaModel'] === 'A500' ? 'A500'
-      : obj['paulaModel'] === 'A1200' ? 'A1200'
-      : DEFAULTS.paulaModel;
-    const colorScheme: ColorSchemeId = isColorSchemeId(obj['colorScheme'])
-      ? obj['colorScheme']
+      obj["paulaModel"] === "A500"
+        ? "A500"
+        : obj["paulaModel"] === "A1200"
+          ? "A1200"
+          : DEFAULTS.paulaModel;
+    const colorScheme: ColorSchemeId = isColorSchemeId(obj["colorScheme"])
+      ? obj["colorScheme"]
       : DEFAULTS.colorScheme;
-    const uiScale = clampUiScale(obj['uiScale']);
-    const stereoSeparation = clampStereoSep(obj['stereoSeparation']);
+    const uiScale = clampUiScale(obj["uiScale"]);
+    const stereoSeparation = clampStereoSep(obj["stereoSeparation"]);
     return { paulaModel, colorScheme, uiScale, stereoSeparation };
   } catch {
     return { ...DEFAULTS };
@@ -107,7 +112,7 @@ export function setPaulaModel(model: AmigaModel): void {
 
 /** Flip between A1200 and A500. Bound to ⌘⇧A in `appKeybinds`. */
 export function togglePaulaModel(): void {
-  setPaulaModel(settings().paulaModel === 'A1200' ? 'A500' : 'A1200');
+  setPaulaModel(settings().paulaModel === "A1200" ? "A500" : "A1200");
 }
 
 export function setColorScheme(scheme: ColorSchemeId): void {

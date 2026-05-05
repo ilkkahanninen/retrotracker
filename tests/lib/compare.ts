@@ -41,7 +41,7 @@ export function compareChannels(
     ? Math.min(...a.map((c, i) => Math.min(c.length, b[i]!.length)))
     : (() => {
         for (let i = 0; i < a.length; i++) {
-          if (a[i]!.length !== b[i]!.length) throw new Error('Length mismatch');
+          if (a[i]!.length !== b[i]!.length) throw new Error("Length mismatch");
         }
         return a[0]?.length ?? 0;
       })();

@@ -1,7 +1,7 @@
-import type { Mixer } from './mixer';
-import type { AmigaModel } from './paula';
+import type { Mixer } from "./mixer";
+import type { AmigaModel } from "./paula";
 
-export type PaulaClock = 'PAL' | 'NTSC';
+export type PaulaClock = "PAL" | "NTSC";
 
 export interface ReplayerOptions {
   /** Output sample rate in Hz (e.g. 44100, 48000). */

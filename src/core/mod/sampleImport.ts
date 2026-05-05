@@ -5,8 +5,8 @@
  * the source's rate, so we just down-convert amplitude and number of channels.
  */
 
-import type { WavData } from '../audio/wav';
-import { readWav } from '../audio/wav';
+import type { WavData } from "../audio/wav";
+import { readWav } from "../audio/wav";
 
 export interface ImportedSample {
   /** 8-bit signed mono PCM. Even-byte aligned. */
@@ -25,14 +25,15 @@ export const SAMPLE_NAME_MAX = 22;
  * truncate to 22 chars. Returns "" when nothing usable is left.
  */
 export function deriveSampleName(filename: string): string {
-  const slashAt = Math.max(filename.lastIndexOf('/'), filename.lastIndexOf('\\'));
+  const slashAt = Math.max(
+    filename.lastIndexOf("/"),
+    filename.lastIndexOf("\\"),
+  );
   const base = slashAt >= 0 ? filename.slice(slashAt + 1) : filename;
-  const dot = base.lastIndexOf('.');
+  const dot = base.lastIndexOf(".");
   // dot >= 0 (not > 0) so a leading-dot file like ".wav" yields "", not ".wav".
   const stem = dot >= 0 ? base.slice(0, dot) : base;
-  const cleaned = stem
-    .replace(/[^\x20-\x7e]+/g, '_')
-    .trim();
+  const cleaned = stem.replace(/[^\x20-\x7e]+/g, "_").trim();
   return cleaned.slice(0, SAMPLE_NAME_MAX);
 }
 
@@ -69,7 +70,10 @@ function floatToInt8(v: number): number {
 }
 
 /** Top-level convenience: bytes (the `.wav` file) + filename → ImportedSample. */
-export function importWavSample(bytes: Uint8Array, filename: string): ImportedSample {
+export function importWavSample(
+  bytes: Uint8Array,
+  filename: string,
+): ImportedSample {
   const wav = readWav(bytes);
   return {
     data: wavToInt8Mono(wav),

@@ -1,19 +1,19 @@
-import { defineConfig } from 'vite';
-import solid from 'vite-plugin-solid';
-import { fileURLToPath } from 'node:url';
+import { defineConfig } from "vite";
+import solid from "vite-plugin-solid";
+import { fileURLToPath } from "node:url";
 
 export default defineConfig({
   plugins: [solid()],
   resolve: {
     alias: {
-      '~': fileURLToPath(new URL('./src', import.meta.url)),
+      "~": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
   build: {
-    target: 'es2022',
+    target: "es2022",
     sourcemap: true,
   },
   worker: {
-    format: 'es',
+    format: "es",
   },
 });

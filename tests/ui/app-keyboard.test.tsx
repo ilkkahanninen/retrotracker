@@ -1,12 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cleanup, render } from '@solidjs/testing-library';
-import userEvent from '@testing-library/user-event';
-import { App } from '../../src/App';
-import { setCursor, INITIAL_CURSOR, cursor } from '../../src/state/cursor';
-import { setSong, setTransport, setPlayPos, clearHistory, song, transport } from '../../src/state/song';
-import { setCurrentOctave } from '../../src/state/edit';
-import { Effect, PERIOD_TABLE } from '../../src/core/mod/format';
-import { selection, clearSelection } from '../../src/state/selection';
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { cleanup, render } from "@solidjs/testing-library";
+import userEvent from "@testing-library/user-event";
+import { App } from "../../src/App";
+import { setCursor, INITIAL_CURSOR, cursor } from "../../src/state/cursor";
+import {
+  setSong,
+  setTransport,
+  setPlayPos,
+  clearHistory,
+  song,
+  transport,
+} from "../../src/state/song";
+import { setCurrentOctave } from "../../src/state/edit";
+import { Effect, PERIOD_TABLE } from "../../src/core/mod/format";
+import { selection, clearSelection } from "../../src/state/selection";
 
 /**
  * Reset every module-level signal that App's mounted state writes into,
@@ -16,7 +23,7 @@ import { selection, clearSelection } from '../../src/state/selection';
 function resetState() {
   setSong(null);
   setPlayPos({ order: 0, row: 0 });
-  setTransport('idle');
+  setTransport("idle");
   clearHistory();
   setCursor({ ...INITIAL_CURSOR });
   setCurrentOctave(2);
@@ -32,88 +39,92 @@ afterEach(() => {
 function cellAtCursor() {
   const c = cursor();
   const s = song();
-  if (!s) throw new Error('no song mounted');
+  if (!s) throw new Error("no song mounted");
   const patNum = s.orders[c.order]!;
   return s.patterns[patNum]!.rows[c.row]![c.channel]!;
 }
 
-describe('App: cursor navigation', () => {
-  it('Right walks the cursor through fields in left-to-right order', async () => {
+describe("App: cursor navigation", () => {
+  it("Right walks the cursor through fields in left-to-right order", async () => {
     render(() => <App />);
     const user = userEvent.setup();
 
     // Cursor starts on note. Six fields per channel, then wraps to next channel.
-    const order: ReturnType<typeof cursor>['field'][] = [
-      'sampleHi', 'sampleLo', 'effectCmd', 'effectHi', 'effectLo',
+    const order: ReturnType<typeof cursor>["field"][] = [
+      "sampleHi",
+      "sampleLo",
+      "effectCmd",
+      "effectHi",
+      "effectLo",
     ];
     for (const expected of order) {
-      await user.keyboard('{ArrowRight}');
+      await user.keyboard("{ArrowRight}");
       expect(cursor().field).toBe(expected);
     }
     // One more right wraps to channel 1, note.
-    await user.keyboard('{ArrowRight}');
-    expect(cursor()).toMatchObject({ channel: 1, field: 'note' });
+    await user.keyboard("{ArrowRight}");
+    expect(cursor()).toMatchObject({ channel: 1, field: "note" });
   });
 
-  it('Down advances the row (cursor stays on the same field/channel)', async () => {
+  it("Down advances the row (cursor stays on the same field/channel)", async () => {
     render(() => <App />);
     const user = userEvent.setup();
-    await user.keyboard('{ArrowRight}'); // sampleHi
-    await user.keyboard('{ArrowDown}');
-    expect(cursor()).toMatchObject({ row: 1, channel: 0, field: 'sampleHi' });
+    await user.keyboard("{ArrowRight}"); // sampleHi
+    await user.keyboard("{ArrowDown}");
+    expect(cursor()).toMatchObject({ row: 1, channel: 0, field: "sampleHi" });
   });
 });
 
-describe('App: hex digit entry on sample nibbles', () => {
+describe("App: hex digit entry on sample nibbles", () => {
   it("press '1' on sampleHi sets the high nibble and advances to sampleLo", async () => {
     render(() => <App />);
     const user = userEvent.setup();
-    await user.keyboard('{ArrowRight}'); // → sampleHi
-    await user.keyboard('1');
+    await user.keyboard("{ArrowRight}"); // → sampleHi
+    await user.keyboard("1");
     expect(cellAtCursor().sample).toBe(0x10);
-    expect(cursor().field).toBe('sampleLo');
+    expect(cursor().field).toBe("sampleLo");
     expect(cursor().row).toBe(0); // same row
   });
 
   it("press 'f' on sampleLo sets the low nibble and advances to next row", async () => {
     render(() => <App />);
     const user = userEvent.setup();
-    await user.keyboard('{ArrowRight}{ArrowRight}'); // → sampleLo
-    await user.keyboard('f');
+    await user.keyboard("{ArrowRight}{ArrowRight}"); // → sampleLo
+    await user.keyboard("f");
     // Field stays on sampleLo, row steps down by one.
-    expect(cursor()).toMatchObject({ row: 1, channel: 0, field: 'sampleLo' });
+    expect(cursor()).toMatchObject({ row: 1, channel: 0, field: "sampleLo" });
     // The digit was written at the previous row; peek back to verify.
-    setCursor({ order: 0, row: 0, channel: 0, field: 'sampleLo' });
-    expect(cellAtCursor().sample).toBe(0x0F);
+    setCursor({ order: 0, row: 0, channel: 0, field: "sampleLo" });
+    expect(cellAtCursor().sample).toBe(0x0f);
   });
 
   it('two-digit entry: "1f" yields sample 0x1F', async () => {
     render(() => <App />);
     const user = userEvent.setup();
-    await user.keyboard('{ArrowRight}'); // sampleHi
-    await user.keyboard('1');             // sample = 0x10, cursor → sampleLo
-    await user.keyboard('f');             // sample = 0x1F, cursor → row 1 sampleLo
-    setCursor({ ...cursor(), row: 0 });   // peek back at the edited cell
-    expect(cellAtCursor().sample).toBe(0x1F);
+    await user.keyboard("{ArrowRight}"); // sampleHi
+    await user.keyboard("1"); // sample = 0x10, cursor → sampleLo
+    await user.keyboard("f"); // sample = 0x1F, cursor → row 1 sampleLo
+    setCursor({ ...cursor(), row: 0 }); // peek back at the edited cell
+    expect(cellAtCursor().sample).toBe(0x1f);
   });
 
-  it('clamps at 31 (PT 5-bit limit) when raw value would exceed it', async () => {
+  it("clamps at 31 (PT 5-bit limit) when raw value would exceed it", async () => {
     render(() => <App />);
     const user = userEvent.setup();
-    await user.keyboard('{ArrowRight}'); // sampleHi
+    await user.keyboard("{ArrowRight}"); // sampleHi
     // 'a' = digit 10, raw = 0xA0 = 160, clamped to 31.
-    await user.keyboard('a');
-    setCursor({ ...cursor(), row: 0, field: 'sampleHi' });
+    await user.keyboard("a");
+    setCursor({ ...cursor(), row: 0, field: "sampleHi" });
     expect(cellAtCursor().sample).toBe(31);
   });
 });
 
-describe('App: piano vs hex routing on shared keys', () => {
+describe("App: piano vs hex routing on shared keys", () => {
   it("'a' on the note field plays piano-C (writes a period), not hex 0xA", async () => {
     render(() => <App />);
     const user = userEvent.setup();
-    expect(cursor().field).toBe('note');
-    await user.keyboard('a'); // C in current octave (default 2 → noteIndex 12 → period 428)
+    expect(cursor().field).toBe("note");
+    await user.keyboard("a"); // C in current octave (default 2 → noteIndex 12 → period 428)
     setCursor({ ...cursor(), row: 0 }); // step back; note entry advanced the cursor
     const cell = cellAtCursor();
     expect(cell.period).toBe(PERIOD_TABLE[0]![12]!);
@@ -123,9 +134,9 @@ describe('App: piano vs hex routing on shared keys', () => {
   it("'a' on sampleHi is treated as hex 0xA, not piano", async () => {
     render(() => <App />);
     const user = userEvent.setup();
-    await user.keyboard('{ArrowRight}'); // sampleHi
-    await user.keyboard('a');
-    setCursor({ ...cursor(), row: 0, field: 'sampleHi' });
+    await user.keyboard("{ArrowRight}"); // sampleHi
+    await user.keyboard("a");
+    setCursor({ ...cursor(), row: 0, field: "sampleHi" });
     const cell = cellAtCursor();
     expect(cell.period).toBe(0); // no piano action
     // 0xA0 clamped to 31 by the 5-bit limit.
@@ -133,41 +144,41 @@ describe('App: piano vs hex routing on shared keys', () => {
   });
 });
 
-describe('App: Backspace clears the cursor field', () => {
+describe("App: Backspace clears the cursor field", () => {
   it("'.' clears the high nibble of sample, preserving the low nibble", async () => {
     render(() => <App />);
     const user = userEvent.setup();
     // Set sample to 0x1A.
-    await user.keyboard('{ArrowRight}'); // sampleHi
-    await user.keyboard('1');             // sample = 0x10
-    await user.keyboard('a');             // sample = 0x1A; cursor advances to row 1
-    setCursor({ order: 0, row: 0, channel: 0, field: 'sampleHi' });
-    expect(cellAtCursor().sample).toBe(0x1A);
+    await user.keyboard("{ArrowRight}"); // sampleHi
+    await user.keyboard("1"); // sample = 0x10
+    await user.keyboard("a"); // sample = 0x1A; cursor advances to row 1
+    setCursor({ order: 0, row: 0, channel: 0, field: "sampleHi" });
+    expect(cellAtCursor().sample).toBe(0x1a);
 
-    await user.keyboard('.'); // clearAtCursor on sampleHi → keep lo, drop hi
-    setCursor({ order: 0, row: 0, channel: 0, field: 'sampleHi' });
-    expect(cellAtCursor().sample).toBe(0x0A);
+    await user.keyboard("."); // clearAtCursor on sampleHi → keep lo, drop hi
+    setCursor({ order: 0, row: 0, channel: 0, field: "sampleHi" });
+    expect(cellAtCursor().sample).toBe(0x0a);
   });
 });
 
-describe('App: Dxx-truncated patterns', () => {
+describe("App: Dxx-truncated patterns", () => {
   // Two regressions reported together — both around a pattern that's been
   // shortened by a Dxx (Pattern Break) in the cursor's column.
   function setDxxAt(row: number, channel: number, nextRow = 0): void {
     const s = song();
-    if (!s) throw new Error('no song mounted');
+    if (!s) throw new Error("no song mounted");
     const cell = s.patterns[s.orders[0]!]!.rows[row]![channel]!;
     cell.effect = Effect.PatternBreak;
     cell.effectParam = ((Math.floor(nextRow / 10) & 0xf) << 4) | (nextRow % 10);
     setSong({ ...s }); // bump signal so consumers (e.g. flatten cache) recompute
   }
 
-  it('Backspace on the Dxx-bearing row moves the cursor up by one (not to song start)', async () => {
+  it("Backspace on the Dxx-bearing row moves the cursor up by one (not to song start)", async () => {
     render(() => <App />);
     const user = userEvent.setup();
     // Place a Dxx at row 5 of channel 0 → pattern truncates at row 5.
     setDxxAt(5, 0);
-    setCursor({ order: 0, row: 5, channel: 0, field: 'note' });
+    setCursor({ order: 0, row: 5, channel: 0, field: "note" });
     clearSelection();
     // Park something distinguishable in the row above so we can verify the
     // backspace pulled the Dxx up rather than snapping the cursor.
@@ -175,23 +186,25 @@ describe('App: Dxx-truncated patterns', () => {
     s.patterns[s.orders[0]!]!.rows[4]![0]!.period = PERIOD_TABLE[0]![12]!;
     setSong({ ...s });
 
-    await user.keyboard('{Backspace}');
+    await user.keyboard("{Backspace}");
     // Cursor should land at row 4 (the cell just below the deletion was
     // pulled up, taking the Dxx along).
     expect(cursor().row).toBe(4);
     // And the cell at row 4 channel 0 now holds the Dxx that was at row 5.
     const after = song()!;
-    expect(after.patterns[after.orders[0]!]!.rows[4]![0]!.effect).toBe(Effect.PatternBreak);
+    expect(after.patterns[after.orders[0]!]!.rows[4]![0]!.effect).toBe(
+      Effect.PatternBreak,
+    );
   });
 
-  it('Shift+ArrowDown at the last visible row does not extend selection past truncation', async () => {
+  it("Shift+ArrowDown at the last visible row does not extend selection past truncation", async () => {
     render(() => <App />);
     const user = userEvent.setup();
     setDxxAt(5, 0); // pattern truncates at row 5
-    setCursor({ order: 0, row: 5, channel: 0, field: 'note' });
+    setCursor({ order: 0, row: 5, channel: 0, field: "note" });
     clearSelection();
 
-    await user.keyboard('{Shift>}{ArrowDown}{/Shift}');
+    await user.keyboard("{Shift>}{ArrowDown}{/Shift}");
     // Cursor stays at row 5 (clamped to the last visible row of order 0)
     // and the selection — if any — never reaches into hidden territory.
     expect(cursor().row).toBe(5);
@@ -201,27 +214,27 @@ describe('App: Dxx-truncated patterns', () => {
     }
   });
 
-  it('Shift+PageDown at the last visible row also clamps to the truncation', async () => {
+  it("Shift+PageDown at the last visible row also clamps to the truncation", async () => {
     render(() => <App />);
     const user = userEvent.setup();
     setDxxAt(5, 0);
-    setCursor({ order: 0, row: 5, channel: 0, field: 'note' });
+    setCursor({ order: 0, row: 5, channel: 0, field: "note" });
     clearSelection();
 
-    await user.keyboard('{Shift>}{PageDown}{/Shift}');
+    await user.keyboard("{Shift>}{PageDown}{/Shift}");
     expect(cursor().row).toBe(5);
     const sel = selection();
     if (sel) expect(sel.endRow).toBeLessThanOrEqual(5);
   });
 
-  it('Cmd+A selects only the visible rows of the truncated pattern (channel scope)', async () => {
+  it("Cmd+A selects only the visible rows of the truncated pattern (channel scope)", async () => {
     render(() => <App />);
     const user = userEvent.setup();
     setDxxAt(5, 0);
-    setCursor({ order: 0, row: 2, channel: 1, field: 'note' });
+    setCursor({ order: 0, row: 2, channel: 1, field: "note" });
     clearSelection();
 
-    await user.keyboard('{Meta>}a{/Meta}');
+    await user.keyboard("{Meta>}a{/Meta}");
     const sel = selection();
     expect(sel).not.toBeNull();
     // Step 1: whole current channel — clamped to rows 0..5.
@@ -234,15 +247,15 @@ describe('App: Dxx-truncated patterns', () => {
     });
   });
 
-  it('Cmd+A again expands to the whole visible pattern, then no-ops once maximal', async () => {
+  it("Cmd+A again expands to the whole visible pattern, then no-ops once maximal", async () => {
     render(() => <App />);
     const user = userEvent.setup();
     setDxxAt(5, 0);
-    setCursor({ order: 0, row: 2, channel: 1, field: 'note' });
+    setCursor({ order: 0, row: 2, channel: 1, field: "note" });
     clearSelection();
 
-    await user.keyboard('{Meta>}a{/Meta}'); // step 1: channel
-    await user.keyboard('{Meta>}a{/Meta}'); // step 2: whole visible pattern
+    await user.keyboard("{Meta>}a{/Meta}"); // step 1: channel
+    await user.keyboard("{Meta>}a{/Meta}"); // step 2: whole visible pattern
     expect(selection()).toMatchObject({
       order: 0,
       startRow: 0,
@@ -252,20 +265,20 @@ describe('App: Dxx-truncated patterns', () => {
     });
     // Step 3: already maximal → identical.
     const before = selection();
-    await user.keyboard('{Meta>}a{/Meta}');
+    await user.keyboard("{Meta>}a{/Meta}");
     expect(selection()).toEqual(before);
   });
 });
 
-describe('App: editing is suppressed during playback', () => {
+describe("App: editing is suppressed during playback", () => {
   it('hex digits do not change the song while transport is "playing"', async () => {
     render(() => <App />);
     const user = userEvent.setup();
-    await user.keyboard('{ArrowRight}'); // sampleHi
-    setTransport('playing');
-    await user.keyboard('1');
-    setCursor({ order: 0, row: 0, channel: 0, field: 'sampleHi' });
+    await user.keyboard("{ArrowRight}"); // sampleHi
+    setTransport("playing");
+    await user.keyboard("1");
+    setCursor({ order: 0, row: 0, channel: 0, field: "sampleHi" });
     expect(cellAtCursor().sample).toBe(0);
-    expect(transport()).toBe('playing'); // sanity: nothing toggled it back
+    expect(transport()).toBe("playing"); // sanity: nothing toggled it back
   });
 });

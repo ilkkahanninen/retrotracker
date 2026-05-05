@@ -109,7 +109,11 @@ export function triggerPreview(
  * time (no cursor jump); the engine crossfades AudioBufferSource voices
  * over a few ms (no pop).
  */
-export function livePreviewSwap(slot: number, sample: Sample, period: number): void {
+export function livePreviewSwap(
+  slot: number,
+  sample: Sample,
+  period: number,
+): void {
   preview.updatePreviewData(slot, sample);
   // The engine is created lazily, but if we're swapping a live preview
   // it must already exist. No need to await — slider drags fire many

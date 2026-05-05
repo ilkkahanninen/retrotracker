@@ -1,5 +1,5 @@
-import { CHANNELS, MAX_ORDERS, NUM_SAMPLES, ROWS_PER_PATTERN } from './types';
-import type { Note, Pattern, Sample, Song } from './types';
+import { CHANNELS, MAX_ORDERS, NUM_SAMPLES, ROWS_PER_PATTERN } from "./types";
+import type { Note, Pattern, Sample, Song } from "./types";
 
 const HEADER_SIZE = 1084;
 
@@ -11,12 +11,16 @@ const HEADER_SIZE = 1084;
 export function parseModule(buffer: ArrayBufferLike | Uint8Array): Song {
   const u8 = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
   if (u8.byteLength < HEADER_SIZE) {
-    throw new Error(`MOD too small: ${u8.byteLength} bytes (need at least ${HEADER_SIZE})`);
+    throw new Error(
+      `MOD too small: ${u8.byteLength} bytes (need at least ${HEADER_SIZE})`,
+    );
   }
 
   const signature = readAscii(u8, 1080, 4);
-  if (signature !== 'M.K.') {
-    throw new Error(`Unsupported MOD signature "${signature}". Only strict M.K. is accepted.`);
+  if (signature !== "M.K.") {
+    throw new Error(
+      `Unsupported MOD signature "${signature}". Only strict M.K. is accepted.`,
+    );
   }
 
   const title = readAscii(u8, 0, 20);
@@ -72,12 +76,16 @@ export function parseModule(buffer: ArrayBufferLike | Uint8Array): Song {
       // Some MODs ship truncated; clamp gracefully but keep length metadata.
       const available = Math.max(0, u8.byteLength - cursor);
       sample.data = new Int8Array(available);
-      sample.data.set(new Int8Array(u8.buffer, u8.byteOffset + cursor, available));
+      sample.data.set(
+        new Int8Array(u8.buffer, u8.byteOffset + cursor, available),
+      );
       cursor = u8.byteLength;
       continue;
     }
     sample.data = new Int8Array(byteLength);
-    sample.data.set(new Int8Array(u8.buffer, u8.byteOffset + cursor, byteLength));
+    sample.data.set(
+      new Int8Array(u8.buffer, u8.byteOffset + cursor, byteLength),
+    );
     cursor += byteLength;
   }
 
@@ -124,10 +132,10 @@ function readAscii(u8: Uint8Array, off: number, len: number): string {
   let end = off;
   const stop = off + len;
   while (end < stop && u8[end] !== 0) end++;
-  let s = '';
+  let s = "";
   for (let i = off; i < end; i++) {
     const c = u8[i]!;
-    s += c >= 0x20 && c < 0x7f ? String.fromCharCode(c) : '';
+    s += c >= 0x20 && c < 0x7f ? String.fromCharCode(c) : "";
   }
   return s;
 }

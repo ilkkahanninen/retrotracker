@@ -109,17 +109,17 @@ Output is 16-bit stereo PCM at the requested rate. Build is one-time, ~1s. Auto-
 
 Each fixture targets exactly one behavior. The full table lives in [tests/fixtures/README.md](../tests/fixtures/README.md). Highlights:
 
-| Fixture                    | What it pins                          |
-| -------------------------- | ------------------------------------- |
-| `00-baseline`              | Resampler + period math sanity        |
-| `01-resampling`            | BLEP across a chromatic scale         |
-| `02-amiga-filter`          | E00/E01 LED filter toggle             |
-| `03-vibrato-waveforms`     | E40..E43 select + PT3=square quirk    |
-| `04-tremolo-waveforms`     | E70..E73 select + PT vibratoPos quirk |
-| `05-glissando`             | E30/E31 with tone porta               |
-| `06-panning`               | 8xy is intentionally a no-op          |
-| `07-invert-loop`           | EFy destructive byte invert           |
-| `08-arpeggio` … `28-pattern-delay` | One per effect, A→F + extended Exy |
+| Fixture                            | What it pins                          |
+| ---------------------------------- | ------------------------------------- |
+| `00-baseline`                      | Resampler + period math sanity        |
+| `01-resampling`                    | BLEP across a chromatic scale         |
+| `02-amiga-filter`                  | E00/E01 LED filter toggle             |
+| `03-vibrato-waveforms`             | E40..E43 select + PT3=square quirk    |
+| `04-tremolo-waveforms`             | E70..E73 select + PT vibratoPos quirk |
+| `05-glissando`                     | E30/E31 with tone porta               |
+| `06-panning`                       | 8xy is intentionally a no-op          |
+| `07-invert-loop`                   | EFy destructive byte invert           |
+| `08-arpeggio` … `28-pattern-delay` | One per effect, A→F + extended Exy    |
 
 Adding a fixture: write a deterministic `.mod` synth in [tests/fixtures/generate.ts](../tests/fixtures/generate.ts), regenerate via `npm run fixtures:generate`, render the reference via `npm run fixtures:render`, commit the `.mod` (not the WAV).
 
@@ -154,26 +154,26 @@ The non-accuracy node tests are conventional vitest suites — pure-function che
 
 [tests/ui/](../tests/ui/) — Solid component mounts with `@solidjs/testing-library` + simulated input via `@testing-library/user-event`. Each suite covers one UI surface:
 
-| File                                                                      | Surface                                                       |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| [app-keyboard.test.tsx](../tests/ui/app-keyboard.test.tsx)                | Note entry, edit step, octave switch, transport keys          |
-| [pattern-grid.test.tsx](../tests/ui/pattern-grid.test.tsx)                | Cursor navigation, selection extension, channel mute/solo     |
-| [pattern-help.test.tsx](../tests/ui/pattern-help.test.tsx)                | Effect hint rendering                                         |
-| [sample-view.test.tsx](../tests/ui/sample-view.test.tsx)                  | Sample editor mount + source toggle                           |
-| [sample-loop-edit.test.tsx](../tests/ui/sample-loop-edit.test.tsx)        | Loop-bound interactions                                       |
-| [sample-preview.test.tsx](../tests/ui/sample-preview.test.tsx)            | Audition keypress → preview state                              |
-| [sample-select.test.tsx](../tests/ui/sample-select.test.tsx)              | Range selection in waveform                                   |
-| [pipeline-editor.test.tsx](../tests/ui/pipeline-editor.test.tsx)          | Effect add / remove / param edit                              |
-| [preview-tracker.test.tsx](../tests/ui/preview-tracker.test.tsx)          | Animated playhead during preview                              |
-| [transpose.test.tsx](../tests/ui/transpose.test.tsx)                      | Range transpose ±1, ±12, with bounds clamping                 |
-| [order-edit.test.tsx](../tests/ui/order-edit.test.tsx)                    | Order list mutations + cursor sync                            |
-| [effect-entry.test.tsx](../tests/ui/effect-entry.test.tsx)                | Per-field hex entry semantics                                 |
-| [clipboard-shortcuts.test.tsx](../tests/ui/clipboard-shortcuts.test.tsx)  | Copy / cut / paste shortcuts                                  |
-| [drag-drop.test.tsx](../tests/ui/drag-drop.test.tsx)                      | Drop .mod / .retro / .wav onto the page                       |
-| [export-mod.test.tsx](../tests/ui/export-mod.test.tsx)                    | Save .mod payload + filename derivation                       |
-| [file-menu.test.tsx](../tests/ui/file-menu.test.tsx)                      | New / Open / Save / Save As menu wiring                       |
-| [info-view.test.tsx](../tests/ui/info-view.test.tsx)                      | Info text editor binding                                      |
-| [persistence.test.tsx](../tests/ui/persistence.test.tsx)                  | localStorage round-trip on a real component tree              |
+| File                                                                     | Surface                                                   |
+| ------------------------------------------------------------------------ | --------------------------------------------------------- |
+| [app-keyboard.test.tsx](../tests/ui/app-keyboard.test.tsx)               | Note entry, edit step, octave switch, transport keys      |
+| [pattern-grid.test.tsx](../tests/ui/pattern-grid.test.tsx)               | Cursor navigation, selection extension, channel mute/solo |
+| [pattern-help.test.tsx](../tests/ui/pattern-help.test.tsx)               | Effect hint rendering                                     |
+| [sample-view.test.tsx](../tests/ui/sample-view.test.tsx)                 | Sample editor mount + source toggle                       |
+| [sample-loop-edit.test.tsx](../tests/ui/sample-loop-edit.test.tsx)       | Loop-bound interactions                                   |
+| [sample-preview.test.tsx](../tests/ui/sample-preview.test.tsx)           | Audition keypress → preview state                         |
+| [sample-select.test.tsx](../tests/ui/sample-select.test.tsx)             | Range selection in waveform                               |
+| [pipeline-editor.test.tsx](../tests/ui/pipeline-editor.test.tsx)         | Effect add / remove / param edit                          |
+| [preview-tracker.test.tsx](../tests/ui/preview-tracker.test.tsx)         | Animated playhead during preview                          |
+| [transpose.test.tsx](../tests/ui/transpose.test.tsx)                     | Range transpose ±1, ±12, with bounds clamping             |
+| [order-edit.test.tsx](../tests/ui/order-edit.test.tsx)                   | Order list mutations + cursor sync                        |
+| [effect-entry.test.tsx](../tests/ui/effect-entry.test.tsx)               | Per-field hex entry semantics                             |
+| [clipboard-shortcuts.test.tsx](../tests/ui/clipboard-shortcuts.test.tsx) | Copy / cut / paste shortcuts                              |
+| [drag-drop.test.tsx](../tests/ui/drag-drop.test.tsx)                     | Drop .mod / .retro / .wav onto the page                   |
+| [export-mod.test.tsx](../tests/ui/export-mod.test.tsx)                   | Save .mod payload + filename derivation                   |
+| [file-menu.test.tsx](../tests/ui/file-menu.test.tsx)                     | New / Open / Save / Save As menu wiring                   |
+| [info-view.test.tsx](../tests/ui/info-view.test.tsx)                     | Info text editor binding                                  |
+| [persistence.test.tsx](../tests/ui/persistence.test.tsx)                 | localStorage round-trip on a real component tree          |
 
 These tests don't touch the audio engine — `ensureEngine()` returns null in jsdom (no `AudioContext`). The UI is verified to stay coherent in that mode (no crashes, transport stays `idle`, audition is a silent no-op).
 

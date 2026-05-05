@@ -1,5 +1,12 @@
-import { Index, Show, createEffect, createSignal, type Component, type JSX } from 'solid-js';
-import { useWindowListener } from './hooks';
+import {
+  Index,
+  Show,
+  createEffect,
+  createSignal,
+  type Component,
+  type JSX,
+} from "solid-js";
+import { useWindowListener } from "./hooks";
 
 export interface MenuItem {
   /** Visible label. Ignored when `separator: true`. */
@@ -51,12 +58,12 @@ export const Menu: Component<MenuProps> = (props) => {
     close();
   };
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') close();
+    if (e.key === "Escape") close();
   };
   createEffect(() => {
     if (!open()) return;
-    useWindowListener('mousedown', onWindowDown);
-    useWindowListener('keydown', onKey);
+    useWindowListener("mousedown", onWindowDown);
+    useWindowListener("keydown", onKey);
   });
 
   const onItemClick = (item: MenuItem) => {
@@ -66,7 +73,7 @@ export const Menu: Component<MenuProps> = (props) => {
   };
 
   const wrapperClass = (): string =>
-    'menu' + (props.classExtra ? ' ' + props.classExtra : '');
+    "menu" + (props.classExtra ? " " + props.classExtra : "");
 
   // Pulled into a small helper so the inline JSX inside the Index callback
   // stays readable — Index keys by position, so the per-slot reactive
@@ -79,7 +86,7 @@ export const Menu: Component<MenuProps> = (props) => {
     >
       <li
         class="menu__item"
-        classList={{ 'menu__item--disabled': !!item.disabled }}
+        classList={{ "menu__item--disabled": !!item.disabled }}
         role="menuitem"
         aria-disabled={!!item.disabled}
         onClick={() => onItemClick(item)}
@@ -108,9 +115,7 @@ export const Menu: Component<MenuProps> = (props) => {
       </button>
       <Show when={open()}>
         <ul class="menu__list" role="menu">
-          <Index each={props.items}>
-            {(item) => renderItem(item())}
-          </Index>
+          <Index each={props.items}>{(item) => renderItem(item())}</Index>
         </ul>
       </Show>
     </div>

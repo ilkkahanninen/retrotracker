@@ -70,7 +70,8 @@ export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
     <section class="pipeline">
       <header class="pipeline__header">
         <span class="pipeline__source">
-          {sourceDisplayName(props.wb.source)} · {materialised().sampleRate} Hz ·{" "}
+          {sourceDisplayName(props.wb.source)} · {materialised().sampleRate} Hz
+          ·{" "}
           {channels() === 1
             ? "mono"
             : channels() === 2

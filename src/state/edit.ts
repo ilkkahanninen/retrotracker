@@ -1,6 +1,6 @@
-import { createSignal } from 'solid-js';
-import type { Note } from '../core/mod/types';
-import type { Field } from './cursor';
+import { createSignal } from "solid-js";
+import type { Note } from "../core/mod/types";
+import type { Field } from "./cursor";
 
 /**
  * Editing state — knobs that influence cell entry.
@@ -80,12 +80,15 @@ export function resetEditStep(): void {
  */
 export function clearFieldPatch(note: Note, field: Field): Partial<Note> {
   switch (field) {
-    case 'note':      return { period: 0, sample: 0 };
-    case 'sampleHi':  return { sample: note.sample & 0x0f };
-    case 'sampleLo':  return { sample: note.sample & 0xf0 };
-    case 'effectCmd':
-    case 'effectHi':
-    case 'effectLo':
+    case "note":
+      return { period: 0, sample: 0 };
+    case "sampleHi":
+      return { sample: note.sample & 0x0f };
+    case "sampleLo":
+      return { sample: note.sample & 0xf0 };
+    case "effectCmd":
+    case "effectHi":
+    case "effectLo":
       return { effect: 0, effectParam: 0 };
   }
 }

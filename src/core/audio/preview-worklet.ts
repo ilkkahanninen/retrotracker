@@ -18,8 +18,8 @@
  *   through, gapless.
  */
 
-import { Paula } from './paula';
-import type { PreviewMsg } from './preview-worklet-types';
+import { Paula } from "./paula";
+import type { PreviewMsg } from "./preview-worklet-types";
 
 /** Replayer's NORM_FACTOR (2) / PAULA_VOICES (4). Single-voice headroom. */
 const NORM_SCALE = 0.5;
@@ -60,13 +60,20 @@ class PreviewProcessor extends AudioWorkletProcessor {
 
   constructor() {
     super();
-    this.paula = new Paula(sampleRate, 'A1200');
+    this.paula = new Paula(sampleRate, "A1200");
     this.port.onmessage = (e: MessageEvent<PreviewMsg>) => {
       const m = e.data;
-      if (m.type === 'set') this.handleSet(m.data, m.period, m.volume, m.loopStartBytes, m.loopLengthWords);
-      else if (m.type === 'stop') this.handleStop();
-      else if (m.type === 'setAmigaModel') this.paula.setAmigaModel(m.model);
-      else if (m.type === 'setStereoSeparation') {
+      if (m.type === "set")
+        this.handleSet(
+          m.data,
+          m.period,
+          m.volume,
+          m.loopStartBytes,
+          m.loopLengthWords,
+        );
+      else if (m.type === "stop") this.handleStop();
+      else if (m.type === "setAmigaModel") this.paula.setAmigaModel(m.model);
+      else if (m.type === "setStereoSeparation") {
         const clamped = Math.max(0, Math.min(100, m.sep));
         this.sideFactor = (clamped / 100) * 0.5;
       }
@@ -84,7 +91,14 @@ class PreviewProcessor extends AudioWorkletProcessor {
     // are both half a byte count, so we compare on the byte axis.
     const lenBytes = data.byteLength;
     const lengthWords = lenBytes >> 1;
-    this.paula.setSample(PREVIEW_CH, data, 0, lengthWords, loopStartBytes, loopLengthWords);
+    this.paula.setSample(
+      PREVIEW_CH,
+      data,
+      0,
+      lengthWords,
+      loopStartBytes,
+      loopLengthWords,
+    );
     this.paula.setPeriod(PREVIEW_CH, period);
     this.paula.setVolume(PREVIEW_CH, volume);
 
@@ -111,7 +125,10 @@ class PreviewProcessor extends AudioWorkletProcessor {
     this.playing = false;
   }
 
-  override process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
+  override process(
+    _inputs: Float32Array[][],
+    outputs: Float32Array[][],
+  ): boolean {
     const out = outputs[0];
     if (!out || out.length === 0) return true;
     const left = out[0]!;
@@ -150,4 +167,4 @@ class PreviewProcessor extends AudioWorkletProcessor {
   }
 }
 
-registerProcessor('retrotracker-preview', PreviewProcessor);
+registerProcessor("retrotracker-preview", PreviewProcessor);

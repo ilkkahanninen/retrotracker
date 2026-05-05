@@ -62,15 +62,35 @@ const PIANO_KEYS: Readonly<Record<string, number>> = {
 };
 
 const HEX_KEYS: Readonly<Record<string, number>> = {
-  "0": 0, "1": 1, "2": 2, "3": 3,
-  "4": 4, "5": 5, "6": 6, "7": 7,
-  "8": 8, "9": 9,
-  a: 10, b: 11, c: 12, d: 13, e: 14, f: 15,
+  "0": 0,
+  "1": 1,
+  "2": 2,
+  "3": 3,
+  "4": 4,
+  "5": 5,
+  "6": 6,
+  "7": 7,
+  "8": 8,
+  "9": 9,
+  a: 10,
+  b: 11,
+  c: 12,
+  d: 13,
+  e: 14,
+  f: 15,
 };
 
 const SAMPLE_QUICK: Readonly<Record<string, number>> = {
-  "1": 1, "2": 2, "3": 3, "4": 4, "5": 5,
-  "6": 6, "7": 7, "8": 8, "9": 9, "0": 10,
+  "1": 1,
+  "2": 2,
+  "3": 3,
+  "4": 4,
+  "5": 5,
+  "6": 6,
+  "7": 7,
+  "8": 8,
+  "9": 9,
+  "0": 10,
 };
 
 /**
@@ -353,11 +373,12 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   // selection rectangles); up/down/page step rows. All gated to pattern
   // view — the cursor signal is shared with sample view but doesn't
   // address a pattern cell there.
-  const shiftNav = (mover: (c: Cursor) => Cursor) =>
-    () => h.extendSelection(mover(cursor()));
+  const shiftNav = (mover: (c: Cursor) => Cursor) => () =>
+    h.extendSelection(mover(cursor()));
   cleanups.push(
     registerShortcut({
-      key: "arrowleft", shift: true,
+      key: "arrowleft",
+      shift: true,
       description: "Extend selection left",
       when: () => transport() !== "playing" && view() !== "sample",
       run: shiftNav(h.stepChannelLeft),
@@ -365,7 +386,8 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   );
   cleanups.push(
     registerShortcut({
-      key: "arrowright", shift: true,
+      key: "arrowright",
+      shift: true,
       description: "Extend selection right",
       when: () => transport() !== "playing" && view() !== "sample",
       run: shiftNav(h.stepChannelRight),
@@ -373,7 +395,8 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   );
   cleanups.push(
     registerShortcut({
-      key: "arrowup", shift: true,
+      key: "arrowup",
+      shift: true,
       description: "Extend selection up",
       when: () => transport() !== "playing" && view() !== "sample",
       run: shiftNav(h.stepRowUp),
@@ -381,7 +404,8 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   );
   cleanups.push(
     registerShortcut({
-      key: "arrowdown", shift: true,
+      key: "arrowdown",
+      shift: true,
       description: "Extend selection down",
       when: () => transport() !== "playing" && view() !== "sample",
       run: shiftNav(h.stepRowDown),
@@ -389,18 +413,26 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   );
   cleanups.push(
     registerShortcut({
-      key: "pageup", shift: true,
+      key: "pageup",
+      shift: true,
       description: "Extend selection by a page up",
       when: () => transport() !== "playing" && view() !== "sample",
-      run: () => h.extendSelection(h.stepRowPageUp(cursor(), rowsPerBeat() * beatsPerBar())),
+      run: () =>
+        h.extendSelection(
+          h.stepRowPageUp(cursor(), rowsPerBeat() * beatsPerBar()),
+        ),
     }),
   );
   cleanups.push(
     registerShortcut({
-      key: "pagedown", shift: true,
+      key: "pagedown",
+      shift: true,
       description: "Extend selection by a page down",
       when: () => transport() !== "playing" && view() !== "sample",
-      run: () => h.extendSelection(h.stepRowPageDown(cursor(), rowsPerBeat() * beatsPerBar())),
+      run: () =>
+        h.extendSelection(
+          h.stepRowPageDown(cursor(), rowsPerBeat() * beatsPerBar()),
+        ),
     }),
   );
   // Note entry — piano-row keys when the cursor is on the note field.
@@ -710,7 +742,8 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
     registerShortcut({
       key: "backspace",
       shift: true,
-      description: "Clear selected rows / clear current row, step up (all channels)",
+      description:
+        "Clear selected rows / clear current row, step up (all channels)",
       run: h.backspaceRow,
     }),
   );

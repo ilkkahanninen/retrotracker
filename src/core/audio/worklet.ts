@@ -6,25 +6,25 @@
  * Vite bundles imports together, so we can pull in the full Replayer here.
  */
 
-import type { Song } from '../mod/types';
-import { CHANNELS } from '../mod/types';
-import { speedTempoAt } from '../mod/flatten';
-import { Replayer } from './replayer';
-import type { AmigaModel } from './paula';
+import type { Song } from "../mod/types";
+import { CHANNELS } from "../mod/types";
+import { speedTempoAt } from "../mod/flatten";
+import { Replayer } from "./replayer";
+import type { AmigaModel } from "./paula";
 
 export type WorkletMessage =
-  | { type: 'load'; song: Song }
-  | { type: 'play' }
-  | { type: 'stop' }
-  | { type: 'reset' }
-  | { type: 'playFrom'; order: number; row: number; loopPattern: boolean }
-  | { type: 'setChannelMuted'; channel: number; muted: boolean }
-  | { type: 'setAmigaModel'; model: AmigaModel }
-  | { type: 'setStereoSeparation'; sep: number };
+  | { type: "load"; song: Song }
+  | { type: "play" }
+  | { type: "stop" }
+  | { type: "reset" }
+  | { type: "playFrom"; order: number; row: number; loopPattern: boolean }
+  | { type: "setChannelMuted"; channel: number; muted: boolean }
+  | { type: "setAmigaModel"; model: AmigaModel }
+  | { type: "setStereoSeparation"; sep: number };
 
 export type WorkletEvent =
-  | { type: 'pos'; order: number; row: number }
-  | { type: 'level'; peaks: number[] };
+  | { type: "pos"; order: number; row: number }
+  | { type: "level"; peaks: number[] };
 
 /** UI-rate update cadence for VU level events (Hz). */
 const LEVEL_UPDATE_HZ = 30;
@@ -49,7 +49,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
    * (load, end-of-song wrap, playFrom). Without this the model would
    * silently revert to the Replayer default on every recreate.
    */
-  private amigaModel: AmigaModel = 'A1200';
+  private amigaModel: AmigaModel = "A1200";
   /** Cached stereo separation for the same reason as `amigaModel` —
    *  carries across replayer recreates. 20% is the pt2-clone default. */
   private stereoSeparation = 20;
@@ -83,7 +83,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
     this.port.onmessage = (e: MessageEvent<WorkletMessage>) => {
       const msg = e.data;
       switch (msg.type) {
-        case 'load':
+        case "load":
           this.song = msg.song;
           this.replayer = new Replayer(msg.song, {
             sampleRate,
@@ -95,7 +95,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           this.lastOrder = -1;
           this.lastRow = -1;
           break;
-        case 'play':
+        case "play":
           // Replayer is one-shot — recreate it from the stored Song if the
           // previous run finished. This is what makes Play→end→Play work.
           if (this.song && (!this.replayer || this.replayer.isFinished())) {
@@ -110,26 +110,30 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           }
           this.playing = true;
           break;
-        case 'stop':
+        case "stop":
           this.playing = false;
           // Force VU meters to silence on stop — `process()` short-circuits
           // out of the level-posting branch while paused, so without this
           // the UI would show frozen bars from the last playing quantum.
           this.framesSinceLevels = 0;
-          this.port.postMessage({ type: 'level', peaks: [0, 0, 0, 0] });
+          this.port.postMessage({ type: "level", peaks: [0, 0, 0, 0] });
           break;
-        case 'reset':
+        case "reset":
           this.playing = false;
           this.replayer = null;
           this.song = null;
           break;
-        case 'playFrom':
+        case "playFrom":
           if (this.song) {
             // Seed the new Replayer with the speed/tempo that would be in
             // effect if the song had played from the start to the cursor —
             // otherwise mid-song playback always starts at the defaults
             // (6 / 125), even if the song set its tempo earlier.
-            const { speed, tempo } = speedTempoAt(this.song, msg.order, msg.row);
+            const { speed, tempo } = speedTempoAt(
+              this.song,
+              msg.order,
+              msg.row,
+            );
             this.replayer = new Replayer(this.song, {
               sampleRate,
               loop: true,
@@ -146,17 +150,17 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
             this.playing = true;
           }
           break;
-        case 'setChannelMuted':
+        case "setChannelMuted":
           if (msg.channel >= 0 && msg.channel < CHANNELS) {
             this.channelMuted[msg.channel] = msg.muted;
             this.replayer?.setChannelMuted(msg.channel, msg.muted);
           }
           break;
-        case 'setAmigaModel':
+        case "setAmigaModel":
           this.amigaModel = msg.model;
           this.applyAmigaModel();
           break;
-        case 'setStereoSeparation':
+        case "setStereoSeparation":
           this.stereoSeparation = msg.sep;
           this.applyStereoSeparation();
           break;
@@ -164,7 +168,10 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
     };
   }
 
-  override process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
+  override process(
+    _inputs: Float32Array[][],
+    outputs: Float32Array[][],
+  ): boolean {
     const out = outputs[0];
     if (!out || out.length < 2) return true;
     const left = out[0]!;
@@ -194,7 +201,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
       if (o !== this.lastOrder || r !== this.lastRow) {
         this.lastOrder = o;
         this.lastRow = r;
-        const evt: WorkletEvent = { type: 'pos', order: o, row: r };
+        const evt: WorkletEvent = { type: "pos", order: o, row: r };
         this.port.postMessage(evt);
       }
 
@@ -203,8 +210,13 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
         this.framesSinceLevels = 0;
         this.replayer.peakSnapshotAndReset(this.peakBuf);
         const evt: WorkletEvent = {
-          type: 'level',
-          peaks: [this.peakBuf[0]!, this.peakBuf[1]!, this.peakBuf[2]!, this.peakBuf[3]!],
+          type: "level",
+          peaks: [
+            this.peakBuf[0]!,
+            this.peakBuf[1]!,
+            this.peakBuf[2]!,
+            this.peakBuf[3]!,
+          ],
         };
         this.port.postMessage(evt);
       }
@@ -216,4 +228,4 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
   }
 }
 
-registerProcessor('retrotracker', RetrotrackerProcessor);
+registerProcessor("retrotracker", RetrotrackerProcessor);

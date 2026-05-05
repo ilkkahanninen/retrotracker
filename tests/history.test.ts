@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   HISTORY_LIMIT,
   canRedo,
@@ -11,13 +11,13 @@ import {
   setTransport,
   song,
   undo,
-} from '../src/state/song';
-import { emptySong } from '../src/core/mod/format';
+} from "../src/state/song";
+import { emptySong } from "../src/core/mod/format";
 import {
   loadPatternNames,
   patternNames,
   resetPatternNames,
-} from '../src/state/patternNames';
+} from "../src/state/patternNames";
 
 function makeSong(title: string) {
   const s = emptySong();
@@ -25,7 +25,7 @@ function makeSong(title: string) {
   return s;
 }
 
-describe('song history', () => {
+describe("song history", () => {
   beforeEach(() => {
     setSong(null);
     clearHistory();
@@ -35,64 +35,64 @@ describe('song history', () => {
     clearHistory();
   });
 
-  it('commits a new state and reports canUndo', () => {
-    setSong(makeSong('A'));
+  it("commits a new state and reports canUndo", () => {
+    setSong(makeSong("A"));
     expect(canUndo()).toBe(false);
 
-    commitEdit((s) => ({ ...s, title: 'B' }));
+    commitEdit((s) => ({ ...s, title: "B" }));
 
-    expect(song()!.title).toBe('B');
+    expect(song()!.title).toBe("B");
     expect(canUndo()).toBe(true);
     expect(canRedo()).toBe(false);
   });
 
-  it('undoes back to the prior snapshot', () => {
-    setSong(makeSong('A'));
-    commitEdit((s) => ({ ...s, title: 'B' }));
+  it("undoes back to the prior snapshot", () => {
+    setSong(makeSong("A"));
+    commitEdit((s) => ({ ...s, title: "B" }));
 
     undo();
 
-    expect(song()!.title).toBe('A');
+    expect(song()!.title).toBe("A");
     expect(canUndo()).toBe(false);
     expect(canRedo()).toBe(true);
   });
 
-  it('redoes after an undo', () => {
-    setSong(makeSong('A'));
-    commitEdit((s) => ({ ...s, title: 'B' }));
+  it("redoes after an undo", () => {
+    setSong(makeSong("A"));
+    commitEdit((s) => ({ ...s, title: "B" }));
     undo();
     redo();
 
-    expect(song()!.title).toBe('B');
+    expect(song()!.title).toBe("B");
     expect(canRedo()).toBe(false);
   });
 
-  it('clears the redo stack on a fresh commit', () => {
-    setSong(makeSong('A'));
-    commitEdit((s) => ({ ...s, title: 'B' }));
+  it("clears the redo stack on a fresh commit", () => {
+    setSong(makeSong("A"));
+    commitEdit((s) => ({ ...s, title: "B" }));
     undo();
     expect(canRedo()).toBe(true);
 
-    commitEdit((s) => ({ ...s, title: 'C' }));
+    commitEdit((s) => ({ ...s, title: "C" }));
 
     expect(canRedo()).toBe(false);
-    expect(song()!.title).toBe('C');
+    expect(song()!.title).toBe("C");
   });
 
-  it('skips no-op transforms that return the same reference', () => {
-    setSong(makeSong('A'));
+  it("skips no-op transforms that return the same reference", () => {
+    setSong(makeSong("A"));
     commitEdit((s) => s);
     expect(canUndo()).toBe(false);
   });
 
-  it('does nothing if no song is loaded', () => {
-    commitEdit((s) => ({ ...s, title: 'B' }));
+  it("does nothing if no song is loaded", () => {
+    commitEdit((s) => ({ ...s, title: "B" }));
     expect(song()).toBeNull();
     expect(canUndo()).toBe(false);
   });
 
-  it('caps the history at HISTORY_LIMIT entries', () => {
-    setSong(makeSong('start'));
+  it("caps the history at HISTORY_LIMIT entries", () => {
+    setSong(makeSong("start"));
     const overshoot = 50;
     for (let i = 0; i < HISTORY_LIMIT + overshoot; i++) {
       commitEdit((s) => ({ ...s, title: String(i) }));
@@ -101,14 +101,15 @@ describe('song history', () => {
     while (canUndo()) {
       undo();
       undos++;
-      if (undos > HISTORY_LIMIT + overshoot + 5) throw new Error('runaway undo');
+      if (undos > HISTORY_LIMIT + overshoot + 5)
+        throw new Error("runaway undo");
     }
     expect(undos).toBe(HISTORY_LIMIT);
   });
 
-  it('clearHistory wipes both stacks', () => {
-    setSong(makeSong('A'));
-    commitEdit((s) => ({ ...s, title: 'B' }));
+  it("clearHistory wipes both stacks", () => {
+    setSong(makeSong("A"));
+    commitEdit((s) => ({ ...s, title: "B" }));
     undo();
     expect(canUndo()).toBe(false);
     expect(canRedo()).toBe(true);
@@ -119,33 +120,33 @@ describe('song history', () => {
     expect(canRedo()).toBe(false);
   });
 
-  describe('playback gate', () => {
-    afterEach(() => setTransport('idle'));
+  describe("playback gate", () => {
+    afterEach(() => setTransport("idle"));
 
-    it('commitEdit is a no-op while playing', () => {
-      setSong(makeSong('A'));
-      setTransport('playing');
-      commitEdit((s) => ({ ...s, title: 'B' }));
-      expect(song()!.title).toBe('A');
+    it("commitEdit is a no-op while playing", () => {
+      setSong(makeSong("A"));
+      setTransport("playing");
+      commitEdit((s) => ({ ...s, title: "B" }));
+      expect(song()!.title).toBe("A");
       expect(canUndo()).toBe(false);
     });
 
-    it('undo is a no-op while playing', () => {
-      setSong(makeSong('A'));
-      commitEdit((s) => ({ ...s, title: 'B' }));
-      setTransport('playing');
+    it("undo is a no-op while playing", () => {
+      setSong(makeSong("A"));
+      commitEdit((s) => ({ ...s, title: "B" }));
+      setTransport("playing");
       undo();
-      expect(song()!.title).toBe('B');
+      expect(song()!.title).toBe("B");
       expect(canUndo()).toBe(true);
     });
 
-    it('redo is a no-op while playing', () => {
-      setSong(makeSong('A'));
-      commitEdit((s) => ({ ...s, title: 'B' }));
+    it("redo is a no-op while playing", () => {
+      setSong(makeSong("A"));
+      commitEdit((s) => ({ ...s, title: "B" }));
       undo();
-      setTransport('playing');
+      setTransport("playing");
       redo();
-      expect(song()!.title).toBe('A');
+      expect(song()!.title).toBe("A");
       expect(canRedo()).toBe(true);
     });
   });
@@ -153,35 +154,35 @@ describe('song history', () => {
   // Pattern names live in their own signal but are bundled into each undo
   // snapshot so a Clean Up (which renumbers patterns) can revert atomically.
   // Without this, undo would leave names mapped to vanished pattern indices.
-  describe('pattern-name bundling', () => {
+  describe("pattern-name bundling", () => {
     afterEach(() => resetPatternNames());
 
-    it('undo restores the pattern-name map captured at commit time', () => {
-      setSong(makeSong('A'));
-      loadPatternNames({ 0: 'intro' });
+    it("undo restores the pattern-name map captured at commit time", () => {
+      setSong(makeSong("A"));
+      loadPatternNames({ 0: "intro" });
       // Commit a state that re-keys names alongside the song change.
       commitEditWithWorkbenches((state) => ({
         ...state,
-        song: { ...state.song, title: 'B' },
-        patternNames: { 5: 'renamed' },
+        song: { ...state.song, title: "B" },
+        patternNames: { 5: "renamed" },
       }));
-      expect(patternNames()).toEqual({ 5: 'renamed' });
+      expect(patternNames()).toEqual({ 5: "renamed" });
       undo();
-      expect(song()!.title).toBe('A');
-      expect(patternNames()).toEqual({ 0: 'intro' });
+      expect(song()!.title).toBe("A");
+      expect(patternNames()).toEqual({ 0: "intro" });
     });
 
-    it('redo reapplies the bundled name map', () => {
-      setSong(makeSong('A'));
-      loadPatternNames({ 0: 'intro' });
+    it("redo reapplies the bundled name map", () => {
+      setSong(makeSong("A"));
+      loadPatternNames({ 0: "intro" });
       commitEditWithWorkbenches((state) => ({
         ...state,
-        song: { ...state.song, title: 'B' },
-        patternNames: { 5: 'renamed' },
+        song: { ...state.song, title: "B" },
+        patternNames: { 5: "renamed" },
       }));
       undo();
       redo();
-      expect(patternNames()).toEqual({ 5: 'renamed' });
+      expect(patternNames()).toEqual({ 5: "renamed" });
     });
   });
 });
