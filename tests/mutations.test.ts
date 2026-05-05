@@ -3,6 +3,7 @@ import {
   deleteCellPullUp, insertCellPushDown, setCell,
   setOrderPattern, nextPatternAtOrder, prevPatternAtOrder,
   insertOrder, deleteOrder, newPatternAtOrder, duplicatePatternAtOrder,
+  cleanupOrders,
   setSample, clearSample, replaceSampleData, transposeRange,
 } from '../src/core/mod/mutations';
 import { emptyPattern, emptySong, PERIOD_TABLE } from '../src/core/mod/format';
@@ -311,6 +312,77 @@ describe('duplicatePatternAtOrder', () => {
     const s = makeSong();
     expect(duplicatePatternAtOrder(s, 99)).toBe(s);
     expect(duplicatePatternAtOrder(s, -1)).toBe(s);
+  });
+});
+
+describe('cleanupOrders', () => {
+  function songWith(orders: number[], patternCount: number): Song {
+    const s = emptySong();
+    s.patterns = Array.from({ length: patternCount }, () => emptyPattern());
+    s.songLength = orders.length;
+    for (let i = 0; i < orders.length; i++) s.orders[i] = orders[i]!;
+    return s;
+  }
+
+  it('renumbers patterns in order of first appearance and drops the unused ones', () => {
+    // The README example: orders [4,5,0,0,1] over six patterns.
+    const s = songWith([4, 5, 0, 0, 1], 6);
+    // Stamp something distinctive into each pattern so we can verify the
+    // post-cleanup pattern bank is the right slice in the right order.
+    for (let i = 0; i < s.patterns.length; i++) {
+      s.patterns[i]!.rows[0]![0] = { period: 100 + i, sample: 0, effect: 0, effectParam: 0 };
+    }
+    const { song: next, remap } = cleanupOrders(s);
+    expect(next.songLength).toBe(5);
+    expect(next.orders.slice(0, 5)).toEqual([0, 1, 2, 2, 3]);
+    expect(next.patterns).toHaveLength(4);
+    // First-seen pattern (was 4) is now 0, etc.
+    expect(next.patterns[0]!.rows[0]![0]!.period).toBe(104);
+    expect(next.patterns[1]!.rows[0]![0]!.period).toBe(105);
+    expect(next.patterns[2]!.rows[0]![0]!.period).toBe(100);
+    expect(next.patterns[3]!.rows[0]![0]!.period).toBe(101);
+    // Remap reflects the renumbering and marks the dropped indices undefined.
+    expect(remap[4]).toBe(0);
+    expect(remap[5]).toBe(1);
+    expect(remap[0]).toBe(2);
+    expect(remap[1]).toBe(3);
+    expect(remap[2]).toBeUndefined();
+    expect(remap[3]).toBeUndefined();
+  });
+
+  it('zeros the unused tail of the orders array (defensive against stale .mod writes)', () => {
+    const s = songWith([4, 5, 0], 6);
+    // Simulate a stale value past songLength — `.mod` writes the full 128
+    // entries, and we don't want stragglers pointing past trimmed patterns.
+    s.orders[100] = 5;
+    const { song: next } = cleanupOrders(s);
+    expect(next.orders[100]).toBe(0);
+  });
+
+  it('returns the same Song reference when nothing would change', () => {
+    // Already canonical: orders [0,1,2] over exactly 3 patterns.
+    const s = songWith([0, 1, 2], 3);
+    const { song: next, remap } = cleanupOrders(s);
+    expect(next).toBe(s);
+    expect(remap[0]).toBe(0);
+    expect(remap[1]).toBe(1);
+    expect(remap[2]).toBe(2);
+  });
+
+  it('shrinks the pattern bank when patterns past the last referenced index exist', () => {
+    // orders are canonical, but pattern 2 is unreferenced — still a cleanup.
+    const s = songWith([0, 1], 3);
+    const { song: next } = cleanupOrders(s);
+    expect(next).not.toBe(s);
+    expect(next.patterns).toHaveLength(2);
+  });
+
+  it('deduplicates repeated references to the same pattern', () => {
+    // [0,0,0] should become orders [0,0,0] over a single pattern.
+    const s = songWith([0, 0, 0], 1);
+    const { song: next, remap } = cleanupOrders(s);
+    expect(next).toBe(s); // already canonical
+    expect(remap[0]).toBe(0);
   });
 });
 

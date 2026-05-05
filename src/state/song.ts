@@ -4,6 +4,7 @@ import {
   workbenches as workbenchesSig, setWorkbenchesRaw,
   type WorkbenchMap,
 } from './sampleWorkbench';
+import { patternNames as patternNamesSig, loadPatternNames } from './patternNames';
 
 /**
  * Loaded song. Held as a signal so the UI reactively re-renders on swap;
@@ -63,6 +64,12 @@ export const HISTORY_LIMIT = 200;
 interface EditState {
   song: Song;
   workbenches: WorkbenchMap;
+  /**
+   * Pattern names (project-only state) bundled into the snapshot so an op
+   * that re-keys patterns — Clean Up reorders/discards them — can undo
+   * atomically without leaving names mapped to vanished pattern indices.
+   */
+  patternNames: Record<number, string>;
 }
 
 const [past, setPast] = createSignal<EditState[]>([]);
@@ -85,16 +92,26 @@ function applyCommit(next: EditState): void {
   const currentSong = song();
   if (!currentSong) return;
   const currentWb = workbenchesSig();
-  if (next.song === currentSong && next.workbenches === currentWb) return;
+  const currentNames = patternNamesSig();
+  if (
+    next.song === currentSong
+    && next.workbenches === currentWb
+    && next.patternNames === currentNames
+  ) return;
 
   const prev = past();
   const trimmed = prev.length >= HISTORY_LIMIT
     ? prev.slice(prev.length - HISTORY_LIMIT + 1)
     : prev;
-  setPast([...trimmed, { song: currentSong, workbenches: currentWb }]);
+  setPast([...trimmed, {
+    song: currentSong,
+    workbenches: currentWb,
+    patternNames: currentNames,
+  }]);
   setFuture([]);
   setSong(next.song);
   if (next.workbenches !== currentWb) setWorkbenchesRaw(next.workbenches);
+  if (next.patternNames !== currentNames) loadPatternNames(next.patternNames);
   setDirty(true);
 }
 
@@ -113,7 +130,11 @@ export function commitEdit(transform: (song: Song) => Song): void {
   if (!current) return;
   const next = transform(current);
   if (next === current) return;
-  applyCommit({ song: next, workbenches: workbenchesSig() });
+  applyCommit({
+    song: next,
+    workbenches: workbenchesSig(),
+    patternNames: patternNamesSig(),
+  });
 }
 
 /**
@@ -132,9 +153,17 @@ export function commitEditWithWorkbenches(
   if (transport() === 'playing') return;
   const current = song();
   if (!current) return;
-  const before: EditState = { song: current, workbenches: workbenchesSig() };
+  const before: EditState = {
+    song: current,
+    workbenches: workbenchesSig(),
+    patternNames: patternNamesSig(),
+  };
   const next = transform(before);
-  if (next.song === before.song && next.workbenches === before.workbenches) return;
+  if (
+    next.song === before.song
+    && next.workbenches === before.workbenches
+    && next.patternNames === before.patternNames
+  ) return;
   applyCommit(next);
 }
 
@@ -146,12 +175,18 @@ export function undo(): void {
   const previous = list[list.length - 1]!;
   const currentSong = song();
   const currentWb = workbenchesSig();
+  const currentNames = patternNamesSig();
   setPast(list.slice(0, -1));
   if (currentSong) {
-    setFuture([...future(), { song: currentSong, workbenches: currentWb }]);
+    setFuture([...future(), {
+      song: currentSong,
+      workbenches: currentWb,
+      patternNames: currentNames,
+    }]);
   }
   setSong(previous.song);
   if (previous.workbenches !== currentWb) setWorkbenchesRaw(previous.workbenches);
+  if (previous.patternNames !== currentNames) loadPatternNames(previous.patternNames);
   setDirty(true);
 }
 
@@ -163,12 +198,18 @@ export function redo(): void {
   const next = list[list.length - 1]!;
   const currentSong = song();
   const currentWb = workbenchesSig();
+  const currentNames = patternNamesSig();
   setFuture(list.slice(0, -1));
   if (currentSong) {
-    setPast([...past(), { song: currentSong, workbenches: currentWb }]);
+    setPast([...past(), {
+      song: currentSong,
+      workbenches: currentWb,
+      patternNames: currentNames,
+    }]);
   }
   setSong(next.song);
   if (next.workbenches !== currentWb) setWorkbenchesRaw(next.workbenches);
+  if (next.patternNames !== currentNames) loadPatternNames(next.patternNames);
   setDirty(true);
 }
 

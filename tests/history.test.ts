@@ -5,6 +5,7 @@ import {
   canUndo,
   clearHistory,
   commitEdit,
+  commitEditWithWorkbenches,
   redo,
   setSong,
   setTransport,
@@ -12,6 +13,11 @@ import {
   undo,
 } from '../src/state/song';
 import { emptySong } from '../src/core/mod/format';
+import {
+  loadPatternNames,
+  patternNames,
+  resetPatternNames,
+} from '../src/state/patternNames';
 
 function makeSong(title: string) {
   const s = emptySong();
@@ -141,6 +147,41 @@ describe('song history', () => {
       redo();
       expect(song()!.title).toBe('A');
       expect(canRedo()).toBe(true);
+    });
+  });
+
+  // Pattern names live in their own signal but are bundled into each undo
+  // snapshot so a Clean Up (which renumbers patterns) can revert atomically.
+  // Without this, undo would leave names mapped to vanished pattern indices.
+  describe('pattern-name bundling', () => {
+    afterEach(() => resetPatternNames());
+
+    it('undo restores the pattern-name map captured at commit time', () => {
+      setSong(makeSong('A'));
+      loadPatternNames({ 0: 'intro' });
+      // Commit a state that re-keys names alongside the song change.
+      commitEditWithWorkbenches((state) => ({
+        ...state,
+        song: { ...state.song, title: 'B' },
+        patternNames: { 5: 'renamed' },
+      }));
+      expect(patternNames()).toEqual({ 5: 'renamed' });
+      undo();
+      expect(song()!.title).toBe('A');
+      expect(patternNames()).toEqual({ 0: 'intro' });
+    });
+
+    it('redo reapplies the bundled name map', () => {
+      setSong(makeSong('A'));
+      loadPatternNames({ 0: 'intro' });
+      commitEditWithWorkbenches((state) => ({
+        ...state,
+        song: { ...state.song, title: 'B' },
+        patternNames: { 5: 'renamed' },
+      }));
+      undo();
+      redo();
+      expect(patternNames()).toEqual({ 5: 'renamed' });
     });
   });
 });

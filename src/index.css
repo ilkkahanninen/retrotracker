@@ -291,6 +291,27 @@ body {
 }
 .ordertools button:hover:not(:disabled) { border-color: var(--accent); }
 .ordertools button:disabled { color: var(--muted); cursor: not-allowed; opacity: 0.55; }
+
+.orderfooter {
+  display: flex;
+  justify-content: stretch;
+  padding: 8px 0 4px;
+}
+.orderfooter button {
+  flex: 1;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+}
+.orderfooter button:hover:not(:disabled) { border-color: var(--accent); }
+.orderfooter button:disabled { color: var(--muted); cursor: not-allowed; opacity: 0.55; }
 .app__main {
   grid-area: main;
   background: var(--panel-2);

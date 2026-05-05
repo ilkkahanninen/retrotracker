@@ -66,6 +66,7 @@ import {
   deleteOrder,
   newPatternAtOrder,
   duplicatePatternAtOrder,
+  cleanupOrders,
   setSample,
   clearSample,
   replaceSampleData,
@@ -519,14 +520,14 @@ export const App: Component = () => {
       wb: d.wb,
     }));
 
-    commitEditWithWorkbenches(({ song, workbenches }) => {
-      let nextSong = song;
-      let nextWb = workbenches;
+    commitEditWithWorkbenches((state) => {
+      let nextSong = state.song;
+      let nextWb = state.workbenches;
       for (const { slot, wb } of pairs) {
         nextSong = writeWorkbenchToSongPure(nextSong, slot, wb, NO_LOOP);
         nextWb = withWorkbench(nextWb, slot, wb);
       }
-      return { song: nextSong, workbenches: nextWb };
+      return { ...state, song: nextSong, workbenches: nextWb };
     });
 
     selectSample(pairs[0]!.slot + 1);
@@ -1213,6 +1214,33 @@ export const App: Component = () => {
     commitEdit((song) => duplicatePatternAtOrder(song, c.order));
   };
 
+  /**
+   * Tidy the order list: renumber patterns in order of first appearance and
+   * drop unused ones. The song change and the pattern-name re-keying go
+   * through one bundled commit so undo restores both atomically — without
+   * that, undo would leave names mapped to the cleaned-up indices while the
+   * song reverts to the pre-cleanup pattern numbering.
+   *
+   * The cursor's `order` stays valid because songLength doesn't change and
+   * the pattern *content* at each order slot is unchanged — only the
+   * pattern's numerical index moved.
+   */
+  const cleanupOrderList = () => {
+    if (transport() === "playing") return;
+    commitEditWithWorkbenches((state) => {
+      const result = cleanupOrders(state.song);
+      if (result.song === state.song) return state;
+      const oldNames = state.patternNames;
+      const newNames: Record<number, string> = {};
+      for (const key of Object.keys(oldNames)) {
+        const oldIdx = Number(key);
+        const newIdx = result.remap[oldIdx];
+        if (newIdx !== undefined) newNames[newIdx] = oldNames[oldIdx]!;
+      }
+      return { ...state, song: result.song, patternNames: newNames };
+    });
+  };
+
   // ─── Sample editing ──────────────────────────────────────────────────────
 
   /**
@@ -1260,9 +1288,10 @@ export const App: Component = () => {
   const clearCurrentSample = () => {
     if (transport() === "playing") return;
     const slot = currentSample() - 1;
-    commitEditWithWorkbenches(({ song, workbenches }) => ({
-      song: clearSample(song, slot),
-      workbenches: withoutWorkbench(workbenches, slot),
+    commitEditWithWorkbenches((state) => ({
+      ...state,
+      song: clearSample(state.song, slot),
+      workbenches: withoutWorkbench(state.workbenches, slot),
     }));
   };
 
@@ -1303,19 +1332,19 @@ export const App: Component = () => {
     const target = nextFreeSlot(s, slot);
     if (target === null) return;
 
-    commitEditWithWorkbenches(({ song, workbenches }) => {
-      const samples = [...song.samples];
+    commitEditWithWorkbenches((state) => {
+      const samples = [...state.song.samples];
       // Shallow-copy the Sample record; `data` is an Int8Array we share by
       // reference — the song treats it as immutable, so a referential copy
       // is safe and avoids the cost of cloning multi-KB buffers.
       samples[target] = { ...samples[slot]! };
-      const newSong = { ...song, samples };
-      const wb = workbenches.get(slot);
+      const newSong = { ...state.song, samples };
+      const wb = state.workbenches.get(slot);
       const newWorkbenches = wb
         ? // Workbenches are deep-immutable; shallow-clone the top level so
           // future edits on slot N don't mutate the duplicate at slot M
           // through a shared chain reference.
-          withWorkbench(workbenches, target, {
+          withWorkbench(state.workbenches, target, {
             source: wb.source,
             chain: [...wb.chain],
             pt: { ...wb.pt },
@@ -1328,8 +1357,8 @@ export const App: Component = () => {
                 }
               : null,
           })
-        : workbenches;
-      return { song: newSong, workbenches: newWorkbenches };
+        : state.workbenches;
+      return { ...state, song: newSong, workbenches: newWorkbenches };
     });
     setCurrentSample(target + 1);
   };
@@ -1558,9 +1587,10 @@ export const App: Component = () => {
       .padStart(2, "0")}-${sel.endRow.toString(16).toUpperCase().padStart(2, "0")}`;
     const wb = workbenchFromWavData(result.wav, sourceName);
     setError(null);
-    commitEditWithWorkbenches(({ song, workbenches }) => ({
-      song: writeWorkbenchToSongPure(song, slot, wb, NO_LOOP),
-      workbenches: withWorkbench(workbenches, slot, wb),
+    commitEditWithWorkbenches((state) => ({
+      ...state,
+      song: writeWorkbenchToSongPure(state.song, slot, wb, NO_LOOP),
+      workbenches: withWorkbench(state.workbenches, slot, wb),
     }));
     // Hop the sample-slot selection to the new bounce so the user sees what
     // they got. Keep the pattern-view cursor and selection where they were.
@@ -1595,9 +1625,10 @@ export const App: Component = () => {
     // A fresh sampler starts with no loop — passing the explicit override
     // also clears any chiptune-era full-loop the slot might still hold from
     // a previous source-kind toggle.
-    commitEditWithWorkbenches(({ song, workbenches }) => ({
-      song: writeWorkbenchToSongPure(song, slot, wbToCommit, NO_LOOP),
-      workbenches: withWorkbench(workbenches, slot, wbToCommit),
+    commitEditWithWorkbenches((state) => ({
+      ...state,
+      song: writeWorkbenchToSongPure(state.song, slot, wbToCommit, NO_LOOP),
+      workbenches: withWorkbench(state.workbenches, slot, wbToCommit),
     }));
   };
 
@@ -1616,9 +1647,10 @@ export const App: Component = () => {
   ) => {
     if (transport() === "playing") return;
     const slot = currentSample() - 1;
-    commitEditWithWorkbenches(({ song, workbenches }) => ({
-      song: writeWorkbenchToSongPure(song, slot, next, loopOverride),
-      workbenches: withWorkbench(workbenches, slot, next),
+    commitEditWithWorkbenches((state) => ({
+      ...state,
+      song: writeWorkbenchToSongPure(state.song, slot, next, loopOverride),
+      workbenches: withWorkbench(state.workbenches, slot, next),
     }));
     // If a piano-key audition is in flight on this slot, hand the freshly
     // re-rendered int8 to the preview voice so the user hears the edit
@@ -2702,6 +2734,16 @@ export const App: Component = () => {
                         </li>
                       ))}
                   </ol>
+                  <div class="orderfooter">
+                    <button
+                      type="button"
+                      onClick={cleanupOrderList}
+                      disabled={playing()}
+                      title="Renumber patterns in order of appearance and discard unused ones"
+                    >
+                      Clean up
+                    </button>
+                  </div>
                 </>
               );
             }}

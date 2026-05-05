@@ -311,3 +311,38 @@ describe('order toolbar buttons', () => {
     }
   });
 });
+
+describe('Clean up button', () => {
+  function cleanupBtn(container: HTMLElement): HTMLButtonElement {
+    const btn = container.querySelector<HTMLButtonElement>(
+      '.orderfooter button',
+    );
+    if (!btn) throw new Error('Clean up button not found');
+    return btn;
+  }
+
+  it('renumbers patterns in order of appearance and discards unused ones', async () => {
+    // README example: orders [4,5,0,0,1] over six patterns → [0,1,2,2,3].
+    const s = emptySong();
+    s.patterns = Array.from({ length: 6 }, emptyPattern);
+    s.songLength = 5;
+    s.orders[0] = 4; s.orders[1] = 5; s.orders[2] = 0; s.orders[3] = 0; s.orders[4] = 1;
+    // Stamp something distinctive into pattern 4 so we can verify it survives.
+    s.patterns[4]!.rows[0]![0] = { period: 428, sample: 1, effect: 0, effectParam: 0 };
+    setSong(s);
+    const { container } = render(() => <App />);
+    const user = userEvent.setup();
+    await user.click(cleanupBtn(container));
+    expect(song()!.orders.slice(0, 5)).toEqual([0, 1, 2, 2, 3]);
+    expect(song()!.patterns).toHaveLength(4);
+    // Pattern that used to be index 4 now lives at index 0.
+    expect(song()!.patterns[0]!.rows[0]![0]!.period).toBe(428);
+  });
+
+  it('is disabled while transport is playing', () => {
+    setSong(songWith(3));
+    const { container } = render(() => <App />);
+    setTransport('playing');
+    expect(cleanupBtn(container).disabled).toBe(true);
+  });
+});

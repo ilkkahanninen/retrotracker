@@ -286,6 +286,60 @@ export function newPatternAtOrder(song: Song, order: number): Song {
 }
 
 /**
+ * Tidy the order list and pattern bank:
+ *   1. Renumber patterns in order of first appearance in the order list.
+ *   2. Drop patterns no order slot references.
+ *
+ * Example:  orders [4,5,0,0,1] over patterns [p0..p5]
+ *           ↓
+ *           orders [0,1,2,2,3] over patterns [p4,p5,p0,p1]
+ *           (originally patterns 2,3 are discarded)
+ *
+ * Returns `{ song, remap }` where `remap[oldIndex]` is the new index for that
+ * pattern, or `undefined` if it was dropped. Side-tables keyed by pattern
+ * index (e.g. patternNames) should re-key through `remap`.
+ *
+ * Slots beyond `songLength` are zeroed — `.mod` writes the full 128-entry
+ * order array, and we don't want stale references pointing past the trimmed
+ * patterns array.
+ *
+ * Returns the same Song reference when nothing would change (orders already
+ * canonical and no unused patterns to drop).
+ */
+export function cleanupOrders(song: Song): { song: Song; remap: (number | undefined)[] } {
+  const remap: (number | undefined)[] = new Array(song.patterns.length).fill(undefined);
+  const newPatterns: Pattern[] = [];
+  for (let i = 0; i < song.songLength; i++) {
+    const pat = song.orders[i] ?? 0;
+    if (pat < 0 || pat >= song.patterns.length) continue;
+    if (remap[pat] === undefined) {
+      remap[pat] = newPatterns.length;
+      newPatterns.push(song.patterns[pat]!);
+    }
+  }
+
+  const newOrders = new Array<number>(song.orders.length).fill(0);
+  for (let i = 0; i < song.songLength; i++) {
+    const pat = song.orders[i] ?? 0;
+    const mapped = remap[pat];
+    newOrders[i] = mapped ?? 0;
+  }
+
+  let changed = newPatterns.length !== song.patterns.length;
+  if (!changed) {
+    for (let i = 0; i < song.orders.length; i++) {
+      if (newOrders[i] !== (song.orders[i] ?? 0)) { changed = true; break; }
+    }
+  }
+  if (!changed) return { song, remap };
+
+  return {
+    song: { ...song, orders: newOrders, patterns: newPatterns },
+    remap,
+  };
+}
+
+/**
  * Append a copy of the pattern under `order` and point the slot at the copy.
  * The previously-pointed-at pattern stays intact (other slots may share it).
  *
