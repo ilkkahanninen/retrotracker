@@ -1,0 +1,7 @@
+# Revisions listed here are skipped by `git blame` when configured via:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# GitHub honors this file automatically. VSCode + the built-in git extension
+# read it once the local config above is set.
+
+# Reformat everything with Prettier
+bef1b4013bac73d8255392b79141dca5f4f5ed3d
