@@ -15,7 +15,7 @@
  *   5. Caller applies stereo separation and final normalization.
  */
 
-import { PAULA_CLOCK_PAL } from '../mod/format';
+import { PAULA_CLOCK_PAL } from "../mod/format";
 
 export const PAULA_VOICES = 4;
 
@@ -336,7 +336,7 @@ class OnePoleFilter {
 
   setup(audioRate: number, cutoff: number): void {
     if (cutoff >= audioRate / 2) cutoff = audioRate / 2 - 1e-4;
-    this.b1 = Math.exp((-2 * Math.PI) * cutoff / audioRate);
+    this.b1 = Math.exp((-2 * Math.PI * cutoff) / audioRate);
     this.a0 = 1 - this.b1;
   }
 
@@ -368,8 +368,14 @@ class TwoPoleFilter {
   private a2 = 0;
   private b1 = 0;
   private b2 = 0;
-  private tL0 = 0; private tL1 = 0; private tL2 = 0; private tL3 = 0;
-  private tR0 = 0; private tR1 = 0; private tR2 = 0; private tR3 = 0;
+  private tL0 = 0;
+  private tL1 = 0;
+  private tL2 = 0;
+  private tL3 = 0;
+  private tR0 = 0;
+  private tR1 = 0;
+  private tR2 = 0;
+  private tR3 = 0;
 
   setup(audioRate: number, cutoff: number, qFactor: number): void {
     if (cutoff >= audioRate / 2) cutoff = audioRate / 2 - 1e-4;
@@ -389,10 +395,26 @@ class TwoPoleFilter {
   lpStereo(inOut: [number, number]): void {
     const inL = inOut[0];
     const inR = inOut[1];
-    const lo = inL * this.a1 + this.tL0 * this.a2 + this.tL1 * this.a1 - this.tL2 * this.b1 - this.tL3 * this.b2;
-    const ro = inR * this.a1 + this.tR0 * this.a2 + this.tR1 * this.a1 - this.tR2 * this.b1 - this.tR3 * this.b2;
-    this.tL1 = this.tL0; this.tL0 = inL; this.tL3 = this.tL2; this.tL2 = lo;
-    this.tR1 = this.tR0; this.tR0 = inR; this.tR3 = this.tR2; this.tR2 = ro;
+    const lo =
+      inL * this.a1 +
+      this.tL0 * this.a2 +
+      this.tL1 * this.a1 -
+      this.tL2 * this.b1 -
+      this.tL3 * this.b2;
+    const ro =
+      inR * this.a1 +
+      this.tR0 * this.a2 +
+      this.tR1 * this.a1 -
+      this.tR2 * this.b1 -
+      this.tR3 * this.b2;
+    this.tL1 = this.tL0;
+    this.tL0 = inL;
+    this.tL3 = this.tL2;
+    this.tL2 = lo;
+    this.tR1 = this.tR0;
+    this.tR0 = inR;
+    this.tR3 = this.tR2;
+    this.tR2 = ro;
     inOut[0] = lo;
     inOut[1] = ro;
   }
@@ -403,7 +425,7 @@ class TwoPoleFilter {
 // 29 doubles per channel, matching the C tap-line (t01..t29). Each call
 // consumes 2 oversampled inputs and emits 1 output sample.
 
-const C00 = 0.500000000000001776356839400;
+const C00 = 0.5000000000000017763568394;
 const C01 = 0.316796099629279681586524475;
 const C03 = -0.101638770668561695398324218;
 const C05 = 0.056469397591722876594833025;
@@ -416,7 +438,7 @@ const C17 = 0.004207318621831869671912063;
 const C19 = -0.002480664366371574183767201;
 const C21 = 0.001372073862198802066819647;
 const C23 = -0.000698236372446042839051694;
-const C25 = 0.000317104911171300647004800;
+const C25 = 0.0003171049111713006470048;
 const C27 = -0.000121433207895608810135933;
 const C29 = 0.000035018885257113032771856;
 
@@ -430,14 +452,22 @@ class Downsample2x {
 
   step(s1: number, s2: number): number {
     // Mirrors downsample2x_L/_R from pt2_downsample2x.c verbatim.
-    const x00 = s2 * C00, x01 = s1 * C01;
-    const x03 = s1 * C03, x05 = s1 * C05;
-    const x07 = s1 * C07, x09 = s1 * C09;
-    const x11 = s1 * C11, x13 = s1 * C13;
-    const x15 = s1 * C15, x17 = s1 * C17;
-    const x19 = s1 * C19, x21 = s1 * C21;
-    const x23 = s1 * C23, x25 = s1 * C25;
-    const x27 = s1 * C27, x29 = s1 * C29;
+    const x00 = s2 * C00,
+      x01 = s1 * C01;
+    const x03 = s1 * C03,
+      x05 = s1 * C05;
+    const x07 = s1 * C07,
+      x09 = s1 * C09;
+    const x11 = s1 * C11,
+      x13 = s1 * C13;
+    const x15 = s1 * C15,
+      x17 = s1 * C17;
+    const x19 = s1 * C19,
+      x21 = s1 * C21;
+    const x23 = s1 * C23,
+      x25 = s1 * C25;
+    const x27 = s1 * C27,
+      x29 = s1 * C29;
 
     const t = this.t;
     const out = t[29]! + x29;
@@ -462,15 +492,15 @@ class Downsample2x {
     t[12] = t[11]! + x07;
     t[11] = t[10]! + x09;
     t[10] = t[9]! + x11;
-    t[9]  = t[8]! + x13;
-    t[8]  = t[7]! + x15;
-    t[7]  = t[6]! + x17;
-    t[6]  = t[5]! + x19;
-    t[5]  = t[4]! + x21;
-    t[4]  = t[3]! + x23;
-    t[3]  = t[2]! + x25;
-    t[2]  = t[1]! + x27;
-    t[1]  =          x29;
+    t[9] = t[8]! + x13;
+    t[8] = t[7]! + x15;
+    t[7] = t[6]! + x17;
+    t[6] = t[5]! + x19;
+    t[5] = t[4]! + x21;
+    t[4] = t[3]! + x23;
+    t[3] = t[2]! + x25;
+    t[2] = t[1]! + x27;
+    t[1] = x29;
 
     return out;
   }
@@ -481,25 +511,26 @@ class Downsample2x {
 class PaulaVoice {
   // Latched DMA-side registers (written by tracker, used on next refetch).
   data: Int8Array | null = null; // sample data (whole sample buffer)
-  startOffsetBytes = 0;          // offset into `data` for AUD_LC pointer
-  lengthWords = 0;               // AUD_LEN
+  startOffsetBytes = 0; // offset into `data` for AUD_LC pointer
+  lengthWords = 0; // AUD_LEN
   loopStartBytes = 0;
   loopLengthWords = 0;
-  perDelta = 0;                  // AUD_PER_delta = clockDiv / period
-  vol = 0;                       // AUD_VOL: realVol * (1 / (128 * 64))
+  perDelta = 0; // AUD_PER_delta = clockDiv / period
+  vol = 0; // AUD_VOL: realVol * (1 / (128 * 64))
 
   // Active DMA state
   dmaActive = false;
   dmaTrigger = false;
   nextSampleStage = false;
-  dat0 = 0; dat1 = 0;             // 2-byte DMA buffer
+  dat0 = 0;
+  dat1 = 0; // 2-byte DMA buffer
   /** Mirrors pt2-clone's sampleCounter: 2 = fresh fetch needed, 1 = use dat0
    *  (after fetch), 0 = exhausted, refetch next call. */
   sampleCounter = 0;
   /** Whether we're playing the initial region (true) or the loop region (false). */
   inInitialRegion = true;
-  cursorBytes = 0;                // current byte index into `data`
-  endBytes = 0;                   // exclusive end of current region
+  cursorBytes = 0; // current byte index into `data`
+  endBytes = 0; // exclusive end of current region
   dSample = 0;
   dDelta = 0;
   dPhase = 0;
@@ -534,7 +565,7 @@ class PaulaVoice {
 
 // --- Paula -------------------------------------------------------------------
 
-export type AmigaModel = 'A1200' | 'A500';
+export type AmigaModel = "A1200" | "A500";
 
 export class Paula {
   readonly outputRate: number;
@@ -570,14 +601,14 @@ export class Paula {
    */
   private readonly channelPeaks = new Float64Array(PAULA_VOICES);
 
-  constructor(outputRate: number, model: AmigaModel = 'A1200') {
+  constructor(outputRate: number, model: AmigaModel = "A1200") {
     this.outputRate = outputRate;
     this.oversampling = outputRate < 96000;
     this.paulaRate = this.oversampling ? outputRate * 2 : outputRate;
     // PAULA_CLOCK_PAL (7.094 MHz, the CPU/CCK*2 convention) is twice the
     // actual byte-rate divisor on Paula; one byte takes two CCK ticks.
     // pt2-clone uses the half value (~3.547 MHz). Divide by 2 to match.
-    this.periodToDeltaDiv = (PAULA_CLOCK_PAL / 2) / this.paulaRate;
+    this.periodToDeltaDiv = PAULA_CLOCK_PAL / 2 / this.paulaRate;
 
     for (let i = 0; i < PAULA_VOICES; i++) {
       this.voices.push(new PaulaVoice());
@@ -590,7 +621,10 @@ export class Paula {
     this.configureModelFilters();
 
     // 2-pole Sallen-Key LED filter: R1=R2=10kΩ, C1=6.8nF, C2=3.9nF
-    const R1 = 10_000, R2 = 10_000, C1 = 6.8e-9, C2 = 3.9e-9;
+    const R1 = 10_000,
+      R2 = 10_000,
+      C1 = 6.8e-9,
+      C2 = 3.9e-9;
     const ledCutoff = 1 / (2 * Math.PI * Math.sqrt(R1 * R2 * C1 * C2));
     const ledQ = Math.sqrt(R1 * R2 * C1 * C2) / (C2 * (R1 + R2));
     this.filterLED.setup(this.paulaRate, ledCutoff, ledQ);
@@ -603,7 +637,7 @@ export class Paula {
    * filter is shared between models and isn't re-set up.
    */
   private configureModelFilters(): void {
-    if (this.model === 'A1200') {
+    if (this.model === "A1200") {
       // A1200 LP cutoff (~34kHz) is above the audible range; pt2-clone skips it.
       this.useLowpass = false;
       this.useHighpass = true;
@@ -728,7 +762,12 @@ export class Paula {
    * `outputFrames * (oversampling ? 2 : 1)` mix-rate samples and downsamples.
    * Hard-pan LRRL; caller does mid/side + final scaling.
    */
-  generate(outL: Float64Array, outR: Float64Array, outputFrames: number, offset: number): void {
+  generate(
+    outL: Float64Array,
+    outR: Float64Array,
+    outputFrames: number,
+    offset: number,
+  ): void {
     if (outputFrames <= 0) return;
     const mixCount = this.oversampling ? outputFrames * 2 : outputFrames;
 
@@ -782,7 +821,7 @@ export class Paula {
       s[0] = mL[i]!;
       s[1] = mR[i]!;
       if (this.useLowpass) this.filterLo.lpStereo(s);
-      if (this.useLED)     this.filterLED.lpStereo(s);
+      if (this.useLED) this.filterLED.lpStereo(s);
       if (this.useHighpass) this.filterHi.hpStereo(s);
       mL[i] = s[0];
       mR[i] = s[1];
@@ -834,7 +873,7 @@ export class Paula {
       const i0 = v.cursorBytes;
       const len = data.byteLength;
       v.dat0 = i0 < len ? data[i0]! : 0;
-      v.dat1 = (i0 + 1) < len ? data[i0 + 1]! : 0;
+      v.dat1 = i0 + 1 < len ? data[i0 + 1]! : 0;
       v.cursorBytes = i0 + 2;
       v.sampleCounter = 2;
     }

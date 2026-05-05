@@ -2016,12 +2016,18 @@ export const App: Component = () => {
       }
     });
 
-    // Push Paula filter model changes to both worklets. Same lazy-engine
-    // pattern as channel mute: if no engine exists yet, ensureEngine()
-    // will pick up the current setting on creation.
+    // Push Paula filter model changes to both worklets. Read the signal
+    // first, unconditionally — `eng?.setPaulaModel(settings()…)` would
+    // short-circuit when the engine is still null (the lazy-creation
+    // path on first launch), and Solid would record zero dependencies
+    // on that first run, killing the effect for the whole session. With
+    // the read up front, the effect always tracks `settings`, and once
+    // the engine appears (via ensureEngine), every subsequent toggle
+    // forwards through.
     createEffect(() => {
+      const model = settings().paulaModel;
       const eng = currentEngine();
-      eng?.setPaulaModel(settings().paulaModel);
+      eng?.setPaulaModel(model);
     });
 
     // Autosave to localStorage whenever the persisted signals change.
