@@ -149,8 +149,23 @@ const NOTE_TIPS: TipSection[] = [
   {
     title: 'Edit step',
     items: [
-      { keys: '[ / ]', action: 'edit step − / +' },
-      { keys: '\\', action: 'reset edit step to 1' },
+      // `< / >` and `/` are position-mapped (Comma / Period / Slash physical
+      // keys). The renderer remaps each glyph to the user's keycap label
+      // via `remapPositionKeys`, so a Nordic user sees the right keycap.
+      { keys: '< / >', action: 'edit step − / +', position: true },
+      { keys: '/', action: 'reset edit step to 1', position: true },
+    ],
+  },
+  {
+    title: 'Order / pattern',
+    items: [
+      { keys: '[ / ]', action: 'previous / next pattern at slot', position: true },
+      // Chord help strings stay literal — `remapPositionKeys` is per-character
+      // and would mangle "Cmd"-style words on non-QWERTY layouts.
+      { keys: `${MOD_LABEL} + [`, action: 'delete order slot' },
+      { keys: `${MOD_LABEL} + ]`, action: 'insert order slot' },
+      { keys: `${ALT_LABEL} + [`, action: 'new blank pattern at slot' },
+      { keys: `${ALT_LABEL} + ]`, action: 'duplicate pattern at slot' },
     ],
   },
   {

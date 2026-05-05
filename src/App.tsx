@@ -2587,7 +2587,7 @@ export const App: Component = () => {
                       type="button"
                       onClick={stepPrevPattern}
                       disabled={!canPrev()}
-                      title="Previous pattern at slot (<)"
+                      title="Previous pattern at slot ([)"
                       aria-label="Previous pattern at slot"
                     >
                       ‹
@@ -2596,7 +2596,7 @@ export const App: Component = () => {
                       type="button"
                       onClick={stepNextPattern}
                       disabled={!canNext()}
-                      title="Next pattern at slot (>)"
+                      title="Next pattern at slot (])"
                       aria-label="Next pattern at slot"
                     >
                       ›
@@ -2605,7 +2605,7 @@ export const App: Component = () => {
                       type="button"
                       onClick={insertOrderSlot}
                       disabled={!canIns()}
-                      title="Insert slot at cursor (⌘I)"
+                      title="Insert slot at cursor (⌘])"
                       aria-label="Insert slot"
                     >
                       +
@@ -2614,7 +2614,7 @@ export const App: Component = () => {
                       type="button"
                       onClick={deleteOrderSlot}
                       disabled={!canDel()}
-                      title="Delete slot at cursor (⌘D)"
+                      title="Delete slot at cursor (⌘[)"
                       aria-label="Delete slot"
                     >
                       −
@@ -2623,7 +2623,7 @@ export const App: Component = () => {
                       type="button"
                       onClick={newBlankPatternAtOrder}
                       disabled={!canBlank()}
-                      title="New blank pattern at slot (⌘B)"
+                      title="New blank pattern at slot (⌥[)"
                       aria-label="New blank pattern"
                     >
                       New
@@ -2632,7 +2632,7 @@ export const App: Component = () => {
                       type="button"
                       onClick={duplicateCurrentPattern}
                       disabled={!canBlank()}
-                      title="Duplicate pattern at slot (⌘⇧B)"
+                      title="Duplicate pattern at slot (⌥])"
                       aria-label="Duplicate pattern"
                     >
                       Dup

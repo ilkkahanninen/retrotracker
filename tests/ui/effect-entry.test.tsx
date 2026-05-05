@@ -270,50 +270,47 @@ describe('effect entry: respects the "no edit while playing" rule', () => {
 });
 
 describe('edit step: keyboard shortcuts', () => {
-  it('] increases edit step; [ decreases it (no shift required)', () => {
+  it('> (Shift+.) increases edit step; < (Shift+,) decreases it', () => {
     render(() => <App />);
     expect(editStep()).toBe(1);
-    // Drive raw KeyboardEvents — the shortcut matcher routes bracket
-    // presses via event.code so users on any layout hit the binding.
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', code: 'BracketRight' }));
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', code: 'BracketRight' }));
+    // Drive raw KeyboardEvents with the position-mapped codes — the matcher
+    // routes by event.code so non-QWERTY users hit the same binding.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '>', code: 'Period', shiftKey: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '>', code: 'Period', shiftKey: true }));
     expect(editStep()).toBe(3);
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: '[', code: 'BracketLeft'  }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '<', code: 'Comma',  shiftKey: true }));
     expect(editStep()).toBe(2);
   });
 
-  it('] / [ are no-ops while playing', () => {
+  it('< / > are no-ops while playing', () => {
     render(() => <App />);
     setEditStep(4);
     setTransport('playing');
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', code: 'BracketRight' }));
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: '[', code: 'BracketLeft'  }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '>', code: 'Period', shiftKey: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '<', code: 'Comma',  shiftKey: true }));
     expect(editStep()).toBe(4);
   });
 
-  it('Shift+] / Shift+[ no longer fire (shift is not part of the binding)', () => {
-    // Regression: an earlier version required shift, which is awkward — the
-    // user wants the bare keys. The shortcut matcher checks shift exactly,
-    // so a press WITH shift should now miss and leave the step alone.
+  it('plain , / . do not change edit step (those are repeat-effect / clear-field)', () => {
     render(() => <App />);
     setEditStep(2);
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', code: 'BracketRight', shiftKey: true }));
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: '[', code: 'BracketLeft',  shiftKey: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '.', code: 'Period' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', code: 'Comma'  }));
     expect(editStep()).toBe(2);
   });
 
-  it('\\ resets the edit step to 1', () => {
+  it('/ resets the edit step to 1', () => {
     render(() => <App />);
     setEditStep(7);
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: '\\', code: 'Backslash' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '/', code: 'Slash' }));
     expect(editStep()).toBe(1);
   });
 
-  it('\\ is a no-op while playing', () => {
+  it('/ is a no-op while playing', () => {
     render(() => <App />);
     setEditStep(5);
     setTransport('playing');
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: '\\', code: 'Backslash' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '/', code: 'Slash' }));
     expect(editStep()).toBe(5);
   });
 });

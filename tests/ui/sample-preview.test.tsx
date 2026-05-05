@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { App } from '../../src/App';
 import { setCursor, INITIAL_CURSOR } from '../../src/state/cursor';
 import { setSong, setTransport, setPlayPos, clearHistory, song } from '../../src/state/song';
-import { currentOctave, currentSample, setCurrentSample, setCurrentOctave } from '../../src/state/edit';
+import { currentOctave, setCurrentSample, setCurrentOctave } from '../../src/state/edit';
 import { setView } from '../../src/state/view';
 
 function resetState() {
@@ -112,23 +112,23 @@ describe('typing in inputs no longer fires bare-letter shortcuts', () => {
     expect(song()!.patterns[0]!.rows[0]![0]!.period).toBe(before!.patterns[0]!.rows[0]![0]!.period);
   });
 
-  it('mod-key shortcuts still fire while an input is focused', async () => {
-    // ⌘S triggers Save; if focus-skip swallowed mod shortcuts the user could
-    // never save while typing in the name field. Using ⌘Z (undo) since it
-    // doesn't need DOM side-effects to verify.
+  it('mod-key shortcuts still fire while an input is focused', () => {
+    // If focus-skip swallowed mod shortcuts the user could never save (or
+    // run other ⌘-chord actions) while typing in the name field. We press
+    // Cmd+] — "insert order slot" — since it's mod-gated, has no view
+    // restriction, and is observable via songLength growing. Drive a raw
+    // KeyboardEvent so the position-mapped matcher sees the BracketRight
+    // code regardless of how userEvent escapes brackets.
     setView('sample');
     const { container } = render(() => <App />);
     const input = container.querySelector<HTMLInputElement>('.samplemeta input[type="text"]')!;
     input.focus();
     setCurrentOctave(3);
-    // No undo entry has been pushed in this test, so ⌘Z is a no-op — but the
-    // earlier-set octave-3 should remain regardless. A more direct check: the
-    // ⌘O picker shortcut would open the file dialog. Easiest sanity-check:
-    // press ⌘= (next sample, registered with mod=false → no, that's plain).
-    // Use Cmd+B (new blank pattern) — clearly mod-gated and observable.
-    await userEvent.setup().keyboard('{Meta>}b{/Meta}');
-    // Cmd+B appended a new pattern at slot 0.
-    expect(song()!.patterns.length).toBeGreaterThan(1);
+    const before = song()!.songLength;
+    window.dispatchEvent(new KeyboardEvent('keydown', {
+      key: ']', code: 'BracketRight', metaKey: true,
+    }));
+    expect(song()!.songLength).toBe(before + 1);
   });
 });
 

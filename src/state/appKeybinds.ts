@@ -464,13 +464,17 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       run: octaveUp,
     }),
   );
-  // Edit step adjust — plain `[` / `]`. The shortcut matcher routes
-  // bracket presses by event.code so US, German, Nordic etc. layouts
-  // all hit the same binding regardless of where the brackets actually
-  // live on the user's keyboard.
+  // Edit step adjust — `<` / `>` (Shift+, / Shift+.), reset on `/`.
+  // All position-mapped to the QWERTY-comma / -period / -slash physical
+  // keys so non-QWERTY users hit the same physical positions regardless
+  // of what character their layout produces there. Plain `[` / `]` now
+  // mean "previous / next pattern at the cursor's order slot" — see
+  // the order-list block lower down.
   cleanups.push(
     registerShortcut({
-      key: "[",
+      key: ",",
+      shift: true,
+      position: true,
       description: "Decrease edit step",
       when: () => transport() !== "playing",
       run: decEditStep,
@@ -478,7 +482,9 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   );
   cleanups.push(
     registerShortcut({
-      key: "]",
+      key: ".",
+      shift: true,
+      position: true,
       description: "Increase edit step",
       when: () => transport() !== "playing",
       run: incEditStep,
@@ -486,7 +492,8 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   );
   cleanups.push(
     registerShortcut({
-      key: "\\",
+      key: "/",
+      position: true,
       description: "Reset edit step to 1",
       when: () => transport() !== "playing",
       run: resetEditStep,
@@ -579,15 +586,23 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       run: () => h.transposeAtCursor(12),
     }),
   );
-  // Order-list editing. The cursor's `order` field is the target slot.
-  //   < / >          → step the slot's pattern number ±1 (auto-grows on >)
-  //   Cmd/Ctrl + I   → insert a new slot at the cursor (duplicates current)
-  //   Cmd/Ctrl + D   → delete the slot at the cursor
-  //   Cmd/Ctrl + B   → assign a fresh empty pattern to the current slot
-  // Plain `,` (without shift, which is the order-step `<`): copy the
-  // most recent non-empty effect on the cursor's channel from any row
-  // above and advance. Pattern-view only — the cursor signal is shared
-  // with the sample view but doesn't address a pattern cell there.
+  // Order list / pattern at slot. Everything is on the bracket pair so the
+  // user only needs to remember one physical key region:
+  //   [  / ]                 → previous / next pattern at the cursor's slot
+  //   Cmd + ]                → insert a new order slot at the cursor
+  //   Cmd + [                → delete the order slot at the cursor
+  //   Option + [             → assign a fresh empty pattern to the slot
+  //   Option + ]             → duplicate current pattern into a new slot
+  // Option avoids the Cmd+Shift+[/] browser collision (next/prev tab on most
+  // platforms) and Mac's Option-composed characters don't fight the matcher
+  // since position mode reads event.code, not event.key.
+  // All position-mapped to the QWERTY-bracket physical positions so e.g.
+  // a Nordic user pressing the `å` / `¨` keys (which sit where `[` / `]`
+  // sit on US) hits the same bindings.
+  //
+  // Plain `,` is "repeat last effect from above on this channel" —
+  // pattern-view only, since the cursor signal is shared with sample view
+  // but doesn't address a pattern cell there.
   cleanups.push(
     registerShortcut({
       key: ",",
@@ -598,8 +613,8 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   );
   cleanups.push(
     registerShortcut({
-      key: ",",
-      shift: true,
+      key: "[",
+      position: true,
       description: "Previous pattern at slot",
       when: () => transport() !== "playing",
       run: h.stepPrevPattern,
@@ -607,8 +622,8 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   );
   cleanups.push(
     registerShortcut({
-      key: ".",
-      shift: true,
+      key: "]",
+      position: true,
       description: "Next pattern at slot",
       when: () => transport() !== "playing",
       run: h.stepNextPattern,
@@ -616,8 +631,9 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   );
   cleanups.push(
     registerShortcut({
-      key: "i",
+      key: "]",
       mod: true,
+      position: true,
       description: "Insert order slot",
       when: () => transport() !== "playing",
       run: h.insertOrderSlot,
@@ -625,8 +641,9 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   );
   cleanups.push(
     registerShortcut({
-      key: "d",
+      key: "[",
       mod: true,
+      position: true,
       description: "Delete order slot",
       when: () => transport() !== "playing",
       run: h.deleteOrderSlot,
@@ -634,8 +651,9 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   );
   cleanups.push(
     registerShortcut({
-      key: "b",
-      mod: true,
+      key: "[",
+      alt: true,
+      position: true,
       description: "New blank pattern at slot",
       when: () => transport() !== "playing",
       run: h.newBlankPatternAtOrder,
@@ -643,9 +661,9 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   );
   cleanups.push(
     registerShortcut({
-      key: "b",
-      mod: true,
-      shift: true,
+      key: "]",
+      alt: true,
+      position: true,
       description: "Duplicate pattern at slot",
       when: () => transport() !== "playing",
       run: h.duplicateCurrentPattern,

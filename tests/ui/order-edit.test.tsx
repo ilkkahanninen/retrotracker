@@ -55,101 +55,117 @@ describe('order list: click navigation', () => {
   });
 });
 
-describe('order list: < / > step pattern at slot', () => {
-  it("'>' increments orders[cursor.order]", async () => {
+describe('order list: [ / ] step pattern at slot', () => {
+  // Position-mapped — drive raw KeyboardEvents so the matcher can see the
+  // physical-key code (`BracketLeft` / `BracketRight`) regardless of
+  // userEvent's keyboard-syntax escaping rules around brackets.
+  function pressBracket(side: 'left' | 'right', mods: { meta?: boolean; shift?: boolean } = {}) {
+    window.dispatchEvent(new KeyboardEvent('keydown', {
+      key: side === 'left' ? '[' : ']',
+      code: side === 'left' ? 'BracketLeft' : 'BracketRight',
+      metaKey: mods.meta ?? false,
+      shiftKey: mods.shift ?? false,
+    }));
+  }
+
+  it("']' increments orders[cursor.order]", () => {
     setSong(songWith(3));
     render(() => <App />);
-    const user = userEvent.setup();
     expect(song()!.orders[0]).toBe(0);
-    await user.keyboard('{Shift>}.{/Shift}'); // > = Shift+.
+    pressBracket('right');
     expect(song()!.orders[0]).toBe(1);
   });
 
-  it("'<' decrements orders[cursor.order] and clamps at 0", async () => {
+  it("'[' decrements orders[cursor.order] and clamps at 0", () => {
     setSong(songWith(3));
     render(() => <App />);
-    const user = userEvent.setup();
     setCursor({ order: 2, row: 0, channel: 0, field: 'note' }); // slot 2 → pattern 2
-    await user.keyboard('{Shift>},{/Shift}'); // < = Shift+,
+    pressBracket('left');
     expect(song()!.orders[2]).toBe(1);
-    await user.keyboard('{Shift>},{/Shift}');
+    pressBracket('left');
     expect(song()!.orders[2]).toBe(0);
-    await user.keyboard('{Shift>},{/Shift}');
+    pressBracket('left');
     expect(song()!.orders[2]).toBe(0); // clamped
   });
 
-  it("'>' auto-grows the patterns array when stepping past the last existing one", async () => {
+  it("']' auto-grows the patterns array when stepping past the last existing one", () => {
     setSong(songWith(2)); // 2 patterns
     render(() => <App />);
-    const user = userEvent.setup();
     setCursor({ order: 1, row: 0, channel: 0, field: 'note' }); // slot 1 → pattern 1
-    await user.keyboard('{Shift>}.{/Shift}');
+    pressBracket('right');
     expect(song()!.patterns).toHaveLength(3);
     expect(song()!.orders[1]).toBe(2);
   });
 });
 
 describe('order list: insert / delete slot', () => {
-  it('Cmd+I inserts a new slot at the cursor and bumps songLength', async () => {
+  function pressBracket(side: 'left' | 'right', mods: { meta?: boolean; shift?: boolean } = {}) {
+    window.dispatchEvent(new KeyboardEvent('keydown', {
+      key: side === 'left' ? '[' : ']',
+      code: side === 'left' ? 'BracketLeft' : 'BracketRight',
+      metaKey: mods.meta ?? false,
+      shiftKey: mods.shift ?? false,
+    }));
+  }
+
+  it('Cmd+] inserts a new slot at the cursor and bumps songLength', () => {
     setSong(songWith(2));
     render(() => <App />);
-    const user = userEvent.setup();
     expect(song()!.songLength).toBe(2);
-    await user.keyboard('{Meta>}i{/Meta}');
+    pressBracket('right', { meta: true });
     expect(song()!.songLength).toBe(3);
     expect(song()!.orders[0]).toBe(0); // duplicated from the previous slot 0
     expect(song()!.orders[1]).toBe(0);
     expect(song()!.orders[2]).toBe(1); // old slot 1 pushed right
   });
 
-  it('Cmd+D deletes the slot under the cursor and shrinks songLength', async () => {
+  it('Cmd+[ deletes the slot under the cursor and shrinks songLength', () => {
     setSong(songWith(3));
     render(() => <App />);
-    const user = userEvent.setup();
     setCursor({ order: 1, row: 0, channel: 0, field: 'note' });
-    await user.keyboard('{Meta>}d{/Meta}');
+    pressBracket('left', { meta: true });
     expect(song()!.songLength).toBe(2);
     expect(song()!.orders[1]).toBe(2); // the previous slot 2 pulled left
   });
 
-  it('Cmd+D clamps the cursor when deleting the last slot', async () => {
+  it('Cmd+[ clamps the cursor when deleting the last slot', () => {
     setSong(songWith(2));
     render(() => <App />);
-    const user = userEvent.setup();
     setCursor({ order: 1, row: 0, channel: 0, field: 'note' });
-    await user.keyboard('{Meta>}d{/Meta}');
+    pressBracket('left', { meta: true });
     expect(song()!.songLength).toBe(1);
     expect(cursor().order).toBe(0);
   });
 
-  it('Cmd+D no-ops when the song already has only one slot', async () => {
+  it('Cmd+[ no-ops when the song already has only one slot', () => {
     setSong(songWith(1));
     render(() => <App />);
-    const user = userEvent.setup();
-    await user.keyboard('{Meta>}d{/Meta}');
+    pressBracket('left', { meta: true });
     expect(song()!.songLength).toBe(1);
   });
 });
 
 describe('order list: new blank pattern at slot', () => {
-  it('Cmd+B appends a new pattern and points the slot at it', async () => {
+  it('Option+[ appends a new pattern and points the slot at it', () => {
     setSong(songWith(2));
     render(() => <App />);
-    const user = userEvent.setup();
-    await user.keyboard('{Meta>}b{/Meta}');
+    window.dispatchEvent(new KeyboardEvent('keydown', {
+      key: '[', code: 'BracketLeft', altKey: true,
+    }));
     expect(song()!.patterns).toHaveLength(3);
     expect(song()!.orders[0]).toBe(2);
   });
 });
 
 describe('order list: duplicate pattern at slot', () => {
-  it('Cmd+Shift+B copies the current pattern and points the slot at the copy', async () => {
+  it('Option+] copies the current pattern and points the slot at the copy', () => {
     const s = songWith(2);
     s.patterns[0]!.rows[3]![1] = { period: 428, sample: 5, effect: 0xC, effectParam: 0x40 };
     setSong(s);
     render(() => <App />);
-    const user = userEvent.setup();
-    await user.keyboard('{Meta>}{Shift>}b{/Shift}{/Meta}');
+    window.dispatchEvent(new KeyboardEvent('keydown', {
+      key: ']', code: 'BracketRight', altKey: true,
+    }));
     expect(song()!.patterns).toHaveLength(3);
     expect(song()!.orders[0]).toBe(2);
     const copied = song()!.patterns[2]!.rows[3]![1]!;
@@ -161,12 +177,13 @@ describe('order list: duplicate pattern at slot', () => {
 });
 
 describe('order editing is suppressed during playback', () => {
-  it("'>' is a no-op while transport is playing", async () => {
+  it("']' is a no-op while transport is playing", () => {
     setSong(songWith(3));
     render(() => <App />);
-    const user = userEvent.setup();
     setTransport('playing');
-    await user.keyboard('{Shift>}.{/Shift}');
+    window.dispatchEvent(new KeyboardEvent('keydown', {
+      key: ']', code: 'BracketRight',
+    }));
     expect(song()!.orders[0]).toBe(0);
   });
 });
@@ -227,9 +244,9 @@ describe('order toolbar buttons', () => {
     expect(song()!.orders.slice(0, 4)).toEqual([0, 1, 1, 2]);
   });
 
-  it('Insert via Cmd+I at MAX_ORDERS leaves the cursor put (no-op insertOrder)', () => {
+  it('Insert via Cmd+] at MAX_ORDERS leaves the cursor put (no-op insertOrder)', () => {
     // The toolbar button gates on `songLength < 128` so it disables itself,
-    // but the Cmd+I shortcut only checks transport — without our songLength
+    // but the Cmd+] shortcut only checks transport — without our songLength
     // before/after diff the handler would still bump the cursor on a no-op
     // insert, walking it past content. Drive the keyboard path (via a raw
     // KeyboardEvent — `userEvent.keyboard` has heavy realtime delays we
@@ -240,7 +257,9 @@ describe('order toolbar buttons', () => {
     setSong(s);
     setCursor({ order: 5, row: 0, channel: 0, field: 'note' });
     render(() => <App />);
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i', metaKey: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', {
+      key: ']', code: 'BracketRight', metaKey: true,
+    }));
     expect(cursor().order).toBe(5);
     expect(song()!.songLength).toBe(128);
   });
