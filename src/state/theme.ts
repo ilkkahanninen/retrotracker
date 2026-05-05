@@ -100,3 +100,21 @@ export function applyColorScheme(id: ColorSchemeId): void {
     style.setProperty(k, scheme.vars[k]!);
   }
 }
+
+/**
+ * Apply the user's UI scale via the CSS `zoom` property. Zoom is the
+ * accessibility lever that handles a px-heavy stylesheet correctly —
+ * it scales both layout boxes and hit-testing, unlike `transform:
+ * scale` which would leave click targets behind. We apply on `<body>`
+ * (not `<html>`) so the AudioWorklet bundle's own root, if any, isn't
+ * pulled in, and we leave the property unset at 100% so the natural
+ * size paths through with no zoom-induced subpixel rounding.
+ */
+export function applyUiScale(scalePercent: number): void {
+  if (typeof document === 'undefined') return;
+  if (scalePercent === 100) {
+    document.body.style.removeProperty('zoom');
+  } else {
+    document.body.style.zoom = String(scalePercent / 100);
+  }
+}

@@ -1202,6 +1202,28 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   outline: none;
   border-color: var(--accent);
 }
+.settingsview__slider {
+  align-self: flex-start;
+  width: 260px;
+  accent-color: var(--accent);
+}
+.settingsview__reset {
+  margin-left: 10px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  padding: 1px 8px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.settingsview__reset:hover {
+  color: var(--fg);
+  border-color: var(--accent);
+}
 /* The hint inside the non-grid color-scheme fieldset shouldn't inherit
  * the radio's `grid-column: 3` placement — re-anchor to normal flow. */
 .settingsview__field > .settingsview__hint {

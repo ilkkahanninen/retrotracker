@@ -49,7 +49,7 @@ import {
 } from "./state/edit";
 import { registerAppKeybinds } from "./state/appKeybinds";
 import { settings } from "./state/settings";
-import { applyColorScheme } from "./state/theme";
+import { applyColorScheme, applyUiScale } from "./state/theme";
 import { parseModule } from "./core/mod/parser";
 import { writeModule } from "./core/mod/writer";
 import { deriveExportFilename, io } from "./state/io";
@@ -2035,6 +2035,7 @@ export const App: Component = () => {
     // initial render is committed, so the saved scheme paints on the
     // first frame instead of flashing the :root defaults first.
     createEffect(() => applyColorScheme(settings().colorScheme));
+    createEffect(() => applyUiScale(settings().uiScale));
 
     // Autosave to localStorage whenever the persisted signals change.
     // Debounced because some interactions (drag-selection, hex digit

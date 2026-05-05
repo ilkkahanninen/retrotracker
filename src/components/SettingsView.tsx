@@ -3,7 +3,12 @@ import type { AmigaModel } from "../core/audio/paula";
 import {
   setColorScheme,
   setPaulaModel,
+  setUiScale,
   settings,
+  UI_SCALE_DEFAULT,
+  UI_SCALE_MAX,
+  UI_SCALE_MIN,
+  UI_SCALE_STEP,
 } from "../state/settings";
 import { COLOR_SCHEMES } from "../state/theme";
 
@@ -79,6 +84,34 @@ export const SettingsView: Component = () => {
         </select>
         <span class="settingsview__hint">
           Overrides the editor's CSS variables — applies live to every view.
+        </span>
+      </fieldset>
+
+      <fieldset class="settingsview__field">
+        <legend class="settingsview__label">
+          UI scale ({settings().uiScale}%)
+          {settings().uiScale !== UI_SCALE_DEFAULT && (
+            <button
+              type="button"
+              class="settingsview__reset"
+              onClick={() => setUiScale(UI_SCALE_DEFAULT)}
+              title="Reset to 100%"
+            >
+              reset
+            </button>
+          )}
+        </legend>
+        <input
+          class="settingsview__slider"
+          type="range"
+          min={UI_SCALE_MIN}
+          max={UI_SCALE_MAX}
+          step={UI_SCALE_STEP}
+          value={settings().uiScale}
+          onInput={(e) => setUiScale(Number(e.currentTarget.value))}
+        />
+        <span class="settingsview__hint">
+          Zooms the entire editor. Use this if the default text feels too small or too dense.
         </span>
       </fieldset>
     </section>

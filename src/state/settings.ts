@@ -5,7 +5,7 @@ import type { AmigaModel } from '../core/audio/paula';
  * App-wide preferences. Stored in its own localStorage key — separate
  * from the project session (`retrotracker:session:v1`) — because settings
  * outlive any individual `.mod` / `.retro` file: a user's preferred Amiga
- * model, theme, and contrast level should follow the user, not the song.
+ * model, theme, and UI scale should follow the user, not the song.
  *
  * Missing keys in stored payloads fall back to the defaults below, so
  * older saved settings forward-compat without a version bump.
@@ -15,18 +15,32 @@ const STORAGE_KEY = 'retrotracker:settings:v1';
 
 export type ColorSchemeId = 'default' | 'light' | 'high-contrast' | 'amber';
 
+/** UI scale slider range, expressed as a percentage of the natural size. */
+export const UI_SCALE_MIN = 75;
+export const UI_SCALE_MAX = 150;
+export const UI_SCALE_STEP = 5;
+export const UI_SCALE_DEFAULT = 100;
+
 export interface Settings {
   paulaModel: AmigaModel;
   colorScheme: ColorSchemeId;
+  /** UI zoom level as a percentage. 100 = native size. */
+  uiScale: number;
 }
 
 const DEFAULTS: Settings = {
   paulaModel: 'A1200',
   colorScheme: 'default',
+  uiScale: UI_SCALE_DEFAULT,
 };
 
 function isColorSchemeId(v: unknown): v is ColorSchemeId {
   return v === 'default' || v === 'light' || v === 'high-contrast' || v === 'amber';
+}
+
+function clampUiScale(n: unknown): number {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return DEFAULTS.uiScale;
+  return Math.max(UI_SCALE_MIN, Math.min(UI_SCALE_MAX, Math.round(n)));
 }
 
 function load(): Settings {
@@ -43,7 +57,8 @@ function load(): Settings {
     const colorScheme: ColorSchemeId = isColorSchemeId(obj['colorScheme'])
       ? obj['colorScheme']
       : DEFAULTS.colorScheme;
-    return { paulaModel, colorScheme };
+    const uiScale = clampUiScale(obj['uiScale']);
+    return { paulaModel, colorScheme, uiScale };
   } catch {
     return { ...DEFAULTS };
   }
@@ -80,4 +95,8 @@ export function togglePaulaModel(): void {
 
 export function setColorScheme(scheme: ColorSchemeId): void {
   setSettings({ colorScheme: scheme });
+}
+
+export function setUiScale(scale: number): void {
+  setSettings({ uiScale: clampUiScale(scale) });
 }
