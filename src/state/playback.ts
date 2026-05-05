@@ -45,6 +45,7 @@ export async function ensureEngine(): Promise<AudioEngine | null> {
     // the audio context was unlocked would otherwise hear the first
     // playthrough through A1200 filters until the next preference change.
     engine.setPaulaModel(settings().paulaModel);
+    engine.setStereoSeparation(settings().stereoSeparation);
     return engine;
   } catch {
     return null;

@@ -32,8 +32,12 @@ const NORM_SCALE = 0.5;
  * the worklet was just centring `paula_L` on both output channels —
  * mono down-mix was 2× the song's, so users heard the preview as ~6 dB
  * louder than the same sample played from a pattern.
+ *
+ * Mutable: kept in sync with the user's Settings.stereoSeparation via
+ * the `setStereoSeparation` message so a previewed sample tracks song
+ * playback as the user dials the separation in real time.
  */
-const SIDE_FACTOR = 0.1;
+const DEFAULT_SIDE_FACTOR = 0.1;
 
 /**
  * Voice channel used for preview. Voice 0 in Paula's LRRL panning is a
@@ -51,6 +55,8 @@ class PreviewProcessor extends AudioWorkletProcessor {
   /** Reusable Float64 scratch for Paula's stereo output. */
   private scratchL: Float64Array = new Float64Array(0);
   private scratchR: Float64Array = new Float64Array(0);
+  /** Live mid/side coefficient — see DEFAULT_SIDE_FACTOR. */
+  private sideFactor = DEFAULT_SIDE_FACTOR;
 
   constructor() {
     super();
@@ -60,6 +66,10 @@ class PreviewProcessor extends AudioWorkletProcessor {
       if (m.type === 'set') this.handleSet(m.data, m.period, m.volume, m.loopStartBytes, m.loopLengthWords);
       else if (m.type === 'stop') this.handleStop();
       else if (m.type === 'setAmigaModel') this.paula.setAmigaModel(m.model);
+      else if (m.type === 'setStereoSeparation') {
+        const clamped = Math.max(0, Math.min(100, m.sep));
+        this.sideFactor = (clamped / 100) * 0.5;
+      }
     };
   }
 
@@ -123,14 +133,16 @@ class PreviewProcessor extends AudioWorkletProcessor {
     this.paula.generate(sL, sR, frames, 0);
 
     // Same mid/side + NORM scaling the Replayer's mixChunk applies. Voice 0
-    // is on L (sR is silent), so this collapses to L = paula·0.3,
-    // R = paula·0.2 at the default 20% separation — matching what a
-    // pattern-triggered voice-0 note produces in song playback.
+    // is on L (sR is silent), so at the default 20% separation this
+    // collapses to L = paula·0.3, R = paula·0.2 — matching what a
+    // pattern-triggered voice-0 note produces in song playback. The
+    // side coefficient is live, mirroring the Settings slider.
+    const sideFactor = this.sideFactor;
     for (let i = 0; i < frames; i++) {
       const dL = sL[i]!;
       const dR = sR[i]!;
       const mid = (dL + dR) * 0.5;
-      const side = (dL - dR) * SIDE_FACTOR;
+      const side = (dL - dR) * sideFactor;
       left[i] = (mid + side) * NORM_SCALE;
       if (right !== left) right[i] = (mid - side) * NORM_SCALE;
     }

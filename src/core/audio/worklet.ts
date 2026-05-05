@@ -19,7 +19,8 @@ export type WorkletMessage =
   | { type: 'reset' }
   | { type: 'playFrom'; order: number; row: number; loopPattern: boolean }
   | { type: 'setChannelMuted'; channel: number; muted: boolean }
-  | { type: 'setAmigaModel'; model: AmigaModel };
+  | { type: 'setAmigaModel'; model: AmigaModel }
+  | { type: 'setStereoSeparation'; sep: number };
 
 export type WorkletEvent =
   | { type: 'pos'; order: number; row: number }
@@ -49,6 +50,9 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
    * silently revert to the Replayer default on every recreate.
    */
   private amigaModel: AmigaModel = 'A1200';
+  /** Cached stereo separation for the same reason as `amigaModel` —
+   *  carries across replayer recreates. 20% is the pt2-clone default. */
+  private stereoSeparation = 20;
   /**
    * VU-level throttle state. We accumulate frames since the last `level`
    * post and fire one when we cross the update interval — keeps the
@@ -70,6 +74,10 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
     this.replayer?.setAmigaModel(this.amigaModel);
   }
 
+  private applyStereoSeparation(): void {
+    this.replayer?.setStereoSeparation(this.stereoSeparation);
+  }
+
   constructor() {
     super();
     this.port.onmessage = (e: MessageEvent<WorkletMessage>) => {
@@ -81,6 +89,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
             sampleRate,
             loop: true,
             amigaModel: this.amigaModel,
+            stereoSeparation: this.stereoSeparation,
           });
           this.applyChannelMuted();
           this.lastOrder = -1;
@@ -146,6 +155,10 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
         case 'setAmigaModel':
           this.amigaModel = msg.model;
           this.applyAmigaModel();
+          break;
+        case 'setStereoSeparation':
+          this.stereoSeparation = msg.sep;
+          this.applyStereoSeparation();
           break;
       }
     };

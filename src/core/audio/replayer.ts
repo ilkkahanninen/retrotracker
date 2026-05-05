@@ -177,8 +177,9 @@ export class Replayer {
   private readonly channels: ChannelState[] = [];
   private readonly state: SongState;
   private readonly paula: Mixer;
-  /** Mid/side panning side coefficient: (sep% / 100) * 0.5. */
-  private readonly sideFactor: number;
+  /** Mid/side panning side coefficient: (sep% / 100) * 0.5. Mutable so
+   *  the worklet can swap the user's preferred separation mid-playback. */
+  private sideFactor: number;
   /** If true, never report ended; treat Bxx revisits and end-of-orders as a wrap. */
   private readonly loop: boolean;
   /** If true, playback never advances past the starting order's pattern. */
@@ -395,6 +396,16 @@ export class Replayer {
    */
   setAmigaModel(model: AmigaModel): void {
     this.paula.setAmigaModel(model);
+  }
+
+  /**
+   * Live-update the stereo separation. `sep` is a percentage (0..100):
+   * 0 collapses to mono, 100 is the full Amiga hard-pan. Recomputes
+   * `sideFactor` in place; takes effect on the next `mixChunk`.
+   */
+  setStereoSeparation(sep: number): void {
+    const clamped = Math.max(0, Math.min(100, sep));
+    this.sideFactor = (clamped / 100) * 0.5;
   }
 
   /**

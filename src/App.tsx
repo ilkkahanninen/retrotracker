@@ -2031,6 +2031,14 @@ export const App: Component = () => {
       eng?.setPaulaModel(model);
     });
 
+    // Stereo separation — same read-first pattern so the Solid effect
+    // stays subscribed even when the engine is still null on first run.
+    createEffect(() => {
+      const sep = settings().stereoSeparation;
+      const eng = currentEngine();
+      eng?.setStereoSeparation(sep);
+    });
+
     // Theme application. The first run fires synchronously before the
     // initial render is committed, so the saved scheme paints on the
     // first frame instead of flashing the :root defaults first.

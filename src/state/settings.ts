@@ -21,17 +21,28 @@ export const UI_SCALE_MAX = 150;
 export const UI_SCALE_STEP = 5;
 export const UI_SCALE_DEFAULT = 100;
 
+/**
+ * Stereo separation slider range (percent). 0 = mono, 100 = full Amiga
+ * hard-pan. Default matches pt2-clone (20%).
+ */
+export const STEREO_SEP_MIN = 0;
+export const STEREO_SEP_MAX = 100;
+export const STEREO_SEP_DEFAULT = 20;
+
 export interface Settings {
   paulaModel: AmigaModel;
   colorScheme: ColorSchemeId;
   /** UI zoom level as a percentage. 100 = native size. */
   uiScale: number;
+  /** Stereo separation as a percentage. 0 = mono, 100 = full hard-pan. */
+  stereoSeparation: number;
 }
 
 const DEFAULTS: Settings = {
   paulaModel: 'A1200',
   colorScheme: 'default',
   uiScale: UI_SCALE_DEFAULT,
+  stereoSeparation: STEREO_SEP_DEFAULT,
 };
 
 function isColorSchemeId(v: unknown): v is ColorSchemeId {
@@ -41,6 +52,11 @@ function isColorSchemeId(v: unknown): v is ColorSchemeId {
 function clampUiScale(n: unknown): number {
   if (typeof n !== 'number' || !Number.isFinite(n)) return DEFAULTS.uiScale;
   return Math.max(UI_SCALE_MIN, Math.min(UI_SCALE_MAX, Math.round(n)));
+}
+
+function clampStereoSep(n: unknown): number {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return DEFAULTS.stereoSeparation;
+  return Math.max(STEREO_SEP_MIN, Math.min(STEREO_SEP_MAX, Math.round(n)));
 }
 
 function load(): Settings {
@@ -58,7 +74,8 @@ function load(): Settings {
       ? obj['colorScheme']
       : DEFAULTS.colorScheme;
     const uiScale = clampUiScale(obj['uiScale']);
-    return { paulaModel, colorScheme, uiScale };
+    const stereoSeparation = clampStereoSep(obj['stereoSeparation']);
+    return { paulaModel, colorScheme, uiScale, stereoSeparation };
   } catch {
     return { ...DEFAULTS };
   }
@@ -99,4 +116,8 @@ export function setColorScheme(scheme: ColorSchemeId): void {
 
 export function setUiScale(scale: number): void {
   setSettings({ uiScale: clampUiScale(scale) });
+}
+
+export function setStereoSeparation(sep: number): void {
+  setSettings({ stereoSeparation: clampStereoSep(sep) });
 }

@@ -1143,79 +1143,105 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   color: var(--muted);
 }
 
-/* Settings view — app-wide preferences (Paula filter model, etc.). Same
- * single-column form layout as the info view; radio groups instead of
- * inputs since each setting is a small enum. */
+/* Settings view — app-wide preferences. Group boxes follow the
+ * chiptune-editor pattern: a panel-2 fill with a grid-line border and
+ * a small uppercase header, fields flat-stacked inside with dashed
+ * separators between rows. Divs / spans (not fieldset / legend) keep
+ * the section header from rendering on the box border. */
 .settingsview {
+  --settingsview-control-width: 320px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  max-width: 720px;
+  gap: 24px;
+  max-width: 640px;
   margin: 0 auto;
+  padding-bottom: 32px;
 }
-.settingsview h2 { margin-bottom: 0; }
-.settingsview__field {
+.settingsview h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.settingsview__group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  border: none;
-  padding: 0;
-  margin: 0;
+  gap: 6px;
+  padding: 10px 14px 12px;
+  background: var(--panel);
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
 }
-.settingsview__label {
-  font-size: 11px;
+.settingsview__group-label {
+  font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
-  padding: 0;
+}
+.settingsview__field {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-2);
+  gap: 8px;
+  border-radius: 4px;
+  padding: 10px 14px 12px;
+  margin: 4px 0 0 0;
+}
+.settingsview__field + .settingsview__field {
+  border-top: 1px dashed var(--grid-line);
+}
+.settingsview__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
 }
 .settingsview__radios {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 2px;
 }
 .settingsview__radio {
-  display: grid;
-  grid-template-columns: auto auto 1fr;
-  align-items: baseline;
-  gap: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   cursor: pointer;
+  padding: 2px 0;
+  font-size: 13px;
 }
 .settingsview__radio input { margin: 0; }
 .settingsview__radio-label { font-weight: 600; }
-.settingsview__hint {
-  grid-column: 3;
-  font-size: 11px;
-  color: var(--muted);
-}
 .settingsview__select {
-  background: var(--panel);
+  background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--grid-line);
-  border-radius: 4px;
-  padding: 6px 10px;
+  border-radius: 3px;
+  padding: 4px 8px;
   font: inherit;
-  align-self: flex-start;
-  min-width: 220px;
+  font-size: 12px;
+  width: var(--settingsview-control-width);
+  cursor: pointer;
 }
 .settingsview__select:focus {
   outline: none;
   border-color: var(--accent);
 }
 .settingsview__slider {
-  align-self: flex-start;
-  width: 260px;
+  width: var(--settingsview-control-width);
   accent-color: var(--accent);
+  margin: 0;
 }
 .settingsview__reset {
-  margin-left: 10px;
   background: transparent;
   color: var(--muted);
   border: 1px solid var(--grid-line);
   border-radius: 3px;
   padding: 1px 8px;
   font: inherit;
-  font-size: 11px;
+  font-size: 10px;
   cursor: pointer;
   text-transform: none;
   letter-spacing: 0;
@@ -1223,11 +1249,6 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .settingsview__reset:hover {
   color: var(--fg);
   border-color: var(--accent);
-}
-/* The hint inside the non-grid color-scheme fieldset shouldn't inherit
- * the radio's `grid-column: 3` placement — re-anchor to normal flow. */
-.settingsview__field > .settingsview__hint {
-  grid-column: auto;
 }
 
 /* ── Slider ─────────────────────────────────────────────────────────── */

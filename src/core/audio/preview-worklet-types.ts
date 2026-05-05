@@ -30,4 +30,14 @@ export interface PreviewSetAmigaModelMsg {
   model: AmigaModel;
 }
 
-export type PreviewMsg = PreviewSetMsg | PreviewStopMsg | PreviewSetAmigaModelMsg;
+export interface PreviewSetStereoSepMsg {
+  type: 'setStereoSeparation';
+  /** Percentage 0..100. Same shape as `Settings.stereoSeparation`. */
+  sep: number;
+}
+
+export type PreviewMsg =
+  | PreviewSetMsg
+  | PreviewStopMsg
+  | PreviewSetAmigaModelMsg
+  | PreviewSetStereoSepMsg;

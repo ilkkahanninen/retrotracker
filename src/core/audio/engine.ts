@@ -31,6 +31,8 @@ export class AudioEngine {
    * also re-apply this on first construction in `ensurePreviewNode`.
    */
   private paulaModel: AmigaModel = 'A1200';
+  /** Cached stereo separation, same lazy-preview reasoning as `paulaModel`. */
+  private stereoSeparation = 20;
   /** Called whenever the replayer crosses a row boundary during playback. */
   onPosition: ((order: number, row: number) => void) | null = null;
   /**
@@ -87,8 +89,10 @@ export class AudioEngine {
     // overridden it yet. Without this, opening the sample editor for the
     // first time after the user picked A500 would still preview through
     // A1200 filters until the next setPaulaModel call.
-    const msg: PreviewMsg = { type: "setAmigaModel", model: this.paulaModel };
-    node.port.postMessage(msg);
+    const modelMsg: PreviewMsg = { type: "setAmigaModel", model: this.paulaModel };
+    node.port.postMessage(modelMsg);
+    const sepMsg: PreviewMsg = { type: "setStereoSeparation", sep: this.stereoSeparation };
+    node.port.postMessage(sepMsg);
     return node;
   }
 
@@ -159,6 +163,17 @@ export class AudioEngine {
     this.node.port.postMessage(songMsg);
     if (this.previewNode) {
       const previewMsg: PreviewMsg = { type: "setAmigaModel", model };
+      this.previewNode.port.postMessage(previewMsg);
+    }
+  }
+
+  /** Mirror of `setPaulaModel` for the stereo-separation slider. */
+  setStereoSeparation(sep: number): void {
+    this.stereoSeparation = sep;
+    const songMsg: WorkletMessage = { type: "setStereoSeparation", sep };
+    this.node.port.postMessage(songMsg);
+    if (this.previewNode) {
+      const previewMsg: PreviewMsg = { type: "setStereoSeparation", sep };
       this.previewNode.port.postMessage(previewMsg);
     }
   }
