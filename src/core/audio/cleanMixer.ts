@@ -17,6 +17,7 @@
  */
 
 import type { Mixer } from './mixer';
+import type { AmigaModel } from './paula';
 import { PAULA_CLOCK_PAL } from '../mod/format';
 
 const PAULA_VOICES = 4;
@@ -117,6 +118,11 @@ export class CleanMixer implements Mixer {
   setLEDFilter(_on: boolean): void {
     // No LED filter — that's an analog-character knob the user is opting out
     // of by choosing this mixer. Method exists to satisfy the Mixer contract.
+  }
+
+  setAmigaModel(_model: AmigaModel): void {
+    // Same reasoning as setLEDFilter — CleanMixer has no analog filter
+    // chain, so the model selection has no effect here.
   }
 
   generate(outL: Float64Array, outR: Float64Array, frames: number, offset: number): void {

@@ -4,6 +4,7 @@ import type { Sample, Song } from "../mod/types";
 import { songForPlayback, truncateSampleAtLoopEnd } from "./loopTruncate";
 import type { WorkletEvent, WorkletMessage } from "./worklet";
 import type { PreviewMsg } from "./preview-worklet-types";
+import type { AmigaModel } from "./paula";
 
 /**
  * Browser-side wrapper around AudioContext + AudioWorkletNode.
@@ -24,6 +25,12 @@ export class AudioEngine {
    */
   private previewNode: AudioWorkletNode | null = null;
   private previewModuleAdded = false;
+  /**
+   * Cached Paula filter model. Pushed to both worklets on every change
+   * via `setPaulaModel`. The preview worklet is created lazily, so we
+   * also re-apply this on first construction in `ensurePreviewNode`.
+   */
+  private paulaModel: AmigaModel = 'A1200';
   /** Called whenever the replayer crosses a row boundary during playback. */
   onPosition: ((order: number, row: number) => void) | null = null;
   /**
@@ -75,6 +82,13 @@ export class AudioEngine {
     });
     node.connect(this.ctx.destination);
     this.previewNode = node;
+    // Sync the cached model into the freshly-built preview worklet — the
+    // worklet's own default (A1200) is correct only if the user hasn't
+    // overridden it yet. Without this, opening the sample editor for the
+    // first time after the user picked A500 would still preview through
+    // A1200 filters until the next setPaulaModel call.
+    const msg: PreviewMsg = { type: "setAmigaModel", model: this.paulaModel };
+    node.port.postMessage(msg);
     return node;
   }
 
@@ -131,6 +145,22 @@ export class AudioEngine {
   setChannelMuted(channel: number, muted: boolean): void {
     const msg: WorkletMessage = { type: "setChannelMuted", channel, muted };
     this.node.port.postMessage(msg);
+  }
+
+  /**
+   * Swap the Paula filter model on both the song and (if it exists) the
+   * preview worklet. The model is also cached on the engine so that a
+   * preview worklet created after this call still picks up the right
+   * model on construction (see `ensurePreviewNode`).
+   */
+  setPaulaModel(model: AmigaModel): void {
+    this.paulaModel = model;
+    const songMsg: WorkletMessage = { type: "setAmigaModel", model };
+    this.node.port.postMessage(songMsg);
+    if (this.previewNode) {
+      const previewMsg: PreviewMsg = { type: "setAmigaModel", model };
+      this.previewNode.port.postMessage(previewMsg);
+    }
   }
 
   /**

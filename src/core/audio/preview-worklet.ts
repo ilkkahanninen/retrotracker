@@ -59,6 +59,7 @@ class PreviewProcessor extends AudioWorkletProcessor {
       const m = e.data;
       if (m.type === 'set') this.handleSet(m.data, m.period, m.volume, m.loopStartBytes, m.loopLengthWords);
       else if (m.type === 'stop') this.handleStop();
+      else if (m.type === 'setAmigaModel') this.paula.setAmigaModel(m.model);
     };
   }
 

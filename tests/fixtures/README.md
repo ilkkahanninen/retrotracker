@@ -1,13 +1,15 @@
 # Test fixtures
 
-Each fixture is a `.mod` plus a generated `.reference.wav`:
+Each fixture is a `.mod` plus a generated `.reference.wav` per Amiga model:
 
 - `name.mod` — strict 4-channel ProTracker module, synthesized by [generate.ts](generate.ts). Committed.
-- `name.reference.wav` — pt2-clone's render of that module. Generated locally on first test run; gitignored.
+- `name.reference.wav` — pt2-clone's A1200 render of that module. Generated locally on first test run; gitignored.
+- `name.reference.A500.wav` — pt2-clone's A500 render of the same module (extra ~4.4 kHz LP filter). Same generated-on-demand convention.
 
-[tests/render-accuracy.test.ts](../render-accuracy.test.ts) compares
-our offline renderer to each reference at the reference WAV's sample rate.
-Missing references (and a missing `vendor/bin/pt2-render`) are auto-built.
+[tests/render-accuracy.test.ts](../render-accuracy.test.ts) compares our
+offline renderer to each A1200 reference; [tests/render-accuracy-a500.test.ts](../render-accuracy-a500.test.ts)
+does the same against the A500 references with `amigaModel: 'A500'`. Missing
+references (and a missing `vendor/bin/pt2-render`) are auto-built.
 
 ## Fixtures
 
@@ -57,7 +59,8 @@ npm run fixtures:render      # render every .mod to a .reference.wav
 Direct render:
 
 ```bash
-vendor/bin/pt2-render in.mod out.wav --rate=44100
+vendor/bin/pt2-render in.mod out.wav --rate=44100             # A1200 (default)
+vendor/bin/pt2-render in.mod out.wav --rate=44100 --model=A500
 ```
 
 Output is 16-bit stereo PCM at the requested rate.

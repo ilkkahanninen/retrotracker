@@ -7,6 +7,7 @@ import {
 } from '../mod/format';
 import type { ReplayerOptions } from './types';
 import { Paula } from './paula';
+import type { AmigaModel } from './paula';
 import type { Mixer } from './mixer';
 
 /**
@@ -204,7 +205,7 @@ export class Replayer {
     this.loopPattern = opts.loopPattern ?? false;
     this.paula = opts.mixerFactory
       ? opts.mixerFactory(opts.sampleRate)
-      : new Paula(opts.sampleRate, 'A1200');
+      : new Paula(opts.sampleRate, opts.amigaModel ?? 'A1200');
     const sep = Math.max(0, Math.min(100, opts.stereoSeparation ?? 20));
     this.sideFactor = (sep / 100) * 0.5;
     for (let i = 0; i < CHANNELS; i++) this.channels.push(newChannel());
@@ -383,6 +384,17 @@ export class Replayer {
   setChannelMuted(channel: number, muted: boolean): void {
     if (channel < 0 || channel >= CHANNELS) return;
     this.channelMuted[channel] = muted;
+  }
+
+  /**
+   * Swap the Paula filter model at runtime. Forwards to the underlying
+   * mixer; non-Paula mixers (CleanMixer) treat it as a no-op. Cheap to
+   * call mid-playback — Paula reconfigures its filter coefficients in
+   * place and resets the RC history so the previous model's state
+   * doesn't bleed in.
+   */
+  setAmigaModel(model: AmigaModel): void {
+    this.paula.setAmigaModel(model);
   }
 
   /**

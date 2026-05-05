@@ -48,6 +48,7 @@ import {
   setEditStep,
 } from "./state/edit";
 import { registerAppKeybinds } from "./state/appKeybinds";
+import { settings } from "./state/settings";
 import { parseModule } from "./core/mod/parser";
 import { writeModule } from "./core/mod/writer";
 import { deriveExportFilename, io } from "./state/io";
@@ -148,6 +149,7 @@ import { PatternHelp } from "./components/PatternHelp";
 import { SampleList } from "./components/SampleList";
 import { SampleView, type SampleSelection } from "./components/SampleView";
 import { InfoView } from "./components/InfoView";
+import { SettingsView } from "./components/SettingsView";
 import { Menu, type MenuItem } from "./components/Menu";
 import { view, setView } from "./state/view";
 import {
@@ -2014,6 +2016,14 @@ export const App: Component = () => {
       }
     });
 
+    // Push Paula filter model changes to both worklets. Same lazy-engine
+    // pattern as channel mute: if no engine exists yet, ensureEngine()
+    // will pick up the current setting on creation.
+    createEffect(() => {
+      const eng = currentEngine();
+      eng?.setPaulaModel(settings().paulaModel);
+    });
+
     // Autosave to localStorage whenever the persisted signals change.
     // Debounced because some interactions (drag-selection, hex digit
     // entry sweeping a column) fire many cursor / song updates in quick
@@ -2211,6 +2221,7 @@ export const App: Component = () => {
         "app--view-pattern": view() === "pattern",
         "app--view-sample": view() === "sample",
         "app--view-info": view() === "info",
+        "app--view-settings": view() === "settings",
       }}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
@@ -2280,6 +2291,16 @@ export const App: Component = () => {
             title="Info view (F4)"
           >
             Info
+          </button>
+          <button
+            type="button"
+            role="tab"
+            classList={{ "viewtab--active": view() === "settings" }}
+            aria-selected={view() === "settings"}
+            onClick={() => setView("settings")}
+            title="Settings view (F5)"
+          >
+            Settings
           </button>
         </div>
         <div class="transport" role="group" aria-label="Transport">
@@ -2510,6 +2531,12 @@ export const App: Component = () => {
                   onFilenameChange={(name) => setFilename(name || null)}
                   onInfoTextChange={setInfoText}
                 />
+              </div>
+              <div
+                class="settingsview-wrapper"
+                classList={{ "view-hidden": view() !== "settings" }}
+              >
+                <SettingsView />
               </div>
             </>
           )}

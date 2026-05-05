@@ -10,6 +10,7 @@ import type { Song } from '../mod/types';
 import { CHANNELS } from '../mod/types';
 import { speedTempoAt } from '../mod/flatten';
 import { Replayer } from './replayer';
+import type { AmigaModel } from './paula';
 
 export type WorkletMessage =
   | { type: 'load'; song: Song }
@@ -17,7 +18,8 @@ export type WorkletMessage =
   | { type: 'stop' }
   | { type: 'reset' }
   | { type: 'playFrom'; order: number; row: number; loopPattern: boolean }
-  | { type: 'setChannelMuted'; channel: number; muted: boolean };
+  | { type: 'setChannelMuted'; channel: number; muted: boolean }
+  | { type: 'setAmigaModel'; model: AmigaModel };
 
 export type WorkletEvent =
   | { type: 'pos'; order: number; row: number }
@@ -41,6 +43,13 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
    */
   private readonly channelMuted: boolean[] = new Array(CHANNELS).fill(false);
   /**
+   * Cached Paula filter model. Mirrors the user's Settings preference so
+   * the worklet can re-apply it whenever it builds a fresh Replayer
+   * (load, end-of-song wrap, playFrom). Without this the model would
+   * silently revert to the Replayer default on every recreate.
+   */
+  private amigaModel: AmigaModel = 'A1200';
+  /**
    * VU-level throttle state. We accumulate frames since the last `level`
    * post and fire one when we cross the update interval — keeps the
    * message channel quiet (~30 Hz instead of one event per 128-frame
@@ -57,6 +66,10 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
     }
   }
 
+  private applyAmigaModel(): void {
+    this.replayer?.setAmigaModel(this.amigaModel);
+  }
+
   constructor() {
     super();
     this.port.onmessage = (e: MessageEvent<WorkletMessage>) => {
@@ -64,7 +77,11 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
       switch (msg.type) {
         case 'load':
           this.song = msg.song;
-          this.replayer = new Replayer(msg.song, { sampleRate, loop: true });
+          this.replayer = new Replayer(msg.song, {
+            sampleRate,
+            loop: true,
+            amigaModel: this.amigaModel,
+          });
           this.applyChannelMuted();
           this.lastOrder = -1;
           this.lastRow = -1;
@@ -73,7 +90,11 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           // Replayer is one-shot — recreate it from the stored Song if the
           // previous run finished. This is what makes Play→end→Play work.
           if (this.song && (!this.replayer || this.replayer.isFinished())) {
-            this.replayer = new Replayer(this.song, { sampleRate, loop: true });
+            this.replayer = new Replayer(this.song, {
+              sampleRate,
+              loop: true,
+              amigaModel: this.amigaModel,
+            });
             this.applyChannelMuted();
             this.lastOrder = -1;
             this.lastRow = -1;
@@ -108,6 +129,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
               initialSpeed: speed,
               initialTempo: tempo,
               loopPattern: msg.loopPattern,
+              amigaModel: this.amigaModel,
             });
             this.applyChannelMuted();
             this.lastOrder = -1;
@@ -120,6 +142,10 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
             this.channelMuted[msg.channel] = msg.muted;
             this.replayer?.setChannelMuted(msg.channel, msg.muted);
           }
+          break;
+        case 'setAmigaModel':
+          this.amigaModel = msg.model;
+          this.applyAmigaModel();
           break;
       }
     };
@@ -140,7 +166,11 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
       // zeros after `ended` is set) — a sub-render-quantum gap on the order
       // of a few ms.
       if (this.replayer.isFinished() && this.song) {
-        this.replayer = new Replayer(this.song, { sampleRate, loop: true });
+        this.replayer = new Replayer(this.song, {
+          sampleRate,
+          loop: true,
+          amigaModel: this.amigaModel,
+        });
         this.applyChannelMuted();
         this.lastOrder = -1;
         this.lastRow = -1;

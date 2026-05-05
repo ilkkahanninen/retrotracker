@@ -5,6 +5,8 @@
  * main bundle.
  */
 
+import type { AmigaModel } from './paula';
+
 export interface PreviewSetMsg {
   type: 'set';
   /** Int8 sample data (PT format, byte = signed 8-bit). */
@@ -23,4 +25,9 @@ export interface PreviewStopMsg {
   type: 'stop';
 }
 
-export type PreviewMsg = PreviewSetMsg | PreviewStopMsg;
+export interface PreviewSetAmigaModelMsg {
+  type: 'setAmigaModel';
+  model: AmigaModel;
+}
+
+export type PreviewMsg = PreviewSetMsg | PreviewStopMsg | PreviewSetAmigaModelMsg;

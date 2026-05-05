@@ -14,6 +14,7 @@ import {
 } from "./cursor";
 import { transport } from "./song";
 import { setView, view } from "./view";
+import { togglePaulaModel } from "./settings";
 import { rowsPerBeat, beatsPerBar } from "./gridConfig";
 import {
   decEditStep,
@@ -212,6 +213,22 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       key: "f4",
       description: "Info view",
       run: () => setView("info"),
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "f5",
+      description: "Settings view",
+      run: () => setView("settings"),
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "a",
+      mod: true,
+      shift: true,
+      description: "Toggle Paula filter model (A1200 / A500)",
+      run: togglePaulaModel,
     }),
   );
   // Transport (Space-based chords; Option used instead of Cmd to avoid the

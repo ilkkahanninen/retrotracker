@@ -551,6 +551,7 @@ export class Paula {
   private readonly filterLED = new TwoPoleFilter();
   private readonly dsL = new Downsample2x();
   private readonly dsR = new Downsample2x();
+  private model: AmigaModel;
   private useLowpass: boolean;
   private useHighpass: boolean;
   private useLED = false;
@@ -583,7 +584,26 @@ export class Paula {
       this.bleps.push(new Blep());
     }
 
-    if (model === 'A1200') {
+    this.model = model;
+    this.useLowpass = false;
+    this.useHighpass = false;
+    this.configureModelFilters();
+
+    // 2-pole Sallen-Key LED filter: R1=R2=10kΩ, C1=6.8nF, C2=3.9nF
+    const R1 = 10_000, R2 = 10_000, C1 = 6.8e-9, C2 = 3.9e-9;
+    const ledCutoff = 1 / (2 * Math.PI * Math.sqrt(R1 * R2 * C1 * C2));
+    const ledQ = Math.sqrt(R1 * R2 * C1 * C2) / (C2 * (R1 + R2));
+    this.filterLED.setup(this.paulaRate, ledCutoff, ledQ);
+  }
+
+  /**
+   * Reconfigure the RC filter coefficients for the active Amiga model.
+   * Used both at construction and from `setAmigaModel` to swap models at
+   * runtime (e.g. when the user changes the Settings preference). The LED
+   * filter is shared between models and isn't re-set up.
+   */
+  private configureModelFilters(): void {
+    if (this.model === 'A1200') {
       // A1200 LP cutoff (~34kHz) is above the audible range; pt2-clone skips it.
       this.useLowpass = false;
       this.useHighpass = true;
@@ -597,12 +617,19 @@ export class Paula {
       // 1-pole HP: R=1390Ω, C=22.33µF → ~5.128 Hz
       this.filterHi.setup(this.paulaRate, 1 / (2 * Math.PI * 1390 * 2.233e-5));
     }
+  }
 
-    // 2-pole Sallen-Key LED filter: R1=R2=10kΩ, C1=6.8nF, C2=3.9nF
-    const R1 = 10_000, R2 = 10_000, C1 = 6.8e-9, C2 = 3.9e-9;
-    const ledCutoff = 1 / (2 * Math.PI * Math.sqrt(R1 * R2 * C1 * C2));
-    const ledQ = Math.sqrt(R1 * R2 * C1 * C2) / (C2 * (R1 + R2));
-    this.filterLED.setup(this.paulaRate, ledCutoff, ledQ);
+  /**
+   * Swap the active Amiga model at runtime. Filter coefficients are
+   * recomputed in place and the filter state is reset so the previous
+   * model's RC history doesn't leak into the new one's response curve.
+   */
+  setAmigaModel(model: AmigaModel): void {
+    if (model === this.model) return;
+    this.model = model;
+    this.filterLo.reset();
+    this.filterHi.reset();
+    this.configureModelFilters();
   }
 
   setLEDFilter(on: boolean): void {

@@ -66,19 +66,23 @@ int main(int argc, char *argv[]) {
     const char *outPath = NULL;
     long rate = DEFAULT_RATE;
     long loops = DEFAULT_LOOPS;
+    int amigaModel = 0;  /* 0 = A1200, 1 = A500 — pt2-clone's MODEL_* convention */
 
     for (int i = 1; i < argc; i++) {
         if (strncmp(argv[i], "--rate=", 7) == 0) rate = parse_long_arg("--rate=", argv[i], rate);
         else if (strncmp(argv[i], "--loops=", 8) == 0) loops = parse_long_arg("--loops=", argv[i], loops);
+        else if (strcmp(argv[i], "--model=A500") == 0 || strcmp(argv[i], "--model=a500") == 0) amigaModel = 1;
+        else if (strcmp(argv[i], "--model=A1200") == 0 || strcmp(argv[i], "--model=a1200") == 0) amigaModel = 0;
         else if (!inPath) inPath = argv[i];
         else if (!outPath) outPath = argv[i];
     }
 
     if (!inPath || !outPath) {
         fprintf(stderr,
-            "Usage: pt2-render <input.mod> <output.wav> [--rate=N] [--loops=N]\n"
-            "  --rate=N    output sample rate in Hz (default %d)\n"
-            "  --loops=N   number of additional song loops (default %d)\n",
+            "Usage: pt2-render <input.mod> <output.wav> [--rate=N] [--loops=N] [--model=A1200|A500]\n"
+            "  --rate=N      output sample rate in Hz (default %d)\n"
+            "  --loops=N     number of additional song loops (default %d)\n"
+            "  --model=...   Amiga filter model: A1200 (default) or A500\n",
             DEFAULT_RATE, DEFAULT_LOOPS);
         return 2;
     }
@@ -86,7 +90,7 @@ int main(int argc, char *argv[]) {
     /* Defaults that the replayer / module loader read from `config`. */
     memset(&config, 0, sizeof(config));
     config.maxSampleLength    = 65534;
-    config.amigaModel         = 0;        // 0 = A1200, 1 = A500
+    config.amigaModel         = amigaModel; // 0 = A1200, 1 = A500
     config.stereoSeparation   = 20;       // %
     config.soundFrequency     = (uint32_t)rate;
     config.soundBufferSize    = 1024;

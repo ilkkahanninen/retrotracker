@@ -1,4 +1,5 @@
 import type { Mixer } from './mixer';
+import type { AmigaModel } from './paula';
 
 export type PaulaClock = 'PAL' | 'NTSC';
 
@@ -45,6 +46,13 @@ export interface ReplayerOptions {
    * the user wants a high-quality render free of Paula's analog character.
    */
   mixerFactory?: (sampleRate: number) => Mixer;
+  /**
+   * Amiga model used for the default Paula mixer. Ignored when
+   * `mixerFactory` is supplied. Defaults to 'A1200' — the same model the
+   * accuracy test bed and CLI render use, so omitting this preserves
+   * existing behavior.
+   */
+  amigaModel?: AmigaModel;
 }
 
 export interface RenderOptions extends ReplayerOptions {

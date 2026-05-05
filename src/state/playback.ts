@@ -13,6 +13,7 @@ import { cursor } from "./cursor";
 import { isChannelMuted } from "./channelMute";
 import { setChannelLevels } from "./channelLevel";
 import * as preview from "./preview";
+import { settings } from "./settings";
 
 /**
  * Audio playback orchestration. Owns the lazily-created AudioEngine and
@@ -40,6 +41,10 @@ export async function ensureEngine(): Promise<AudioEngine | null> {
     for (let ch = 0; ch < CHANNELS; ch++) {
       engine.setChannelMuted(ch, isChannelMuted(ch));
     }
+    // Same reasoning for the Paula model: a user who picked A500 before
+    // the audio context was unlocked would otherwise hear the first
+    // playthrough through A1200 filters until the next preference change.
+    engine.setPaulaModel(settings().paulaModel);
     return engine;
   } catch {
     return null;

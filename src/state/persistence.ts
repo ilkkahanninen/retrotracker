@@ -273,6 +273,7 @@ function payloadToSession(parsed: unknown): LoadedSession | null {
     view:
       parsed.view === 'sample' ? 'sample'
       : parsed.view === 'info' ? 'info'
+      : parsed.view === 'settings' ? 'settings'
       : 'pattern',
     cursor: sanitiseCursor(parsed.cursor),
     currentSample: clamp(parsed.currentSample, 1, 31, 1),
@@ -568,7 +569,7 @@ function isPersistedShape(v: unknown): v is PersistedShape {
     && typeof x['songBase64'] === 'string'
     && (x['filename'] === null || typeof x['filename'] === 'string')
     && (x['infoText'] === undefined || typeof x['infoText'] === 'string')
-    && (x['view'] === 'pattern' || x['view'] === 'sample' || x['view'] === 'info')
+    && (x['view'] === 'pattern' || x['view'] === 'sample' || x['view'] === 'info' || x['view'] === 'settings')
     && typeof x['cursor'] === 'object' && x['cursor'] !== null
     && typeof x['currentSample'] === 'number'
     && typeof x['currentOctave'] === 'number'

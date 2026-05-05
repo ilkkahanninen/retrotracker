@@ -56,7 +56,8 @@ body {
 }
 /* Info view drops both side panes — the form is a single form column,
  * so the sample list and order pane would just be empty noise. */
-.app--view-info {
+.app--view-info,
+.app--view-settings {
   grid-template-columns: 1fr;
   grid-template-areas:
     "header"
@@ -259,9 +260,10 @@ body {
 .app__samples, .app__order { background: var(--panel); padding: 12px; overflow: auto; }
 .app__samples { grid-area: samples; }
 .app__order   { grid-area: order; }
-/* Info view doesn't reserve the samples column in its grid — keep the
- * always-rendered aside out of an implicit cell with display:none. */
-.app--view-info .app__samples { display: none; }
+/* Info and settings views don't reserve the samples column in their
+ * grids — keep the always-rendered aside out of an implicit cell. */
+.app--view-info .app__samples,
+.app--view-settings .app__samples { display: none; }
 
 .ordertools {
   position: sticky;
@@ -299,8 +301,10 @@ body {
 .app__main > .dropzone { place-self: center; }
 .app__main > .patternpane,
 .app__main > .sampleview-wrapper,
-.app__main > .infoview-wrapper { min-height: 0; min-width: 0; }
-.app__main > .infoview-wrapper { overflow: auto; padding: 24px 32px; }
+.app__main > .infoview-wrapper,
+.app__main > .settingsview-wrapper { min-height: 0; min-width: 0; }
+.app__main > .infoview-wrapper,
+.app__main > .settingsview-wrapper { overflow: auto; padding: 24px 32px; }
 /* Both panes stay mounted; the inactive one is hidden via this class so
  * toggling the view is a single CSS swap instead of an unmount + remount
  * of the heavy pattern grid (~2400 spans + per-cell mousedown handlers). */
@@ -1135,6 +1139,52 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: 
   max-width: calc(22ch + 24px);
 }
 .infoview__hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Settings view — app-wide preferences (Paula filter model, etc.). Same
+ * single-column form layout as the info view; radio groups instead of
+ * inputs since each setting is a small enum. */
+.settingsview {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+.settingsview h2 { margin-bottom: 0; }
+.settingsview__field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+.settingsview__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  padding: 0;
+}
+.settingsview__radios {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settingsview__radio {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: 4px 10px;
+  cursor: pointer;
+}
+.settingsview__radio input { margin: 0; }
+.settingsview__radio-label { font-weight: 600; }
+.settingsview__hint {
+  grid-column: 3;
   font-size: 11px;
   color: var(--muted);
 }

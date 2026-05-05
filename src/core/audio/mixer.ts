@@ -1,3 +1,5 @@
+import type { AmigaModel } from './paula';
+
 /**
  * Surface area the Replayer uses to push channel state at a sample mixer.
  * Paula is one implementation (BLEP + RC/LED filters); CleanMixer is a
@@ -38,6 +40,12 @@ export interface Mixer {
 
   /** Toggle the LED low-pass filter (A500 hardware curve). */
   setLEDFilter(on: boolean): void;
+
+  /**
+   * Swap the active Amiga model at runtime. Mixers without analog
+   * filtering (e.g. CleanMixer) treat this as a no-op.
+   */
+  setAmigaModel(model: AmigaModel): void;
 
   /** Emit `frames` stereo Float64 samples at the mixer's output rate. */
   generate(outL: Float64Array, outR: Float64Array, frames: number, offset: number): void;
