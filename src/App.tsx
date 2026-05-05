@@ -7,175 +7,167 @@ import {
   onMount,
   type Component,
 } from "solid-js";
+import { InfoView } from "./components/InfoView";
+import { Menu, type MenuItem } from "./components/Menu";
+import { PatternGrid } from "./components/PatternGrid";
+import { PatternHelp } from "./components/PatternHelp";
+import { SampleList } from "./components/SampleList";
+import { SampleView, type SampleSelection } from "./components/SampleView";
+import { SettingsView } from "./components/SettingsView";
+import { bounceSelection } from "./core/audio/bounce";
+import type { ChiptuneParams } from "./core/audio/chiptune";
 import {
-  song,
-  setSong,
-  transport,
-  setTransport,
-  playMode,
-  setPlayMode,
-  playPos,
-  setPlayPos,
-  canRedo,
-  canUndo,
-  clearHistory,
-  commitEdit,
-  commitEditWithWorkbenches,
-  redo,
-  undo,
-  dirty,
-  setDirty,
-} from "./state/song";
-import { installShortcuts } from "./state/shortcuts";
+  defaultEffect,
+  emptySamplerWorkbench,
+  materializeSource,
+  runChain,
+  runPipeline,
+  sourceDisplayName,
+  sourceWantsFullLoop,
+  workbenchFromChiptune,
+  workbenchFromInt8,
+  workbenchFromWav,
+  workbenchFromWavData,
+  workbenchToAlt,
+  type EffectKind,
+  type EffectNode,
+  type MonoMix,
+  type ResampleMode,
+  type SampleWorkbench,
+  type SourceKind,
+} from "./core/audio/sampleWorkbench";
 import {
-  cursor,
-  setCursor,
-  resetCursor,
-  moveDown,
-  moveRight,
-  requestJumpToTop,
-} from "./state/cursor";
-import {
-  clearFieldPatch,
-  currentOctave,
-  currentSample,
-  editStep,
-  incEditStep,
-  decEditStep,
-  selectSample,
-  setCurrentSample,
-  setCurrentOctave,
-  setEditStep,
-} from "./state/edit";
-import { registerAppKeybinds } from "./state/appKeybinds";
-import { settings } from "./state/settings";
-import { applyColorScheme, applyUiScale } from "./state/theme";
-import { parseModule } from "./core/mod/parser";
-import { writeModule } from "./core/mod/writer";
-import { deriveExportFilename, io } from "./state/io";
-import { PERIOD_TABLE, emptySong } from "./core/mod/format";
-import {
-  deleteCellPullUp,
-  deleteRowPullUp,
-  insertCellPushDown,
-  insertRowPushDown,
-  setCell,
-  nextPatternAtOrder,
-  prevPatternAtOrder,
-  insertOrder,
-  deleteOrder,
-  newPatternAtOrder,
-  duplicatePatternAtOrder,
-  cleanupOrders,
-  setSample,
-  clearSample,
-  replaceSampleData,
-  transposeRange,
-} from "./core/mod/mutations";
-import { cropSample, cutSample } from "./core/mod/sampleSelection";
-import {
-  readSlice,
   clearRange,
   pasteSlice,
+  readSlice,
   type PatternRange,
 } from "./core/mod/clipboardOps";
-import { CHANNELS, ROWS_PER_PATTERN } from "./core/mod/types";
 import { visibleRowRangeForOrder } from "./core/mod/flatten";
-import { bounceSelection } from "./core/audio/bounce";
+import { PERIOD_TABLE, emptySong } from "./core/mod/format";
 import {
-  selection,
-  setSelection,
-  setSelectionAnchor,
-  selectionAnchor,
-  makeSelection,
-  clearSelection,
-} from "./state/selection";
-import { clipboardSlice, setClipboardSlice } from "./state/clipboard";
+  cleanupOrders,
+  clearSample,
+  deleteCellPullUp,
+  deleteOrder,
+  deleteRowPullUp,
+  duplicatePatternAtOrder,
+  insertCellPushDown,
+  insertOrder,
+  insertRowPushDown,
+  newPatternAtOrder,
+  nextPatternAtOrder,
+  prevPatternAtOrder,
+  replaceSampleData,
+  setCell,
+  setSample,
+  transposeRange,
+} from "./core/mod/mutations";
+import { parseModule } from "./core/mod/parser";
+import { cropSample, cutSample } from "./core/mod/sampleSelection";
+import { CHANNELS, ROWS_PER_PATTERN } from "./core/mod/types";
+import { writeModule } from "./core/mod/writer";
+import { registerAppKeybinds } from "./state/appKeybinds";
+import { resetChannelLevels } from "./state/channelLevel";
 import {
   isChannelMuted,
   resetChannelMute,
   toggleMute,
   toggleSolo,
 } from "./state/channelMute";
-import { resetChannelLevels } from "./state/channelLevel";
+import { clipboardSlice, setClipboardSlice } from "./state/clipboard";
 import {
-  patternNames,
-  setPatternName,
-  resetPatternNames,
-  loadPatternNames,
-  PATTERN_NAME_MAX,
-} from "./state/patternNames";
+  cursor,
+  moveDown,
+  moveRight,
+  requestJumpToTop,
+  resetCursor,
+  setCursor,
+} from "./state/cursor";
 import {
-  workbenchFromWav,
-  workbenchFromWavData,
-  workbenchFromChiptune,
-  workbenchFromInt8,
-  emptySamplerWorkbench,
-  workbenchToAlt,
-  runPipeline,
-  runChain,
-  defaultEffect,
-  materializeSource,
-  sourceDisplayName,
-  sourceWantsFullLoop,
-  type SampleWorkbench,
-  type SampleSource,
-  type SourceKind,
-  type EffectNode,
-  type EffectKind,
-  type MonoMix,
-  type ResampleMode,
-} from "./core/audio/sampleWorkbench";
-import type { ChiptuneParams } from "./core/audio/chiptune";
+  clearFieldPatch,
+  currentOctave,
+  currentSample,
+  decEditStep,
+  editStep,
+  incEditStep,
+  selectSample,
+  setCurrentOctave,
+  setCurrentSample,
+  setEditStep,
+} from "./state/edit";
 import {
-  getWorkbench,
-  setWorkbench,
-  workbenches,
-  clearAllWorkbenches,
-  withWorkbench,
-  withoutWorkbench,
-} from "./state/sampleWorkbench";
-import {
-  ensureEngine,
-  triggerPreview,
-  livePreviewSwap,
-  stopPlayback,
-  playFromStart,
-  playFromCursor,
-  playPatternFromStart,
-  playPatternFromCursor,
-  togglePlaySong,
-  togglePlayPattern,
-  stopEngine,
-  stopEnginePreview,
-  disposeEngine,
-  currentEngine,
-} from "./state/playback";
-import { PatternGrid } from "./components/PatternGrid";
-import { PatternHelp } from "./components/PatternHelp";
-import { SampleList } from "./components/SampleList";
-import { SampleView, type SampleSelection } from "./components/SampleView";
-import { InfoView } from "./components/InfoView";
-import { SettingsView } from "./components/SettingsView";
-import { Menu, type MenuItem } from "./components/Menu";
-import { view, setView } from "./state/view";
-import {
-  infoText,
-  setInfoText,
-  wrapInfoText,
-  infoTextFromSampleNames,
   INFO_LINE_WIDTH,
   INFO_MAX_LINES,
+  infoText,
+  infoTextFromSampleNames,
+  setInfoText,
+  wrapInfoText,
 } from "./state/info";
+import { deriveExportFilename, io } from "./state/io";
 import {
-  saveSession,
-  loadSession,
-  projectToBytes,
-  projectFromBytes,
+  PATTERN_NAME_MAX,
+  loadPatternNames,
+  patternNames,
+  resetPatternNames,
+  setPatternName,
+} from "./state/patternNames";
+import {
   deriveProjectFilename,
+  loadSession,
+  projectFromBytes,
+  projectToBytes,
+  saveSession,
   type SamplerSourceInputs,
 } from "./state/persistence";
+import {
+  currentEngine,
+  disposeEngine,
+  livePreviewSwap,
+  stopEngine,
+  togglePlayPattern,
+  togglePlaySong,
+  triggerPreview,
+} from "./state/playback";
 import * as preview from "./state/preview";
+import {
+  clearAllWorkbenches,
+  getWorkbench,
+  setWorkbench,
+  withWorkbench,
+  withoutWorkbench,
+  workbenches,
+} from "./state/sampleWorkbench";
+import {
+  clearSelection,
+  makeSelection,
+  selection,
+  selectionAnchor,
+  setSelection,
+  setSelectionAnchor,
+} from "./state/selection";
+import { settings } from "./state/settings";
+import { installShortcuts } from "./state/shortcuts";
+import {
+  canRedo,
+  canUndo,
+  clearHistory,
+  commitEdit,
+  commitEditWithWorkbenches,
+  dirty,
+  playMode,
+  playPos,
+  redo,
+  setDirty,
+  setPlayMode,
+  setPlayPos,
+  setSong,
+  setTransport,
+  song,
+  transport,
+  undo,
+} from "./state/song";
+import { applyColorScheme, applyUiScale } from "./state/theme";
+import { setView, view } from "./state/view";
 
 /** Hard cap on the `.retro` project file size. The header indicator turns
  *  yellow at the warning threshold and red once the limit is exceeded. */

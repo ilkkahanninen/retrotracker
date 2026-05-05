@@ -1,7 +1,7 @@
 import type { Component } from "solid-js";
 import type { Song } from "../core/mod/types";
+import { INFO_MAX_LINES } from "../state/info";
 import { transport } from "../state/song";
-import { INFO_LINE_WIDTH, INFO_MAX_LINES } from "../state/info";
 
 interface Props {
   song: Song;
