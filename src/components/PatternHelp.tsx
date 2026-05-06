@@ -267,6 +267,11 @@ const NOTE_TIPS: TipSection[] = [
     items: [
       {
         keys: "[ / ]",
+        action: "previous / next order in song",
+        position: true,
+      },
+      {
+        keys: "Shift + [ / ]",
         action: "previous / next pattern at slot",
         position: true,
       },

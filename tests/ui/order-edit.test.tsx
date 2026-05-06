@@ -83,7 +83,7 @@ describe("order list: click navigation", () => {
   });
 });
 
-describe("order list: [ / ] step pattern at slot", () => {
+describe("order list: Shift+[ / Shift+] step pattern at slot", () => {
   // Position-mapped — drive raw KeyboardEvents so the matcher can see the
   // physical-key code (`BracketLeft` / `BracketRight`) regardless of
   // userEvent's keyboard-syntax escaping rules around brackets.
@@ -101,31 +101,31 @@ describe("order list: [ / ] step pattern at slot", () => {
     );
   }
 
-  it("']' increments orders[cursor.order]", () => {
+  it("'Shift+]' increments orders[cursor.order]", () => {
     setSong(songWith(3));
     render(() => <App />);
     expect(song()!.orders[0]).toBe(0);
-    pressBracket("right");
+    pressBracket("right", { shift: true });
     expect(song()!.orders[0]).toBe(1);
   });
 
-  it("'[' decrements orders[cursor.order] and clamps at 0", () => {
+  it("'Shift+[' decrements orders[cursor.order] and clamps at 0", () => {
     setSong(songWith(3));
     render(() => <App />);
     setCursor({ order: 2, row: 0, channel: 0, field: "note" }); // slot 2 → pattern 2
-    pressBracket("left");
+    pressBracket("left", { shift: true });
     expect(song()!.orders[2]).toBe(1);
-    pressBracket("left");
+    pressBracket("left", { shift: true });
     expect(song()!.orders[2]).toBe(0);
-    pressBracket("left");
+    pressBracket("left", { shift: true });
     expect(song()!.orders[2]).toBe(0); // clamped
   });
 
-  it("']' auto-grows the patterns array when stepping past the last existing one", () => {
+  it("'Shift+]' auto-grows the patterns array when stepping past the last existing one", () => {
     setSong(songWith(2)); // 2 patterns
     render(() => <App />);
     setCursor({ order: 1, row: 0, channel: 0, field: "note" }); // slot 1 → pattern 1
-    pressBracket("right");
+    pressBracket("right", { shift: true });
     expect(song()!.patterns).toHaveLength(3);
     expect(song()!.orders[1]).toBe(2);
   });
@@ -232,7 +232,7 @@ describe("order editing is allowed during playback", () => {
   // own song snapshot, so a slot bump while playing updates the editor
   // state without desyncing what's currently audible. The new orders
   // apply on the next play / restart.
-  it("']' bumps the slot pattern while transport is playing", () => {
+  it("'Shift+]' bumps the slot pattern while transport is playing", () => {
     setSong(songWith(3));
     render(() => <App />);
     setTransport("playing");
@@ -240,6 +240,7 @@ describe("order editing is allowed during playback", () => {
       new KeyboardEvent("keydown", {
         key: "]",
         code: "BracketRight",
+        shiftKey: true,
       }),
     );
     expect(song()!.orders[0]).toBe(1);
@@ -259,10 +260,10 @@ describe("order editing is allowed during playback", () => {
     expect(song()!.songLength).toBe(3);
   });
 
-  it("']' bumps the slot the playhead is currently on, not the locked cursor", () => {
+  it("'Shift+]' bumps the slot the playhead is currently on, not the locked cursor", () => {
     // Cursor at slot 0 (its pre-play position), playhead at slot 2. The
     // active pattern in the order list is whatever the song is audibly
-    // cycling through right now — playhead — so `]` must bump
+    // cycling through right now — playhead — so `Shift+]` must bump
     // orders[2], not orders[0]. Without this, mid-playback order edits
     // would always touch wherever the user last navigated before
     // pressing play (often the start of the song).
@@ -275,6 +276,7 @@ describe("order editing is allowed during playback", () => {
       new KeyboardEvent("keydown", {
         key: "]",
         code: "BracketRight",
+        shiftKey: true,
       }),
     );
     expect(song()!.orders[0]).toBe(0); // untouched
@@ -291,6 +293,68 @@ describe("order editing is allowed during playback", () => {
     setTransport("playing");
     setPlayPos({ order: 1, row: 0 });
     expect(tool(container, "Previous pattern at slot").disabled).toBe(false);
+  });
+});
+
+describe("order list: [ / ] jump to prev/next order", () => {
+  // Bare `[` / `]` move the active position prev/next in the order
+  // list. When stopped, the cursor moves; when playing, the audio
+  // engine retargets to that order at row 0 and playPos snaps in
+  // sync (the same path as clicking an order list slot).
+  function pressBracket(
+    side: "left" | "right",
+    mods: { shift?: boolean } = {},
+  ) {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: side === "left" ? "[" : "]",
+        code: side === "left" ? "BracketLeft" : "BracketRight",
+        shiftKey: mods.shift ?? false,
+      }),
+    );
+  }
+
+  it("']' moves the cursor to the next order when stopped", () => {
+    setSong(songWith(3));
+    render(() => <App />);
+    expect(cursor().order).toBe(0);
+    pressBracket("right");
+    expect(cursor().order).toBe(1);
+    pressBracket("right");
+    expect(cursor().order).toBe(2);
+  });
+
+  it("']' clamps at the last order", () => {
+    setSong(songWith(3));
+    render(() => <App />);
+    setCursor({ order: 2, row: 0, channel: 0, field: "note" });
+    pressBracket("right");
+    expect(cursor().order).toBe(2);
+    expect(song()!.songLength).toBe(3); // didn't grow either
+  });
+
+  it("'[' moves the cursor to the previous order, clamping at 0", () => {
+    setSong(songWith(3));
+    render(() => <App />);
+    setCursor({ order: 2, row: 0, channel: 0, field: "note" });
+    pressBracket("left");
+    expect(cursor().order).toBe(1);
+    pressBracket("left");
+    expect(cursor().order).toBe(0);
+    pressBracket("left");
+    expect(cursor().order).toBe(0);
+  });
+
+  it("']' retargets playback to the next order during playback", () => {
+    setSong(songWith(3));
+    render(() => <App />);
+    setTransport("playing");
+    setPlayPos({ order: 0, row: 5 });
+    pressBracket("right");
+    // Same path as clicking an order list slot mid-playback: playPos
+    // snaps to (target, 0) synchronously and transport stays "playing".
+    expect(playPos()).toEqual({ order: 1, row: 0 });
+    expect(transport()).toBe("playing");
   });
 });
 

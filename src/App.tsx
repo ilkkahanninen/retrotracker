@@ -1267,6 +1267,23 @@ export const App: Component = () => {
   const activeOrder = () =>
     transport() === "playing" ? playPos().order : cursor().order;
 
+  // `[` / `]` navigate the order list itself: move the active position
+  // back / forward by one, clamped to song length. Routes through
+  // `jumpToOrder`, which during playback retargets the audio engine to
+  // the new order at row 0 and otherwise just moves the cursor.
+  const jumpPrevOrder = () => {
+    const o = activeOrder();
+    if (o <= 0) return;
+    jumpToOrder(o - 1);
+  };
+  const jumpNextOrder = () => {
+    const s = song();
+    if (!s) return;
+    const o = activeOrder();
+    if (o >= s.songLength - 1) return;
+    jumpToOrder(o + 1);
+  };
+
   const stepNextPattern = () => {
     const o = activeOrder();
     commitEditWithWorkbenches((state) => {
@@ -2360,6 +2377,8 @@ export const App: Component = () => {
       repeatLastEffectFromAbove,
       stepPrevPattern,
       stepNextPattern,
+      jumpPrevOrder,
+      jumpNextOrder,
       insertOrderSlot,
       deleteOrderSlot,
       newBlankPatternAtOrder,
@@ -2853,7 +2872,7 @@ export const App: Component = () => {
                       type="button"
                       onClick={stepPrevPattern}
                       disabled={!canPrev()}
-                      title="Previous pattern at slot ([)"
+                      title="Previous pattern at slot (⇧[)"
                       aria-label="Previous pattern at slot"
                     >
                       ‹
@@ -2862,7 +2881,7 @@ export const App: Component = () => {
                       type="button"
                       onClick={stepNextPattern}
                       disabled={!canNext()}
-                      title="Next pattern at slot (])"
+                      title="Next pattern at slot (⇧])"
                       aria-label="Next pattern at slot"
                     >
                       ›

@@ -133,6 +133,8 @@ export interface AppKeybindHandlers {
   repeatLastEffectFromAbove: () => void;
   stepPrevPattern: () => void;
   stepNextPattern: () => void;
+  jumpPrevOrder: () => void;
+  jumpNextOrder: () => void;
   insertOrderSlot: () => void;
   deleteOrderSlot: () => void;
   newBlankPatternAtOrder: () => void;
@@ -687,9 +689,28 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   // through `commitEditWithWorkbenches`, which doesn't gate). The
   // worklet's own song snapshot keeps playing whatever it was loaded
   // with — edits show up audibly on the next play / restart.
+  // Bare `[` / `]` move the active position prev/next in the order list.
+  // The pattern-step variants live one shift away.
   cleanups.push(
     registerShortcut({
       key: "[",
+      position: true,
+      description: "Previous order in song",
+      run: h.jumpPrevOrder,
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "]",
+      position: true,
+      description: "Next order in song",
+      run: h.jumpNextOrder,
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "[",
+      shift: true,
       position: true,
       description: "Previous pattern at slot",
       run: h.stepPrevPattern,
@@ -698,6 +719,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   cleanups.push(
     registerShortcut({
       key: "]",
+      shift: true,
       position: true,
       description: "Next pattern at slot",
       run: h.stepNextPattern,
