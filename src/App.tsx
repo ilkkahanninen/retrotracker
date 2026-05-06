@@ -543,7 +543,14 @@ export const App: Component = () => {
     const startSlot = currentSample() - 1;
     const targets: number[] = [];
     let from = startSlot - 1;
-    if (s.samples[startSlot]?.lengthWords === 0) {
+    // Sample view: the user is actively editing this slot — dropping a WAV
+    // here means "replace this sample", so we land on `startSlot` even when
+    // it already holds data. Pattern view keeps the existing behaviour
+    // (start at the current slot only when it's empty, then fan forward),
+    // since drops there are typically batch imports the user expects to
+    // see appended without clobbering anything.
+    const overwriteCurrent = view() === "sample";
+    if (overwriteCurrent || s.samples[startSlot]?.lengthWords === 0) {
       targets.push(startSlot);
       from = startSlot;
     }
@@ -566,7 +573,17 @@ export const App: Component = () => {
     commitEditWithWorkbenches((state) => {
       let nextSong = state.song;
       let nextWb = state.workbenches;
-      for (const { slot, wb } of pairs) {
+      for (let i = 0; i < pairs.length; i++) {
+        const { slot, wb } = pairs[i]!;
+        // Sample-view overwrite of an occupied slot (i === 0 + overwriteCurrent):
+        // clear the slot first so `writeWorkbenchToSongPure` treats this as a
+        // fresh write — the new WAV's filename becomes the sample name and
+        // volume/finetune reset to defaults. Without this, dropping a new
+        // WAV onto a named slot would silently leave the old name attached
+        // to brand-new audio.
+        if (i === 0 && overwriteCurrent) {
+          nextSong = clearSample(nextSong, slot);
+        }
         nextSong = writeWorkbenchToSongPure(nextSong, slot, wb, NO_LOOP);
         nextWb = withWorkbench(nextWb, slot, wb);
       }

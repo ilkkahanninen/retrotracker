@@ -175,6 +175,68 @@ describe("drag-drop: WAV imports fan out across free slots", () => {
     expect(getWorkbench(1)).toBeUndefined();
   });
 
+  it("in sample view, a WAV drop replaces the current slot even when it is occupied", async () => {
+    // Pattern-view drops onto a populated slot fan forward to the next free
+    // slot (covered above). In sample view the user is actively editing the
+    // selected slot, so a WAV drop is interpreted as "replace this sample"
+    // rather than "append elsewhere".
+    const s = emptySong();
+    s.samples[0] = {
+      ...s.samples[0]!,
+      name: "taken",
+      lengthWords: 4,
+      data: new Int8Array([1, 2, 3, 4, 5, 6, 7, 8]),
+    };
+    setSong(s);
+    setCurrentSample(1);
+    setView("sample");
+    const { container } = render(() => <App />);
+
+    fireDrop(appRoot(container), [makeWavFile("replacement.wav", 8)]);
+
+    await waitFor(() => {
+      // The drop overwrote slot 0's data — name is replaced and a workbench
+      // is now associated with that slot.
+      expect(getWorkbench(0)?.source.kind).toBe("sampler");
+      expect(song()!.samples[0]!.name).not.toBe("taken");
+    });
+    // The slot 1 below stays empty — fanout did NOT happen.
+    expect(song()!.samples[1]!.lengthWords).toBe(0);
+    expect(getWorkbench(1)).toBeUndefined();
+    // Selection stays on the slot the user was already editing.
+    expect(currentSample()).toBe(1);
+  });
+
+  it("in sample view, extra WAVs from a multi-drop still fan forward after the current slot", async () => {
+    // The first WAV anchors at the current slot (overwriting); the rest
+    // fall onto subsequent free slots so a batch drop in sample view
+    // doesn't silently discard the extras.
+    const s = emptySong();
+    s.samples[0] = {
+      ...s.samples[0]!,
+      name: "old",
+      lengthWords: 4,
+      data: new Int8Array([1, 2, 3, 4, 5, 6, 7, 8]),
+    };
+    setSong(s);
+    setCurrentSample(1);
+    setView("sample");
+    const { container } = render(() => <App />);
+
+    fireDrop(appRoot(container), [
+      makeWavFile("first.wav", 8),
+      makeWavFile("second.wav", 8),
+    ]);
+
+    await waitFor(() => {
+      expect(getWorkbench(0)).toBeDefined();
+      expect(getWorkbench(1)).toBeDefined();
+    });
+    expect(song()!.samples[0]!.name).not.toBe("old");
+    expect(song()!.samples[1]!.lengthWords).toBeGreaterThan(0);
+    expect(currentSample()).toBe(1);
+  });
+
   it('emits a "skipped" error when there are more WAVs than free slots', async () => {
     // Fill every slot so the drop has nowhere to land except the very last
     // one — drop two files so one is skipped.
