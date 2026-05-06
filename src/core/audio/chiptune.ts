@@ -148,6 +148,17 @@ export interface ChiptuneParams {
    * inside the rendered output. Set `amplitude: 0` to disable.
    */
   lfo2: Lfo;
+  /**
+   * Where PT's playback begins inside the rendered cycle, expressed as a
+   * fraction of the full output length. 0 = start at the natural origin
+   * (osc phase 0, LFO triangle's lower edge); 0.5 = start mid-output.
+   * The output buffer is rotated by `round(offset × outputLength)` frames
+   * so byte 0 of the int8 corresponds to that position. Loop point stays
+   * seamless because the rotation shifts both endpoints by the same
+   * amount. Optional in `chiptuneFromJson` for back-compat — payloads
+   * predating this field restore at offset 0.
+   */
+  offset: number;
 }
 
 export const CYCLE_FRAMES_MIN = 8;
@@ -283,6 +294,7 @@ export function defaultChiptuneParams(): ChiptuneParams {
     shaperAmount: 0,
     lfo: defaultLfo(),
     lfo2: defaultLfo(),
+    offset: 0,
   };
 }
 
@@ -419,6 +431,13 @@ export function generateChiptuneCycle(p: ChiptuneParams): WavData {
   const L = Math.max(2, baseLen * m1);
   const period2 = Math.max(2, baseLen * m2);
   const out = new Float32Array(L);
+  // `offset` is a static rotation of the finished output: PT's playback
+  // begins at index `offsetFrames` of the unrotated cycle, so we write
+  // the value computed for source index `i` to destination
+  // `(i - offsetFrames + L) % L`. The loop point stays seamless because
+  // the rotation shifts both endpoints by the same amount.
+  const offsetFrac = clamp(p.offset, 0, 1);
+  const offsetFrames = ((Math.round(offsetFrac * L) % L) + L) % L;
   const baseAmp = clamp(p.amplitude, 0, 1);
   const baseAmount = p.combineAmount;
   const baseShaperAmount = clamp(p.shaperAmount, 0, 1);
@@ -532,7 +551,10 @@ export function generateChiptuneCycle(p: ChiptuneParams): WavData {
       }
     }
     s = applyShaper(s, p.shaperMode, shaperAmt);
-    out[i] = s * outAmp;
+    // Write at the rotated destination so byte 0 of the int8 corresponds
+    // to source index `offsetFrames`. When offsetFrames === 0 this is the
+    // identity (no extra modulo work changes the result).
+    out[(i - offsetFrames + L) % L] = s * outAmp;
   }
   return {
     sampleRate: rateForC2(),
@@ -619,6 +641,9 @@ export function chiptuneFromJson(v: unknown): ChiptuneParams | null {
     shaperAmount,
     lfo,
     lfo2,
+    // Optional: payloads saved before the offset field exists restore at 0
+    // (the historical behaviour, no rotation applied).
+    offset: typeof x["offset"] === "number" ? clamp(x["offset"], 0, 1) : 0,
   };
 }
 

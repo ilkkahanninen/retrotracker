@@ -74,6 +74,19 @@ export const ChiptuneEditor: Component<ChiptuneEditorProps> = (props) => {
             disabled={props.disabled}
             onInput={(v) => props.onUpdate({ amplitude: v })}
           />
+          <Slider
+            label="Offset"
+            min={0}
+            max={1}
+            step={0.01}
+            value={props.params.offset}
+            disabled={props.disabled}
+            // Display as a percentage to match the user-facing 0–100% scale.
+            // The underlying value is 0..1 so it composes cleanly with the
+            // synth's clamp() and stays JSON-friendly for `.retro` round-trips.
+            format={(v) => `${Math.round(v * 100)}%`}
+            onInput={(v) => props.onUpdate({ offset: v })}
+          />
         </div>
       </div>
 

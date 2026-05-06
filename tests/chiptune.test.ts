@@ -235,6 +235,109 @@ describe("generateChiptuneCycle — combine modes", () => {
   });
 });
 
+describe("generateChiptuneCycle — offset (loop-start rotation)", () => {
+  it("offset=0 leaves the output unchanged (rotation identity)", () => {
+    // Square at cycleFrames=8 → first half +1, second half −1. With
+    // offset=0 the historical layout is preserved bit-exact, so adding
+    // the field doesn't drift the default render.
+    const params = withDefaults({
+      cycleFrames: 8,
+      osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 },
+      osc2: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 },
+      combineMode: "morph",
+      combineAmount: 0,
+      offset: 0,
+    });
+    const w = generateChiptuneCycle(params);
+    expect(Array.from(w.channels[0]!)).toEqual([1, 1, 1, 1, -1, -1, -1, -1]);
+  });
+
+  it("offset=0.5 shifts the cycle so byte 0 lands at the original midpoint", () => {
+    // Same square as above. offset=0.5 with L=8 → rotate by 4: byte 0 of
+    // the new output = byte 4 of the original = first −1 sample.
+    const w = generateChiptuneCycle(
+      withDefaults({
+        cycleFrames: 8,
+        osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 },
+        osc2: { shapeIndex: 0, phaseSplit: 0.5, ratio: 1 },
+        combineMode: "morph",
+        combineAmount: 0,
+        offset: 0.5,
+      }),
+    );
+    expect(Array.from(w.channels[0]!)).toEqual([-1, -1, -1, -1, 1, 1, 1, 1]);
+  });
+
+  it("offset=1 wraps to offset=0 (full rotation is identity)", () => {
+    const make = (offset: number) =>
+      generateChiptuneCycle(
+        withDefaults({
+          cycleFrames: 8,
+          osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 },
+          combineAmount: 0,
+          offset,
+        }),
+      );
+    expect(Array.from(make(1).channels[0]!)).toEqual(
+      Array.from(make(0).channels[0]!),
+    );
+  });
+
+  it("offset rotates a full LFO render — loop point stays seamless", () => {
+    // With LFO 1's cycleMultiplier=2 the rendered output is 16 frames; an
+    // offset of 0.5 rotates by 8 (one full base cycle). The LFO triangle
+    // starts and ends at 0 in the unrotated output, so rotating moves the
+    // triangle's start point but keeps the value at frame 0 == value at
+    // frame L (loop seamlessness preserved).
+    const params = withDefaults({
+      cycleFrames: 8,
+      osc1: { shapeIndex: 4, phaseSplit: 0.5, ratio: 1 },
+      combineAmount: 0,
+      lfo: { cycleMultiplier: 2, amplitude: 0.5, target: "amplitude" },
+      offset: 0.5,
+    });
+    const w = generateChiptuneCycle(params);
+    expect(w.channels[0]!.length).toBe(16);
+    // Seamless loop: the cycle ends at the same place it starts (within
+    // the rotation's discrete-frame error). We compare the LFO-shape at
+    // the loop boundary by checking that wrapping forward by L produces
+    // matching values — equivalent to the loop-clean property.
+    // Trivial check: the first value matches what the unrotated render
+    // had at frame 8.
+    const unrotated = generateChiptuneCycle({ ...params, offset: 0 });
+    expect(w.channels[0]![0]).toBeCloseTo(unrotated.channels[0]![8]!, 9);
+    expect(w.channels[0]![15]).toBeCloseTo(unrotated.channels[0]![7]!, 9);
+  });
+});
+
+describe("chiptuneFromJson — offset back-compat", () => {
+  it("falls back to offset=0 when the field is missing", () => {
+    // Strip the offset field from a default-shaped JSON to simulate a
+    // payload saved before the slider was added.
+    const json = JSON.parse(JSON.stringify(defaultChiptuneParams())) as Record<
+      string,
+      unknown
+    >;
+    delete json["offset"];
+    const restored = chiptuneFromJson(json);
+    expect(restored).not.toBeNull();
+    expect(restored!.offset).toBe(0);
+  });
+
+  it("clamps an out-of-range offset to [0, 1]", () => {
+    const lo = chiptuneFromJson({
+      ...JSON.parse(JSON.stringify(defaultChiptuneParams())),
+      offset: -1,
+    });
+    const hi = chiptuneFromJson({
+      ...JSON.parse(JSON.stringify(defaultChiptuneParams())),
+      offset: 5,
+    });
+    expect(lo!.offset).toBe(0);
+    expect(hi!.offset).toBe(1);
+  });
+});
+
 describe("chiptuneFromJson", () => {
   it("round-trips a default params object", () => {
     const orig = defaultChiptuneParams();
