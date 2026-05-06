@@ -7,24 +7,30 @@
 
 /**
  * Pick a download filename. Prefers the originally-loaded file's name, then
- * the song title (sanitised), then "untitled". Always ends in `.mod`.
+ * the song title (sanitised), then "untitled". Always ends in `.${ext}` —
+ * the loaded name's `.mod` extension is stripped first (it's the only
+ * loadable extension) so a "song.mod" loaded file exports as "song.wav"
+ * when the caller asks for `ext='wav'`.
  *
- *   - "song.mod"     → "song.mod"
- *   - "Song.MOD"     → "Song.mod"          (existing extension normalised)
- *   - null + "Demo"  → "Demo.mod"
- *   - null + ""      → "untitled.mod"
- *   - "Cool/Song"    → "Cool_Song.mod"     (path/special chars sanitised)
+ *   - "song.mod"            → "song.mod"
+ *   - "Song.MOD"            → "Song.mod"             (extension normalised)
+ *   - null + "Demo"         → "Demo.mod"
+ *   - null + ""             → "untitled.mod"
+ *   - "Cool/Song"           → "Cool_Song.mod"        (special chars sanitised)
+ *   - "song.mod" + "wav"    → "song.wav"
+ *   - null + "Demo" + "wav" → "Demo.wav"
  */
 export function deriveExportFilename(
   loadedName: string | null,
   songTitle: string,
+  ext: string = "mod",
 ): string {
   const base = loadedName
     ? loadedName.replace(/\.mod$/i, "")
     : songTitle.trim();
   const sanitised = base.replace(/[^\w.\- ]+/g, "_").replace(/\s+/g, "_");
   const trimmed = sanitised.slice(0, 64);
-  return `${trimmed || "untitled"}.mod`;
+  return `${trimmed || "untitled"}.${ext}`;
 }
 
 /**

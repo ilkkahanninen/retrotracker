@@ -39,4 +39,13 @@ describe("deriveExportFilename", () => {
   it("preserves the loaded name even if the song title is also set", () => {
     expect(deriveExportFilename("foo.mod", "Bar")).toBe("foo.mod");
   });
+
+  it("swaps the extension when callers ask for a non-default ext (e.g. wav)", () => {
+    // The loaded `.mod` extension is stripped before the new ext is appended,
+    // so a "song.mod" file exports as "song.wav" without a duplicated stem.
+    expect(deriveExportFilename("song.mod", "", "wav")).toBe("song.wav");
+    expect(deriveExportFilename("Song.MOD", "", "wav")).toBe("Song.wav");
+    expect(deriveExportFilename(null, "Demo", "wav")).toBe("Demo.wav");
+    expect(deriveExportFilename(null, "", "wav")).toBe("untitled.wav");
+  });
 });

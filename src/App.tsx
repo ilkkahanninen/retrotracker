@@ -66,6 +66,9 @@ import { parseModule } from "./core/mod/parser";
 import { cropSample, cutSample } from "./core/mod/sampleSelection";
 import { CHANNELS, ROWS_PER_PATTERN } from "./core/mod/types";
 import { writeModule } from "./core/mod/writer";
+import { renderToBuffer } from "./core/audio/offlineRender";
+import { writeWav } from "./core/audio/wav";
+import { songForPlayback } from "./core/audio/loopTruncate";
 import { registerAppKeybinds } from "./state/appKeybinds";
 import { resetChannelLevels } from "./state/channelLevel";
 import {
@@ -348,6 +351,44 @@ export const App: Component = () => {
       deriveExportFilename(filename(), s.title),
       bytes,
       "audio/x-mod",
+    );
+  };
+
+  /**
+   * Render the current song to a 16-bit stereo .wav at 44.1 kHz and trigger
+   * a download. Pipes through `songForPlayback` (loop-truncate fix-up) so
+   * the export sounds the way the editor's preview does, and forwards the
+   * user's Paula model + stereo-separation settings into the offline
+   * renderer so the WAV matches what they hear live.
+   *
+   * Synchronous: a 5-minute song renders in ~1–2 s on a modern laptop,
+   * which is acceptable for a button click. Worker-offloading is the next
+   * step if anyone hits the freeze threshold on a long song. The hard cap
+   * `maxSeconds = 30 min` is a safety net — `stopOnSongEnd: true` (the
+   * default) cuts at the song's loop point, which fires for any PT module
+   * that loops cleanly.
+   */
+  const exportWav = () => {
+    const s = song();
+    if (!s) return;
+    const stamped = withInfoTextAsSampleNames(s, infoText());
+    const playbackSong = songForPlayback(stamped);
+    const sampleRate = 44100;
+    const audio = renderToBuffer(playbackSong, {
+      sampleRate,
+      maxSeconds: 30 * 60,
+      stopOnSongEnd: true,
+      amigaModel: settings().paulaModel,
+      stereoSeparation: settings().stereoSeparation,
+    });
+    const bytes = writeWav({
+      sampleRate: audio.sampleRate,
+      channels: [audio.left, audio.right],
+    });
+    io.download(
+      deriveExportFilename(filename(), s.title, "wav"),
+      bytes,
+      "audio/wav",
     );
   };
 
@@ -2238,6 +2279,7 @@ export const App: Component = () => {
     { separator: true, label: "" },
     { label: "Save…", hint: "⌘S", onClick: saveProject, disabled: !song() },
     { label: "Export .mod…", onClick: exportMod, disabled: !song() },
+    { label: "Export .wav…", onClick: exportWav, disabled: !song() },
   ];
 
   const editMenuItems = (): MenuItem[] => {

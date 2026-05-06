@@ -100,13 +100,19 @@ describe("FileMenu: dropdown behaviour", () => {
     expect(container.querySelector(".menu__list")).toBeNull();
   });
 
-  it("lists New, Open…, Save…, Export .mod… in order", () => {
+  it("lists New, Open…, Save…, Export .mod…, Export .wav… in order", () => {
     const { container } = render(() => <App />);
     fireEvent.click(menuTrigger(container, "File"));
     const labels = Array.from(
       container.querySelectorAll<HTMLElement>(".menu__item .menu__label"),
     ).map((el) => el.textContent);
-    expect(labels).toEqual(["New", "Open…", "Save…", "Export .mod…"]);
+    expect(labels).toEqual([
+      "New",
+      "Open…",
+      "Save…",
+      "Export .mod…",
+      "Export .wav…",
+    ]);
   });
 });
 
