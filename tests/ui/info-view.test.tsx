@@ -138,6 +138,64 @@ describe("Info view: editing fields", () => {
     await user.type(textarea, "hello{Enter}world");
     expect(infoText()).toBe("hello\nworld");
   });
+
+  it("metapane title double-click activates edit mode during playback", async () => {
+    // The pattern view's metapane shows the song title with a
+    // double-click-to-rename affordance. The dblclick handler used to
+    // gate on `transport() !== "playing"`, blocking edit-mode activation
+    // mid-playback. Title is metadata only and now commits via
+    // `commitEditWithWorkbenches`, so the gate has no purpose.
+    const s = emptySong();
+    s.title = "Old";
+    setSong(s);
+    setView("pattern");
+    setTransport("playing");
+    const { container } = render(() => <App />);
+    const title = container.querySelector<HTMLElement>(".patternpane__title")!;
+    fireEvent.dblClick(title);
+    const input = container.querySelector<HTMLInputElement>(
+      ".patternpane__title-input",
+    );
+    expect(input).toBeTruthy();
+  });
+
+  it("all three fields stay editable mid-playback", async () => {
+    // The Info view is metadata-only — title doesn't affect audio,
+    // filename and info text are session signals — so editing must
+    // remain available while the song plays. Without lifting the gate
+    // the inputs were `disabled`, the title commit short-circuited
+    // through `commitEdit`'s transport gate, and the user couldn't
+    // edit anything until they stopped first.
+    setSong(emptySong());
+    setView("info");
+    setTransport("playing");
+    const { container } = render(() => <App />);
+    const inputs =
+      container.querySelectorAll<HTMLInputElement>(".infoview__input");
+    const titleInput = inputs[0]!;
+    const filenameInput = inputs[1]!;
+    const textarea = container.querySelector<HTMLTextAreaElement>(
+      ".infoview__textarea",
+    )!;
+    expect(titleInput.disabled).toBe(false);
+    expect(filenameInput.disabled).toBe(false);
+    expect(textarea.disabled).toBe(false);
+
+    const user = userEvent.setup();
+    await user.click(titleInput);
+    await user.type(titleInput, "Live");
+    expect(song()!.title).toBe("Live"); // commit landed despite playback
+
+    await user.clear(filenameInput);
+    await user.type(filenameInput, "live.mod");
+    // Filename is a session signal, no song commit — verifying it
+    // accepted input via the value reflection is enough.
+    expect(filenameInput.value).toBe("live.mod");
+
+    await user.click(textarea);
+    await user.type(textarea, "from the road");
+    expect(infoText()).toBe("from the road");
+  });
 });
 
 describe("Info view: export-time sample-name override", () => {

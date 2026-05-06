@@ -1,7 +1,6 @@
 import type { Component } from "solid-js";
 import type { Song } from "../core/mod/types";
 import { INFO_MAX_LINES } from "../state/info";
-import { transport } from "../state/song";
 
 interface Props {
   song: Song;
@@ -14,15 +13,14 @@ interface Props {
 
 /**
  * Song-level metadata editor. Edits to the title round-trip through
- * `commitEdit` so they participate in undo/redo; filename and info text
- * are session signals (persisted in `.retro` projects, not in the `.mod`
- * directly — info text is only stamped onto sample names at export time
- * by the caller). All three controls disable during playback to mirror
- * the rest of the editor's "no edits while playing" rule.
+ * `commitEditWithWorkbenches` so they participate in undo/redo and stay
+ * live during playback; filename and info text are session signals
+ * (persisted in `.retro` projects, not in the `.mod` directly — info
+ * text is only stamped onto sample names at export time by the caller).
+ * All three are editable mid-playback — the worklet keeps its own song
+ * snapshot, and the title doesn't affect audio.
  */
 export const InfoView: Component<Props> = (props) => {
-  const playing = () => transport() === "playing";
-
   return (
     <section class="infoview">
       <h2>Info</h2>
@@ -34,7 +32,6 @@ export const InfoView: Component<Props> = (props) => {
           class="infoview__input"
           maxLength={20}
           value={props.song.title}
-          disabled={playing()}
           onInput={(e) => props.onTitleChange(e.currentTarget.value)}
           spellcheck={false}
         />
@@ -49,7 +46,6 @@ export const InfoView: Component<Props> = (props) => {
           type="text"
           class="infoview__input"
           value={props.filename ?? ""}
-          disabled={playing()}
           onInput={(e) => props.onFilenameChange(e.currentTarget.value)}
           spellcheck={false}
           placeholder="(derived from title)"
@@ -65,7 +61,6 @@ export const InfoView: Component<Props> = (props) => {
           class="infoview__textarea"
           rows={INFO_MAX_LINES}
           value={props.infoText}
-          disabled={playing()}
           onInput={(e) => props.onInfoTextChange(e.currentTarget.value)}
           spellcheck={false}
         />

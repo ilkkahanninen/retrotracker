@@ -1410,15 +1410,18 @@ export const App: Component = () => {
 
   /**
    * Commit a new song title from the metapane's inline editor. Truncated
-   * to PT's 20-char limit (matches the Info view's input). Skipped during
-   * playback to keep the worklet's snapshot consistent with the UI; the
-   * Info view's input is similarly gated.
+   * to PT's 20-char limit (matches the Info view's input). Allowed
+   * mid-playback — the title is metadata only, doesn't affect audio,
+   * and the worklet keeps its own song snapshot.
    */
   const commitTitleEdit = (raw: string) => {
     setEditingTitle(false);
-    if (transport() === "playing") return;
     const title = raw.slice(0, 20);
-    commitEdit((song) => (song.title === title ? song : { ...song, title }));
+    commitEditWithWorkbenches((state) =>
+      state.song.title === title
+        ? state
+        : { ...state, song: { ...state.song, title } },
+    );
   };
 
   /**
@@ -2651,9 +2654,7 @@ export const App: Component = () => {
                       <span
                         class="patternpane__title"
                         title="Double-click to rename song"
-                        onDblClick={() => {
-                          if (transport() !== "playing") setEditingTitle(true);
-                        }}
+                        onDblClick={() => setEditingTitle(true)}
                       >
                         {s().title || <em>(untitled)</em>}
                       </span>
@@ -2801,8 +2802,10 @@ export const App: Component = () => {
                   filename={filename()}
                   infoText={infoText()}
                   onTitleChange={(title) =>
-                    commitEdit((song) =>
-                      song.title === title ? song : { ...song, title },
+                    commitEditWithWorkbenches((state) =>
+                      state.song.title === title
+                        ? state
+                        : { ...state, song: { ...state.song, title } },
                     )
                   }
                   onFilenameChange={(name) => setFilename(name || null)}
