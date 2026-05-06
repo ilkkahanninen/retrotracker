@@ -2,7 +2,6 @@ import { For, Show, createEffect, createMemo, type Component } from "solid-js";
 import type { Sample, Song } from "../core/mod/types";
 import { currentSample } from "../state/edit";
 import { workbenches } from "../state/sampleWorkbench";
-import { transport } from "../state/song";
 import { getStashedLoop, stashLoop } from "../state/loopStash";
 import {
   EFFECT_LABELS,
@@ -148,16 +147,6 @@ export const SampleView: Component<Props> = (props) => {
     () => workbenches().get(currentSample() - 1) ?? null,
   );
 
-  // Sample-meta edits go through `commitEdit`, which is gated on
-  // `transport !== 'playing'` to keep the on-screen song in sync with what
-  // the worklet is actually rendering. We mirror that gate visually here
-  // so the user sees exactly why a click had no effect — without this,
-  // toggling Loop mid-playback would briefly flicker checked before Solid
-  // reactively reverted it, and the song would silently miss the edit
-  // (which exactly matches the "loop works in preview but not in song
-  // play" report — the user toggled while playing).
-  const editingDisabled = createMemo(() => transport() === "playing");
-
   // Drag-selection state lives in `state/sampleSelection.ts` (lifted from
   // here so App-level shortcuts like Cmd+A can write to it). The Waveform
   // (drag overlay) and the action buttons below it (Crop / Cut) both
@@ -232,7 +221,6 @@ export const SampleView: Component<Props> = (props) => {
               role="tab"
               aria-selected={activeSourceKind() === k}
               classList={{ "is-active": activeSourceKind() === k }}
-              disabled={editingDisabled()}
               title={`Use the ${SOURCE_LABELS[k]} source for this slot`}
               onClick={() => props.onSetSourceKind(k)}
             >
@@ -260,9 +248,8 @@ export const SampleView: Component<Props> = (props) => {
           </Show>
           <Show
             when={
-              !editingDisabled() &&
-              ((sample() && sample()!.lengthWords > 0 && !workbench()) ||
-                workbench()?.source.kind === "chiptune")
+              (sample() && sample()!.lengthWords > 0 && !workbench()) ||
+              workbench()?.source.kind === "chiptune"
             }
           >
             <button
@@ -285,10 +272,7 @@ export const SampleView: Component<Props> = (props) => {
             type="button"
             onClick={props.onDuplicate}
             disabled={
-              !sample() ||
-              sample()!.lengthWords === 0 ||
-              !props.canDuplicate ||
-              editingDisabled()
+              !sample() || sample()!.lengthWords === 0 || !props.canDuplicate
             }
             title={
               !sample() || sample()!.lengthWords === 0
@@ -328,7 +312,6 @@ export const SampleView: Component<Props> = (props) => {
               maxLength={SAMPLE_NAME_MAX}
               value={sample()!.name}
               placeholder="(unnamed)"
-              disabled={editingDisabled()}
               onInput={(e) => props.onPatch({ name: e.currentTarget.value })}
             />
           </label>
@@ -344,7 +327,6 @@ export const SampleView: Component<Props> = (props) => {
             max={PT_VOLUME_MAX}
             step={1}
             value={sample()!.volume}
-            disabled={editingDisabled()}
             snap={(v) => Math.max(0, Math.min(PT_VOLUME_MAX, Math.round(v)))}
             format={(v) => `${Math.round(v)}`}
             onInput={(v) => props.onPatch({ volume: v })}
@@ -355,7 +337,6 @@ export const SampleView: Component<Props> = (props) => {
             max={PT_FINETUNE_MAX}
             step={1}
             value={signedFinetune(sample()!.finetune)}
-            disabled={editingDisabled()}
             snap={(v) =>
               Math.max(
                 PT_FINETUNE_MIN,
@@ -379,7 +360,7 @@ export const SampleView: Component<Props> = (props) => {
                 <input
                   type="checkbox"
                   checked={isLooping()}
-                  disabled={sample()!.lengthWords === 0 || editingDisabled()}
+                  disabled={sample()!.lengthWords === 0}
                   onChange={(e) => {
                     const slot = currentSample() - 1;
                     if (e.currentTarget.checked) {
@@ -548,7 +529,6 @@ export const SampleView: Component<Props> = (props) => {
                     // doesn't let the user append effects to a 0-byte source.
                     disabled={
                       !workbench() ||
-                      editingDisabled() ||
                       (sample()?.lengthWords ?? 0) === 0 ||
                       (requiresLoop && !loopActive())
                     }
@@ -581,7 +561,7 @@ export const SampleView: Component<Props> = (props) => {
               params={
                 (src() as Extract<SampleSource, { kind: "chiptune" }>).params
               }
-              disabled={editingDisabled()}
+              disabled={false}
               onUpdate={props.onUpdateChiptune}
             />
           )}

@@ -117,6 +117,26 @@ export class AudioEngine {
     this.node.port.postMessage(msg);
   }
 
+  /**
+   * Push a single sample slot's bytes + meta to the worklet without
+   * restarting playback. The Replayer mutates its cached Song so future
+   * note triggers use the new data, and re-latches Paula's voice
+   * registers for any voice currently playing this slot — so a chiptune
+   * morph audibly snaps into the new waveform within one loop period.
+   *
+   * Trailing-after-loop bytes are dropped here too (same loop-truncate
+   * quirk as `load`), so the live update matches what a fresh load
+   * would have sent.
+   */
+  setSampleData(slot: number, sample: Sample): void {
+    const msg: WorkletMessage = {
+      type: "setSampleData",
+      slot,
+      sample: truncateSampleAtLoopEnd(sample),
+    };
+    this.node.port.postMessage(msg);
+  }
+
   async play(): Promise<void> {
     if (this.ctx.state === "suspended") await this.ctx.resume();
     const msg: WorkletMessage = { type: "play" };

@@ -139,14 +139,11 @@ describe("SampleView: loop toggle", () => {
     expect(song()!.samples[0]!.loopLengthWords).toBe(100);
   });
 
-  it("the toggle is visually disabled during playback so the user knows to stop first", () => {
-    // Regression: previously the toggle stayed enabled during playback.
-    // Clicking it briefly flickered the checkbox checked before Solid
-    // reactively reverted it (because commitEdit silently rejects edits
-    // with transport === 'playing'). The user thought the loop was
-    // configured but the song never received it — exactly the "loop
-    // works in preview but not in song play" report. Now the toggle is
-    // disabled during playback, making the constraint visible.
+  it("the toggle stays interactive during playback (sample-side edit policy)", () => {
+    // Sample-meta edits are now allowed mid-playback — the worklet keeps
+    // its own song snapshot, so a loop-toggle while playing updates the
+    // editor state without desyncing what's currently audible. The new
+    // settings apply on the next play / restart.
     setView("sample");
     const { container } = render(() => <App />);
     seedSampleData();
@@ -155,7 +152,10 @@ describe("SampleView: loop toggle", () => {
     const toggle = container.querySelector<HTMLInputElement>(
       '.samplemeta__check input[type="checkbox"]',
     )!;
-    expect(toggle.disabled).toBe(true);
+    expect(toggle.disabled).toBe(false);
+    fireEvent.change(toggle, { target: { checked: true } });
+    // Loop fields actually committed — proves the gate is gone end-to-end.
+    expect(song()!.samples[0]!.loopLengthWords).toBeGreaterThan(1);
   });
 
   it("toggle is disabled when the slot is empty", () => {

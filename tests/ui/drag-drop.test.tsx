@@ -361,18 +361,21 @@ describe("drag-drop: routing by file extension", () => {
   });
 });
 
-describe("drag-drop: blocked while playing", () => {
-  it("drop is a no-op while the transport is playing", async () => {
+describe("drag-drop: allowed while playing (sample-side edit policy)", () => {
+  it("a WAV drop lands in a slot even while the transport is playing", async () => {
+    // Sample-pipeline edits are allowed mid-playback — the worklet keeps
+    // its own song snapshot, so the visible state can move ahead of what's
+    // currently audible without desync risk. Pattern edits are still
+    // blocked elsewhere.
     setSong(emptySong());
     setTransport("playing");
     const { container } = render(() => <App />);
 
-    fireDrop(appRoot(container), [makeWavFile("blocked.wav", 8)]);
+    fireDrop(appRoot(container), [makeWavFile("during-play.wav", 8)]);
 
-    // Give the async path a chance to run; nothing should land.
-    await new Promise((r) => setTimeout(r, 0));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(song()!.samples[0]!.lengthWords).toBe(0);
-    expect(getWorkbench(0)).toBeUndefined();
+    await waitFor(() => {
+      expect(song()!.samples[0]!.lengthWords).toBeGreaterThan(0);
+    });
+    expect(getWorkbench(0)?.source.kind).toBe("sampler");
   });
 });

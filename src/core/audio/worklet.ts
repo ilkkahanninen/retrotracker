@@ -6,7 +6,7 @@
  * Vite bundles imports together, so we can pull in the full Replayer here.
  */
 
-import type { Song } from "../mod/types";
+import type { Sample, Song } from "../mod/types";
 import { CHANNELS } from "../mod/types";
 import { speedTempoAt } from "../mod/flatten";
 import { Replayer } from "./replayer";
@@ -20,7 +20,8 @@ export type WorkletMessage =
   | { type: "playFrom"; order: number; row: number; loopPattern: boolean }
   | { type: "setChannelMuted"; channel: number; muted: boolean }
   | { type: "setAmigaModel"; model: AmigaModel }
-  | { type: "setStereoSeparation"; sep: number };
+  | { type: "setStereoSeparation"; sep: number }
+  | { type: "setSampleData"; slot: number; sample: Sample };
 
 export type WorkletEvent =
   | { type: "pos"; order: number; row: number }
@@ -163,6 +164,16 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
         case "setStereoSeparation":
           this.stereoSeparation = msg.sep;
           this.applyStereoSeparation();
+          break;
+        case "setSampleData":
+          // Hot-swap a single sample slot during playback. Both the cached
+          // Song (used to recreate the Replayer on song-end wrap) and the
+          // live Replayer share the same Song reference, so the
+          // Replayer's `replaceSampleSlot` mutation is enough — no extra
+          // bookkeeping here. No-op when no song is loaded yet.
+          if (this.song && this.replayer) {
+            this.replayer.replaceSampleSlot(msg.slot, msg.sample);
+          }
           break;
       }
     };

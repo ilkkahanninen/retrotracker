@@ -1,4 +1,4 @@
-import type { Note, Song } from "../mod/types";
+import type { Note, Sample, Song } from "../mod/types";
 import { CHANNELS, ROWS_PER_PATTERN } from "../mod/types";
 import { Effect, ExtendedEffect, PERIOD_TABLE } from "../mod/format";
 import type { ReplayerOptions } from "./types";
@@ -422,6 +422,36 @@ export class Replayer {
    */
   peakSnapshotAndReset(out: Float32Array): void {
     this.paula.peakSnapshotAndReset(out);
+  }
+
+  /**
+   * Hot-swap the sample data at `slot` mid-playback. Mutates the cached
+   * Song so subsequent note triggers and offset/funk reads use the new
+   * buffer, and re-latches Paula's per-voice DMA registers for any voice
+   * currently playing this slot. The voice keeps its cursor — the new
+   * loop bounds take effect on the next DMA wrap, so a chiptune morph
+   * with `loopLengthWords > 1` snaps into the new waveform within one
+   * loop period (typically tens of milliseconds). Out-of-bounds reads
+   * past the new buffer end are emitted as silence by Paula until the
+   * wrap, so a shorter new buffer briefly drops out rather than reading
+   * garbage. No-op for slots outside 0..NUM_SAMPLES-1.
+   */
+  replaceSampleSlot(slot: number, sample: Sample): void {
+    if (slot < 0 || slot >= this.song.samples.length) return;
+    this.song.samples[slot] = sample;
+    if (sample.data.byteLength === 0) return;
+    for (let ci = 0; ci < CHANNELS; ci++) {
+      const ch = this.channels[ci]!;
+      if (ch.sampleNum - 1 !== slot) continue;
+      this.paula.setSample(
+        ci,
+        sample.data,
+        0,
+        sample.lengthWords,
+        sample.loopStartWords * 2,
+        sample.loopLengthWords,
+      );
+    }
   }
 
   private syncPaula(): void {

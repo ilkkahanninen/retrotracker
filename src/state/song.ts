@@ -93,9 +93,14 @@ export const canRedo = () => future().length > 0;
  * unchanged (commitEdit / commitEditWithWorkbenches each gate on their own
  * "is this actually different" check before calling, but we re-check here
  * to keep the contract local).
+ *
+ * No transport gate here: the playing-vs-paused policy is the caller's.
+ * Pattern editors gate at `commitEdit`; sample-pipeline editors call
+ * `commitEditWithWorkbenches` which intentionally allows mid-playback
+ * mutations (the worklet keeps its own snapshot, so the editor's UI can
+ * move ahead of what's currently audible without desync risk).
  */
 function applyCommit(next: EditState): void {
-  if (transport() === "playing") return;
   const currentSong = song();
   if (!currentSong) return;
   const currentWb = workbenchesSig();
@@ -152,17 +157,23 @@ export function commitEdit(transform: (song: Song) => Song): void {
 /**
  * Apply an immutable transform that touches both the song AND the workbench
  * map. Used by sample-pipeline operations (load WAV, add/remove/patch
- * effect, clear sample) so the two halves of state move together — the
- * waveform's int8 and the chain UI undo/redo as one unit.
+ * effect, clear sample, sample-meta tweaks) so the two halves of state
+ * move together — the waveform's int8 and the chain UI undo/redo as one
+ * unit.
  *
- * No-op while playing or with no song. The transform receives the live
- * snapshot; return new references for whatever changed (untouched fields
- * can be the same reference).
+ * Allowed mid-playback (unlike `commitEdit`): the worklet keeps its own
+ * Song snapshot taken at `engine.load`, so a sample edit during playback
+ * mutates only the on-screen state. The next time the user restarts
+ * playback (or stops + plays), the engine receives the updated song. This
+ * lets the user shape samples and synth params freely while listening.
+ *
+ * No-op with no song. The transform receives the live snapshot; return
+ * new references for whatever changed (untouched fields can be the same
+ * reference).
  */
 export function commitEditWithWorkbenches(
   transform: (state: EditState) => EditState,
 ): void {
-  if (transport() === "playing") return;
   const current = song();
   if (!current) return;
   const before: EditState = {

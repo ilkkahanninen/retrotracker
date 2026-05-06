@@ -514,7 +514,6 @@ export const App: Component = () => {
    * history entry so undo reverts the whole batch.
    */
   const loadWavsIntoFreeSlots = async (files: File[]) => {
-    if (transport() === "playing") return;
     const s = song();
     if (!s) {
       setError("Open a song before importing WAVs.");
@@ -1328,14 +1327,14 @@ export const App: Component = () => {
   // ─── Sample editing ──────────────────────────────────────────────────────
 
   /**
-   * Patch metadata fields on the currently-selected sample. Gated on
-   * `transport !== 'playing'` to match commitEdit's invariant (edits during
-   * playback would diverge the on-screen state from the worklet's clone).
-   * The SampleView visually disables its meta controls while playing so
-   * users see why their click had no effect.
+   * Patch metadata fields on the currently-selected sample. Routes through
+   * `commitEditWithWorkbenches` (not `commitEdit`) so the edit is allowed
+   * mid-playback — the user can shape loop bounds, volume, finetune, name
+   * while a song plays. The worklet keeps its own song snapshot, so the
+   * audio doesn't change live; the new values apply on the next play /
+   * restart.
    */
   const patchCurrentSample = (patch: Parameters<typeof setSample>[2]) => {
-    if (transport() === "playing") return;
     const slot = currentSample() - 1;
     // Loop-aware chain effects (currently just `crossfade`) bake the loop
     // boundary into the int8 at pipeline time. A bare loop-field edit only
@@ -1346,10 +1345,12 @@ export const App: Component = () => {
     const touchesLoop = "loopStartWords" in patch || "loopLengthWords" in patch;
     const wb = touchesLoop ? getWorkbench(slot) : undefined;
     const needsRerun = !!wb && wb.chain.some((e) => e.kind === "crossfade");
-    commitEdit((song) => {
-      const next = setSample(song, slot, patch);
-      if (next === song || !needsRerun || !wb) return next;
-      return writeWorkbenchToSongPure(next, slot, wb);
+    commitEditWithWorkbenches((state) => {
+      const next = setSample(state.song, slot, patch);
+      if (next === state.song) return state;
+      const finalSong =
+        needsRerun && wb ? writeWorkbenchToSongPure(next, slot, wb) : next;
+      return { ...state, song: finalSong };
     });
   };
 
@@ -1357,11 +1358,13 @@ export const App: Component = () => {
    * Rename a sample slot by 1-based index. Used by the sample list's
    * double-click-to-edit affordance — independent of which slot is the
    * current selection so the user can rename any slot they double-click.
-   * Skipped during playback so the worklet's snapshot stays in sync.
+   * Allowed mid-playback (sample-side edit policy).
    */
   const renameSample = (slot1Based: number, name: string) => {
-    if (transport() === "playing") return;
-    commitEdit((song) => setSample(song, slot1Based - 1, { name }));
+    commitEditWithWorkbenches((state) => {
+      const next = setSample(state.song, slot1Based - 1, { name });
+      return next === state.song ? state : { ...state, song: next };
+    });
   };
 
   /**
@@ -1384,7 +1387,6 @@ export const App: Component = () => {
    * after a Clear-then-undo.
    */
   const clearCurrentSample = () => {
-    if (transport() === "playing") return;
     const slot = currentSample() - 1;
     // Drop the loop-stash too: the audio it described is gone, so a future
     // re-enable on this slot should fall through to "loop the whole sample"
@@ -1429,7 +1431,6 @@ export const App: Component = () => {
    * subsequent slot is occupied.
    */
   const duplicateCurrentSample = () => {
-    if (transport() === "playing") return;
     const s = song();
     if (!s) return;
     const slot = currentSample() - 1;
@@ -1513,7 +1514,6 @@ export const App: Component = () => {
     startByte: number,
     endByte: number,
   ) => {
-    if (transport() === "playing") return;
     const slot = currentSample() - 1;
     const s = song()?.samples[slot];
     if (!s) return;
@@ -1671,12 +1671,15 @@ export const App: Component = () => {
    * follow up with a Cut / Delete to clear the bounced rows.
    *
    * No-op when:
-   *   - playing (offline render shouldn't fight live audio)
    *   - no song / no selection
    *   - no free slot remains
+   *
+   * Allowed mid-playback (sample-side edit policy). The offline render
+   * runs synchronously on the main thread and briefly competes with the
+   * audio thread for CPU, but the live worklet has its own song snapshot
+   * so playback continuity is unaffected.
    */
   const bounceSelectionToSample = () => {
-    if (transport() === "playing") return;
     const s = song();
     const sel = selection();
     if (!s || !sel) return;
@@ -1709,7 +1712,6 @@ export const App: Component = () => {
   };
 
   const loadWavIntoCurrentSample = (bytes: Uint8Array, filename: string) => {
-    if (transport() === "playing") return;
     let wb: SampleWorkbench;
     try {
       wb = workbenchFromWav(bytes, filename);
@@ -1756,7 +1758,6 @@ export const App: Component = () => {
     next: SampleWorkbench,
     loopOverride?: { loopStartWords: number; loopLengthWords: number },
   ) => {
-    if (transport() === "playing") return;
     const slot = currentSample() - 1;
     commitEditWithWorkbenches((state) => ({
       ...state,
@@ -1865,7 +1866,6 @@ export const App: Component = () => {
    * (nothing to burn).
    */
   const applyChainToSource = () => {
-    if (transport() === "playing") return;
     const slot = currentSample() - 1;
     const wb = getWorkbench(slot);
     if (!wb) return;
@@ -2044,7 +2044,6 @@ export const App: Component = () => {
    * preview swap both happen inside `updateCurrentWorkbench`.
    */
   const updateChiptune = (patch: Partial<ChiptuneParams>) => {
-    if (transport() === "playing") return;
     const slot = currentSample() - 1;
     const wb = getWorkbench(slot);
     if (!wb || wb.source.kind !== "chiptune") return;
@@ -2077,7 +2076,6 @@ export const App: Component = () => {
    * exactly as the .mod stored them until the user actually edits the chain.
    */
   const convertSlotToSampler = () => {
-    if (transport() === "playing") return;
     const slot = currentSample() - 1;
     if (getWorkbench(slot)) return;
     const sample = song()?.samples[slot];
@@ -2190,6 +2188,34 @@ export const App: Component = () => {
       const sep = settings().stereoSeparation;
       const eng = currentEngine();
       eng?.setStereoSeparation(sep);
+    });
+
+    // Push per-slot sample-data changes to the worklet so synth/sampler
+    // edits during playback are audible immediately (within one loop
+    // period of any voice currently playing the slot). Diffs by Sample
+    // reference — the editor's mutation paths always produce a fresh
+    // Sample object when bytes/meta change, so `!==` is the right gate.
+    // No-op when transport isn't playing: the next play() call's
+    // `engine.load(song)` will pick up everything in one shot.
+    let prevSamples: import("./core/mod/types").Sample[] | null = null;
+    createEffect(() => {
+      const s = song();
+      const playing = transport() === "playing";
+      if (!s) {
+        prevSamples = null;
+        return;
+      }
+      if (playing && prevSamples) {
+        const eng = currentEngine();
+        if (eng) {
+          for (let i = 0; i < s.samples.length; i++) {
+            const cur = s.samples[i]!;
+            const prev = prevSamples[i];
+            if (cur !== prev) eng.setSampleData(i, cur);
+          }
+        }
+      }
+      prevSamples = s.samples;
     });
 
     // Theme application. The first run fires synchronously before the
