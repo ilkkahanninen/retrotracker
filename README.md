@@ -19,6 +19,11 @@ npm run dev
 
 Open the URL Vite prints, drop a `.mod` or `.retro` onto the page (or use **File → Open**), and start editing.
 
+## Documentation
+
+- [User manual](docs/user-manual.md) — what each part does and how to drive it (views, pattern editing, samples, chiptune synth, playback, keyboard reference).
+- [Technical docs](docs/README.md) — architecture, audio engine, MOD format, state, components, sample pipeline, testing.
+
 ## Thanks
 
 RetroTracker stands on the shoulders of others. In particular:

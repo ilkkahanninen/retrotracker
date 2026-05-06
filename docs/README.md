@@ -23,5 +23,6 @@ These documents cover the engineering picture: how the audio path is structured,
 ## Related files
 
 - [README.md](../README.md) — user-facing introduction.
+- [user-manual.md](user-manual.md) — end-user guide (views, editing, samples, synth, shortcuts).
 - [CLAUDE.md](../CLAUDE.md) — short-form onboarding for AI agents working on the codebase.
 - [tests/fixtures/README.md](../tests/fixtures/README.md) — the accuracy fixture catalog.
