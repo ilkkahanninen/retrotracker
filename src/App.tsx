@@ -1255,7 +1255,21 @@ export const App: Component = () => {
    */
   const patchCurrentSample = (patch: Parameters<typeof setSample>[2]) => {
     if (transport() === "playing") return;
-    commitEdit((song) => setSample(song, currentSample() - 1, patch));
+    const slot = currentSample() - 1;
+    // Loop-aware chain effects (currently just `crossfade`) bake the loop
+    // boundary into the int8 at pipeline time. A bare loop-field edit only
+    // mutates metadata, so the audio would stay glued to the previous loop
+    // position until something else (effect edit, target-note swap, source
+    // change) re-ran the pipeline. Re-run it here in the same commit so
+    // undo reverts both halves atomically.
+    const touchesLoop = "loopStartWords" in patch || "loopLengthWords" in patch;
+    const wb = touchesLoop ? getWorkbench(slot) : undefined;
+    const needsRerun = !!wb && wb.chain.some((e) => e.kind === "crossfade");
+    commitEdit((song) => {
+      const next = setSample(song, slot, patch);
+      if (next === song || !needsRerun || !wb) return next;
+      return writeWorkbenchToSongPure(next, slot, wb);
+    });
   };
 
   /**

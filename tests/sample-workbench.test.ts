@@ -975,3 +975,37 @@ describe("runChain composes crop + cut", () => {
     expect(Array.from(out.channels[0]!)).toEqual([2, 5, 6, 7]);
   });
 });
+
+describe("runPipeline: crossfade is loop-context-sensitive", () => {
+  // The App-level fix in `patchCurrentSample` re-runs the pipeline whenever
+  // the user moves loop boundaries — this verifies that re-run is actually
+  // necessary (the chain output really does depend on the loop range when
+  // a crossfade effect is present). If this assertion ever flips, the
+  // App-level guard becomes dead code; investigate before deleting.
+  function buildWorkbench(): SampleWorkbench {
+    // 256-frame ramp gives the crossfade a real signal to work on.
+    const data = new Int8Array(256);
+    for (let i = 0; i < data.length; i++) data[i] = (i - 128) | 0;
+    const wb = workbenchFromInt8(data, "regression");
+    wb.chain = [{ kind: "crossfade", params: { length: 16 } }];
+    // null targetNote keeps int8 length stable across runs so we can compare
+    // byte-for-byte.
+    wb.pt = { ...wb.pt, targetNote: null };
+    return wb;
+  }
+
+  it("produces different int8 for different loop ranges", () => {
+    const wb = buildWorkbench();
+    const a = runPipeline(wb, { loopStartFrame: 32, loopEndFrame: 96 });
+    const b = runPipeline(wb, { loopStartFrame: 100, loopEndFrame: 200 });
+    expect(a.length).toBe(b.length);
+    expect(Array.from(a)).not.toEqual(Array.from(b));
+  });
+
+  it("crossfade is a pass-through when the slot has no loop (ctx=null)", () => {
+    const wb = buildWorkbench();
+    const withCrossfade = runPipeline(wb, null);
+    const withoutCrossfade = runPipeline({ ...wb, chain: [] }, null);
+    expect(Array.from(withCrossfade)).toEqual(Array.from(withoutCrossfade));
+  });
+});
