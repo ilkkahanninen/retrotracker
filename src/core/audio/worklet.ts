@@ -21,7 +21,8 @@ export type WorkletMessage =
   | { type: "setChannelMuted"; channel: number; muted: boolean }
   | { type: "setAmigaModel"; model: AmigaModel }
   | { type: "setStereoSeparation"; sep: number }
-  | { type: "setSampleData"; slot: number; sample: Sample };
+  | { type: "setSampleData"; slot: number; sample: Sample }
+  | { type: "replaceSong"; song: Song };
 
 export type WorkletEvent =
   | { type: "pos"; order: number; row: number }
@@ -174,6 +175,17 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           if (this.song && this.replayer) {
             this.replayer.replaceSampleSlot(msg.slot, msg.sample);
           }
+          break;
+        case "replaceSong":
+          // Hot-swap the whole song reference (order list / pattern array
+          // changes). Update both the cached Song and the live Replayer
+          // so the next song-end-wrap recreate also picks up the new
+          // shape. Sample data was already hot-swapped per-slot via
+          // `setSampleData`, but `msg.song` is authoritative — pushing
+          // it here keeps the worklet's snapshot consistent with the
+          // editor's state.
+          this.song = msg.song;
+          this.replayer?.replaceSong(msg.song);
           break;
       }
     };

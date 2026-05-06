@@ -167,6 +167,31 @@ export async function playPatternFromCursor(): Promise<void> {
   setPlayMode("pattern");
 }
 
+/**
+ * Mid-playback jump: tell the engine to restart its replayer at
+ * `(order, 0)` while keeping `transport === "playing"` and the current
+ * `playMode` (song vs. pattern-loop). Used by the order list's click
+ * handler so the user can re-route playback without stopping first.
+ *
+ * The cached song already lives in the worklet (we got here via a play
+ * call), so we don't `prepareEngine` — that would re-`load` the song and
+ * undo any sample edits we hot-swapped in. We also push the new playPos
+ * synchronously so the playhead UI snaps immediately rather than
+ * waiting for the worklet's first `pos` event after the new replayer
+ * starts. No-op when the engine doesn't exist (jsdom / pre-unlock).
+ */
+export async function jumpPlaybackToOrder(order: number): Promise<void> {
+  // Snap playPos synchronously so the playhead UI moves on click.
+  // Done before the engine check because the worklet's first `pos`
+  // event after `playFrom` would arrive late (and never in environments
+  // without an AudioContext, like jsdom). A no-op engine call below
+  // doesn't change the user-visible jump.
+  setPlayPos({ order, row: 0 });
+  const eng = engine;
+  if (!eng) return;
+  await eng.playFrom(order, 0, { loopPattern: playMode() === "pattern" });
+}
+
 /** Header "Play song" button: starts the song from order 0 / row 0 when
  *  stopped or already playing the pattern; stops when already in song
  *  mode. Mirrors the bare Space shortcut. */

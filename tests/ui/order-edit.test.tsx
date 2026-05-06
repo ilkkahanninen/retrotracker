@@ -7,8 +7,10 @@ import {
   setSong,
   setTransport,
   setPlayPos,
+  playPos,
   clearHistory,
   song,
+  transport,
 } from "../../src/state/song";
 import { setCurrentSample, setCurrentOctave } from "../../src/state/edit";
 import { emptyPattern, emptySong } from "../../src/core/mod/format";
@@ -58,6 +60,26 @@ describe("order list: click navigation", () => {
     await user.click(items[1]!);
     expect(items[1]!.classList.contains("orderlist__item--cursor")).toBe(true);
     expect(items[0]!.classList.contains("orderlist__item--cursor")).toBe(false);
+  });
+
+  it("clicking a slot during playback re-routes playback without stopping", async () => {
+    // The previous behavior was an early-return: clicking did nothing.
+    // Now the order-list click is a mid-playback "jump to pattern X" —
+    // playPos snaps synchronously (so the playhead UI moves immediately
+    // even before the worklet's first pos event), transport stays
+    // "playing", and the edit cursor is left untouched (the worklet
+    // drives the playhead while playing).
+    setSong(songWith(3));
+    const { container } = render(() => <App />);
+    setTransport("playing");
+    setPlayPos({ order: 0, row: 5 });
+    const user = userEvent.setup();
+    const items = container.querySelectorAll<HTMLElement>(".orderlist li");
+    await user.click(items[2]!);
+    expect(playPos()).toEqual({ order: 2, row: 0 });
+    expect(transport()).toBe("playing");
+    // Cursor is locked while playing.
+    expect(cursor().order).toBe(0);
   });
 });
 
@@ -205,8 +227,12 @@ describe("order list: duplicate pattern at slot", () => {
   });
 });
 
-describe("order editing is suppressed during playback", () => {
-  it("']' is a no-op while transport is playing", () => {
+describe("order editing is allowed during playback", () => {
+  // Order edits are now allowed mid-playback — the worklet keeps its
+  // own song snapshot, so a slot bump while playing updates the editor
+  // state without desyncing what's currently audible. The new orders
+  // apply on the next play / restart.
+  it("']' bumps the slot pattern while transport is playing", () => {
     setSong(songWith(3));
     render(() => <App />);
     setTransport("playing");
@@ -216,7 +242,55 @@ describe("order editing is suppressed during playback", () => {
         code: "BracketRight",
       }),
     );
-    expect(song()!.orders[0]).toBe(0);
+    expect(song()!.orders[0]).toBe(1);
+  });
+
+  it("Cmd+] inserts a slot during playback (songLength grows)", () => {
+    setSong(songWith(2));
+    render(() => <App />);
+    setTransport("playing");
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "]",
+        code: "BracketRight",
+        metaKey: true,
+      }),
+    );
+    expect(song()!.songLength).toBe(3);
+  });
+
+  it("']' bumps the slot the playhead is currently on, not the locked cursor", () => {
+    // Cursor at slot 0 (its pre-play position), playhead at slot 2. The
+    // active pattern in the order list is whatever the song is audibly
+    // cycling through right now — playhead — so `]` must bump
+    // orders[2], not orders[0]. Without this, mid-playback order edits
+    // would always touch wherever the user last navigated before
+    // pressing play (often the start of the song).
+    setSong(songWith(3));
+    render(() => <App />);
+    setCursor({ order: 0, row: 0, channel: 0, field: "note" });
+    setTransport("playing");
+    setPlayPos({ order: 2, row: 0 });
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "]",
+        code: "BracketRight",
+      }),
+    );
+    expect(song()!.orders[0]).toBe(0); // untouched
+    expect(song()!.orders[2]).toBe(3); // playhead's slot bumped from 2 → 3
+  });
+
+  it("'Previous pattern' toolbar button mirrors the playhead's slot during playback", () => {
+    // Cursor's slot pattern is 0 (would normally disable Prev), but the
+    // playhead is on slot 1 (pattern 1, > 0). The button must enable
+    // because clicking it acts on the playhead, not the cursor.
+    setSong(songWith(3));
+    const { container } = render(() => <App />);
+    setCursor({ order: 0, row: 0, channel: 0, field: "note" });
+    setTransport("playing");
+    setPlayPos({ order: 1, row: 0 });
+    expect(tool(container, "Previous pattern at slot").disabled).toBe(false);
   });
 });
 
@@ -336,10 +410,18 @@ describe("order toolbar buttons", () => {
     expect(song()!.patterns[2]!.rows[7]![2]!.sample).toBe(3);
   });
 
-  it("every toolbar button is disabled while transport is playing", () => {
+  it("toolbar buttons stay live during playback (Clean up is the only exception)", () => {
+    // Pattern stepping / insert / delete / new / duplicate are allowed
+    // mid-playback. They only need their non-transport pre-conditions to
+    // still hold (e.g. Previous needs slotPat > 0). Clean up is gated
+    // separately because it renumbers patterns and would desync the
+    // worklet's song snapshot — covered in the Clean up describe. Set
+    // playPos to a slot whose pattern > 0 so Prev's pre-condition
+    // holds — the toolbar reads the playhead's slot during playback.
     setSong(songWith(3));
     const { container } = render(() => <App />);
     setTransport("playing");
+    setPlayPos({ order: 1, row: 0 }); // slotPat = 1, Prev enabled
     for (const label of [
       "Previous pattern at slot",
       "Next pattern at slot",
@@ -348,7 +430,7 @@ describe("order toolbar buttons", () => {
       "New blank pattern",
       "Duplicate pattern",
     ]) {
-      expect(tool(container, label).disabled).toBe(true);
+      expect(tool(container, label).disabled).toBe(false);
     }
   });
 });

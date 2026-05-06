@@ -125,6 +125,7 @@ import {
 import {
   currentEngine,
   disposeEngine,
+  jumpPlaybackToOrder,
   livePreviewSwap,
   stopEngine,
   togglePlayPattern,
@@ -1231,70 +1232,110 @@ export const App: Component = () => {
    * pattern grid's jump request so the cursor is snapped to the top of
    * the viewport instead of letting the gentle margin-scroller leave it
    * stuck at the bottom of the previous view.
+   *
+   * During playback the cursor is locked (the worklet drives the
+   * playhead), so we re-route to the engine instead: the replayer
+   * restarts at this order's row 0 and keeps playing in the same
+   * playMode (song / pattern-loop). The user clicks an order list slot
+   * to re-route the song without stopping first.
    */
   const jumpToOrder = (order: number) => {
-    if (transport() === "playing") return;
     const s = song();
     if (!s) return;
     const clamped = Math.max(0, Math.min(s.songLength - 1, order));
+    if (transport() === "playing") {
+      void jumpPlaybackToOrder(clamped);
+      return;
+    }
     applyCursor({ ...cursor(), order: clamped, row: 0 });
     requestJumpToTop();
   };
 
+  // Order-list edits are allowed mid-playback. The worklet keeps its own
+  // song snapshot, so the changes show up audibly on the next play /
+  // restart — just like sample-meta edits. Routed through
+  // `commitEditWithWorkbenches` (instead of `commitEdit`) because that's
+  // the commit primitive whose policy is "carry workbenches+patternNames
+  // through unchanged AND don't gate on transport". The transforms only
+  // touch `song`, so `workbenches` and `patternNames` pass through.
+
+  // The "current position" for an order-list command follows the
+  // playhead while playing and the edit cursor when stopped. Without
+  // this, pressing `]` mid-playback would bump whichever slot the user
+  // last navigated to before play (often slot 0), not the slot the song
+  // is audibly cycling through right now.
+  const activeOrder = () =>
+    transport() === "playing" ? playPos().order : cursor().order;
+
   const stepNextPattern = () => {
-    if (transport() === "playing") return;
-    const c = cursor();
-    commitEdit((song) => nextPatternAtOrder(song, c.order));
+    const o = activeOrder();
+    commitEditWithWorkbenches((state) => {
+      const next = nextPatternAtOrder(state.song, o);
+      return next === state.song ? state : { ...state, song: next };
+    });
   };
 
   const stepPrevPattern = () => {
-    if (transport() === "playing") return;
-    const c = cursor();
-    commitEdit((song) => prevPatternAtOrder(song, c.order));
+    const o = activeOrder();
+    commitEditWithWorkbenches((state) => {
+      const next = prevPatternAtOrder(state.song, o);
+      return next === state.song ? state : { ...state, song: next };
+    });
   };
 
   const insertOrderSlot = () => {
-    if (transport() === "playing") return;
     const before = song();
     if (!before) return;
-    const c = cursor();
-    commitEdit((song) => insertOrder(song, c.order));
+    const o = activeOrder();
+    commitEditWithWorkbenches((state) => {
+      const next = insertOrder(state.song, o);
+      return next === state.song ? state : { ...state, song: next };
+    });
     const after = song();
     if (!after) return;
     // Skip the cursor advance when `insertOrder` was a no-op (already at
     // MAX_ORDERS — songLength didn't grow). Otherwise advance by one so the
     // cursor lands on the newly-created slot. `insertOrder` duplicates the
-    // cursor's pattern number into the new position (so [A, B, C] with the
-    // cursor on B becomes [A, B, B, C]); the duplicate sits at c.order + 1,
-    // and putting the cursor there is what the user expects so they can
+    // pattern at the active position (so [A, B, C] with the active slot
+    // on B becomes [A, B, B, C]); the duplicate sits at o + 1, and
+    // putting the cursor there is what the user expects so they can
     // immediately step that slot to a different pattern via `<` / `>`.
+    // `applyCursor` itself is a no-op during playback, so this naturally
+    // skips the cursor move while playing — the cursor stays put on the
+    // pre-insert slot index, which matches the playhead-locked policy.
     if (after.songLength === before.songLength) return;
-    applyCursor({ ...c, order: c.order + 1, row: 0 });
+    applyCursor({ ...cursor(), order: o + 1, row: 0 });
     requestJumpToTop();
   };
 
-  /** Delete the slot under the cursor; clamp the cursor if it fell off the end. */
+  /** Delete the slot at the active position; clamp the cursor if it fell off the end. */
   const deleteOrderSlot = () => {
-    if (transport() === "playing") return;
-    const c = cursor();
-    commitEdit((song) => deleteOrder(song, c.order));
+    const o = activeOrder();
+    commitEditWithWorkbenches((state) => {
+      const next = deleteOrder(state.song, o);
+      return next === state.song ? state : { ...state, song: next };
+    });
     const after = song();
-    if (after && c.order >= after.songLength) {
+    if (after && cursor().order >= after.songLength) {
       applyCursor({ ...cursor(), order: after.songLength - 1, row: 0 });
     }
   };
 
   const newBlankPatternAtOrder = () => {
-    if (transport() === "playing") return;
-    const c = cursor();
-    commitEdit((song) => newPatternAtOrder(song, c.order));
+    const o = activeOrder();
+    commitEditWithWorkbenches((state) => {
+      const next = newPatternAtOrder(state.song, o);
+      return next === state.song ? state : { ...state, song: next };
+    });
   };
 
-  /** Append a copy of the current pattern and point the slot at the copy. */
+  /** Append a copy of the active position's pattern and point the slot at the copy. */
   const duplicateCurrentPattern = () => {
-    if (transport() === "playing") return;
-    const c = cursor();
-    commitEdit((song) => duplicatePatternAtOrder(song, c.order));
+    const o = activeOrder();
+    commitEditWithWorkbenches((state) => {
+      const next = duplicatePatternAtOrder(state.song, o);
+      return next === state.song ? state : { ...state, song: next };
+    });
   };
 
   /**
@@ -2190,32 +2231,55 @@ export const App: Component = () => {
       eng?.setStereoSeparation(sep);
     });
 
-    // Push per-slot sample-data changes to the worklet so synth/sampler
-    // edits during playback are audible immediately (within one loop
-    // period of any voice currently playing the slot). Diffs by Sample
-    // reference — the editor's mutation paths always produce a fresh
-    // Sample object when bytes/meta change, so `!==` is the right gate.
-    // No-op when transport isn't playing: the next play() call's
-    // `engine.load(song)` will pick up everything in one shot.
+    // Push live edits to the worklet so the user hears them immediately
+    // instead of having to stop+play. Two channels:
+    //   - Per-slot sample data → `engine.setSampleData(i, sample)`. Also
+    //     re-latches any active Paula voice playing that slot, so a
+    //     chiptune slider morph snaps into the new waveform within one
+    //     loop period.
+    //   - Order-list / pattern-array shape (`orders`, `songLength`,
+    //     `patterns`) → `engine.replaceSong(song)`. The Replayer reads
+    //     `orders[orderIndex]` fresh on every row, so the next row
+    //     processed picks up a stepped slot's new pattern.
+    // Both diff by reference — the editor's mutation paths always
+    // produce fresh objects when something changes, so `!==` is the
+    // right gate. No-ops when transport isn't playing: the next play
+    // call's `engine.load(song)` picks everything up in one shot.
     let prevSamples: import("./core/mod/types").Sample[] | null = null;
+    let prevOrders: import("./core/mod/types").Song["orders"] | null = null;
+    let prevPatterns: import("./core/mod/types").Song["patterns"] | null = null;
+    let prevSongLength: number | null = null;
     createEffect(() => {
       const s = song();
       const playing = transport() === "playing";
       if (!s) {
         prevSamples = null;
+        prevOrders = null;
+        prevPatterns = null;
+        prevSongLength = null;
         return;
       }
-      if (playing && prevSamples) {
-        const eng = currentEngine();
-        if (eng) {
-          for (let i = 0; i < s.samples.length; i++) {
-            const cur = s.samples[i]!;
-            const prev = prevSamples[i];
-            if (cur !== prev) eng.setSampleData(i, cur);
-          }
+      const eng = playing ? currentEngine() : null;
+      if (eng && prevSamples) {
+        for (let i = 0; i < s.samples.length; i++) {
+          const cur = s.samples[i]!;
+          const prev = prevSamples[i];
+          if (cur !== prev) eng.setSampleData(i, cur);
         }
       }
+      if (
+        eng &&
+        (s.orders !== prevOrders ||
+          s.patterns !== prevPatterns ||
+          s.songLength !== prevSongLength) &&
+        prevOrders !== null
+      ) {
+        eng.replaceSong(s);
+      }
       prevSamples = s.samples;
+      prevOrders = s.orders;
+      prevPatterns = s.patterns;
+      prevSongLength = s.songLength;
     });
 
     // Theme application. The first run fires synchronously before the
@@ -2761,17 +2825,24 @@ export const App: Component = () => {
           <h2>Order</h2>
           <Show when={song()} fallback={<p class="placeholder">—</p>}>
             {(s) => {
-              // Disable a button when the corresponding action would no-op so
-              // the UI doesn't lie about what's possible. `playing` blocks
-              // every edit (mirrors the rules in the keyboard handlers).
+              // Disable a button when the corresponding action would no-op
+              // so the UI doesn't lie about what's possible. Order edits
+              // are allowed mid-playback (mirrors the keyboard handlers);
+              // the `playing` gate is reserved for Clean up, which would
+              // renumber patterns the worklet's own song snapshot still
+              // references. The Prev/Next predicates read the slot pattern
+              // at the *active* position — playhead while playing, cursor
+              // when stopped — so they reflect what `<` / `>` actually act
+              // on right now.
               const playing = () => transport() === "playing";
-              const slotPat = () => s().orders[cursor().order] ?? 0;
-              const canPrev = () => !playing() && slotPat() > 0;
-              const canNext = () => !playing();
-              const canIns = () =>
-                !playing() && s().songLength < s().orders.length;
-              const canDel = () => !playing() && s().songLength > 1;
-              const canBlank = () => !playing();
+              const activeIdx = () =>
+                playing() ? playPos().order : cursor().order;
+              const slotPat = () => s().orders[activeIdx()] ?? 0;
+              const canPrev = () => slotPat() > 0;
+              const canNext = () => true;
+              const canIns = () => s().songLength < s().orders.length;
+              const canDel = () => s().songLength > 1;
+              const canBlank = () => true;
               return (
                 <>
                   <div class="ordertools">

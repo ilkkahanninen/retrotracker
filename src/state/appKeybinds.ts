@@ -683,12 +683,15 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       run: h.repeatLastEffectFromAbove,
     }),
   );
+  // Order-list shortcuts stay live during playback (the handlers route
+  // through `commitEditWithWorkbenches`, which doesn't gate). The
+  // worklet's own song snapshot keeps playing whatever it was loaded
+  // with — edits show up audibly on the next play / restart.
   cleanups.push(
     registerShortcut({
       key: "[",
       position: true,
       description: "Previous pattern at slot",
-      when: () => transport() !== "playing",
       run: h.stepPrevPattern,
     }),
   );
@@ -697,7 +700,6 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       key: "]",
       position: true,
       description: "Next pattern at slot",
-      when: () => transport() !== "playing",
       run: h.stepNextPattern,
     }),
   );
@@ -707,7 +709,6 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       mod: true,
       position: true,
       description: "Insert order slot",
-      when: () => transport() !== "playing",
       run: h.insertOrderSlot,
     }),
   );
@@ -717,7 +718,6 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       mod: true,
       position: true,
       description: "Delete order slot",
-      when: () => transport() !== "playing",
       run: h.deleteOrderSlot,
     }),
   );
@@ -727,7 +727,6 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       alt: true,
       position: true,
       description: "New blank pattern at slot",
-      when: () => transport() !== "playing",
       run: h.newBlankPatternAtOrder,
     }),
   );
@@ -737,7 +736,6 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       alt: true,
       position: true,
       description: "Duplicate pattern at slot",
-      when: () => transport() !== "playing",
       run: h.duplicateCurrentPattern,
     }),
   );

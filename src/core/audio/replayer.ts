@@ -168,7 +168,12 @@ const FUNK_TABLE: readonly number[] = [
 ];
 
 export class Replayer {
-  private readonly song: Song;
+  // Mutable so the worklet can hot-swap a re-shaped song (order list
+  // edits, new/deleted patterns) while the replayer keeps its current
+  // orderIndex/row position. The replayer reads `song.orders[i]` and
+  // `song.patterns[p]` lazily on every row, so a pointer swap is
+  // enough — the next row processed reads from the new song.
+  private song: Song;
   private readonly sampleRate: number;
   private readonly channels: ChannelState[] = [];
   private readonly state: SongState;
@@ -422,6 +427,34 @@ export class Replayer {
    */
   peakSnapshotAndReset(out: Float32Array): void {
     this.paula.peakSnapshotAndReset(out);
+  }
+
+  /**
+   * Hot-swap the entire Song reference mid-playback. Used when the user
+   * edits the order list (slot stepping, insert/delete, new/duplicate
+   * pattern) while the song is playing — the replayer reads
+   * `song.orders[orderIndex]` and `song.patterns[p]` fresh on every row,
+   * so the next row processed picks up the new shape. The replayer's
+   * mid-stream state (orderIndex, row, channel voices) carries through.
+   *
+   * `state.orderIndex` is clamped to fit the new `songLength` so a
+   * delete-while-playing on the slot the playhead is currently past
+   * doesn't index out of bounds.
+   *
+   * `state.visited` (the (order, row) revisit set used for song-end /
+   * wrap detection) is cleared because its entries reference the old
+   * order numbering — under a reshaped song their "we've been here"
+   * meaning is wrong. With `loop=true` (the live worklet path), the
+   * only consequence is a one-time delay before wrap detection
+   * re-converges; for offline render the consumer typically reloads
+   * before re-using the replayer.
+   */
+  replaceSong(song: Song): void {
+    this.song = song;
+    if (this.state.orderIndex >= song.songLength) {
+      this.state.orderIndex = Math.max(0, song.songLength - 1);
+    }
+    this.state.visited.clear();
   }
 
   /**

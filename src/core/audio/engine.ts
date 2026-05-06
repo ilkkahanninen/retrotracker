@@ -137,6 +137,22 @@ export class AudioEngine {
     this.node.port.postMessage(msg);
   }
 
+  /**
+   * Push the whole song to the worklet without restarting playback.
+   * Used for order-list edits (slot stepping, insert/delete, new /
+   * duplicate pattern) — the Replayer keeps its mid-stream state
+   * (orderIndex, row, channel voices) and the next row processed reads
+   * from the new song. Trailing-after-loop bytes are dropped per sample
+   * (same `songForPlayback` transform as `load`).
+   */
+  replaceSong(song: Song): void {
+    const msg: WorkletMessage = {
+      type: "replaceSong",
+      song: songForPlayback(song),
+    };
+    this.node.port.postMessage(msg);
+  }
+
   async play(): Promise<void> {
     if (this.ctx.state === "suspended") await this.ctx.resume();
     const msg: WorkletMessage = { type: "play" };
