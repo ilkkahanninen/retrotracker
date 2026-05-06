@@ -1,11 +1,4 @@
-import {
-  For,
-  Show,
-  createEffect,
-  createMemo,
-  createSignal,
-  type Component,
-} from "solid-js";
+import { For, Show, createEffect, createMemo, type Component } from "solid-js";
 import type { Sample, Song } from "../core/mod/types";
 import { currentSample } from "../state/edit";
 import { workbenches } from "../state/sampleWorkbench";
@@ -25,7 +18,12 @@ import {
 } from "../core/audio/sampleWorkbench";
 import type { ChiptuneParams } from "../core/audio/chiptune";
 import { truncateSampleAtLoopEnd } from "../core/audio/loopTruncate";
-import { Waveform, type SampleSelection } from "./Waveform";
+import { Waveform } from "./Waveform";
+import {
+  sampleSelection as selection,
+  setSampleSelection as setSelection,
+  type SampleSelection,
+} from "../state/sampleSelection";
 import { PipelineEditor } from "./PipelineEditor";
 import { ChiptuneEditor } from "./ChiptuneEditor";
 import { Slider } from "./Slider";
@@ -160,16 +158,23 @@ export const SampleView: Component<Props> = (props) => {
   // play" report — the user toggled while playing).
   const editingDisabled = createMemo(() => transport() === "playing");
 
-  // Drag-selection state. Lives at SampleView level because both the Waveform
-  // (which draws the overlay and handles the drag) and the action buttons
-  // below it (Crop / Cut) need access. Selection is in BYTE indices over
-  // the int8 sample data, half-open [start, end).
-  const [selection, setSelection] = createSignal<SampleSelection | null>(null);
-  // A selection only makes sense for the slot the user drew it on; switching
-  // slots discards it.
+  // Drag-selection state lives in `state/sampleSelection.ts` (lifted from
+  // here so App-level shortcuts like Cmd+A can write to it). The Waveform
+  // (drag overlay) and the action buttons below it (Crop / Cut) both
+  // read it. Selection is in BYTE indices over the int8 sample data,
+  // half-open [start, end).
+  // A selection only makes sense for the slot the user drew it on;
+  // switching slots discards it.
   createEffect(() => {
     currentSample();
     setSelection(null);
+  });
+  // Same when the source flips to chiptune — selection is disabled in
+  // that mode, so a stale selection from the prior sampler half would
+  // otherwise sit invisible (overlay hidden) but still satisfy the
+  // re-enable check on a switch back. Drop it.
+  createEffect(() => {
+    if (workbench()?.source.kind === "chiptune") setSelection(null);
   });
 
   const onPickWav = async (e: Event) => {
@@ -456,6 +461,11 @@ export const SampleView: Component<Props> = (props) => {
           // the cycle on every param edit, so the user can't move the
           // boundaries anyway. Hide the overlay and disable handle drag.
           showLoop={workbench()?.source.kind !== "chiptune"}
+          // Same reasoning for selection: any user-drawn range would be
+          // wiped on the next synth edit, and the selection-action row
+          // (Crop / Cut / range-aware effects) is hidden in chiptune mode
+          // anyway, so a draggable selection would be inert.
+          selectable={workbench()?.source.kind !== "chiptune"}
         />
         {/* Selection-action row: Crop/Cut act on the selection (and require
             one); the remaining effect buttons append to the workbench chain
@@ -470,6 +480,18 @@ export const SampleView: Component<Props> = (props) => {
             mental model. Edit the synth params instead. */}
         <Show when={workbench()?.source.kind !== "chiptune"}>
           <div class="sampleview__selection">
+            <button
+              type="button"
+              onClick={() => {
+                const len = sample()?.data.length ?? 0;
+                if (len < 2) return;
+                setSelection({ start: 0, end: len });
+              }}
+              disabled={(sample()?.data.length ?? 0) < 2}
+              title="Select the whole waveform (⌘A)"
+            >
+              Select all
+            </button>
             <button
               type="button"
               onClick={() => {

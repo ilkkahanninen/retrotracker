@@ -102,6 +102,12 @@ export interface AppKeybindHandlers {
   openFilePicker: () => void;
   saveProject: () => void;
   selectAllStep: () => void;
+  /**
+   * Sample-view counterpart of `selectAllStep`. Sets the waveform selection
+   * to the full int8 range of the current sample. No-op when the slot is
+   * empty. Bound to Cmd+A while `view() === "sample"`.
+   */
+  selectAllSample: () => void;
   copySelection: () => void;
   cutSelection: () => void;
   pasteAtCursor: () => void;
@@ -178,6 +184,15 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       description: "Select all rows of channel / pattern",
       when: () => transport() !== "playing" && view() !== "sample",
       run: h.selectAllStep,
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "a",
+      mod: true,
+      description: "Select the whole waveform",
+      when: () => view() === "sample",
+      run: h.selectAllSample,
     }),
   );
   cleanups.push(

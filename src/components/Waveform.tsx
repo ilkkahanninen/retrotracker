@@ -3,12 +3,9 @@ import { useWindowListener } from "./hooks";
 import type { Sample } from "../core/mod/types";
 import { currentSample } from "../state/edit";
 import { previewFrame } from "../state/preview";
+import type { SampleSelection } from "../state/sampleSelection";
 
-/** A user-drawn range over the int8 sample data (byte indices, half-open). */
-export interface SampleSelection {
-  start: number;
-  end: number;
-}
+export type { SampleSelection };
 
 /**
  * Min/max-bucketed PCM rendering with a zoomable byte-range viewport.
@@ -38,6 +35,14 @@ export interface WaveformProps {
   onSelect: (s: SampleSelection | null) => void;
   /** When false, hide the loop overlay and ignore loop-handle drag. */
   showLoop: boolean;
+  /**
+   * When false, drag-to-select is disabled and the selection overlay is
+   * not drawn. Used in chiptune mode where the synth re-renders the cycle
+   * on every param change, so any user-drawn range would be wiped on the
+   * next edit (and there's no Crop / Cut / range-aware effect button to
+   * act on it anyway). Defaults to true for callers that haven't opted in.
+   */
+  selectable?: boolean;
 }
 
 /** Either dragging a loop boundary, or sweeping a selection range. */
@@ -149,6 +154,7 @@ export const Waveform: Component<WaveformProps> = (props) => {
       return;
     }
     if (dataLen() === 0) return;
+    if (props.selectable === false) return;
     const byte = Math.max(0, Math.min(dataLen(), byteForX(x)));
     setDrag({ kind: "select", anchorByte: byte });
     props.onSelect({ start: byte, end: byte });
@@ -396,9 +402,11 @@ export const Waveform: Component<WaveformProps> = (props) => {
     const start = viewStart();
     const end = viewEnd();
 
-    // Selection overlay, clipped to the viewport.
+    // Selection overlay, clipped to the viewport. Skipped when the host
+    // disabled selection (e.g. chiptune source) — without this guard a
+    // stale selection from a prior source kind would still paint.
     const sel = props.selection;
-    if (sel && len > 0 && sel.end > sel.start) {
+    if (sel && len > 0 && sel.end > sel.start && props.selectable !== false) {
       const sStart = Math.max(start, sel.start);
       const sEnd = Math.min(end, sel.end);
       if (sEnd > sStart) {

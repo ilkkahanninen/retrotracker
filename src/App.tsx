@@ -138,6 +138,7 @@ import {
   workbenches,
 } from "./state/sampleWorkbench";
 import { clearAllStashedLoops, clearStashedLoop } from "./state/loopStash";
+import { setSampleSelection } from "./state/sampleSelection";
 import {
   clearSelection,
   makeSelection,
@@ -920,6 +921,26 @@ export const App: Component = () => {
     }
     // Step 1 (default): select the whole current channel.
     setSelection(makeSelection(c.order, first, c.channel, last, c.channel));
+  };
+
+  /**
+   * Sample-view counterpart of `selectAllStep`: span the entire int8 of the
+   * current sample. No-op when the slot has no data — the button is also
+   * disabled in that state, but the keyboard shortcut is unconditional so
+   * we guard here too. Not gated on `transport === 'playing'` because the
+   * waveform selection is purely a UI affordance — it doesn't mutate the
+   * song, so the worklet sync invariant doesn't apply.
+   */
+  const selectAllSample = () => {
+    const slot = currentSample() - 1;
+    // Chiptune sources don't expose selection (no Crop/Cut/range-aware
+    // effects in chiptune mode, and the synth re-renders on every param
+    // edit). Mirroring the SampleView gate keeps Cmd+A inert there.
+    if (getWorkbench(slot)?.source.kind === "chiptune") return;
+    const s = song();
+    const len = s?.samples[slot]?.data.length ?? 0;
+    if (len < 2) return;
+    setSampleSelection({ start: 0, end: len });
   };
 
   /**
@@ -2167,6 +2188,7 @@ export const App: Component = () => {
       openFilePicker,
       saveProject,
       selectAllStep,
+      selectAllSample,
       copySelection,
       cutSelection,
       pasteAtCursor,
