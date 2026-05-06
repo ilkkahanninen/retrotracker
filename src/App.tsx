@@ -137,6 +137,7 @@ import {
   withoutWorkbench,
   workbenches,
 } from "./state/sampleWorkbench";
+import { clearAllStashedLoops, clearStashedLoop } from "./state/loopStash";
 import {
   clearSelection,
   makeSelection,
@@ -269,6 +270,7 @@ export const App: Component = () => {
     // song bytes is the canonical playback data, so audio is unchanged either
     // way; the user just gets a fresh chain UI.
     clearAllWorkbenches();
+    clearAllStashedLoops();
     if (loaded.chiptuneSources) {
       for (const [slotStr, params] of Object.entries(loaded.chiptuneSources)) {
         const slot = parseInt(slotStr, 10);
@@ -1305,6 +1307,14 @@ export const App: Component = () => {
   const clearCurrentSample = () => {
     if (transport() === "playing") return;
     const slot = currentSample() - 1;
+    // Drop the loop-stash too: the audio it described is gone, so a future
+    // re-enable on this slot should fall through to "loop the whole sample"
+    // for whatever new audio lands here. Not part of the history snapshot
+    // because the stash is session-only — undo restores the song + workbench
+    // map, and a stale stash can't make that desync (worst case the user
+    // re-enables loop on the restored sample and gets the whole-sample
+    // default, which is the same outcome as if they'd never stashed).
+    clearStashedLoop(slot);
     commitEditWithWorkbenches((state) => ({
       ...state,
       song: clearSample(state.song, slot),

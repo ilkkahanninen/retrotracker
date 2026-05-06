@@ -10,6 +10,7 @@ import type { Sample, Song } from "../core/mod/types";
 import { currentSample } from "../state/edit";
 import { workbenches } from "../state/sampleWorkbench";
 import { transport } from "../state/song";
+import { getStashedLoop, stashLoop } from "../state/loopStash";
 import {
   EFFECT_LABELS,
   SOURCE_KINDS,
@@ -375,6 +376,7 @@ export const SampleView: Component<Props> = (props) => {
                   checked={isLooping()}
                   disabled={sample()!.lengthWords === 0 || editingDisabled()}
                   onChange={(e) => {
+                    const slot = currentSample() - 1;
                     if (e.currentTarget.checked) {
                       // If the user has drawn a selection, adopt it as the loop
                       // range and drop the selection — the loop handles take
@@ -393,12 +395,48 @@ export const SampleView: Component<Props> = (props) => {
                           return;
                         }
                       }
-                      // No (usable) selection — default loop = whole sample.
+                      // No usable selection — fall back to the loop the user
+                      // had configured before disabling, then to "whole sample"
+                      // for slots that have never had one. Stash bounds are
+                      // clamped to the current sample length so a sample that
+                      // shrunk under the stash (crop, target-note swap) still
+                      // produces a valid PT loop.
+                      const stashed = getStashedLoop(slot);
+                      const lengthWords = sample()!.lengthWords;
+                      if (stashed && stashed.loopLengthWords > 1) {
+                        const start = Math.min(
+                          stashed.loopStartWords,
+                          Math.max(0, lengthWords - 2),
+                        );
+                        const length = Math.max(
+                          2,
+                          Math.min(
+                            stashed.loopLengthWords,
+                            lengthWords - start,
+                          ),
+                        );
+                        props.onPatch({
+                          loopStartWords: start,
+                          loopLengthWords: length,
+                        });
+                        return;
+                      }
                       props.onPatch({
                         loopStartWords: 0,
-                        loopLengthWords: sample()!.lengthWords,
+                        loopLengthWords: lengthWords,
                       });
                     } else {
+                      // Stash the bounds before clearing them so the next
+                      // re-enable can restore the same window. Captured here
+                      // (not in App.patchCurrentSample) because the stash is
+                      // a UI-affordance concept, scoped to this checkbox.
+                      const s = sample()!;
+                      if (s.loopLengthWords > 1) {
+                        stashLoop(slot, {
+                          loopStartWords: s.loopStartWords,
+                          loopLengthWords: s.loopLengthWords,
+                        });
+                      }
                       // PT no-loop sentinel.
                       props.onPatch({ loopLengthWords: 1 });
                     }

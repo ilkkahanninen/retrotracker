@@ -11,6 +11,7 @@ import {
 } from "../../src/state/song";
 import { setCurrentSample, setCurrentOctave } from "../../src/state/edit";
 import { setView } from "../../src/state/view";
+import { clearAllStashedLoops } from "../../src/state/loopStash";
 
 function resetState() {
   setSong(null);
@@ -21,6 +22,7 @@ function resetState() {
   setCurrentSample(1);
   setCurrentOctave(2);
   setView("pattern");
+  clearAllStashedLoops();
 }
 
 beforeEach(resetState);
@@ -164,5 +166,35 @@ describe("SampleView: loop toggle", () => {
       '.samplemeta__check input[type="checkbox"]',
     )!;
     expect(toggle.disabled).toBe(true);
+  });
+
+  it("re-enabling restores the loop bounds the user had before disabling", () => {
+    // User flow: enable → drag handles to a non-default range → disable →
+    // re-enable. Without the loop-stash, the second enable would default to
+    // "loop the whole sample" and silently lose the previous range.
+    setView("sample");
+    const { container } = render(() => <App />);
+    seedSampleData();
+    // Set a non-default loop directly on the song to mimic the user having
+    // dragged the handles into place — bypasses the click/drag plumbing the
+    // selection-based test already covers.
+    const s0 = song()!;
+    setSong({
+      ...s0,
+      samples: s0.samples.map((sm, i) =>
+        i === 0 ? { ...sm, loopStartWords: 25, loopLengthWords: 40 } : sm,
+      ),
+    });
+
+    const toggle = container.querySelector<HTMLInputElement>(
+      '.samplemeta__check input[type="checkbox"]',
+    )!;
+    // Disable: the bounds get stashed and the song's loopLengthWords goes to 1.
+    fireEvent.change(toggle, { target: { checked: false } });
+    expect(song()!.samples[0]!.loopLengthWords).toBe(1);
+    // Re-enable: stashed bounds are restored, NOT "whole sample" (length=100).
+    fireEvent.change(toggle, { target: { checked: true } });
+    expect(song()!.samples[0]!.loopStartWords).toBe(25);
+    expect(song()!.samples[0]!.loopLengthWords).toBe(40);
   });
 });
