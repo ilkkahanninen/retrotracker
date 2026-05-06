@@ -112,36 +112,36 @@ describe("sample quick-select does not steal hex entry", () => {
   });
 });
 
-describe("-/= step previous/next sample", () => {
-  it("'=' increments currentSample", async () => {
+describe("Alt + up/down step previous/next sample", () => {
+  it("Alt + down increments currentSample", async () => {
     render(() => <App />);
     const user = userEvent.setup();
     setCurrentSample(5);
-    await user.keyboard("=");
+    await user.keyboard("{Alt>}{ArrowDown}{/Alt}");
     expect(currentSample()).toBe(6);
   });
 
-  it("'-' decrements currentSample", async () => {
+  it("Alt + up decrements currentSample", async () => {
     render(() => <App />);
     const user = userEvent.setup();
     setCurrentSample(5);
-    await user.keyboard("-");
+    await user.keyboard("{Alt>}{ArrowUp}{/Alt}");
     expect(currentSample()).toBe(4);
   });
 
-  it("'-' clamps at 1", async () => {
+  it("Alt + up clamps at 1", async () => {
     render(() => <App />);
     const user = userEvent.setup();
     setCurrentSample(1);
-    await user.keyboard("-");
+    await user.keyboard("{Alt>}{ArrowUp}{/Alt}");
     expect(currentSample()).toBe(1);
   });
 
-  it("'=' clamps at 31", async () => {
+  it("Alt + down clamps at 31", async () => {
     render(() => <App />);
     const user = userEvent.setup();
     setCurrentSample(31);
-    await user.keyboard("=");
+    await user.keyboard("{Alt>}{ArrowDown}{/Alt}");
     expect(currentSample()).toBe(31);
   });
 });
@@ -192,14 +192,14 @@ describe("quick-select also works in the sample view", () => {
     expect(currentSample()).toBe(13);
   });
 
-  it("'-' / '=' step previous/next sample in sample view", async () => {
+  it("Alt+up/down step previous/next sample in sample view", async () => {
     render(() => <App />);
     const user = userEvent.setup();
     setCurrentSample(5);
     setView("sample");
-    await user.keyboard("=");
+    await user.keyboard("{Alt>}{ArrowDown}{/Alt}");
     expect(currentSample()).toBe(6);
-    await user.keyboard("-");
+    await user.keyboard("{Alt>}{ArrowUp}{/Alt}");
     expect(currentSample()).toBe(5);
   });
 });

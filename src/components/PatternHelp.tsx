@@ -283,7 +283,10 @@ const NOTE_TIPS: TipSection[] = [
     items: [
       { keys: "1 – 0", action: "select samples 1 – 10" },
       { keys: "Shift + 1 – 0", action: "select samples 11 – 20" },
-      { keys: "− / =", action: "previous / next sample" },
+      {
+        keys: `${ALT_LABEL} + Arrow up / down`,
+        action: "previous / next sample",
+      },
     ],
   },
   {

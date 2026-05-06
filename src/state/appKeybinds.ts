@@ -600,7 +600,8 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   }
   cleanups.push(
     registerShortcut({
-      key: "-",
+      key: "arrowup",
+      alt: true,
       description: "Previous sample",
       when: () => transport() !== "playing",
       run: prevSample,
@@ -608,7 +609,8 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   );
   cleanups.push(
     registerShortcut({
-      key: "=",
+      key: "arrowdown",
+      alt: true,
       description: "Next sample",
       when: () => transport() !== "playing",
       run: nextSample,
