@@ -23,8 +23,19 @@ import {
 import { setView, view } from "../../src/state/view";
 import { setClipboardSlice } from "../../src/state/clipboard";
 import { setSelection } from "../../src/state/selection";
+import {
+  mutedChannels,
+  resetChannelMute,
+  setChannelMuteState,
+  soloedChannels,
+  toggleMute,
+} from "../../src/state/channelMute";
 import { io } from "../../src/state/io";
-import { clearSession, projectToBytes } from "../../src/state/persistence";
+import {
+  clearSession,
+  projectToBytes,
+  saveSession,
+} from "../../src/state/persistence";
 import { commitEdit } from "../../src/state/song";
 import { emptySong } from "../../src/core/mod/format";
 
@@ -41,6 +52,7 @@ function resetState() {
   setDirty(false);
   setView("pattern");
   setSelection(null);
+  resetChannelMute();
   clearSession();
 }
 
@@ -235,6 +247,93 @@ describe("Open: file-input sniff routes by extension", () => {
     });
     expect(currentSample()).toBe(9);
     expect(editStep()).toBe(4);
+  });
+
+  it("autosave round-trip restores per-channel mute / solo on App mount", async () => {
+    // Bug repro: pre-fix, refreshing the browser dropped mute/solo
+    // even though they were written to localStorage. The onMount path
+    // restored everything else from `loadSession()` but skipped the
+    // mute fields, so `setChannelMuteState` never fired.
+    saveSession({
+      song: emptySong(),
+      filename: "saved.mod",
+      view: "pattern",
+      cursor: { ...INITIAL_CURSOR },
+      currentSample: 1,
+      currentOctave: 2,
+      editStep: 1,
+      mutedChannels: [false, false, true, false],
+      soloedChannels: [true, false, false, false],
+    });
+    // App's onMount runs loadSession when no song is set; resetState
+    // already cleared `song`, so a fresh render exercises that path.
+    render(() => <App />);
+    expect(mutedChannels()).toEqual([false, false, true, false]);
+    expect(soloedChannels()).toEqual([true, false, false, false]);
+  });
+
+  it("a .retro upload restores per-channel mute / solo state", async () => {
+    setSong(emptySong());
+    const { container } = render(() => <App />);
+    const user = userEvent.setup();
+
+    // Build a project payload with channel 1 muted and channel 0 solo'd.
+    const s = emptySong();
+    s.title = "Mixed";
+    const projectBytes = projectToBytes({
+      song: s,
+      filename: "Mixed.retro",
+      view: "pattern",
+      cursor: { ...INITIAL_CURSOR },
+      currentSample: 1,
+      currentOctave: 2,
+      editStep: 1,
+      mutedChannels: [false, true, false, false],
+      soloedChannels: [true, false, false, false],
+    });
+    const buf = new ArrayBuffer(projectBytes.byteLength);
+    new Uint8Array(buf).set(projectBytes);
+    const file = new File([buf], "Mixed.retro", { type: "application/json" });
+
+    const input = container.querySelector<HTMLInputElement>(
+      'input[type="file"][accept*=".retro"]',
+    )!;
+    await user.upload(input, file);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mutedChannels()).toEqual([false, true, false, false]);
+    expect(soloedChannels()).toEqual([true, false, false, false]);
+  });
+
+  it("Save .retro round-trip preserves mute / solo across reload", async () => {
+    setSong(emptySong());
+    const { container } = render(() => <App />);
+    // Toggle channel 2 mute, then drive the Save .retro menu item so we
+    // exercise the full saveProject path.
+    toggleMute(2);
+    expect(mutedChannels()[2]).toBe(true);
+
+    fireEvent.click(menuTrigger(container, "File"));
+    const items = Array.from(
+      container.querySelectorAll<HTMLElement>(".menu__item"),
+    );
+    const saveItem = items.find((it) =>
+      // The Save… item has label "Save…"; match by prefix (not a Save As
+      // distinguisher in this menu yet).
+      it.textContent?.startsWith("Save"),
+    )!;
+    fireEvent.click(saveItem);
+    const [, bytes] = (io.download as ReturnType<typeof vi.fn>).mock.calls[0]!;
+
+    // The downloaded bytes are what would land on disk. Re-decode via
+    // projectFromBytes — equivalent to opening them via the file picker.
+    setChannelMuteState([false, false, false, false], null);
+    expect(mutedChannels()[2]).toBe(false);
+
+    const { projectFromBytes } = await import("../../src/state/persistence");
+    const restored = projectFromBytes(bytes as Uint8Array);
+    expect(restored).not.toBeNull();
+    expect(restored!.mutedChannels).toEqual([false, false, true, false]);
   });
 });
 

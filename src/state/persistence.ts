@@ -58,7 +58,7 @@ import { SHAPER_MODES, type ShaperMode } from "../core/audio/shapers";
 
 const STORAGE_KEY = "retrotracker:session:v1";
 
-type SchemaVersion = 1 | 2 | 3 | 4;
+type SchemaVersion = 1 | 2 | 3 | 4 | 5;
 
 /**
  * On-disk shape for one persisted sampler source. The whole sampler-side
@@ -113,6 +113,14 @@ interface PersistedShape {
    * payloads still validate.
    */
   patternNames?: Record<number, string>;
+  /**
+   * v≥5 only: per-channel mute/solo flags as 4-element boolean arrays.
+   * Optional so v<5 payloads still validate. Stored only when at least
+   * one channel is muted or solo'd — an all-false snapshot is the
+   * default and keeps the payload bit-identical to a v<5 reader.
+   */
+  mutedChannels?: boolean[];
+  soloedChannels?: boolean[];
 }
 
 /**
@@ -147,6 +155,14 @@ export interface SessionInputs {
   samplerSources?: Record<number, SamplerSourceInputs>;
   /** Project-only pattern names (pattern index → name). Optional. */
   patternNames?: Record<number, string>;
+  /**
+   * Per-channel mute / solo state (4-element boolean arrays). Optional;
+   * an all-false snapshot is omitted from the payload so a project that
+   * never touches the mute toggles stays bit-identical to its older
+   * pre-mute persistence.
+   */
+  mutedChannels?: readonly boolean[];
+  soloedChannels?: readonly boolean[];
 }
 
 /** A session that has been read back: same shape as SessionInputs, but
@@ -154,7 +170,12 @@ export interface SessionInputs {
  *  `setInfoText` without a fallback at every call site. */
 export type LoadedSession = Omit<
   SessionInputs,
-  "infoText" | "chiptuneSources" | "samplerSources" | "patternNames"
+  | "infoText"
+  | "chiptuneSources"
+  | "samplerSources"
+  | "patternNames"
+  | "mutedChannels"
+  | "soloedChannels"
 > & {
   infoText: string;
   /** Always materialised on load — empty record when none persisted. */
@@ -163,6 +184,9 @@ export type LoadedSession = Omit<
   samplerSources: Record<number, SamplerSourceInputs>;
   /** Always materialised on load — empty record when none persisted. */
   patternNames: Record<number, string>;
+  /** Always materialised on load — 4-element all-false array when none persisted. */
+  mutedChannels: boolean[];
+  soloedChannels: boolean[];
 };
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -222,16 +246,21 @@ function buildPayload(state: SessionInputs): PersistedShape {
     !!state.samplerSources && Object.keys(state.samplerSources).length > 0;
   const hasPatternNames =
     !!state.patternNames && Object.keys(state.patternNames).length > 0;
+  const hasMute =
+    (state.mutedChannels?.some((b) => b) ?? false) ||
+    (state.soloedChannels?.some((b) => b) ?? false);
   // Lowest version that fits the data — keeps a chiptune/sampler/names-free
   // session bit-identical to the original v=1 format and lets older builds
   // keep loading anything they can still understand.
-  const v: SchemaVersion = hasPatternNames
-    ? 4
-    : hasSampler
-      ? 3
-      : hasChiptune
-        ? 2
-        : 1;
+  const v: SchemaVersion = hasMute
+    ? 5
+    : hasPatternNames
+      ? 4
+      : hasSampler
+        ? 3
+        : hasChiptune
+          ? 2
+          : 1;
   return {
     v,
     songBase64: encodeSongCached(state.song),
@@ -247,7 +276,20 @@ function buildPayload(state: SessionInputs): PersistedShape {
       ? { samplerSources: encodeSamplerSources(state.samplerSources!) }
       : {}),
     ...(hasPatternNames ? { patternNames: state.patternNames } : {}),
+    ...(hasMute
+      ? {
+          mutedChannels: muteSnapshot(state.mutedChannels),
+          soloedChannels: muteSnapshot(state.soloedChannels),
+        }
+      : {}),
   };
+}
+
+/** Coerce a possibly-undefined mute/solo array to a 4-element boolean
+ *  array. Used at write time so the payload never contains stray
+ *  undefineds; parsers do the same on read for symmetry. */
+function muteSnapshot(xs: readonly boolean[] | undefined): boolean[] {
+  return Array.from({ length: 4 }, (_, i) => xs?.[i] === true);
 }
 
 /** Encode each sampler source's WavData as 16-bit PCM bytes → base64,
@@ -299,6 +341,10 @@ function payloadToSession(parsed: unknown): LoadedSession | null {
     chiptuneSources: parseChiptuneSources(parsed.chiptuneSources),
     samplerSources: parseSamplerSources(parsed.samplerSources),
     patternNames: parsePatternNames(parsed.patternNames),
+    mutedChannels: muteSnapshot(parsed.mutedChannels as boolean[] | undefined),
+    soloedChannels: muteSnapshot(
+      parsed.soloedChannels as boolean[] | undefined,
+    ),
   };
 }
 
@@ -597,11 +643,16 @@ function isPersistedShape(v: unknown): v is PersistedShape {
   if (!v || typeof v !== "object") return false;
   const x = v as Record<string, unknown>;
   // Accept v=1 (oldest, no source maps), v=2 (chiptuneSources added),
-  // v=3 (samplerSources added) and v=4 (patternNames added). Per-slot
-  // maps are validated entry-by-entry in their parse helpers so a single
-  // corrupt slot doesn't fail the whole load.
+  // v=3 (samplerSources added), v=4 (patternNames added), and v=5
+  // (per-channel mute/solo added). Per-slot maps are validated
+  // entry-by-entry in their parse helpers so a single corrupt slot
+  // doesn't fail the whole load.
   return (
-    (x["v"] === 1 || x["v"] === 2 || x["v"] === 3 || x["v"] === 4) &&
+    (x["v"] === 1 ||
+      x["v"] === 2 ||
+      x["v"] === 3 ||
+      x["v"] === 4 ||
+      x["v"] === 5) &&
     typeof x["songBase64"] === "string" &&
     (x["filename"] === null || typeof x["filename"] === "string") &&
     (x["infoText"] === undefined || typeof x["infoText"] === "string") &&

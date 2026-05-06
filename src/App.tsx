@@ -73,7 +73,10 @@ import { registerAppKeybinds } from "./state/appKeybinds";
 import { resetChannelLevels } from "./state/channelLevel";
 import {
   isChannelMuted,
+  mutedChannels,
   resetChannelMute,
+  setChannelMuteState,
+  soloedChannels,
   toggleMute,
   toggleSolo,
 } from "./state/channelMute";
@@ -235,6 +238,9 @@ export const App: Component = () => {
     samplerSources?: Record<number, SamplerSourceInputs>;
     /** Project-only pattern names (pattern index → name). */
     patternNames?: Record<number, string>;
+    /** Per-channel mute / solo state restored from the project. */
+    mutedChannels?: readonly boolean[];
+    soloedChannels?: readonly boolean[];
   }) => {
     if (!loaded.song) return;
     // Halt any in-flight playback before swapping the song — otherwise the
@@ -251,6 +257,9 @@ export const App: Component = () => {
     // pattern indices — clear before restoring this load's set.
     resetPatternNames();
     if (loaded.patternNames) loadPatternNames(loaded.patternNames);
+    if (loaded.mutedChannels || loaded.soloedChannels) {
+      setChannelMuteState(loaded.mutedChannels, loaded.soloedChannels);
+    }
     setSong(loaded.song);
     setFilename(loaded.filename);
     setInfoText(loaded.infoText ?? "");
@@ -468,6 +477,8 @@ export const App: Component = () => {
       chiptuneSources: chiptuneSourcesSnapshot(),
       samplerSources: samplerSourcesSnapshot(),
       patternNames: patternNames(),
+      mutedChannels: mutedChannels(),
+      soloedChannels: soloedChannels(),
     });
     io.download(
       deriveProjectFilename(filename(), s.title),
@@ -2210,6 +2221,7 @@ export const App: Component = () => {
           });
         }
         loadPatternNames(restored.patternNames);
+        setChannelMuteState(restored.mutedChannels, restored.soloedChannels);
         setTransport("ready");
       } else {
         setSong(emptySong());
@@ -2332,6 +2344,8 @@ export const App: Component = () => {
       const names = patternNames();
       if (!s) return;
       if (saveTimer !== null) window.clearTimeout(saveTimer);
+      const muted = mutedChannels();
+      const soloed = soloedChannels();
       saveTimer = window.setTimeout(() => {
         saveSession({
           song: s,
@@ -2345,6 +2359,8 @@ export const App: Component = () => {
           chiptuneSources: chiptuneSourcesSnapshot(),
           samplerSources: samplerSourcesSnapshot(),
           patternNames: names,
+          mutedChannels: muted,
+          soloedChannels: soloed,
         });
       }, 250);
     });
@@ -2499,6 +2515,8 @@ export const App: Component = () => {
       chiptuneSources: chiptuneSourcesSnapshot(),
       samplerSources: samplerSourcesSnapshot(),
       patternNames: patternNames(),
+      mutedChannels: mutedChannels(),
+      soloedChannels: soloedChannels(),
     }).length;
   });
 

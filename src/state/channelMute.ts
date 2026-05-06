@@ -42,6 +42,23 @@ export function resetChannelMute(): void {
 }
 
 /**
+ * Apply a saved mute/solo snapshot. Inputs are clamped to CHANNELS in
+ * length and any non-boolean / out-of-range entry is treated as false,
+ * so a malformed payload can't smuggle an undefined into the signals.
+ * Used by the project-restore path so a `.retro` file remembers the
+ * user's per-channel mute/solo state.
+ */
+export function setChannelMuteState(
+  muted: readonly unknown[] | null | undefined,
+  soloed: readonly unknown[] | null | undefined,
+): void {
+  const sanitise = (xs: readonly unknown[] | null | undefined): boolean[] =>
+    Array.from({ length: CHANNELS }, (_, i) => xs?.[i] === true);
+  setMutedRaw(sanitise(muted));
+  setSoloedRaw(sanitise(soloed));
+}
+
+/**
  * Effective audibility for the live mixer. When at least one channel is
  * solo'd, only solo'd channels are audible (mute on those is overridden);
  * otherwise the muted flag decides. Reactive — call inside an effect /

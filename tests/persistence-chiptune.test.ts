@@ -50,6 +50,50 @@ describe("persistence: chiptune source round-trip", () => {
     expect(parsed.chiptuneSources).toBeUndefined();
   });
 
+  it("persists per-channel mute / solo state through projectToBytes / projectFromBytes", () => {
+    const bytes = projectToBytes({
+      ...baseInputs(),
+      mutedChannels: [false, true, false, true],
+      soloedChannels: [true, false, false, false],
+    });
+    const restored = projectFromBytes(bytes);
+    expect(restored).not.toBeNull();
+    expect(restored!.mutedChannels).toEqual([false, true, false, true]);
+    expect(restored!.soloedChannels).toEqual([true, false, false, false]);
+  });
+
+  it("writes v=5 when any channel is muted or solo'd", () => {
+    const bytes = projectToBytes({
+      ...baseInputs(),
+      mutedChannels: [false, false, true, false],
+    });
+    const parsed = JSON.parse(new TextDecoder().decode(bytes));
+    expect(parsed.v).toBe(5);
+    expect(parsed.mutedChannels).toEqual([false, false, true, false]);
+    // Soloed array still emitted (as all-false) so the loader sees both.
+    expect(parsed.soloedChannels).toEqual([false, false, false, false]);
+  });
+
+  it("omits mute/solo arrays and stays at the lower version when all flags are false", () => {
+    const bytes = projectToBytes({
+      ...baseInputs(),
+      mutedChannels: [false, false, false, false],
+      soloedChannels: [false, false, false, false],
+    });
+    const parsed = JSON.parse(new TextDecoder().decode(bytes));
+    expect(parsed.v).toBe(1);
+    expect(parsed.mutedChannels).toBeUndefined();
+    expect(parsed.soloedChannels).toBeUndefined();
+  });
+
+  it("loads mute/solo as all-false when the payload predates v=5", () => {
+    // Build a v=1 payload by omitting the mute fields, then load it.
+    const bytes = projectToBytes(baseInputs());
+    const restored = projectFromBytes(bytes);
+    expect(restored!.mutedChannels).toEqual([false, false, false, false]);
+    expect(restored!.soloedChannels).toEqual([false, false, false, false]);
+  });
+
   it("writes v=2 when chiptune slots are present", () => {
     const bytes = projectToBytes({
       ...baseInputs(),
