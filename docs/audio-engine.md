@@ -48,6 +48,8 @@ class Replayer {
   setChannelMuted(channel: number, muted: boolean): void;
   setAmigaModel(model: AmigaModel): void;
   setStereoSeparation(sep: number): void;
+  replaceSampleSlot(slot: number, sample: Sample): void;
+  replaceSong(song: Song): void;
   hasEnded(): boolean;
   getOrder(): number;
   getRow(): number;
@@ -194,6 +196,7 @@ Public methods are 1:1 with the message types:
 - `load(song)`, `play()`, `playFrom(order, row, { loopPattern })`, `stop()`
 - `setChannelMuted(ch, muted)`
 - `setPaulaModel(model)`, `setStereoSeparation(sep)` — both forwarded to the song worklet AND any active preview worklet, with the values cached on the engine so a preview worklet built later still picks up the right state.
+- `setSampleData(slot, sample)`, `replaceSong(song)` — live-edit hot-swap (see below). Both apply the same `songForPlayback` loop-truncate transform `load` does, so the live update matches what a fresh load would have sent.
 - `previewNote(sample, period)`, `stopPreview()` — see "Preview worklet" below.
 - `dispose()`.
 
@@ -208,10 +211,23 @@ The worklet ([src/core/audio/worklet.ts](../src/core/audio/worklet.ts)) is an `A
 | `setChannelMuted { ch, muted }`        |                                         |
 | `setAmigaModel { model }`              |                                         |
 | `setStereoSeparation { sep }`          |                                         |
+| `setSampleData { slot, sample }`       |                                         |
+| `replaceSong { song }`                 |                                         |
 
 The worklet caches mute gates, Paula model, and stereo separation so they survive the `Replayer` recreation that happens at song-end loop. Live playback never reports end-of-song to the main thread — when the replayer ends, the worklet rebuilds it with `loop: true` and keeps mixing, so transport state stays consistent.
 
 The "lazy AudioContext" pattern in [state/playback.ts](../src/state/playback.ts) means `AudioEngine.create()` only runs after the first user gesture (or test stub). On creation, the orchestration layer pushes the cached mute/Paula/stereo state into the worklet so anything the user toggled before audio existed lands correctly.
+
+### Live edits during playback
+
+The editor supports a "no stop button required" workflow: sliders, slot toggles, and order edits stay live while the song plays. Two hot-swap paths bridge the on-screen state to the worklet's `Replayer` without restarting playback:
+
+- **`setSampleData(slot, sample)`** — hot-swap one sample slot. The worklet mutates `song.samples[slot]` and re-latches Paula's per-voice DMA registers for any voice currently playing this slot. The voice keeps its cursor; the new loop bounds take effect on the next DMA wrap (one loop period later — typically tens of ms for a chiptune). Out-of-bounds reads past a shorter new buffer's end emit silence by Paula's existing `i < len` guard, so a length change briefly drops out instead of reading garbage. Used by the chiptune slider drags, sampler chain edits, and sample-meta tweaks.
+- **`replaceSong(song)`** — hot-swap the whole song reference. The `Replayer` reads `song.orders[orderIndex]` and `song.patterns[p]` fresh on every row, so a pointer swap is enough to make a stepped slot's new pattern audible on the next row processed. `state.orderIndex` clamps to the new `songLength` and `state.visited` (the wrap-detection set, keyed by `(order << 8) | row`) clears so its old-numbering entries don't pre-trigger a wrap. Used by the order-list edits (slot stepping, insert / delete, new / duplicate pattern).
+
+Both paths are driven by a single `createEffect` in [App.tsx](../src/App.tsx) that diffs `song.samples[i]` and `song.orders` / `song.patterns` / `song.songLength` by reference. When transport is `'playing'`, changes go to the engine; otherwise the diff state advances silently and the next play call's `engine.load(song)` picks everything up in one shot.
+
+The mid-playback **jump** path (`engine.playFrom(order, 0)`, exposed as `jumpPlaybackToOrder` in [state/playback.ts](../src/state/playback.ts)) is the order-list click and bare `[` / `]` shortcut behavior: it builds a fresh `Replayer` at the target row 0 while keeping `transport === 'playing'` and the current `playMode`. It deliberately does **not** call `engine.load(song)` — the worklet's snapshot already has any hot-swapped sample edits, so a load would undo them.
 
 ### Offline render: `offlineRender.ts`
 

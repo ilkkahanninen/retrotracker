@@ -18,7 +18,7 @@ The design rule: the UI should never reach into core. It always goes through sta
 | `clipboardSlice`                             | [clipboard.ts](../src/state/clipboard.ts)             | `Note[][] \| null`                                       |
 | `currentSample`, `currentOctave`, `editStep` | [edit.ts](../src/state/edit.ts)                       | numbers                                                  |
 | `view`                                       | [view.ts](../src/state/view.ts)                       | `'pattern' \| 'sample'`                                  |
-| `mutedChannels`, `soloedChannels`            | [channelMute.ts](../src/state/channelMute.ts)         | `Set<number>`                                            |
+| `mutedChannels`, `soloedChannels`            | [channelMute.ts](../src/state/channelMute.ts)         | `readonly boolean[4]`                                    |
 | `channelLevels`                              | [channelLevel.ts](../src/state/channelLevel.ts)       | `number[4]`                                              |
 | `workbenches`                                | [sampleWorkbench.ts](../src/state/sampleWorkbench.ts) | `Map<slot, SampleWorkbench>`                             |
 | `settings`                                   | [settings.ts](../src/state/settings.ts)               | `{ paulaModel, colorScheme, uiScale, stereoSeparation }` |
@@ -53,7 +53,7 @@ Snapshots are `{ song, workbenches, patternNames }` — three pieces that move t
 Constraints baked into commit:
 
 - **No-ops are detected by reference.** If the transform returns the same `song` AND the same `workbenches` AND the same `patternNames`, nothing is pushed. This relies on mutations being immutable and reference-sharing unchanged structure.
-- **Commits during playback are dropped.** Editing a song while the worklet is mixing it would race; the commit gates on `transport() === 'playing'`. Same gate applies to undo/redo.
+- **Two-tier playback policy.** `commitEdit` gates on `transport() === 'playing'` (so pattern-cell edits can't race the worklet while it mixes the same data). `commitEditWithWorkbenches` does **not** gate — sample-pipeline edits, sample-meta tweaks, song-title changes, and order-list edits all stay live during playback. `undo` / `redo` follow `commitEdit`'s rule (gated). The sample / order paths reach the audible side via the live-edit hot-swap (see [Live edits during playback](audio-engine.md#live-edits-during-playback)); the worklet keeps its own song snapshot, so even without a hot-swap the on-screen state can move ahead of audio without desync risk.
 - **History is capped.** `HISTORY_LIMIT = 200`. Older entries fall off the bottom; loading a new file calls `clearHistory()` so undo never crosses files.
 
 `dirty` is conservative: any commit / undo / redo sets it true. Returning to the saved state via undo doesn't auto-clean, because comparing to a saved snapshot would mean keeping that snapshot around — not worth the bookkeeping vs. an occasional unnecessary "discard?" prompt.
@@ -99,11 +99,14 @@ currentEngine(): AudioEngine | null;           // read-only
 playFromStart();      playFromCursor();
 playPatternFromStart(); playPatternFromCursor();
 togglePlaySong();    togglePlayPattern();
+jumpPlaybackToOrder(order);             // mid-playback jump w/o stopping
 stopPlayback();      stopEngine();
 triggerPreview(slot, sample, period);
 livePreviewSwap(slot, sample, period);  // mid-preview re-target (no click)
 stopEnginePreview(); disposeEngine();
 ```
+
+`jumpPlaybackToOrder` is the path the order-list click and the bare `[` / `]` shortcuts go through during playback: it snaps `playPos` synchronously (so the playhead UI moves on click instead of waiting for the next worklet `pos` event) and tells the engine to `playFrom(order, 0)` while keeping the current `playMode` (song / pattern-loop). It does **not** call `engine.load(song)`, so any sample edits hot-swapped into the worklet's snapshot survive the jump.
 
 When the engine is created, it's wired to:
 
@@ -143,13 +146,14 @@ What persists:
 - Pattern names (project-only state).
 - **Chiptune sources** — tiny `ChiptuneParams` JSON. The synth is deterministic, so re-running it reproduces the int8 exactly.
 - **Sampler sources** — 16-bit PCM WAV bytes (base64). Heavy enough that a single autosave can blow the localStorage quota; `saveSession` swallows that silently and the user falls back to explicit Save.
+- **Per-channel mute / solo** — 4-element boolean arrays. Restored by both the `.retro` upload path (`applyLoadedSession`) and the autosave path (`onMount` after `loadSession`).
 
 What doesn't persist:
 
 - History stacks (`clearHistory()` on every load — fresh session, no undo across files).
 - Selection, clipboard, transport, playPos (all ephemeral).
 
-Schema versions are baked into the storage key (`v1` for the key itself) and the payload (`v: 1..4`). Newer writes use the lowest version that fits the data — a project that uses neither chiptune nor sampler sources stays bit-identical to the original v=1 format, so older readers stay forward-compatible.
+Schema versions are baked into the storage key (`v1` for the key itself) and the payload (`v: 1..5`). Each version adds an optional field: v=2 chiptuneSources, v=3 samplerSources, v=4 patternNames, v=5 mutedChannels/soloedChannels. Newer writes use the lowest version that fits the data — a project that uses none of those still emits v=1, so older readers stay forward-compatible.
 
 ## Sample workbenches
 
