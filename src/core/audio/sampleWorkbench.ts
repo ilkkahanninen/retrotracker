@@ -116,18 +116,34 @@ export const EFFECT_LABELS: Readonly<Record<EffectKind, string>> = {
 
 /**
  * Loop info threaded through the chain so loop-aware effects (currently
- * just crossfade) can reach the slot's loop boundaries without each effect
- * carrying its own copy. Frames are in the chain's INPUT space (the
- * source's frame count) — `writeWorkbenchToSongPure` derives them by
- * scaling the slot's int8-byte loop fields with `sourceFrames / int8Len`.
+ * just crossfade) can reach the slot's loop boundaries.
  *
- * The mapping is exact only when no length-changing chain effects (crop,
- * cut) ran before the loop-aware effect. With those, the loop frames may
- * point past the current intermediate's end; loop-aware effects clamp.
+ * Stored in the slot's int8-byte coordinates plus the int8 length. Each
+ * loop-aware effect re-derives its frame positions from its OWN input
+ * length:
+ *
+ *   loopFrameInInput = loopByte * inputFrames / int8Length
+ *
+ * That formulation is robust to length-changing effects placed BEFORE the
+ * loop-aware one — `crop → crossfade` works because the crossfade scales
+ * the loop bytes against the cropped input, not the original source. The
+ * older `loopStartFrame / loopEndFrame` form (derived once with the
+ * source length) overshot a preceding crop's input bounds, then clamped,
+ * so the fade landed in the wrong region and stopped tracking the user's
+ * loop adjustments.
+ *
+ * Length-changing effects placed AFTER the loop-aware one (crop, cut)
+ * still distort the mapping — the int8 region the user sees no longer
+ * lines up with a single contiguous frame range in the crossfade output.
+ * Those orderings are exotic and we don't try to handle them.
  */
 export interface RunContext {
-  loopStartFrame: number;
-  loopEndFrame: number;
+  /** Slot's loop start, in int8 byte position. */
+  loopStartByte: number;
+  /** Slot's loop end (exclusive), in int8 byte position. */
+  loopEndByte: number;
+  /** Length of the int8 data the byte positions index into. */
+  int8Length: number;
 }
 
 export const FILTER_TYPE_LABELS: Readonly<Record<FilterType, string>> = {
@@ -603,17 +619,23 @@ export function applyEffect(
       );
     case "shaper":
       return applyShaperEffect(input, node.params.mode, node.params.amount);
-    case "crossfade":
+    case "crossfade": {
       // Loop info comes from the run context — without it (slot has no
       // loop, or the chain ran outside `writeWorkbenchToSongPure`) the
-      // effect is a pass-through.
-      if (!ctx) return input;
+      // effect is a pass-through. Map the slot's int8-byte loop positions
+      // into THIS effect's input frame space using the input length, so a
+      // preceding crop / cut shrinks the mapping accordingly.
+      if (!ctx || ctx.int8Length <= 0) return input;
+      const inputLen = input.channels[0]?.length ?? 0;
+      if (inputLen <= 0) return input;
+      const ratio = inputLen / ctx.int8Length;
       return applyCrossfade(
         input,
         node.params.length,
-        ctx.loopStartFrame,
-        ctx.loopEndFrame,
+        ctx.loopStartByte * ratio,
+        ctx.loopEndByte * ratio,
       );
+    }
   }
 }
 

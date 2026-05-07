@@ -996,8 +996,19 @@ describe("runPipeline: crossfade is loop-context-sensitive", () => {
 
   it("produces different int8 for different loop ranges", () => {
     const wb = buildWorkbench();
-    const a = runPipeline(wb, { loopStartFrame: 32, loopEndFrame: 96 });
-    const b = runPipeline(wb, { loopStartFrame: 100, loopEndFrame: 200 });
+    // Source = 256 frames, no resample, no length-changing chain effects
+    // → int8Length matches the source frame count, so int8-byte loop
+    // positions equal the crossfade-input frame positions.
+    const a = runPipeline(wb, {
+      loopStartByte: 32,
+      loopEndByte: 96,
+      int8Length: 256,
+    });
+    const b = runPipeline(wb, {
+      loopStartByte: 100,
+      loopEndByte: 200,
+      int8Length: 256,
+    });
     expect(a.length).toBe(b.length);
     expect(Array.from(a)).not.toEqual(Array.from(b));
   });
@@ -1007,5 +1018,40 @@ describe("runPipeline: crossfade is loop-context-sensitive", () => {
     const withCrossfade = runPipeline(wb, null);
     const withoutCrossfade = runPipeline({ ...wb, chain: [] }, null);
     expect(Array.from(withCrossfade)).toEqual(Array.from(withoutCrossfade));
+  });
+
+  it("crossfade fades the right region when a crop precedes it", () => {
+    // Regression for the `crop → crossfade` bug: with the older frame-based
+    // ctx, ratio = sourceFrames/int8Length used the uncropped source so a
+    // loop fully inside the cropped 256-frame input mapped past the
+    // crossfade's input bounds (1024/256 = 4× too far). The fade clamped
+    // and landed on the cropped tail instead of where the user dragged the
+    // loop. With the byte-based ctx, the crossfade scales the loop bytes
+    // against its own (cropped) input length and fades the right region.
+    const src = new Int8Array(1024);
+    for (let i = 0; i < src.length; i++) src[i] = ((i * 7) & 0xff) - 128;
+    const wb = workbenchFromInt8(src, "regression-crop-xf");
+    wb.chain = [
+      { kind: "crop", params: { startFrame: 0, endFrame: 256 } },
+      { kind: "crossfade", params: { length: 32 } },
+    ];
+    wb.pt = { ...wb.pt, targetNote: null };
+
+    const noFade = runPipeline({ ...wb, chain: wb.chain.slice(0, 1) });
+    const withFade = runPipeline(wb, {
+      loopStartByte: 50,
+      loopEndByte: 100,
+      int8Length: 256,
+    });
+    expect(withFade.length).toBe(256);
+
+    // usable = min(length=32, ls=50, le-ls=50) = 32 → fade window [68, 100).
+    // Outside that window the output matches the no-fade reference.
+    for (let i = 0; i < 68; i++) expect(withFade[i]).toBe(noFade[i]);
+    for (let i = 100; i < 256; i++) expect(withFade[i]).toBe(noFade[i]);
+    // And at least one sample inside the fade differs from the unfaded run.
+    let inside = 0;
+    for (let i = 68; i < 100; i++) if (withFade[i] !== noFade[i]) inside++;
+    expect(inside).toBeGreaterThan(0);
   });
 });

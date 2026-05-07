@@ -1655,23 +1655,17 @@ export const App: Component = () => {
     loopOverride?: { loopStartWords: number; loopLengthWords: number },
   ): import("./core/mod/types").Song => {
     const old = song.samples[slot];
-    // Build a chain run-context that carries the slot's current loop into
-    // chain-input frame space, so loop-aware effects (crossfade) can act
-    // on it without each effect needing its own copy of the loop fields.
-    // Mapping: int8 byte position → source-frame position via the ratio
-    // sourceFrames / int8Length. Holds when no length-changing chain
-    // effects (crop / cut) precede the loop-aware effect.
+    // Build a chain run-context that carries the slot's current loop in
+    // int8-byte coordinates. Loop-aware effects (currently just crossfade)
+    // re-scale these into their own input frame space, so a `crop → crossfade`
+    // chain places the fade inside the cropped audio rather than overshooting
+    // and clamping (see `RunContext` doc).
     const ctx = (() => {
       if (!old || old.loopLengthWords <= 1 || old.data.length <= 0) return null;
-      const sourceFrames =
-        materializeSource(wb.source).channels[0]?.length ?? 0;
-      if (sourceFrames <= 0) return null;
-      const ratio = sourceFrames / old.data.length;
-      const loopStartByte = old.loopStartWords * 2;
-      const loopEndByte = (old.loopStartWords + old.loopLengthWords) * 2;
       return {
-        loopStartFrame: loopStartByte * ratio,
-        loopEndFrame: loopEndByte * ratio,
+        loopStartByte: old.loopStartWords * 2,
+        loopEndByte: (old.loopStartWords + old.loopLengthWords) * 2,
+        int8Length: old.data.length,
       };
     })();
     const data = runPipeline(wb, ctx);
@@ -1688,13 +1682,25 @@ export const App: Component = () => {
     // scale the loop window's byte endpoints by the new/old length ratio so
     // the user keeps the same proportional loop region. Without this, switch-
     // ing target note slid the loop relative to the audio underneath.
+    //
+    // Compare against the POST-pad length: `replaceSampleData` rounds odd-
+    // length payloads up to even, so an unpadded 4403-byte run looks
+    // different from the previously-stored 4404-byte payload even though
+    // they'll land on the same lengthWords. Without the padding adjustment,
+    // every loop-drag re-run on a sample whose unpadded output is odd
+    // triggered scaledLoop and shaved one word off `loopLengthWords` per
+    // mousemove — the "end point wanders left" bug.
+    //
     // Skipped when an explicit `loopOverride` (or chiptune full-loop) wins
-    // anyway, when the slot has no loop, or when length is unchanged.
+    // anyway, when the slot has no loop, or when the post-pad length is
+    // unchanged.
     const scaledLoop = (() => {
       if (loopFields) return null;
       if (!old || old.loopLengthWords <= 1) return null;
-      if (old.data.length <= 0 || data.length === old.data.length) return null;
-      const ratio = data.length / old.data.length;
+      if (old.data.length <= 0) return null;
+      const newPaddedLen = data.length + (data.length & 1);
+      if (newPaddedLen === old.data.length) return null;
+      const ratio = newPaddedLen / old.data.length;
       const oldEndBytes = (old.loopStartWords + old.loopLengthWords) * 2;
       const newStartBytes = Math.round(old.loopStartWords * 2 * ratio);
       const newEndBytes = Math.round(oldEndBytes * ratio);
@@ -1997,19 +2003,15 @@ export const App: Component = () => {
    */
   const runContextForSlot = (
     slot: number,
-    wb: SampleWorkbench,
-  ): { loopStartFrame: number; loopEndFrame: number } | null => {
+    _wb: SampleWorkbench,
+  ): import("./core/audio/sampleWorkbench").RunContext | null => {
     const sample = song()?.samples[slot];
     if (!sample || sample.loopLengthWords <= 1 || sample.data.length <= 0)
       return null;
-    const sourceFrames = materializeSource(wb.source).channels[0]?.length ?? 0;
-    if (sourceFrames <= 0) return null;
-    const ratio = sourceFrames / sample.data.length;
-    const loopStartByte = sample.loopStartWords * 2;
-    const loopEndByte = (sample.loopStartWords + sample.loopLengthWords) * 2;
     return {
-      loopStartFrame: loopStartByte * ratio,
-      loopEndFrame: loopEndByte * ratio,
+      loopStartByte: sample.loopStartWords * 2,
+      loopEndByte: (sample.loopStartWords + sample.loopLengthWords) * 2,
+      int8Length: sample.data.length,
     };
   };
 
