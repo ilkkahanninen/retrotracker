@@ -12,12 +12,16 @@ A web-based ProTracker module editor.
 
 ## Getting started
 
+The latest build is always live at **<https://retrotracker.netlify.app/>** — open it in any modern browser, drop a `.mod` or `.retro` onto the page (or use **File → Open**), and start editing.
+
+To run locally:
+
 ```bash
 npm install
 npm run dev
 ```
 
-Open the URL Vite prints, drop a `.mod` or `.retro` onto the page (or use **File → Open**), and start editing.
+Open the URL Vite prints and use the editor the same way.
 
 ## Documentation
 

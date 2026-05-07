@@ -18,12 +18,14 @@ RetroTracker is a web-based ProTracker module editor: a four-channel pattern gri
 
 ## Getting started
 
+The latest build is always hosted at **<https://retrotracker.netlify.app/>** — open it in any modern browser and you're in. To run locally instead:
+
 ```bash
 npm install
 npm run dev
 ```
 
-Open the URL Vite prints. The app boots with a blank "M.K." song so you can start editing immediately. Drop a `.mod` or `.retro` file onto the page (or use **File → Open**) to load existing work.
+Open the URL Vite prints. Either way, the app boots with a blank "M.K." song so you can start editing immediately. Drop a `.mod` or `.retro` file onto the page (or use **File → Open**) to load existing work.
 
 Your work autosaves to your browser's localStorage between every edit. Closing and re-opening the tab restores cursor position, view, sample workbenches, channel mute/solo, and everything else you can change in the editor. To save off-machine, use **File → Save…** which downloads a `.retro` project file.
 
