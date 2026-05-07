@@ -4,6 +4,7 @@ import type { Sample } from "../core/mod/types";
 import { currentSample } from "../state/edit";
 import { previewFrame } from "../state/preview";
 import type { SampleSelection } from "../state/sampleSelection";
+import { beginDragEdit, endDragEdit } from "../state/song";
 
 export type { SampleSelection };
 
@@ -200,6 +201,10 @@ export const Waveform: Component<WaveformProps> = (props) => {
     const x = clientToCanvasX(e.clientX);
     const handle = handleAt(x);
     if (handle) {
+      // Coalesce every loop-handle commit fired during this drag into a
+      // single undo entry — the matching `endDragEdit` runs in the window-
+      // level mouseup handler below.
+      beginDragEdit();
       setDrag({ kind: "loop", which: handle });
       e.preventDefault();
       return;
@@ -270,6 +275,7 @@ export const Waveform: Component<WaveformProps> = (props) => {
         const sel = props.selection;
         if (sel && sel.start === sel.end) props.onSelect(null);
       }
+      if (d?.kind === "loop") endDragEdit();
       setDrag(null);
     };
     useWindowListener("mousemove", move);

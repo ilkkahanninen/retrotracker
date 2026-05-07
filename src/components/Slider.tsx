@@ -1,4 +1,5 @@
 import { type Component, type JSX } from "solid-js";
+import { beginDragEdit, endDragEdit } from "../state/song";
 
 interface Props {
   label: JSX.Element;
@@ -38,6 +39,18 @@ export const Slider: Component<Props> = (props) => {
           step={props.step ?? 0.01}
           value={props.value}
           disabled={props.disabled}
+          onPointerDown={() => {
+            // Open a coalesced edit group for the drag — every `input` event
+            // commits live, but they collapse into a single undo entry.
+            // Uses a window-level pointerup so a release outside the thumb
+            // still closes the group.
+            beginDragEdit();
+            const release = () => {
+              endDragEdit();
+              window.removeEventListener("pointerup", release);
+            };
+            window.addEventListener("pointerup", release);
+          }}
           onInput={(e) => {
             const v = parseFloat(e.currentTarget.value);
             if (!Number.isFinite(v)) return;

@@ -82,10 +82,71 @@ interface EditState {
 const [past, setPast] = createSignal<EditState[]>([]);
 const [future, setFuture] = createSignal<EditState[]>([]);
 
+/**
+ * Pre-drag snapshot taken by `beginDragEdit`. While set, `applyCommit`
+ * updates the live signals but skips its per-event history push, so a
+ * slider drag (or loop-handle drag) — which fires hundreds of `commitEdit*`
+ * calls — collapses into a single undo entry. `endDragEdit` pushes this
+ * snapshot once and clears it.
+ */
+let dragSnapshot: EditState | null = null;
+
+function pushPast(entry: EditState): void {
+  const prev = past();
+  const trimmed =
+    prev.length >= HISTORY_LIMIT
+      ? prev.slice(prev.length - HISTORY_LIMIT + 1)
+      : prev;
+  setPast([...trimmed, entry]);
+  setFuture([]);
+}
+
 /** True if there's a prior snapshot the user can revert to. */
 export const canUndo = () => past().length > 0;
 /** True if there's a redo snapshot waiting. */
 export const canRedo = () => future().length > 0;
+
+/**
+ * Open a coalesced edit group. While the group is open, every `commitEdit*`
+ * call still updates state (so the user hears / sees the edit live), but the
+ * per-event history push is deferred — `endDragEdit` records exactly one
+ * entry covering the whole group. Wire to `pointerdown` on a range slider,
+ * `mousedown` on a draggable handle, etc.
+ *
+ * Re-entrant: nested begins keep the outermost snapshot, so a slider inside
+ * a wider drag still ends up with one combined entry.
+ */
+export function beginDragEdit(): void {
+  if (dragSnapshot) return;
+  const cur = song();
+  if (!cur) return;
+  dragSnapshot = {
+    song: cur,
+    workbenches: workbenchesSig(),
+    patternNames: patternNamesSig(),
+  };
+}
+
+/**
+ * Close the coalesced edit group started by `beginDragEdit`. If state
+ * actually changed during the group, the pre-group snapshot is pushed onto
+ * the undo stack as a single entry; otherwise no entry is recorded.
+ */
+export function endDragEdit(): void {
+  const snap = dragSnapshot;
+  dragSnapshot = null;
+  if (!snap) return;
+  const cur = song();
+  if (!cur) return;
+  if (
+    snap.song === cur &&
+    snap.workbenches === workbenchesSig() &&
+    snap.patternNames === patternNamesSig()
+  )
+    return;
+  pushPast(snap);
+  setDirty(true);
+}
 
 /**
  * Internal — push a `{song, workbenches}` snapshot of the *current* live
@@ -112,20 +173,15 @@ function applyCommit(next: EditState): void {
   )
     return;
 
-  const prev = past();
-  const trimmed =
-    prev.length >= HISTORY_LIMIT
-      ? prev.slice(prev.length - HISTORY_LIMIT + 1)
-      : prev;
-  setPast([
-    ...trimmed,
-    {
+  // Inside a coalesced edit group (slider/handle drag): skip the per-event
+  // history push; `endDragEdit` will record one entry for the whole drag.
+  if (!dragSnapshot) {
+    pushPast({
       song: currentSong,
       workbenches: currentWb,
       patternNames: currentNames,
-    },
-  ]);
-  setFuture([]);
+    });
+  }
   setSong(next.song);
   if (next.workbenches !== currentWb) setWorkbenchesRaw(next.workbenches);
   if (next.patternNames !== currentNames) loadPatternNames(next.patternNames);
@@ -249,4 +305,5 @@ export function redo(): void {
 export function clearHistory(): void {
   setPast([]);
   setFuture([]);
+  dragSnapshot = null;
 }
