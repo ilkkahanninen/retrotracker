@@ -113,8 +113,12 @@ export const canRedo = () => future().length > 0;
  * entry covering the whole group. Wire to `pointerdown` on a range slider,
  * `mousedown` on a draggable handle, etc.
  *
- * Re-entrant: nested begins keep the outermost snapshot, so a slider inside
- * a wider drag still ends up with one combined entry.
+ * Begin is idempotent while a group is already open: a second begin is a
+ * no-op and does NOT install a new snapshot. Note that the *first*
+ * `endDragEdit` closes the group regardless of how many begins fired, so
+ * truly nested drags (e.g. multitouch on two controls) are not supported —
+ * after the inner end, the outer drag's remaining commits push individual
+ * undo entries. Single-pointer flows are unaffected.
  */
 export function beginDragEdit(): void {
   if (dragSnapshot) return;

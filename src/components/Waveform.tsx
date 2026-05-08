@@ -1,4 +1,10 @@
-import { Show, createEffect, createSignal, type Component } from "solid-js";
+import {
+  Show,
+  createEffect,
+  createSignal,
+  onCleanup,
+  type Component,
+} from "solid-js";
 import { useWindowListener } from "./hooks";
 import type { Sample } from "../core/mod/types";
 import { currentSample } from "../state/edit";
@@ -280,6 +286,15 @@ export const Waveform: Component<WaveformProps> = (props) => {
     };
     useWindowListener("mousemove", move);
     useWindowListener("mouseup", up);
+  });
+
+  // If the component unmounts mid-drag (view switch, sample slot change,
+  // …), Solid disposes the createEffect above and removes the window
+  // listeners — but `endDragEdit` would never run, leaving the module-level
+  // `dragSnapshot` stuck and silently swallowing every subsequent commit's
+  // undo entry. Close the open drag group on disposal as a backstop.
+  onCleanup(() => {
+    if (drag()?.kind === "loop") endDragEdit();
   });
 
   /** Pan the viewport by `bytes`, clamped to the sample. */

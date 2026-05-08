@@ -785,9 +785,11 @@ export class Replayer {
         ch.volume = Math.min(64, p);
         break;
       case Effect.PatternBreak: {
-        // xy parameter is decimal: 10*x + y (yes, really)
+        // xy parameter is decimal: 10*x + y (yes, really). pt2-clone resets
+        // the target to row 0 (not clamps to 63) when the decoded value
+        // overflows past the last row — match its behavior.
         const target = xHi * 10 + xLo;
-        this.state.jumpToRow = Math.min(target, ROWS_PER_PATTERN - 1);
+        this.state.jumpToRow = target > ROWS_PER_PATTERN - 1 ? 0 : target;
         if (this.state.jumpToOrder < 0) {
           this.state.jumpToOrder = this.state.orderIndex + 1;
         }

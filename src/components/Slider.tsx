@@ -1,4 +1,4 @@
-import { type Component, type JSX } from "solid-js";
+import { onCleanup, type Component, type JSX } from "solid-js";
 import { beginDragEdit, endDragEdit } from "../state/song";
 
 interface Props {
@@ -27,6 +27,15 @@ interface Props {
  */
 export const Slider: Component<Props> = (props) => {
   const fmt = (v: number) => (props.format ?? ((x) => x.toFixed(2)))(v);
+
+  // Track the active drag's pointerup listener so we can detach it (and
+  // close the drag group) if the component unmounts before the user lifts
+  // the pointer. Without this, `dragSnapshot` would stay non-null and every
+  // subsequent commit would silently skip its undo entry until the next
+  // pointerup *anywhere* on window.
+  let activeRelease: (() => void) | null = null;
+  onCleanup(() => activeRelease?.());
+
   return (
     <label class="slider" classList={{ "slider--disabled": props.disabled }}>
       <span class="slider__label">{props.label}</span>
@@ -43,12 +52,17 @@ export const Slider: Component<Props> = (props) => {
             // Open a coalesced edit group for the drag — every `input` event
             // commits live, but they collapse into a single undo entry.
             // Uses a window-level pointerup so a release outside the thumb
-            // still closes the group.
+            // still closes the group; the matching cleanup also runs on
+            // component unmount via `activeRelease` so a mid-drag unmount
+            // can't leave `dragSnapshot` stuck.
+            activeRelease?.();
             beginDragEdit();
             const release = () => {
-              endDragEdit();
               window.removeEventListener("pointerup", release);
+              activeRelease = null;
+              endDragEdit();
             };
+            activeRelease = release;
             window.addEventListener("pointerup", release);
           }}
           onInput={(e) => {

@@ -18,6 +18,18 @@ export function writeModule(song: Song): Uint8Array {
   }
 
   const numPatterns = song.patterns.length;
+  // Reject orders pointing past the pattern array — the parser derives the
+  // pattern count from `max(orders) + 1`, so a saved file with bogus orders
+  // would fail to re-load with a "Truncated pattern data" error. Catch
+  // mismatches at write time so the corruption surfaces here, not later.
+  for (let i = 0; i < song.songLength; i++) {
+    const o = song.orders[i]!;
+    if (o >= numPatterns) {
+      throw new Error(
+        `Order ${i} references pattern ${o} but song only has ${numPatterns} pattern(s)`,
+      );
+    }
+  }
   const patternBytes = numPatterns * ROWS_PER_PATTERN * CHANNELS * 4;
   const sampleBytes = song.samples.reduce(
     (sum, s) => sum + s.lengthWords * 2,

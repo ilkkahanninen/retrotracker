@@ -2,11 +2,14 @@ import { createSignal } from "solid-js";
 import { CHANNELS } from "../core/mod/types";
 
 /**
- * Per-channel mute and solo state for live playback. Kept session-only —
- * never serialised into the .mod, never reset on song load. Mute and solo
- * are independent flags; `isChannelMuted` combines them so the user can
- * hold a "muted" set and momentarily solo something without losing which
- * channels were muted before.
+ * Per-channel mute and solo state for live playback. Persisted in `.retro`
+ * project files (re-applied via `setChannelMuteState` on restore) but not
+ * in `.mod` (the format has no slot for it). Cleared on every song load so
+ * the previous song's mutes don't carry over to a fresh open / new file.
+ *
+ * Mute and solo are independent flags; `isChannelMuted` combines them so
+ * the user can hold a "muted" set and momentarily solo something without
+ * losing which channels were muted before.
  */
 const initial = (): boolean[] => Array.from({ length: CHANNELS }, () => false);
 
