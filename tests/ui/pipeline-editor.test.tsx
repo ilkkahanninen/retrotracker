@@ -1071,6 +1071,13 @@ describe("source picker: alt-stash round-trip", () => {
       '.sampleview__actions input[type="file"]',
     )!;
     await userEvent.setup().upload(fileInput, makeStereoWav());
+    // Upload's onChange handler reads the File asynchronously — wait
+    // until the workbench actually has audio data before asserting.
+    await waitFor(() => {
+      const wb2 = getWorkbench(0);
+      if (!wb2 || wb2.source.kind !== "sampler") throw new Error("not yet");
+      expect(wb2.source.wav.channels[0]!.length).toBeGreaterThan(0);
+    });
     const populated = getWorkbench(0)!;
     expect(populated.source.kind).toBe("sampler");
     expect(populated.alt?.source.kind).toBe("chiptune");
