@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { cleanup, render, fireEvent } from "@solidjs/testing-library";
+import { cleanup, render, fireEvent, waitFor } from "@solidjs/testing-library";
 import userEvent from "@testing-library/user-event";
 import { App } from "../../src/App";
 import { setCursor, INITIAL_CURSOR } from "../../src/state/cursor";
@@ -128,15 +128,18 @@ describe("pipeline: WAV load creates a workbench", () => {
       '.sampleview__actions input[type="file"]',
     )!;
     await userEvent.setup().upload(fileInput, makeStereoWav());
+    // The change handler does `await file.arrayBuffer()` before populating
+    // the workbench — wait for the resulting state instead of reading
+    // synchronously after `upload` resolves.
+    await waitFor(() => expect(getWorkbench(1)).toBeDefined());
 
-    const wb = getWorkbench(1);
-    expect(wb).toBeDefined();
-    if (wb!.source.kind !== "sampler")
+    const wb = getWorkbench(1)!;
+    if (wb.source.kind !== "sampler")
       throw new Error("expected sampler source");
-    expect(wb!.source.wav.sampleRate).toBe(44100);
-    expect(wb!.source.wav.channels).toHaveLength(2);
-    expect(wb!.chain).toEqual([]);
-    expect(wb!.pt.monoMix).toBe("average");
+    expect(wb.source.wav.sampleRate).toBe(44100);
+    expect(wb.source.wav.channels).toHaveLength(2);
+    expect(wb.chain).toEqual([]);
+    expect(wb.pt.monoMix).toBe("average");
     // Pipeline ran: slot 1 received int8 data.
     expect(song()!.samples[1]!.lengthWords).toBeGreaterThan(0);
   });
@@ -935,7 +938,9 @@ describe("duplicate sample", () => {
       '.sampleview__actions input[type="file"]',
     )!;
     await userEvent.setup().upload(fileInput, makeStereoWav());
-    expect(song()!.samples[0]!.lengthWords).toBeGreaterThan(0);
+    await waitFor(() =>
+      expect(song()!.samples[0]!.lengthWords).toBeGreaterThan(0),
+    );
     expect(song()!.samples[1]!.lengthWords).toBe(0);
 
     // Click Duplicate sample (the actions row holds Load WAV + Duplicate +
@@ -970,6 +975,7 @@ describe("source picker: alt-stash round-trip", () => {
     )!;
     await userEvent.setup().upload(fileInput, makeStereoWav());
     // Fresh sampler has no loop — loopLengthWords sentinel is 1.
+    await waitFor(() => expect(getWorkbench(0)).toBeDefined());
     expect(song()!.samples[0]!.loopLengthWords).toBe(1);
 
     const pickerButtons = () =>
@@ -1000,6 +1006,7 @@ describe("source picker: alt-stash round-trip", () => {
       '.sampleview__actions input[type="file"]',
     )!;
     await userEvent.setup().upload(fileInput, makeStereoWav());
+    await waitFor(() => expect(getWorkbench(0)).toBeDefined());
     const samplerWb = getWorkbench(0)!;
     expect(samplerWb.source.kind).toBe("sampler");
     expect(samplerWb.alt).toBeNull();

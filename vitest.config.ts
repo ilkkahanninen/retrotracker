@@ -16,6 +16,9 @@ export default defineConfig({
     // can mount Solid components and dispatch keyboard events. The accuracy
     // / replayer / parser tests keep the lighter node environment.
     environmentMatchGlobs: [["tests/ui/**", "jsdom"]],
+    // Polyfills jsdom's missing Blob/File arrayBuffer/text. Self-guards
+    // against missing globals so node-env suites import it as a no-op.
+    setupFiles: ["tests/ui/setup.ts"],
     testTimeout: 30_000,
   },
 });

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { cleanup, render, fireEvent } from "@solidjs/testing-library";
+import { cleanup, render, fireEvent, waitFor } from "@solidjs/testing-library";
 import userEvent from "@testing-library/user-event";
 import { App } from "../../src/App";
 import { setCursor, INITIAL_CURSOR } from "../../src/state/cursor";
@@ -209,6 +209,10 @@ describe("SampleView: WAV loading", () => {
     )!;
     const user = userEvent.setup();
     await user.upload(input, file);
+    // The change handler reads the File asynchronously via
+    // `await file.arrayBuffer()` before populating the slot — wait for
+    // the slot's metadata to update instead of reading immediately.
+    await waitFor(() => expect(song()!.samples[1]!.name).toBe("snare"));
 
     const s = song()!.samples[1]!;
     expect(s.name).toBe("snare");
