@@ -1,22 +1,22 @@
 # UI components
 
-The UI is small by tracker standards: one root component (`App`), two top-level views (`pattern` and `sample`), and a handful of focused panes that fill them. Solid handles the reactivity; the components themselves are mostly view + small handlers that delegate to state actions.
+The UI is small by tracker standards: one root component (`App`), four top-level views (`pattern`, `sample`, `info`, `settings`), and a handful of focused panes that fill them. Solid handles the reactivity; the components themselves are mostly view + small handlers that delegate to state actions.
 
 ## Layout
 
-[src/App.tsx](../src/App.tsx) is the root. It mounts at [src/main.tsx](../src/main.tsx) and owns:
+[src/App.tsx](../src/App.tsx) is the root (~1k lines). It mounts at [src/main.tsx](../src/main.tsx) and is now a thin shell — the meat of the editor (pattern editing, sample-pipeline editing, order-list editing, multi-WAV drop, file I/O) lives in [state/patternEdit.ts](../src/state/patternEdit.ts), [state/sampleEdit.ts](../src/state/sampleEdit.ts), [state/orderEdit.ts](../src/state/orderEdit.ts), [state/dropImport.ts](../src/state/dropImport.ts), and [state/session.ts](../src/state/session.ts). App owns:
 
-- The menu bar (File / Edit / playback controls).
-- The `view` toggle (`'pattern'` ↔ `'sample'`) wired to keyboard shortcuts.
-- The grid layout — three CSS columns in pattern view (samples · main · order list), two columns in sample view (samples · main). The toggle flips a class (`.app--view-pattern` / `.app--view-sample`) on the root, and the layout's `grid-template-columns` switches accordingly.
-- All keyboard wiring — `installShortcuts` + `registerAppKeybinds` from [state/shortcuts.ts](../src/state/shortcuts.ts) and [state/appKeybinds.ts](../src/state/appKeybinds.ts).
-- File I/O glue — drag-drop and File menu entries (Open .mod, Open .retro, Save .mod, Save .retro, New).
-- Reactive effects that push setting changes into the audio engine.
+- The menu bar (File / Edit) plus the song / pattern transport buttons.
+- The `view` tab strip (`pattern` / `sample` / `info` / `settings`) wired to F2..F5 shortcuts.
+- The grid layout — three CSS columns in pattern view (samples · main · order list), two in sample view (samples · main), and main-only in info / settings (no sample list aside). The view signal flips a class (`.app--view-pattern` / `.app--view-sample` / `.app--view-info` / `.app--view-settings`) on the root, and `grid-template-columns` switches accordingly.
+- All keyboard wiring — `installShortcuts` + `registerAppKeybinds` from [state/shortcuts.ts](../src/state/shortcuts.ts) and [state/appKeybinds.ts](../src/state/appKeybinds.ts), with App passing the action functions in.
+- File I/O glue — drag-drop (single `.mod` / `.retro` replaces the project; multi-WAV fans into free slots via [dropImport.ts](../src/state/dropImport.ts)) and File menu entries (New, Open, Save, Export .mod, Export .wav).
+- Engine-sync registration via `installEngineSync()` from [state/sync.ts](../src/state/sync.ts) (the actual reactive forwarders live there).
+- Two small UI-local pieces of state: `editingTitle` (song-title inline editor) and `editingOrderIdx` (order-row inline rename). Everything else lives in `state/`.
+- The autosave `createEffect` (debounced 250 ms) that writes the session through [state/persistence.ts](../src/state/persistence.ts) on every tracked-signal change.
+- Two header memos for byte-size readouts: `modByteSize` (live `.mod` length) and `projectByteSize` (estimated `.retro` size, with warn / error thresholds at 4 / 5 MB).
 
-The two big handler clusters in App are:
-
-1. **Pattern editing** — `commitEdit(s => setCell(...))`, paste, transpose, etc. Selection-aware: when a selection exists, transposing or clearing applies to it; otherwise to the cursor.
-2. **Sample-pipeline editing** — `commitEditWithWorkbenches` with `runPipeline` to materialise the new int8 alongside the workbench update.
+All four panes stay mounted simultaneously and are toggled with a `view-hidden` class — toggling unmount/mount used to rebuild ~2400 PatternGrid spans on every view switch, which the user felt as a noticeable lag.
 
 ## Top-level panes
 
@@ -32,7 +32,7 @@ The two big handler clusters in App are:
 | [InfoView.tsx](../src/components/InfoView.tsx)             | The "info" text editor — author notes that travel with `.retro` projects but never with `.mod` files.                                                                                                                                                                     |
 | [SettingsView.tsx](../src/components/SettingsView.tsx)     | Settings panel: Paula model (A500 / A1200), color scheme, UI scale slider, stereo separation slider. Reads/writes `settings()` from [state/settings.ts](../src/state/settings.ts).                                                                                        |
 | [Menu.tsx](../src/components/Menu.tsx)                     | Reusable menu-bar dropdown. Used by App for File and Edit.                                                                                                                                                                                                                |
-| [Slider.tsx](../src/components/Slider.tsx)                 | Reusable horizontal slider for numeric params. Used in the chiptune editor and pipeline editor.                                                                                                                                                                           |
+| [Slider.tsx](../src/components/Slider.tsx)                 | Reusable horizontal slider for numeric params. Wraps each pointerdown..pointerup gesture in `beginDragEdit` / `endDragEdit` so the drag's many `commitEdit*` calls collapse into one undo entry. Used by the chiptune editor and pipeline editor.                         |
 | [hooks.ts](../src/components/hooks.ts)                     | Shared Solid hooks (`useWindowListener` etc.) — small enough to keep in one file.                                                                                                                                                                                         |
 
 ## Pattern grid internals
@@ -69,11 +69,17 @@ Holding shift on the keyboard while pressing a note key auditions through the pr
 
 Styling lives in [src/index.css](../src/index.css) — a single sheet, ~1000 lines, organized by section. There's no CSS-in-JS or Tailwind; design tokens are CSS custom properties (`--color-bg`, `--cell-h`, etc.) defined per color scheme. [state/theme.ts](../src/state/theme.ts) writes the current scheme's variables onto `:root`, and [SettingsView.tsx](../src/components/SettingsView.tsx) writes the UI scale to a root variable that the layout multiplies into all `em` measurements.
 
-## Why one giant `App.tsx`?
+## Where the action handlers live
 
-`App.tsx` is currently 100KB+. It's deliberately not split because:
+App.tsx imports its action functions from `state/`:
 
-- The handlers all share the same `commitEdit*` / `cursor` / `selection` closure environment, and Solid encourages co-locating logic with the component that owns the signal lifecycle.
-- The pattern-edit handlers and the sample-pipeline handlers are tightly coupled to the keybinding map (`registerAppKeybinds`), which lives in `state/`. Splitting would just push the bridge code into more files.
+| Surface               | Module                                              | What's in it                                                                                                                                   |
+| --------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pattern-grid edits    | [state/patternEdit.ts](../src/state/patternEdit.ts) | Note entry, hex digit, transpose, paste, channel mute/solo, cursor + selection step helpers, `applyCursor` / `extendSelection` committing path |
+| Sample-pipeline edits | [state/sampleEdit.ts](../src/state/sampleEdit.ts)   | Add / move / patch / remove effect, source-kind toggle, target-note / mono-mix / resample / dither, load WAV, crop / cut / duplicate / clear   |
+| Order-list edits      | [state/orderEdit.ts](../src/state/orderEdit.ts)     | Jump to order, prev/next pattern at slot, insert / delete / new / duplicate, clean-up renumber                                                 |
+| Multi-WAV drop        | [state/dropImport.ts](../src/state/dropImport.ts)   | `loadWavsIntoFreeSlots` — fans dropped WAVs across free slots in one undo entry                                                                |
+| File I/O & export     | [state/session.ts](../src/state/session.ts)         | `loadFile`, `saveProject`, `exportMod`, `exportWav`, `applyLoadedSession`, `newProject`, the source-snapshot helpers                           |
+| Engine sync           | [state/sync.ts](../src/state/sync.ts)               | `installEngineSync()` — reactive forwarders for mute, Paula model, stereo separation, `setSampleData`, `replaceSong`                           |
 
-When App grows beyond what `Cmd-F` can handle comfortably, the natural split is by view: pull all sample-pipeline handlers into a `SampleAppShell` component that hosts the sample view and owns the workbench commits.
+App stitches them together: it imports the actions, hands them to `registerAppKeybinds`, and passes the relevant ones into each pane component as props.

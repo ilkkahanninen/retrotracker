@@ -6,23 +6,24 @@ The design rule: the UI should never reach into core. It always goes through sta
 
 ## The big signals
 
-| Signal                                       | Owner file                                            | Type                                                     |
-| -------------------------------------------- | ----------------------------------------------------- | -------------------------------------------------------- |
-| `song`                                       | [song.ts](../src/state/song.ts)                       | `Song \| null`                                           |
-| `transport`                                  | [song.ts](../src/state/song.ts)                       | `'idle' \| 'ready' \| 'playing'`                         |
-| `playMode`                                   | [song.ts](../src/state/song.ts)                       | `'song' \| 'pattern' \| null`                            |
-| `playPos`                                    | [song.ts](../src/state/song.ts)                       | `{ order, row }`                                         |
-| `dirty`                                      | [song.ts](../src/state/song.ts)                       | `boolean`                                                |
-| `cursor`                                     | [cursor.ts](../src/state/cursor.ts)                   | `{ order, row, channel, field }`                         |
-| `selection`                                  | [selection.ts](../src/state/selection.ts)             | `PatternSelection \| null`                               |
-| `clipboardSlice`                             | [clipboard.ts](../src/state/clipboard.ts)             | `Note[][] \| null`                                       |
-| `currentSample`, `currentOctave`, `editStep` | [edit.ts](../src/state/edit.ts)                       | numbers                                                  |
-| `view`                                       | [view.ts](../src/state/view.ts)                       | `'pattern' \| 'sample'`                                  |
-| `mutedChannels`, `soloedChannels`            | [channelMute.ts](../src/state/channelMute.ts)         | `readonly boolean[4]`                                    |
-| `channelLevels`                              | [channelLevel.ts](../src/state/channelLevel.ts)       | `number[4]`                                              |
-| `workbenches`                                | [sampleWorkbench.ts](../src/state/sampleWorkbench.ts) | `Map<slot, SampleWorkbench>`                             |
-| `settings`                                   | [settings.ts](../src/state/settings.ts)               | `{ paulaModel, colorScheme, uiScale, stereoSeparation }` |
-| `patternNames`                               | [patternNames.ts](../src/state/patternNames.ts)       | `Record<patternIndex, string>`                           |
+| Signal                                       | Owner file                                            | Type                                                      |
+| -------------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------- |
+| `song`                                       | [song.ts](../src/state/song.ts)                       | `Song \| null`                                            |
+| `transport`                                  | [song.ts](../src/state/song.ts)                       | `'idle' \| 'ready' \| 'playing'`                          |
+| `playMode`                                   | [song.ts](../src/state/song.ts)                       | `'song' \| 'pattern' \| null`                             |
+| `playPos`                                    | [song.ts](../src/state/song.ts)                       | `{ order, row }`                                          |
+| `dirty`                                      | [song.ts](../src/state/song.ts)                       | `boolean`                                                 |
+| `cursor`                                     | [cursor.ts](../src/state/cursor.ts)                   | `{ order, row, channel, field }`                          |
+| `selection`                                  | [selection.ts](../src/state/selection.ts)             | `PatternSelection \| null`                                |
+| `clipboardSlice`                             | [clipboard.ts](../src/state/clipboard.ts)             | `Note[][] \| null`                                        |
+| `currentSample`, `currentOctave`, `editStep` | [edit.ts](../src/state/edit.ts)                       | numbers                                                   |
+| `view`                                       | [view.ts](../src/state/view.ts)                       | `'pattern' \| 'sample' \| 'info' \| 'settings'`           |
+| `mutedChannels`, `soloedChannels`            | [channelMute.ts](../src/state/channelMute.ts)         | `readonly boolean[4]`                                     |
+| `channelLevels`                              | [channelLevel.ts](../src/state/channelLevel.ts)       | `number[4]`                                               |
+| `workbenches`                                | [sampleWorkbench.ts](../src/state/sampleWorkbench.ts) | `Map<slot, SampleWorkbench>`                              |
+| `settings`                                   | [settings.ts](../src/state/settings.ts)               | `{ paulaModel, colorScheme, uiScale, stereoSeparation }`  |
+| `patternNames`                               | [patternNames.ts](../src/state/patternNames.ts)       | `Record<patternIndex, string>`                            |
+| `currentEngine`                              | [playback.ts](../src/state/playback.ts)               | `AudioEngine \| null` (reactive — sync effects subscribe) |
 
 ## Edit history
 
@@ -55,6 +56,21 @@ Constraints baked into commit:
 - **No-ops are detected by reference.** If the transform returns the same `song` AND the same `workbenches` AND the same `patternNames`, nothing is pushed. This relies on mutations being immutable and reference-sharing unchanged structure.
 - **Two-tier playback policy.** `commitEdit` gates on `transport() === 'playing'` (so pattern-cell edits can't race the worklet while it mixes the same data). `commitEditWithWorkbenches` does **not** gate — sample-pipeline edits, sample-meta tweaks, song-title changes, and order-list edits all stay live during playback. `undo` / `redo` follow `commitEdit`'s rule (gated). The sample / order paths reach the audible side via the live-edit hot-swap (see [Live edits during playback](audio-engine.md#live-edits-during-playback)); the worklet keeps its own song snapshot, so even without a hot-swap the on-screen state can move ahead of audio without desync risk.
 - **History is capped.** `HISTORY_LIMIT = 200`. Older entries fall off the bottom; loading a new file calls `clearHistory()` so undo never crosses files.
+
+### Drag-coalesced edits
+
+Slider drags and waveform-handle drags fire dozens or hundreds of `commitEdit*` calls per second. Recording one undo entry per pointermove buries the user's "real" edits in noise, so [song.ts](../src/state/song.ts) exposes a coalescing pair:
+
+```ts
+beginDragEdit(); // open a group (call on pointerdown)
+//   …commitEdit / commitEditWithWorkbenches fire freely; live state updates,
+//     but the per-event history push is deferred…
+endDragEdit(); // push exactly one entry covering the whole group (pointerup)
+```
+
+While the group is open, signals update normally — the user hears / sees every intermediate value live, the worklet's hot-swap forwarders still fire — only the history push is gated. The pre-group snapshot is taken at `beginDragEdit`; if `endDragEdit` finds nothing actually changed, no entry is recorded. [Slider.tsx](../src/components/Slider.tsx) wires this on `pointerdown` with a window-level `pointerup` so a release outside the thumb still closes the group, and a component-level `onCleanup` closes it if the slider unmounts mid-drag (otherwise `dragSnapshot` would stick and silently swallow every subsequent commit's undo entry).
+
+Begins are idempotent: a second `beginDragEdit` while a group is open is a no-op. The first `endDragEdit` closes the group, so truly nested drags (e.g. multitouch on two controls) aren't supported — single-pointer flows are.
 
 `dirty` is conservative: any commit / undo / redo sets it true. Returning to the saved state via undo doesn't auto-clean, because comparing to a saved snapshot would mean keeping that snapshot around — not worth the bookkeeping vs. an occasional unnecessary "discard?" prompt.
 
@@ -94,7 +110,7 @@ Pure movement helpers (`moveLeft`, `moveRight`, `moveUp`, `moveDown`, `pageUp`, 
 
 ```ts
 ensureEngine(): Promise<AudioEngine | null>;   // null on jsdom or pre-gesture
-currentEngine(): AudioEngine | null;           // read-only
+currentEngine: () => AudioEngine | null;       // Solid signal accessor
 
 playFromStart();      playFromCursor();
 playPatternFromStart(); playPatternFromCursor();
@@ -106,15 +122,16 @@ livePreviewSwap(slot, sample, period);  // mid-preview re-target (no click)
 stopEnginePreview(); disposeEngine();
 ```
 
+`currentEngine` is a Solid signal, not a plain accessor. Reactive effects that read it inside `createEffect` automatically re-run when the engine flips from `null` to a real instance — that's how cached preferences land in a freshly-built engine without any one-shot push at construction time. `ensureEngine` also dedupes through an in-flight `creating` promise so two near-simultaneous callers (e.g. preview + play firing in the same tick) don't both spin up an `AudioContext` and orphan one.
+
 `jumpPlaybackToOrder` is the path the order-list click and the bare `[` / `]` shortcuts go through during playback: it snaps `playPos` synchronously (so the playhead UI moves on click instead of waiting for the next worklet `pos` event) and tells the engine to `playFrom(order, 0)` while keeping the current `playMode` (song / pattern-loop). It does **not** call `engine.load(song)`, so any sample edits hot-swapped into the worklet's snapshot survive the jump.
 
-When the engine is created, it's wired to:
+When the engine is created, `ensureEngine` only wires up the two callbacks:
 
 - `engine.onPosition = (order, row) => setPlayPos(...)` — drives the playhead row tint.
 - `engine.onLevels   = (peaks)       => setChannelLevels(peaks)` — drives VU meters.
-- The current mute gate, Paula model, and stereo-separation are pushed into the worklet immediately, so anything the user toggled before audio was unlocked lands correctly.
 
-Reactive effects in [App.tsx](../src/App.tsx) push subsequent setting changes to the worklet via `setPaulaModel` / `setStereoSeparation` / `setChannelMuted`. The current engine is read with `currentEngine()` (no lazy creation in those effects — a setting change before any playback shouldn't trigger an `AudioContext` build).
+The mute gate / Paula model / stereo-separation flow goes through [state/sync.ts](../src/state/sync.ts) (`installEngineSync()`, called once at App mount). Each forwarder reads `currentEngine()` inside its own `createEffect`, so the moment the engine signal flips non-null, all three effects re-run and push their cached values in. The same module also diffs `song.samples[i]` and `song.orders` / `song.patterns` / `song.songLength` by reference and forwards changes via `engine.setSampleData` / `engine.replaceSong` while the transport is playing — see [Live edits during playback](audio-engine.md#live-edits-during-playback).
 
 ### Sample preview
 
@@ -176,21 +193,30 @@ The "raw" setter (`setWorkbenchesRaw`) is exported so the song-history code in `
 
 ## Smaller pieces
 
-| File                                                | What it owns                                                                                   |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| [edit.ts](../src/state/edit.ts)                     | `currentSample` (1..31), `currentOctave` (1..3), `editStep` (rows to advance after note entry) |
-| [view.ts](../src/state/view.ts)                     | `view` ('pattern' \| 'sample')                                                                 |
-| [io.ts](../src/state/io.ts)                         | Loaded filename, helpers for "Save As" naming                                                  |
-| [theme.ts](../src/state/theme.ts)                   | Reactive binding from `settings.colorScheme` to CSS variables                                  |
-| [keyboardLayout.ts](../src/state/keyboardLayout.ts) | Note-entry layout (QWERTY, Dvorak, etc.) and the row→note mapping                              |
-| [shortcuts.ts](../src/state/shortcuts.ts)           | The user-facing keybinding model (used by [PatternHelp](../src/components/PatternHelp.tsx))    |
-| [appKeybinds.ts](../src/state/appKeybinds.ts)       | The actual keydown router — translates events to actions                                       |
-| [platform.ts](../src/state/platform.ts)             | `isMac()` for ⌘ vs. Ctrl decisions                                                             |
-| [info.ts](../src/state/info.ts)                     | The "info" text editor's state (stored in `.retro`, never in `.mod`)                           |
-| [gridConfig.ts](../src/state/gridConfig.ts)         | Pattern-grid display preferences (row-hex highlighting cadence)                                |
-| [channelLevel.ts](../src/state/channelLevel.ts)     | Per-channel peak amplitudes for the VU meters                                                  |
-| [channelMute.ts](../src/state/channelMute.ts)       | Mute / solo flags. `isChannelMuted(ch)` combines both: any solo wins, else mute decides        |
-| [patternNames.ts](../src/state/patternNames.ts)     | User-given pattern names (project-only — never written to .mod)                                |
+| File                                                  | What it owns                                                                                                |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| [edit.ts](../src/state/edit.ts)                       | `currentSample` (1..31), `currentOctave` (1..3), `editStep` (rows to advance after note entry)              |
+| [view.ts](../src/state/view.ts)                       | `view` ('pattern' \| 'sample' \| 'info' \| 'settings')                                                      |
+| [io.ts](../src/state/io.ts)                           | Loaded filename, helpers for "Save As" naming                                                               |
+| [theme.ts](../src/state/theme.ts)                     | Reactive binding from `settings.colorScheme` to CSS variables                                               |
+| [keyboardLayout.ts](../src/state/keyboardLayout.ts)   | Note-entry layout (QWERTY, Dvorak, etc.) and the row→note mapping                                           |
+| [shortcuts.ts](../src/state/shortcuts.ts)             | The user-facing keybinding model (used by [PatternHelp](../src/components/PatternHelp.tsx))                 |
+| [appKeybinds.ts](../src/state/appKeybinds.ts)         | The actual keydown router — translates events to actions                                                    |
+| [platform.ts](../src/state/platform.ts)               | `isMac()` for ⌘ vs. Ctrl decisions                                                                          |
+| [info.ts](../src/state/info.ts)                       | The "info" text editor's state (stored in `.retro`, never in `.mod`)                                        |
+| [gridConfig.ts](../src/state/gridConfig.ts)           | Pattern-grid display preferences (row-hex highlighting cadence)                                             |
+| [channelLevel.ts](../src/state/channelLevel.ts)       | Per-channel peak amplitudes for the VU meters                                                               |
+| [channelMute.ts](../src/state/channelMute.ts)         | Mute / solo flags. `isChannelMuted(ch)` combines both: any solo wins, else mute decides                     |
+| [patternNames.ts](../src/state/patternNames.ts)       | User-given pattern names (project-only — never written to .mod)                                             |
+| [sync.ts](../src/state/sync.ts)                       | `installEngineSync()` — one-stop reactive forwarder of mute / model / song shape to the audio engine        |
+| [session.ts](../src/state/session.ts)                 | `loadFile`, `saveProject`, `exportMod`, `exportWav`, `applyLoadedSession`, `newProject`, `error`/`filename` |
+| [patternEdit.ts](../src/state/patternEdit.ts)         | Pattern-grid action handlers (note entry, hex digit, transpose, paste, selection step, channel mute/solo)   |
+| [sampleEdit.ts](../src/state/sampleEdit.ts)           | Sample-pipeline action handlers (load WAV, add/move/patch/remove effect, source kind toggle, target note)   |
+| [orderEdit.ts](../src/state/orderEdit.ts)             | Order-list action handlers (jump, prev/next pattern at slot, insert/delete slot, new/duplicate, clean up)   |
+| [dropImport.ts](../src/state/dropImport.ts)           | Multi-WAV drop import — fans new WAVs across free sample slots in one history entry                         |
+| [loopStash.ts](../src/state/loopStash.ts)             | Per-slot stash of the loop bounds the user had configured before disabling loop, restored on re-enable      |
+| [sampleSelection.ts](../src/state/sampleSelection.ts) | Range selection inside a sample's waveform (used by SampleView)                                             |
+| [preview.ts](../src/state/preview.ts)                 | Visual playhead state for the sample-editor preview (separate from the audio side of `engine.previewNote`)  |
 
 ## Reactivity rules of thumb
 

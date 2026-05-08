@@ -50,10 +50,12 @@ class Replayer {
   setStereoSeparation(sep: number): void;
   replaceSampleSlot(slot: number, sample: Sample): void;
   replaceSong(song: Song): void;
-  hasEnded(): boolean;
-  getOrder(): number;
+  isFinished(): boolean;
+  getOrderIndex(): number;
   getRow(): number;
-  getChannelLevels(): number[]; // 4-element peak buffer
+  /** Writes 4 per-channel peak amplitudes into `out` and resets the internal
+   *  accumulators to 0 — the worklet drives VU meters at ~30 Hz off this. */
+  peakSnapshotAndReset(out: Float32Array): void;
 }
 ```
 
@@ -73,19 +75,19 @@ The replayer keeps a fractional-sample accumulator so the gap between ticks trac
 
 All standard effects `0xx..Fxx` and most extended `Exy`. Notable PT-specific behaviors (all per pt2-clone):
 
-| Effect                | Quirk                                                                         |
-| --------------------- | ----------------------------------------------------------------------------- |
-| `Dxx` PatternBreak    | Param is decimal-encoded (`Dxy` jumps to row `x*10 + y`), not hex.            |
-| `E0x` SetFilter       | LED filter — `E00 = on`, `E01 = off`. Off by default.                         |
-| `E3x` Glissando       | Tone-portamento snaps to PERIOD_TABLE entries; basePeriod stays smooth.       |
-| `E4x` VibratoWaveform | Value 3 also = square (PT2.3D bug, preserved).                                |
-| `E7x` TremoloWaveform | Ramp tremolo uses `vibratoPos` for half-check (PT bug, preserved).            |
-| `E5y` SetFinetune     | Applied **before** period lookup so the new finetune affects the same row.    |
-| `E9y` Retrigger       | Period reload on retrigger uses base period, not the vibrated effective.      |
-| `EC0` NoteCut         | Cuts at tick 0 via the `setPeriod → checkMoreEffects` path.                   |
-| `ECy` NoteCut         | Sets volume = 0 at tick `y`; leaves period alone.                             |
-| `EFy` InvertLoop      | Bit-inverts loop-region bytes **destructively** in place — re-parse to clean. |
-| `Fxx` SetSpeed        | `< 0x20`: speed (ticks/row). `>= 0x20`: tempo (BPM), deferred 1 tick.         |
+| Effect                | Quirk                                                                                                                                                  |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Dxx` PatternBreak    | Param is decimal-encoded (`Dxy` jumps to row `x*10 + y`), not hex. Decoded values past row 63 reset to row 0 (pt2-clone overflow behavior, not clamp). |
+| `E0x` SetFilter       | LED filter — `E00 = on`, `E01 = off`. Off by default.                                                                                                  |
+| `E3x` Glissando       | Tone-portamento snaps to PERIOD_TABLE entries; basePeriod stays smooth.                                                                                |
+| `E4x` VibratoWaveform | Value 3 also = square (PT2.3D bug, preserved).                                                                                                         |
+| `E7x` TremoloWaveform | Ramp tremolo uses `vibratoPos` for half-check (PT bug, preserved).                                                                                     |
+| `E5y` SetFinetune     | Applied **before** period lookup so the new finetune affects the same row.                                                                             |
+| `E9y` Retrigger       | Period reload on retrigger uses base period, not the vibrated effective.                                                                               |
+| `EC0` NoteCut         | Cuts at tick 0 via the `setPeriod → checkMoreEffects` path.                                                                                            |
+| `ECy` NoteCut         | Sets volume = 0 at tick `y`; leaves period alone.                                                                                                      |
+| `EFy` InvertLoop      | Bit-inverts loop-region bytes **destructively** in place — re-parse to clean.                                                                          |
+| `Fxx` SetSpeed        | `< 0x20`: speed (ticks/row). `>= 0x20`: tempo (BPM), deferred 1 tick.                                                                                  |
 
 Period clamp is `[113, 856]` — the original Amiga DMA hardware limit. Notes outside this range are clamped at trigger.
 
@@ -106,7 +108,7 @@ Each of the 4 channels holds:
 
 `speed`, `tempo`, `tickInRow`, `row`, `orderIndex`, `patternDelay`, `jumpToOrder`/`jumpToRow`, `ended`, `visited` (a `Set<number>` keyed by `(orderIndex << 8 | row)` for song-end detection), and `pendingTempo` (CIA reload quirk).
 
-Song-end is detected by a revisit to a `(order, row)` already in the visited set during a forward step (i.e., not via `Bxx`). With `loop: true` (the live-playback default), the visited check is skipped — `Bxx` to an earlier row is treated as the song's loop point, and falling off the end wraps to order 0. With `loop: false` (offline render), `hasEnded()` flips and the renderer cuts.
+Song-end is detected by a revisit to a `(order, row)` already in the visited set during a forward step (i.e., not via `Bxx`). With `loop: true` (the live-playback default), the visited check is skipped — `Bxx` to an earlier row is treated as the song's loop point, and falling off the end wraps to order 0. With `loop: false` (offline render), `isFinished()` flips and the renderer cuts.
 
 `loopPattern` (used by F7 "Play pattern") locks playback to a single pattern: the visited check is skipped, end-of-pattern wraps to row 0, `Bxx` is clamped to the current order, `Dxx` jumps within the pattern.
 
@@ -216,7 +218,7 @@ The worklet ([src/core/audio/worklet.ts](../src/core/audio/worklet.ts)) is an `A
 
 The worklet caches mute gates, Paula model, and stereo separation so they survive the `Replayer` recreation that happens at song-end loop. Live playback never reports end-of-song to the main thread — when the replayer ends, the worklet rebuilds it with `loop: true` and keeps mixing, so transport state stays consistent.
 
-The "lazy AudioContext" pattern in [state/playback.ts](../src/state/playback.ts) means `AudioEngine.create()` only runs after the first user gesture (or test stub). On creation, the orchestration layer pushes the cached mute/Paula/stereo state into the worklet so anything the user toggled before audio existed lands correctly.
+The "lazy AudioContext" pattern in [state/playback.ts](../src/state/playback.ts) means `AudioEngine.create()` only runs after the first user gesture (or test stub). `currentEngine` is itself a Solid signal: the reactive forwarders in [state/sync.ts](../src/state/sync.ts) read it inside `createEffect`, so they re-fire automatically when the engine flips from `null` to a real instance and push the cached mute/Paula/stereo prefs in. Engine creation also dedupes through an in-flight `creating` promise so two concurrent `ensureEngine()` calls (e.g. preview + play firing in the same tick) don't both build an `AudioContext`.
 
 ### Live edits during playback
 
@@ -225,16 +227,17 @@ The editor supports a "no stop button required" workflow: sliders, slot toggles,
 - **`setSampleData(slot, sample)`** — hot-swap one sample slot. The worklet mutates `song.samples[slot]` and re-latches Paula's per-voice DMA registers for any voice currently playing this slot. The voice keeps its cursor; the new loop bounds take effect on the next DMA wrap (one loop period later — typically tens of ms for a chiptune). Out-of-bounds reads past a shorter new buffer's end emit silence by Paula's existing `i < len` guard, so a length change briefly drops out instead of reading garbage. Used by the chiptune slider drags, sampler chain edits, and sample-meta tweaks.
 - **`replaceSong(song)`** — hot-swap the whole song reference. The `Replayer` reads `song.orders[orderIndex]` and `song.patterns[p]` fresh on every row, so a pointer swap is enough to make a stepped slot's new pattern audible on the next row processed. `state.orderIndex` clamps to the new `songLength` and `state.visited` (the wrap-detection set, keyed by `(order << 8) | row`) clears so its old-numbering entries don't pre-trigger a wrap. Used by the order-list edits (slot stepping, insert / delete, new / duplicate pattern).
 
-Both paths are driven by a single `createEffect` in [App.tsx](../src/App.tsx) that diffs `song.samples[i]` and `song.orders` / `song.patterns` / `song.songLength` by reference. When transport is `'playing'`, changes go to the engine; otherwise the diff state advances silently and the next play call's `engine.load(song)` picks everything up in one shot.
+Both paths are driven by `installEngineSync()` in [state/sync.ts](../src/state/sync.ts) (registered once at App mount). It diffs `song.samples[i]` and `song.orders` / `song.patterns` / `song.songLength` by reference. When transport is `'playing'`, changes go to the engine; otherwise the diff state advances silently and the next play call's `engine.load(song)` picks everything up in one shot. The same module also forwards mute / Paula / stereo-separation changes through reactive effects on the engine signal — one place, one channel.
 
 The mid-playback **jump** path (`engine.playFrom(order, 0)`, exposed as `jumpPlaybackToOrder` in [state/playback.ts](../src/state/playback.ts)) is the order-list click and bare `[` / `]` shortcut behavior: it builds a fresh `Replayer` at the target row 0 while keeping `transport === 'playing'` and the current `playMode`. It deliberately does **not** call `engine.load(song)` — the worklet's snapshot already has any hot-swapped sample edits, so a load would undo them.
 
 ### Offline render: `offlineRender.ts`
 
-[src/core/audio/offlineRender.ts](../src/core/audio/offlineRender.ts) loops `replayer.process()` into Float32 buffers in 1024-frame chunks, stopping on `replayer.hasEnded()` or the `maxSeconds` cap, whichever comes first. Used by:
+[src/core/audio/offlineRender.ts](../src/core/audio/offlineRender.ts) loops `replayer.process()` into Float32 buffers in 1024-frame chunks, stopping on `replayer.isFinished()` or the `maxSeconds` cap, whichever comes first. Used by:
 
 - The accuracy test bed ([tests/render-accuracy.test.ts](../tests/render-accuracy.test.ts) and [tests/render-accuracy-a500.test.ts](../tests/render-accuracy-a500.test.ts)).
 - The `render` CLI: `npm run render -- in.mod out.wav [--seconds=N] [--rate=44100]` ([tests/lib/render-cli.ts](../tests/lib/render-cli.ts)).
+- The in-app **WAV export** (File → Export .wav…) — see [state/session.ts](../src/state/session.ts) `exportWav`. Renders at 44.1 kHz with `stopOnSongEnd: true`, applies `songForPlayback` and the user's Paula model / stereo separation, and downloads via [wav.ts](../src/core/audio/wav.ts) `writeWav`.
 
 Returns `{ sampleRate, left, right }` as `Float32Array` pairs — no WAV envelope; the CLI wraps it.
 

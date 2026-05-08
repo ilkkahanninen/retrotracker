@@ -67,7 +67,17 @@ The whole chain:
 runChain(input: WavData, chain: EffectNode[], ctx: RunContext): WavData;
 ```
 
-`RunContext` carries the slot's loop bounds (in input-frame space) so loop-aware effects (currently just `crossfade`) can reach them without each effect carrying its own copy.
+`RunContext` carries the slot's loop bounds in **int8-byte coordinates** plus the int8 length:
+
+```ts
+interface RunContext {
+  loopStartByte: number; // PT-coord loop start (loopStartWords * 2)
+  loopEndByte: number; // PT-coord loop end (exclusive)
+  int8Length: number; // length of the slot's int8 the bytes index into
+}
+```
+
+Each loop-aware effect derives its own frame positions from its **own input length** (`loopFrame = loopByte * inputFrames / int8Length`). That makes a `crop → crossfade` chain work correctly: the crossfade scales the loop bytes against the cropped input rather than overshooting and clamping. (Length-changing effects placed _after_ the loop-aware one still distort the mapping — those orderings are exotic and we don't try to handle them.)
 
 ### PT transformer
 
@@ -104,7 +114,7 @@ Resample modes:
 runPipeline(wb: SampleWorkbench, ctx: RunContext): Int8Array;
 ```
 
-Source → chain → PT → int8. This is what `App.tsx` calls in `commitEditWithWorkbenches` when a workbench changes. `App.writeWorkbenchToSong` then pushes the resulting int8 into the slot via `replaceSampleData`.
+Source → chain → PT → int8. Wrapped by `writeWorkbenchToSongPure` in [state/sampleEdit.ts](../src/state/sampleEdit.ts), which the sample-pipeline action handlers call inside `commitEditWithWorkbenches` whenever a workbench changes. The result is pushed into the slot via `replaceSampleData`.
 
 ### Workbench constructors
 

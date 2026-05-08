@@ -38,19 +38,22 @@ tests/
 ├── persistence-chiptune.test.ts    ← .retro chiptune round-trip
 ├── lib/                            ← helpers
 │   ├── compare.ts                  ← RMS/peak channel comparison
-│   └── render-cli.ts               ← `npm run render` CLI
+│   ├── render-cli.ts               ← `npm run render` CLI
+│   └── recording-engine.ts         ← AudioEngine fake for the engine-sync bed
 ├── fixtures/                       ← .mod + .reference.wav per fixture
 │   ├── README.md                   ← fixture catalog (see below)
 │   ├── generate.ts                 ← deterministic .mod synthesizer
 │   └── 00-baseline.mod, …          ← committed fixtures (29 currently)
 └── ui/                             ← Solid component tests (jsdom)
+    ├── setup.ts                    ← jsdom polyfills (Blob.arrayBuffer, canvas stub)
+    ├── engine-sync.test.tsx        ← App ↔ engine reactive-forwarder bed
     ├── pattern-grid.test.tsx
     ├── sample-view.test.tsx
     ├── pipeline-editor.test.tsx
     └── …
 ```
 
-`tests/ui/**` runs in jsdom; everything else runs on Node. The split is configured in [vitest.config.ts](../vitest.config.ts) via `environmentMatchGlobs`. UI test files use `.test.tsx`; non-UI tests use `.test.ts`.
+`tests/ui/**` runs in jsdom; everything else runs on Node. The split is configured in [vitest.config.ts](../vitest.config.ts) via `environmentMatchGlobs`. UI test files use `.test.tsx`; non-UI tests use `.test.ts`. [tests/ui/setup.ts](../tests/ui/setup.ts) is registered as a vitest `setupFiles` and patches a few jsdom gaps: `Blob.prototype.arrayBuffer` / `text` (jsdom 26 ships without them, so file-input / drop tests would throw `f.arrayBuffer is not a function`) and a no-op `HTMLCanvasElement.prototype.getContext` 2D stub (so Waveform renders complete silently — none of the UI tests assert on pixels).
 
 ## Running
 
@@ -154,28 +157,37 @@ The non-accuracy node tests are conventional vitest suites — pure-function che
 
 [tests/ui/](../tests/ui/) — Solid component mounts with `@solidjs/testing-library` + simulated input via `@testing-library/user-event`. Each suite covers one UI surface:
 
-| File                                                                     | Surface                                                   |
-| ------------------------------------------------------------------------ | --------------------------------------------------------- |
-| [app-keyboard.test.tsx](../tests/ui/app-keyboard.test.tsx)               | Note entry, edit step, octave switch, transport keys      |
-| [pattern-grid.test.tsx](../tests/ui/pattern-grid.test.tsx)               | Cursor navigation, selection extension, channel mute/solo |
-| [pattern-help.test.tsx](../tests/ui/pattern-help.test.tsx)               | Effect hint rendering                                     |
-| [sample-view.test.tsx](../tests/ui/sample-view.test.tsx)                 | Sample editor mount + source toggle                       |
-| [sample-loop-edit.test.tsx](../tests/ui/sample-loop-edit.test.tsx)       | Loop-bound interactions                                   |
-| [sample-preview.test.tsx](../tests/ui/sample-preview.test.tsx)           | Audition keypress → preview state                         |
-| [sample-select.test.tsx](../tests/ui/sample-select.test.tsx)             | Range selection in waveform                               |
-| [pipeline-editor.test.tsx](../tests/ui/pipeline-editor.test.tsx)         | Effect add / remove / param edit                          |
-| [preview-tracker.test.tsx](../tests/ui/preview-tracker.test.tsx)         | Animated playhead during preview                          |
-| [transpose.test.tsx](../tests/ui/transpose.test.tsx)                     | Range transpose ±1, ±12, with bounds clamping             |
-| [order-edit.test.tsx](../tests/ui/order-edit.test.tsx)                   | Order list mutations + cursor sync                        |
-| [effect-entry.test.tsx](../tests/ui/effect-entry.test.tsx)               | Per-field hex entry semantics                             |
-| [clipboard-shortcuts.test.tsx](../tests/ui/clipboard-shortcuts.test.tsx) | Copy / cut / paste shortcuts                              |
-| [drag-drop.test.tsx](../tests/ui/drag-drop.test.tsx)                     | Drop .mod / .retro / .wav onto the page                   |
-| [export-mod.test.tsx](../tests/ui/export-mod.test.tsx)                   | Save .mod payload + filename derivation                   |
-| [file-menu.test.tsx](../tests/ui/file-menu.test.tsx)                     | New / Open / Save / Save As menu wiring                   |
-| [info-view.test.tsx](../tests/ui/info-view.test.tsx)                     | Info text editor binding                                  |
-| [persistence.test.tsx](../tests/ui/persistence.test.tsx)                 | localStorage round-trip on a real component tree          |
+| File                                                                       | Surface                                                   |
+| -------------------------------------------------------------------------- | --------------------------------------------------------- |
+| [app-keyboard.test.tsx](../tests/ui/app-keyboard.test.tsx)                 | Note entry, edit step, octave switch, transport keys      |
+| [pattern-grid.test.tsx](../tests/ui/pattern-grid.test.tsx)                 | Cursor navigation, selection extension, channel mute/solo |
+| [pattern-help.test.tsx](../tests/ui/pattern-help.test.tsx)                 | Effect hint rendering                                     |
+| [sample-view.test.tsx](../tests/ui/sample-view.test.tsx)                   | Sample editor mount + source toggle                       |
+| [sample-loop-edit.test.tsx](../tests/ui/sample-loop-edit.test.tsx)         | Loop-bound interactions                                   |
+| [sample-preview.test.tsx](../tests/ui/sample-preview.test.tsx)             | Audition keypress → preview state                         |
+| [sample-select.test.tsx](../tests/ui/sample-select.test.tsx)               | Range selection in waveform                               |
+| [pipeline-editor.test.tsx](../tests/ui/pipeline-editor.test.tsx)           | Effect add / remove / param edit                          |
+| [preview-tracker.test.tsx](../tests/ui/preview-tracker.test.tsx)           | Animated playhead during preview                          |
+| [transpose.test.tsx](../tests/ui/transpose.test.tsx)                       | Range transpose ±1, ±12, with bounds clamping             |
+| [order-edit.test.tsx](../tests/ui/order-edit.test.tsx)                     | Order list mutations + cursor sync                        |
+| [effect-entry.test.tsx](../tests/ui/effect-entry.test.tsx)                 | Per-field hex entry semantics                             |
+| [clipboard-shortcuts.test.tsx](../tests/ui/clipboard-shortcuts.test.tsx)   | Copy / cut / paste shortcuts                              |
+| [drag-drop.test.tsx](../tests/ui/drag-drop.test.tsx)                       | Drop .mod / .retro / .wav onto the page                   |
+| [export-mod.test.tsx](../tests/ui/export-mod.test.tsx)                     | Save .mod payload + filename derivation                   |
+| [file-menu.test.tsx](../tests/ui/file-menu.test.tsx)                       | New / Open / Save / Save As menu wiring                   |
+| [info-view.test.tsx](../tests/ui/info-view.test.tsx)                       | Info text editor binding                                  |
+| [persistence.test.tsx](../tests/ui/persistence.test.tsx)                   | localStorage round-trip on a real component tree          |
+| [engine-sync.test.tsx](../tests/ui/engine-sync.test.tsx)                   | App ↔ engine reactive forwarders (mute, model, hot-swap)  |
+| [export-wav.test.tsx](../tests/ui/export-wav.test.tsx)                     | Export .wav payload + filename derivation                 |
+| [chiptune-during-play.test.tsx](../tests/ui/chiptune-during-play.test.tsx) | Chiptune slot edits stay live during playback             |
 
-These tests don't touch the audio engine — `ensureEngine()` returns null in jsdom (no `AudioContext`). The UI is verified to stay coherent in that mode (no crashes, transport stays `idle`, audition is a silent no-op).
+These tests don't touch the real audio engine — `ensureEngine()` returns null in jsdom (no `AudioContext`). The UI is verified to stay coherent in that mode (no crashes, transport stays `idle`, audition is a silent no-op).
+
+### Engine-sync test bed
+
+[engine-sync.test.tsx](../tests/ui/engine-sync.test.tsx) is the test bed for the App ↔ engine surface where we kept finding bugs (cached preferences not reaching freshly-built engines, mid-playback sample / song-shape edits getting dropped, no-op spam while stopped). It uses [tests/lib/recording-engine.ts](../tests/lib/recording-engine.ts) — a `RecordingEngine` class that mirrors `AudioEngine`'s public surface but pushes every method invocation onto a `calls` array instead of touching audio. `vi.spyOn(AudioEngine, 'create')` returns a `RecordingEngine`, the App mounts, the reactive forwarders in [state/sync.ts](../src/state/sync.ts) fire as they would in a browser, and the test asserts on the recorded message stream.
+
+The keep-in-sync tax is intentional: when `AudioEngine` grows a method that App should sync through, the matching field has to be added to `RecordingEngine`. If a forwarder calls a method the fake doesn't define, the test throws — that's the desired loud failure.
 
 ## Render CLI
 
