@@ -21,6 +21,11 @@ export interface MenuItem {
   onClick?: () => void;
   /** Greyed-out + non-clickable. */
   disabled?: boolean;
+  /** Render a leading checkmark when truthy. Used for stateful toggle
+   *  items (e.g. "Show tips"). The check column is reserved for every
+   *  item in the menu so labels stay aligned even when only one item is
+   *  a toggle. */
+  checked?: boolean;
 }
 
 interface MenuProps {
@@ -87,10 +92,14 @@ export const Menu: Component<MenuProps> = (props) => {
       <li
         class="menu__item"
         classList={{ "menu__item--disabled": !!item.disabled }}
-        role="menuitem"
+        role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
         aria-disabled={!!item.disabled}
+        aria-checked={item.checked === undefined ? undefined : !!item.checked}
         onClick={() => onItemClick(item)}
       >
+        <span class="menu__check" aria-hidden="true">
+          {item.checked ? "✓" : ""}
+        </span>
         <span class="menu__label">{item.label}</span>
         <Show when={item.hint}>
           <span class="menu__hint">{item.hint}</span>

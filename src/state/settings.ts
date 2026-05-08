@@ -36,6 +36,9 @@ export interface Settings {
   uiScale: number;
   /** Stereo separation as a percentage. 0 = mono, 100 = full hard-pan. */
   stereoSeparation: number;
+  /** Visibility of the pattern-view tips / help right-rail. Toggled from
+   *  the Help menu; persisted so the user's choice carries across sessions. */
+  showPatternHelp: boolean;
 }
 
 const DEFAULTS: Settings = {
@@ -43,6 +46,7 @@ const DEFAULTS: Settings = {
   colorScheme: "default",
   uiScale: UI_SCALE_DEFAULT,
   stereoSeparation: STEREO_SEP_DEFAULT,
+  showPatternHelp: true,
 };
 
 function isColorSchemeId(v: unknown): v is ColorSchemeId {
@@ -80,7 +84,17 @@ function load(): Settings {
       : DEFAULTS.colorScheme;
     const uiScale = clampUiScale(obj["uiScale"]);
     const stereoSeparation = clampStereoSep(obj["stereoSeparation"]);
-    return { paulaModel, colorScheme, uiScale, stereoSeparation };
+    const showPatternHelp =
+      typeof obj["showPatternHelp"] === "boolean"
+        ? obj["showPatternHelp"]
+        : DEFAULTS.showPatternHelp;
+    return {
+      paulaModel,
+      colorScheme,
+      uiScale,
+      stereoSeparation,
+      showPatternHelp,
+    };
   } catch {
     return { ...DEFAULTS };
   }
@@ -125,4 +139,8 @@ export function setUiScale(scale: number): void {
 
 export function setStereoSeparation(sep: number): void {
   setSettings({ stereoSeparation: clampStereoSep(sep) });
+}
+
+export function toggleShowPatternHelp(): void {
+  setSettings({ showPatternHelp: !settings().showPatternHelp });
 }

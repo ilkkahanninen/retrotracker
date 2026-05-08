@@ -7,6 +7,7 @@ import {
   onMount,
   type Component,
 } from "solid-js";
+import { AboutModal } from "./components/AboutModal";
 import { InfoView } from "./components/InfoView";
 import { Menu, type MenuItem } from "./components/Menu";
 import { PatternGrid } from "./components/PatternGrid";
@@ -144,7 +145,7 @@ import {
   workbenches,
 } from "./state/sampleWorkbench";
 import { selection } from "./state/selection";
-import { settings } from "./state/settings";
+import { settings, toggleShowPatternHelp } from "./state/settings";
 import { installShortcuts } from "./state/shortcuts";
 import {
   canRedo,
@@ -179,6 +180,10 @@ function formatProjectSize(bytes: number): string {
 export const App: Component = () => {
   const [dragOver, setDragOver] = createSignal(false);
   const [editingTitle, setEditingTitle] = createSignal(false);
+  const [aboutOpen, setAboutOpen] = createSignal(false);
+
+  const USER_MANUAL_URL =
+    "https://github.com/ilkkahanninen/retrotracker/blob/main/docs/user-manual.md";
 
   // Keyed by order index (not pattern index) so a pattern appearing in
   // multiple slots renders only one input at a time — keying by pattern
@@ -445,6 +450,21 @@ export const App: Component = () => {
     ];
   };
 
+  const helpMenuItems = (): MenuItem[] => [
+    {
+      label: "User manual",
+      onClick: () =>
+        window.open(USER_MANUAL_URL, "_blank", "noopener,noreferrer"),
+    },
+    {
+      label: "Show tips",
+      checked: settings().showPatternHelp,
+      onClick: toggleShowPatternHelp,
+    },
+    { separator: true, label: "" },
+    { label: "About RetroTracker…", onClick: () => setAboutOpen(true) },
+  ];
+
   const sampleCount = createMemo(() => {
     const s = song();
     if (!s) return 0;
@@ -508,6 +528,7 @@ export const App: Component = () => {
           />
           <Menu label="File" items={fileMenuItems()} />
           <Menu label="Edit" items={editMenuItems()} />
+          <Menu label="Help" items={helpMenuItems()} />
           <Show when={song()}>
             <span class="filesize" title=".mod file size">
               .mod {formatProjectSize(modByteSize())}
@@ -759,7 +780,9 @@ export const App: Component = () => {
                   active={transport() === "playing"}
                   onCellClick={applyCursor}
                 />
-                <PatternHelp song={s()} cursor={cursor()} />
+                <Show when={settings().showPatternHelp}>
+                  <PatternHelp song={s()} cursor={cursor()} />
+                </Show>
               </div>
               <div
                 class="sampleview-wrapper"
@@ -979,6 +1002,9 @@ export const App: Component = () => {
             }}
           </Show>
         </aside>
+      </Show>
+      <Show when={aboutOpen()}>
+        <AboutModal onClose={() => setAboutOpen(false)} />
       </Show>
     </div>
   );
