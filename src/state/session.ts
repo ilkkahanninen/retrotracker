@@ -1,0 +1,299 @@
+import { createSignal } from "solid-js";
+import type { Song } from "../core/mod/types";
+import { emptySong } from "../core/mod/format";
+import { parseModule } from "../core/mod/parser";
+import { writeModule } from "../core/mod/writer";
+import {
+  workbenchFromChiptune,
+  workbenchFromWavData,
+} from "../core/audio/sampleWorkbench";
+import type { ChiptuneParams } from "../core/audio/chiptune";
+import { renderToBuffer } from "../core/audio/offlineRender";
+import { writeWav } from "../core/audio/wav";
+import { songForPlayback } from "../core/audio/loopTruncate";
+import {
+  song,
+  setSong,
+  setTransport,
+  setPlayMode,
+  setPlayPos,
+  setDirty,
+  dirty,
+  clearHistory,
+} from "./song";
+import { cursor, setCursor, resetCursor, type Cursor } from "./cursor";
+import { setView, view, type View } from "./view";
+import {
+  setInfoText,
+  infoText,
+  infoTextFromSampleNames,
+  wrapInfoText,
+  INFO_LINE_WIDTH,
+  INFO_MAX_LINES,
+} from "./info";
+import {
+  setCurrentSample,
+  setCurrentOctave,
+  setEditStep,
+  currentSample,
+  currentOctave,
+  editStep,
+} from "./edit";
+import {
+  resetChannelMute,
+  setChannelMuteState,
+  mutedChannels,
+  soloedChannels,
+} from "./channelMute";
+import { resetChannelLevels } from "./channelLevel";
+import {
+  resetPatternNames,
+  loadPatternNames,
+  patternNames,
+} from "./patternNames";
+import {
+  workbenches,
+  setWorkbench,
+  clearAllWorkbenches,
+} from "./sampleWorkbench";
+import { clearAllStashedLoops } from "./loopStash";
+import { stopEngine } from "./playback";
+import { settings } from "./settings";
+import { deriveExportFilename, io } from "./io";
+import {
+  projectFromBytes,
+  projectToBytes,
+  deriveProjectFilename,
+  type SamplerSourceInputs,
+} from "./persistence";
+
+/** Last error from a file load. Cleared at the start of each load attempt. */
+const [error, setError] = createSignal<string | null>(null);
+export { error, setError };
+
+/** Display name of the open file, or null on a fresh blank song. */
+const [filename, setFilename] = createSignal<string | null>(null);
+export { filename, setFilename };
+
+export interface LoadedSession {
+  song: Song | null;
+  filename: string | null;
+  infoText?: string;
+  view?: View;
+  cursor?: Cursor;
+  currentSample?: number;
+  currentOctave?: number;
+  editStep?: number;
+  chiptuneSources?: Record<number, ChiptuneParams>;
+  samplerSources?: Record<number, SamplerSourceInputs>;
+  patternNames?: Record<number, string>;
+  mutedChannels?: readonly boolean[];
+  soloedChannels?: readonly boolean[];
+}
+
+export function applyLoadedSession(loaded: LoadedSession): void {
+  if (!loaded.song) return;
+  // Halt the worklet AND flip transport BEFORE setSong: the live-edit
+  // createEffect reads `transport()` and would otherwise dispatch wasted
+  // setSampleData / replaceSong messages to the stopped worklet for
+  // every diff between the old and new song.
+  stopEngine();
+  setTransport("ready");
+  setPlayMode(null);
+  // Mute/solo / VU / pattern names are tied to the previous song's
+  // channels and pattern indices; carrying them over surprises the user.
+  resetChannelMute();
+  resetChannelLevels();
+  resetPatternNames();
+  if (loaded.patternNames) loadPatternNames(loaded.patternNames);
+  if (loaded.mutedChannels || loaded.soloedChannels) {
+    setChannelMuteState(loaded.mutedChannels, loaded.soloedChannels);
+  }
+  setSong(loaded.song);
+  setFilename(loaded.filename);
+  setInfoText(loaded.infoText ?? "");
+  if (loaded.view) setView(loaded.view);
+  if (loaded.cursor) {
+    setCursor(loaded.cursor);
+    setPlayPos({ order: loaded.cursor.order, row: loaded.cursor.row });
+  } else {
+    resetCursor();
+    setPlayPos({ order: 0, row: 0 });
+  }
+  if (typeof loaded.currentSample === "number")
+    setCurrentSample(loaded.currentSample);
+  if (typeof loaded.currentOctave === "number")
+    setCurrentOctave(loaded.currentOctave);
+  if (typeof loaded.editStep === "number") setEditStep(loaded.editStep);
+  clearHistory();
+  clearAllWorkbenches();
+  clearAllStashedLoops();
+  if (loaded.chiptuneSources) {
+    for (const [slotStr, params] of Object.entries(loaded.chiptuneSources)) {
+      const slot = parseInt(slotStr, 10);
+      if (!Number.isFinite(slot)) continue;
+      setWorkbench(slot, workbenchFromChiptune(params));
+    }
+  }
+  if (loaded.samplerSources) {
+    for (const [slotStr, src] of Object.entries(loaded.samplerSources)) {
+      const slot = parseInt(slotStr, 10);
+      if (!Number.isFinite(slot)) continue;
+      setWorkbench(slot, {
+        ...workbenchFromWavData(src.wav, src.sourceName),
+        chain: src.chain,
+        pt: src.pt,
+      });
+    }
+  }
+  setDirty(false);
+}
+
+/** Sniffs the extension: `.retro` → project, anything else → strict M.K. `.mod`. */
+export async function loadFile(file: File): Promise<void> {
+  setError(null);
+  try {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    if (/\.retro$/i.test(file.name)) {
+      const loaded = projectFromBytes(buf);
+      if (!loaded) throw new Error("Invalid .retro project");
+      applyLoadedSession(loaded);
+    } else {
+      const mod = parseModule(buf.buffer);
+      applyLoadedSession({
+        song: mod,
+        filename: file.name,
+        infoText: infoTextFromSampleNames(mod.samples.map((sm) => sm.name)),
+      });
+    }
+  } catch (e) {
+    setError(e instanceof Error ? e.message : String(e));
+    setTransport("idle");
+  }
+}
+
+/**
+ * Stamp the info-text lines into the sample-name slots. No-op on empty
+ * text: we don't want exporting to silently rewrite sample names the
+ * user never edited. Per-line truncation matches the .mod sample-name
+ * field width (22 chars) so writeModule's writeAscii doesn't drop the tail.
+ */
+export function withInfoTextAsSampleNames(s: Song, text: string): Song {
+  if (text.length === 0) return s;
+  const lines = wrapInfoText(text, INFO_LINE_WIDTH, INFO_MAX_LINES);
+  const samples = s.samples.map((sample, i) => ({
+    ...sample,
+    name: lines[i] ?? "",
+  }));
+  return { ...s, samples };
+}
+
+export function chiptuneSourcesSnapshot(): Record<number, ChiptuneParams> {
+  const out: Record<number, ChiptuneParams> = {};
+  for (const [slot, wb] of workbenches()) {
+    if (wb.source.kind === "chiptune") out[slot] = wb.source.params;
+  }
+  return out;
+}
+
+/**
+ * Empty workbenches (placeholder created by toggling Sampler → Chiptune
+ * on a fresh slot) are skipped: no audio to store, and the toggle
+ * recreates them on demand.
+ */
+export function samplerSourcesSnapshot(): Record<number, SamplerSourceInputs> {
+  const out: Record<number, SamplerSourceInputs> = {};
+  for (const [slot, wb] of workbenches()) {
+    if (wb.source.kind !== "sampler") continue;
+    const hasAudio = wb.source.wav.channels.some((ch) => ch.length > 0);
+    if (!hasAudio) continue;
+    out[slot] = {
+      sourceName: wb.source.sourceName,
+      wav: wb.source.wav,
+      chain: wb.chain,
+      pt: wb.pt,
+    };
+  }
+  return out;
+}
+
+export function exportMod(): void {
+  const s = song();
+  if (!s) return;
+  const stamped = withInfoTextAsSampleNames(s, infoText());
+  const bytes = writeModule(stamped);
+  io.download(deriveExportFilename(filename(), s.title), bytes, "audio/x-mod");
+}
+
+/**
+ * Pipes through `songForPlayback` (loop-truncate) so the export matches
+ * what the editor previews. Synchronous on the main thread — worth
+ * worker-offloading the day someone hits the freeze threshold on a long
+ * song. `maxSeconds = 30 min` is a safety net; `stopOnSongEnd` is the
+ * normal exit for any PT module that loops cleanly.
+ */
+export function exportWav(): void {
+  const s = song();
+  if (!s) return;
+  const stamped = withInfoTextAsSampleNames(s, infoText());
+  const playbackSong = songForPlayback(stamped);
+  const sampleRate = 44100;
+  const audio = renderToBuffer(playbackSong, {
+    sampleRate,
+    maxSeconds: 30 * 60,
+    stopOnSongEnd: true,
+    amigaModel: settings().paulaModel,
+    stereoSeparation: settings().stereoSeparation,
+  });
+  const bytes = writeWav({
+    sampleRate: audio.sampleRate,
+    channels: [audio.left, audio.right],
+  });
+  io.download(
+    deriveExportFilename(filename(), s.title, "wav"),
+    bytes,
+    "audio/wav",
+  );
+}
+
+/**
+ * `.retro` is the lossless round-trip format. Save .mod loses the cursor
+ * position, current sample, edit step, mute state, and pattern names.
+ */
+export function saveProject(): void {
+  const s = song();
+  if (!s) return;
+  const bytes = projectToBytes({
+    song: s,
+    filename: filename(),
+    infoText: infoText(),
+    view: view(),
+    cursor: cursor(),
+    currentSample: currentSample(),
+    currentOctave: currentOctave(),
+    editStep: editStep(),
+    chiptuneSources: chiptuneSourcesSnapshot(),
+    samplerSources: samplerSourcesSnapshot(),
+    patternNames: patternNames(),
+    mutedChannels: mutedChannels(),
+    soloedChannels: soloedChannels(),
+  });
+  io.download(
+    deriveProjectFilename(filename(), s.title),
+    bytes,
+    "application/json",
+  );
+  setDirty(false);
+}
+
+export function newProject(): void {
+  // jsdom stubs `window.confirm` to true so tests don't hang on the prompt.
+  if (dirty()) {
+    const ok =
+      typeof window !== "undefined" && window.confirm
+        ? window.confirm("Discard unsaved changes?")
+        : true;
+    if (!ok) return;
+  }
+  applyLoadedSession({ song: emptySong(), filename: null });
+}
