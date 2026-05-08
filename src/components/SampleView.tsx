@@ -3,6 +3,7 @@ import type { Sample, Song } from "../core/mod/types";
 import { currentSample } from "../state/edit";
 import { workbenches } from "../state/sampleWorkbench";
 import { getStashedLoop, stashLoop } from "../state/loopStash";
+import { getImportedStash } from "../state/importedStash";
 import {
   EFFECT_LABELS,
   SOURCE_KINDS,
@@ -127,7 +128,6 @@ export const SampleView: Component<Props> = (props) => {
   const sample = createMemo(
     () => props.song.samples[currentSample() - 1] ?? null,
   );
-  const slotIndex = createMemo(() => String(currentSample()).padStart(2, "0"));
   const isLooping = createMemo(() => (sample()?.loopLengthWords ?? 0) > 1);
   // Length the user actually hears: the live worklet plays a snapshot
   // truncated at loopEnd (see core/audio/loopTruncate.ts), so a 32-byte
@@ -182,6 +182,28 @@ export const SampleView: Component<Props> = (props) => {
     () => workbench()?.source.kind ?? "sampler",
   );
 
+  // True when the slot's "Sampler half" is actually an imported `.mod`
+  // sample, not a real sampler workbench:
+  //   - Slot has int8 data but no workbench at all (the typical post-load
+  //     state). The Sampler tab is shown as selected but represents raw
+  //     bytes — clicking "Convert to sampler workbench" upgrades it.
+  //   - Slot is currently in chiptune mode, but an imported-sample stash
+  //     exists from the Imported→Chiptune transition. The stash is what
+  //     the Sampler tab restores to, so labelling it "Imported" mid-detour
+  //     reminds the user that their `.mod` sample is still the alternate
+  //     half.
+  // Subscribes to `workbenches()` so chiptune→imported flips re-render
+  // the picker without an explicit dep on the (non-reactive) stash map.
+  const isImportedSample = createMemo(() => {
+    const wb = workbench();
+    if (!wb) return (sample()?.lengthWords ?? 0) > 0;
+    workbenches();
+    return (
+      wb.source.kind === "chiptune" &&
+      getImportedStash(currentSample() - 1) !== undefined
+    );
+  });
+
   // The hidden file input — clicked by the visible Load WAV button. Always
   // in the DOM so it's reachable regardless of which source kind is active.
   let wavInput: HTMLInputElement | undefined;
@@ -213,20 +235,41 @@ export const SampleView: Component<Props> = (props) => {
   return (
     <div class="sampleview" onChange={blurOnCommit}>
       <header class="sampleview__header">
-        <h2>Sample {slotIndex()}</h2>
         <div class="source-picker" role="tablist" aria-label="Sample source">
-          {SOURCE_KINDS.map((k) => (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeSourceKind() === k}
-              classList={{ "is-active": activeSourceKind() === k }}
-              title={`Use the ${SOURCE_LABELS[k]} source for this slot`}
-              onClick={() => props.onSetSourceKind(k)}
-            >
-              {SOURCE_LABELS[k]}
-            </button>
-          ))}
+          {SOURCE_KINDS.map((k) => {
+            // The Sampler tab swaps to "Imported" while the slot is still
+            // raw int8 — there's no workbench, so the effect chain isn't
+            // available yet. The label hands that fact to the user without
+            // a separate help line.
+            const labelOf = () =>
+              k === "sampler" && isImportedSample()
+                ? "Imported"
+                : SOURCE_LABELS[k];
+            const titleOf = () => {
+              if (k === "sampler" && isImportedSample()) {
+                return workbench()?.source.kind === "chiptune"
+                  ? "Restore the imported sample you had before switching to Chiptune"
+                  : "Imported sample bytes (e.g. from a .mod). Use “Convert to sampler workbench” to enable the effect chain.";
+              }
+              return `Use the ${SOURCE_LABELS[k]} source for this slot`;
+            };
+            return (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeSourceKind() === k}
+                classList={{
+                  "is-active": activeSourceKind() === k,
+                  "source-picker__tab--imported":
+                    k === "sampler" && isImportedSample(),
+                }}
+                title={titleOf()}
+                onClick={() => props.onSetSourceKind(k)}
+              >
+                {labelOf()}
+              </button>
+            );
+          })}
         </div>
         <div class="sampleview__actions">
           <input

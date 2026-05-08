@@ -38,6 +38,11 @@ import {
   withoutWorkbench,
 } from "./sampleWorkbench";
 import { clearStashedLoop } from "./loopStash";
+import {
+  clearImportedStash,
+  getImportedStash,
+  stashImportedSample,
+} from "./importedStash";
 import { selection } from "./selection";
 import { activePreview } from "./preview";
 import { livePreviewSwap } from "./playback";
@@ -245,8 +250,11 @@ export function clearCurrentSample(): void {
   const slot = currentSample() - 1;
   // Loop-stash is session-only and not part of the history snapshot. A
   // stale entry can't desync (worst case the user re-enables loop and
-  // gets the whole-sample default), so just drop it eagerly.
+  // gets the whole-sample default), so just drop it eagerly. The
+  // imported-sample side-stash describes bytes that no longer exist on
+  // this slot — drop it for the same reason.
   clearStashedLoop(slot);
+  clearImportedStash(slot);
   commitEditWithWorkbenches((state) => ({
     ...state,
     song: clearSample(state.song, slot),
@@ -387,6 +395,9 @@ export function loadWavIntoCurrentSample(
   }
   setError(null);
   const slot = currentSample() - 1;
+  // The freshly-loaded WAV supersedes any imported-sample side-stash —
+  // the user explicitly replaced what was there.
+  clearImportedStash(slot);
   // Preserve any active chiptune as the alt stash so the user can toggle
   // back to it without losing their synth params. If the slot already had
   // a sampler, keep its alt (the chiptune side, if any) so it survives the
@@ -564,6 +575,14 @@ export function setDither(dither: boolean): void {
  * stashed there before. With no matching alt: chiptune gets fresh
  * defaults; sampler drops into the empty-sampler view (Load WAV
  * waiting), since Sampler has no useful "fresh" state without a WAV.
+ *
+ * "Imported" path (slot has int8 from a `.mod` but no workbench yet): on
+ * the Imported→Chiptune transition we capture the slot's Sample into a
+ * side-stash (the `wb.alt` mechanism is workbench-shaped and can't carry
+ * the "no workbench" state). On the reverse transition, with that
+ * side-stash present and no `wb.alt`, we drop the chiptune workbench and
+ * restore the original int8 + meta — the slot returns to its true prior
+ * "Imported, no workbench" state.
  */
 export function setSourceKind(kind: SourceKind): void {
   if (transport() === "playing") return;
@@ -571,10 +590,32 @@ export function setSourceKind(kind: SourceKind): void {
   const wb = getWorkbench(slot);
 
   if (!wb) {
-    if (kind === "chiptune") updateCurrentWorkbench(workbenchFromChiptune());
+    if (kind === "chiptune") {
+      // Capture the imported int8 + meta before the chiptune render
+      // overwrites the slot's bytes — that's what lets the user click
+      // back to "Imported" and get exactly what they had.
+      const sample = song()?.samples[slot];
+      if (sample && sample.lengthWords > 0) {
+        stashImportedSample(slot, sample);
+      }
+      updateCurrentWorkbench(workbenchFromChiptune());
+    }
     return;
   }
   if (wb.source.kind === kind) return;
+
+  // Chiptune→Sampler with no alt-stashed sampler half but an imported
+  // side-stash: restore the original int8 instead of dropping into a
+  // fresh empty-sampler workbench. The user's mental model is "I
+  // imported this, dabbled in chiptune, want my sample back" — not
+  // "give me a blank sampler".
+  if (kind === "sampler" && !wb.alt && wb.source.kind === "chiptune") {
+    const stashed = getImportedStash(slot);
+    if (stashed) {
+      restoreImportedSample(slot, stashed);
+      return;
+    }
+  }
 
   // Snapshot the slot's current loop into the alt — without it a sampler
   // with a loop would lose it on Sampler→Chiptune→Sampler (chiptune's
@@ -614,6 +655,33 @@ export function setSourceKind(kind: SourceKind): void {
   updateCurrentWorkbench({ ...emptySamplerWorkbench(), alt: stash }, NO_LOOP);
 }
 
+/**
+ * Drop the slot's workbench AND restore its bytes / meta from the
+ * imported side-stash. Used by the Chiptune→Imported click path: the
+ * user wants their `.mod` sample back, not a fresh sampler workbench.
+ *
+ * Goes through `commitEditWithWorkbenches` so the song update and the
+ * workbench removal share one undo entry — undo of this returns the
+ * user to the chiptune render they came from.
+ */
+function restoreImportedSample(slot: number, sample: Sample): void {
+  commitEditWithWorkbenches((state) => ({
+    ...state,
+    song: {
+      ...state.song,
+      samples: state.song.samples.map((s, i) => (i === slot ? sample : s)),
+    },
+    workbenches: withoutWorkbench(state.workbenches, slot),
+  }));
+  clearImportedStash(slot);
+  // Live-preview swap so a held audition key picks up the restored bytes.
+  const ap = activePreview();
+  if (ap && ap.slot === slot) {
+    const updatedSample = song()?.samples[slot];
+    if (updatedSample) livePreviewSwap(slot, updatedSample, ap.period);
+  }
+}
+
 export function updateChiptune(patch: Partial<ChiptuneParams>): void {
   const slot = currentSample() - 1;
   const wb = getWorkbench(slot);
@@ -636,6 +704,9 @@ export function convertSlotToSampler(): void {
   const sample = song()?.samples[slot];
   if (!sample || sample.lengthWords <= 0 || sample.data.byteLength <= 0) return;
   const sourceName = (sample.name.trim() || `Sample ${slot + 1}`).slice(0, 22);
+  // The slot now has a real sampler workbench wrapping these bytes; the
+  // imported side-stash is no longer the canonical "previous state".
+  clearImportedStash(slot);
   setWorkbench(slot, workbenchFromInt8(sample.data, sourceName));
 }
 

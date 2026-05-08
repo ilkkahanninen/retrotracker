@@ -51,18 +51,21 @@ afterEach(() => {
   resetState();
 });
 
-describe("Info view: tab + F4 routing", () => {
-  it("clicking the Info viewtab switches to the info view", async () => {
+describe("Info view: menu + F4 routing", () => {
+  it("clicking File → Song info switches to the info view", async () => {
     setSong(emptySong());
     const { container } = render(() => <App />);
-    const tab =
-      container.querySelector<HTMLButtonElement>(
-        '.viewtabs button[aria-selected="false"][title*="Info"]',
-      ) ??
-      Array.from(
-        container.querySelectorAll<HTMLButtonElement>(".viewtabs button"),
-      ).find((b) => b.textContent === "Info")!;
-    fireEvent.click(tab);
+    // The Info / Settings view tabs were dropped from the header; Info now
+    // lives behind File → Song info. Open the File menu, then click the
+    // Song info item.
+    const fileTrigger = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".menu__button"),
+    ).find((b) => b.textContent?.startsWith("File"))!;
+    fireEvent.click(fileTrigger);
+    const songInfoItem = Array.from(
+      container.querySelectorAll<HTMLLIElement>(".menu__item"),
+    ).find((li) => li.textContent?.includes("Song info"))!;
+    fireEvent.click(songInfoItem);
     expect(view()).toBe("info");
     expect(container.querySelector(".infoview")).toBeTruthy();
   });

@@ -200,6 +200,7 @@ export const App: Component = () => {
   };
 
   let fileInput: HTMLInputElement | undefined;
+  let wavInput: HTMLInputElement | undefined;
 
   const onPickFile = (e: Event) => {
     const input = e.currentTarget as HTMLInputElement;
@@ -207,6 +208,18 @@ export const App: Component = () => {
     if (file) void loadFile(file);
     // Clear so re-picking the same file still fires onChange.
     input.value = "";
+  };
+
+  /** Header-menu WAV picker for the current sample slot. The Sample view
+   *  has its own picker for the in-pane button — keeping a separate input
+   *  here means the menu works regardless of which view is active. */
+  const onPickWav = async (e: Event) => {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    const buf = new Uint8Array(await file.arrayBuffer());
+    loadWavIntoCurrentSample(buf, file.name);
   };
 
   const openFilePicker = () => fileInput?.click();
@@ -396,6 +409,13 @@ export const App: Component = () => {
     { label: "Save…", hint: "⌘S", onClick: saveProject, disabled: !song() },
     { label: "Export .mod…", onClick: exportMod, disabled: !song() },
     { label: "Export .wav…", onClick: exportWav, disabled: !song() },
+    { separator: true, label: "" },
+    {
+      label: "Song info",
+      hint: "F4",
+      onClick: () => setView("info"),
+      disabled: !song(),
+    },
   ];
 
   const editMenuItems = (): MenuItem[] => {
@@ -437,7 +457,7 @@ export const App: Component = () => {
       },
       { separator: true, label: "" },
       {
-        label: "Bounce selection to sample",
+        label: "Bounce to sample",
         hint: "⌘E",
         onClick: bounceSelectionToSample,
         disabled:
@@ -446,6 +466,96 @@ export const App: Component = () => {
           !song() ||
           !selection() ||
           nextFreeSlot(song(), -1) === null,
+      },
+      { separator: true, label: "" },
+      { label: "Settings", hint: "F5", onClick: () => setView("settings") },
+    ];
+  };
+
+  const samplesMenuItems = (): MenuItem[] => {
+    const s = song();
+    const playing = transport() === "playing";
+    const hasSong = !!s;
+    return [
+      {
+        label: "Load WAV…",
+        onClick: () => wavInput?.click(),
+        disabled: !hasSong,
+      },
+      {
+        label: "Duplicate",
+        onClick: duplicateCurrentSample,
+        disabled:
+          !hasSong || nextFreeSlot(s, currentSample() - 1) === null || playing,
+      },
+      {
+        label: "Apply chain to source",
+        onClick: applyChainToSource,
+        disabled: !hasSong,
+      },
+      { separator: true, label: "" },
+      {
+        label: "Clear",
+        onClick: clearCurrentSample,
+        disabled: !hasSong || playing,
+      },
+    ];
+  };
+
+  const orderMenuItems = (): MenuItem[] => {
+    const s = song();
+    const playing = transport() === "playing";
+    const hasSong = !!s;
+    const activeIdx = playing ? playPos().order : cursor().order;
+    const slotPat = s ? (s.orders[activeIdx] ?? 0) : 0;
+    return [
+      {
+        label: "Previous pattern",
+        hint: "⇧[",
+        onClick: stepPrevPattern,
+        disabled: !hasSong || slotPat <= 0,
+      },
+      {
+        label: "Next pattern",
+        hint: "⇧]",
+        onClick: stepNextPattern,
+        disabled: !hasSong,
+      },
+      { separator: true, label: "" },
+      {
+        label: "Insert slot",
+        hint: "⌘]",
+        onClick: insertOrderSlot,
+        disabled: !hasSong || (s ? s.songLength >= s.orders.length : true),
+      },
+      {
+        label: "Delete slot",
+        hint: "⌘[",
+        onClick: deleteOrderSlot,
+        disabled: !hasSong || (s ? s.songLength <= 1 : true),
+      },
+      { separator: true, label: "" },
+      {
+        label: "New blank pattern",
+        hint: "⌥[",
+        onClick: newBlankPatternAtOrder,
+        disabled: !hasSong,
+      },
+      {
+        label: "Duplicate pattern",
+        hint: "⌥]",
+        onClick: duplicateCurrentPattern,
+        disabled: !hasSong,
+      },
+      { separator: true, label: "" },
+      {
+        // Renumbers patterns by appearance and discards unused. Gated on
+        // playing because the worklet's snapshot still references the
+        // pre-cleanup pattern indices — same reason the toolbar button
+        // disables.
+        label: "Clean up",
+        onClick: cleanupOrderList,
+        disabled: !hasSong || playing,
       },
     ];
   };
@@ -462,7 +572,7 @@ export const App: Component = () => {
       onClick: toggleShowPatternHelp,
     },
     { separator: true, label: "" },
-    { label: "About RetroTracker…", onClick: () => setAboutOpen(true) },
+    { label: "About…", onClick: () => setAboutOpen(true) },
   ];
 
   const sampleCount = createMemo(() => {
@@ -526,107 +636,107 @@ export const App: Component = () => {
             hidden
             ref={fileInput}
           />
+          {/* Hidden — clicked by Samples → Load WAV. */}
+          <input
+            type="file"
+            accept=".wav"
+            onChange={onPickWav}
+            hidden
+            ref={wavInput}
+          />
           <Menu label="File" items={fileMenuItems()} />
           <Menu label="Edit" items={editMenuItems()} />
+          <Menu label="Samples" items={samplesMenuItems()} />
+          <Menu label="Order" items={orderMenuItems()} />
           <Menu label="Help" items={helpMenuItems()} />
-          <Show when={song()}>
-            <span class="filesize" title=".mod file size">
-              .mod {formatProjectSize(modByteSize())}
-            </span>
-            <span
-              class="filesize"
-              classList={{
-                "filesize--warn":
-                  projectByteSize() >= PROJECT_SIZE_WARN_BYTES &&
-                  projectByteSize() <= PROJECT_SIZE_LIMIT_BYTES,
-                "filesize--err": projectByteSize() > PROJECT_SIZE_LIMIT_BYTES,
-              }}
-              title={`Estimated .retro project file size — limit ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}`}
-            >
-              .retro {formatProjectSize(projectByteSize())} /{" "}
-              {formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}
-            </span>
-          </Show>
         </div>
-        <div class="viewtabs" role="tablist" aria-label="View">
-          <button
-            type="button"
-            role="tab"
-            classList={{ "viewtab--active": view() === "pattern" }}
-            aria-selected={view() === "pattern"}
-            onClick={() => setView("pattern")}
-            title="Pattern view (F2)"
-          >
-            Pattern
-          </button>
-          <button
-            type="button"
-            role="tab"
-            classList={{ "viewtab--active": view() === "sample" }}
-            aria-selected={view() === "sample"}
-            onClick={() => setView("sample")}
-            title="Sample view (F3)"
-          >
-            Sample
-          </button>
-          <button
-            type="button"
-            role="tab"
-            classList={{ "viewtab--active": view() === "info" }}
-            aria-selected={view() === "info"}
-            onClick={() => setView("info")}
-            title="Info view (F4)"
-          >
-            Info
-          </button>
-          <button
-            type="button"
-            role="tab"
-            classList={{ "viewtab--active": view() === "settings" }}
-            aria-selected={view() === "settings"}
-            onClick={() => setView("settings")}
-            title="Settings view (F5)"
-          >
-            Settings
-          </button>
-        </div>
-        <div class="transport" role="group" aria-label="Transport">
-          <span class="transport__label">Play</span>
-          <div class="transport__group">
+        <div class="app__header-center">
+          <div class="viewtabs" role="tablist" aria-label="View">
             <button
               type="button"
-              class="transport__btn"
-              classList={{
-                "transport__btn--active":
-                  transport() === "playing" && playMode() === "song",
-              }}
-              onClick={() => void togglePlaySong()}
-              disabled={!song()}
-              title="Play song / Stop (Space)"
-              aria-label="Play song"
-              aria-pressed={transport() === "playing" && playMode() === "song"}
-            >
-              Song
-            </button>
-            <button
-              type="button"
-              class="transport__btn"
-              classList={{
-                "transport__btn--active":
-                  transport() === "playing" && playMode() === "pattern",
-              }}
-              onClick={() => void togglePlayPattern()}
-              disabled={!song()}
-              title="Play pattern (Option+Space)"
-              aria-label="Play pattern"
-              aria-pressed={
-                transport() === "playing" && playMode() === "pattern"
-              }
+              role="tab"
+              classList={{ "viewtab--active": view() === "pattern" }}
+              aria-selected={view() === "pattern"}
+              onClick={() => setView("pattern")}
+              title="Pattern view (F2)"
             >
               Pattern
             </button>
+            <button
+              type="button"
+              role="tab"
+              classList={{ "viewtab--active": view() === "sample" }}
+              aria-selected={view() === "sample"}
+              onClick={() => setView("sample")}
+              title="Sample view (F3)"
+            >
+              Sample
+            </button>
+          </div>
+          <div class="transport" role="group" aria-label="Transport">
+            <span class="transport__label">Play</span>
+            <div class="transport__group">
+              <button
+                type="button"
+                class="transport__btn"
+                classList={{
+                  "transport__btn--active":
+                    transport() === "playing" && playMode() === "song",
+                }}
+                onClick={() => void togglePlaySong()}
+                disabled={!song()}
+                title="Play song / Stop (Space)"
+                aria-label="Play song"
+                aria-pressed={
+                  transport() === "playing" && playMode() === "song"
+                }
+              >
+                Song
+              </button>
+              <button
+                type="button"
+                class="transport__btn"
+                classList={{
+                  "transport__btn--active":
+                    transport() === "playing" && playMode() === "pattern",
+                }}
+                onClick={() => void togglePlayPattern()}
+                disabled={!song()}
+                title="Play pattern (Option+Space)"
+                aria-label="Play pattern"
+                aria-pressed={
+                  transport() === "playing" && playMode() === "pattern"
+                }
+              >
+                Pattern
+              </button>
+            </div>
           </div>
         </div>
+        <Show when={song()}>
+          {/* Combined size pill: .mod payload + estimated .retro project
+              size / limit. Shares one chip to free header space; warn/err
+              classes tint it yellow / red as the .retro estimate climbs. */}
+          <span
+            class="filesize"
+            classList={{
+              "filesize--warn":
+                projectByteSize() >= PROJECT_SIZE_WARN_BYTES &&
+                projectByteSize() <= PROJECT_SIZE_LIMIT_BYTES,
+              "filesize--err": projectByteSize() > PROJECT_SIZE_LIMIT_BYTES,
+            }}
+            title={`.mod file size · estimated .retro project size — limit ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}`}
+          >
+            <span class="filesize__seg">
+              .mod {formatProjectSize(modByteSize())}
+            </span>
+            <span class="filesize__sep">·</span>
+            <span class="filesize__seg">
+              .retro {formatProjectSize(projectByteSize())} /{" "}
+              {formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}
+            </span>
+          </span>
+        </Show>
       </header>
 
       <aside class="app__samples">
@@ -987,16 +1097,6 @@ export const App: Component = () => {
                         </li>
                       ))}
                   </ol>
-                  <div class="orderfooter">
-                    <button
-                      type="button"
-                      onClick={cleanupOrderList}
-                      disabled={playing()}
-                      title="Renumber patterns in order of appearance and discard unused ones"
-                    >
-                      Clean up
-                    </button>
-                  </div>
                 </>
               );
             }}

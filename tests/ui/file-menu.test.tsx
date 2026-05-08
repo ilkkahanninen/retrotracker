@@ -112,7 +112,7 @@ describe("FileMenu: dropdown behaviour", () => {
     expect(container.querySelector(".menu__list")).toBeNull();
   });
 
-  it("lists New, Open…, Save…, Export .mod…, Export .wav… in order", () => {
+  it("lists New, Open…, Save…, Export .mod…, Export .wav…, Song info in order", () => {
     const { container } = render(() => <App />);
     fireEvent.click(menuTrigger(container, "File"));
     const labels = Array.from(
@@ -124,6 +124,7 @@ describe("FileMenu: dropdown behaviour", () => {
       "Save…",
       "Export .mod…",
       "Export .wav…",
+      "Song info",
     ]);
   });
 });
@@ -338,7 +339,7 @@ describe("Open: file-input sniff routes by extension", () => {
 });
 
 describe("EditMenu: dropdown contents and actions", () => {
-  it("lists Undo, Redo, Cut, Copy, Paste, Bounce in order with a separator after Redo", () => {
+  it("lists Undo, Redo, Cut, Copy, Paste, Bounce, Settings in order with a separator after Redo", () => {
     setSong(emptySong());
     const { container } = render(() => <App />);
     fireEvent.click(menuTrigger(container, "Edit"));
@@ -351,7 +352,8 @@ describe("EditMenu: dropdown contents and actions", () => {
       "Cut",
       "Copy",
       "Paste",
-      "Bounce selection to sample",
+      "Bounce to sample",
+      "Settings",
     ]);
     // Separator is the third <li> in the list (after Undo and Redo).
     const items = container.querySelectorAll<HTMLElement>(".menu__list > li");

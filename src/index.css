@@ -89,11 +89,23 @@ body {
 .app__header > .app__header-left {
   justify-self: start;
 }
-.app__header > .viewtabs {
+.app__header > .app__header-center {
   justify-self: center;
 }
-.app__header > .transport {
+/* Right-edge child (the combined .mod/.retro size pill). Without this it
+ * inherits the grid column's default `justify-self: stretch` and the pill
+ * border spans the entire 1fr cell instead of hugging its text. */
+.app__header > .filesize {
   justify-self: end;
+}
+/* Centred group: view tabs + the combined .mod/.retro size pill on their
+ * right. Wrapping them in one container keeps the header's three-column
+ * grid intact while parking the size readout immediately next to the
+ * tabs (instead of crowding the left dropdown row). */
+.app__header-center {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .app__header h1 {
@@ -163,16 +175,34 @@ body {
   gap: 12px;
 }
 
-/* Generic dropdown menu — used by File ▾ and Edit ▾. The wrapper is
- * `position: relative` so the absolutely-positioned list floats just
- * below the trigger without affecting the header's flex layout. */
+/* Generic dropdown menu — used by File ▾ / Edit ▾ / Samples ▾ / Order ▾ /
+ * Help ▾. The wrapper is `position: relative` so the absolutely-positioned
+ * list floats just below the trigger without affecting the header's flex
+ * layout. */
 .menu {
   position: relative;
 }
-/* Shared style for the standard non-segmented toolbar buttons (File / Edit
- * dropdown trigger, sample-view file picker). The two class names are kept
- * for the tests that locate buttons by selector. */
-.menu__button,
+/* Flat, macOS-style menu-bar trigger. No border, no background until hover
+ * / open — the chrome was visually competing with the rest of the toolbar.
+ * `.file-button` keeps the older button look for in-pane file pickers
+ * (sample view) — it's not a menu trigger. */
+.menu__button {
+  background: transparent;
+  color: var(--fg);
+  border: none;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font: inherit;
+  cursor: pointer;
+  user-select: none;
+}
+.menu__button:hover {
+  background: var(--accent-dim);
+}
+.menu__button[aria-expanded="true"] {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
 .file-button {
   background: var(--panel-2);
   color: var(--fg);
@@ -183,7 +213,6 @@ body {
   cursor: pointer;
   user-select: none;
 }
-.menu__button:hover,
 .file-button:hover {
   border-color: var(--accent);
 }
@@ -197,7 +226,11 @@ body {
   background: var(--panel-2);
   border: 1px solid var(--grid-line);
   border-radius: 6px;
-  min-width: 200px;
+  /* Grow to fit the widest row instead of clamping to a fixed width — the
+   * combination with `white-space: nowrap` on items keeps every label +
+   * shortcut hint on a single line regardless of length. */
+  width: max-content;
+  min-width: 180px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   z-index: 10;
   font-family: "Inter", system-ui, sans-serif;
@@ -211,6 +244,9 @@ body {
   cursor: pointer;
   user-select: none;
   color: var(--fg);
+  /* Single-line rows. Combined with `width: max-content` on the list, the
+   * dropdown grows to whatever its widest row needs. */
+  white-space: nowrap;
 }
 /* Reserved column for the toggle checkmark — keeps labels aligned even
  * when the menu has no toggle items. The label expands to push the
@@ -345,10 +381,15 @@ body {
 .modal__thanks li:last-child {
   margin-bottom: 0;
 }
-/* Project file size readout in the header. Stays muted until the warning
- * threshold (4 MB) is crossed, then flips to yellow; once over the 5 MB
- * limit it turns red so an oversized save attempt is obvious. */
+/* Project file size readout in the header. One combined pill carries both
+ * the .mod payload size and the .retro project estimate, separated by a
+ * subtle dot. Stays muted until the warning threshold (4 MB) is crossed,
+ * then flips to yellow; once over the 5 MB limit it turns red so an
+ * oversized save attempt is obvious. */
 .filesize {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--muted);
   font-family: ui-monospace, "SFMono-Regular", monospace;
   font-size: 70%;
@@ -357,6 +398,12 @@ body {
   border-radius: 6px;
   user-select: none;
   white-space: nowrap;
+}
+.filesize__seg {
+  display: inline-block;
+}
+.filesize__sep {
+  opacity: 0.55;
 }
 .filesize--warn {
   color: var(--warn);
@@ -1101,16 +1148,10 @@ h2 {
 }
 .sampleview__header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 12px;
-}
-.sampleview__header h2 {
-  font-size: 13px;
-  margin: 0;
-  color: var(--fg);
-  letter-spacing: 0.04em;
 }
 .sampleview__actions {
   display: flex;

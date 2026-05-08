@@ -57,6 +57,7 @@ import {
   clearAllWorkbenches,
 } from "./sampleWorkbench";
 import { clearAllStashedLoops } from "./loopStash";
+import { clearAllImportedStashes } from "./importedStash";
 import { stopEngine } from "./playback";
 import { settings } from "./settings";
 import { deriveExportFilename, io } from "./io";
@@ -128,6 +129,7 @@ export function applyLoadedSession(loaded: LoadedSession): void {
   clearHistory();
   clearAllWorkbenches();
   clearAllStashedLoops();
+  clearAllImportedStashes();
   if (loaded.chiptuneSources) {
     for (const [slotStr, params] of Object.entries(loaded.chiptuneSources)) {
       const slot = parseInt(slotStr, 10);

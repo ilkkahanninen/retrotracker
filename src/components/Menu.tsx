@@ -120,7 +120,7 @@ export const Menu: Component<MenuProps> = (props) => {
           setOpen(!open());
         }}
       >
-        {props.label} ▾
+        {props.label}
       </button>
       <Show when={open()}>
         <ul class="menu__list" role="menu">
