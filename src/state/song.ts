@@ -221,15 +221,14 @@ export function commitEdit(transform: (song: Song) => Song): void {
  * move together — the waveform's int8 and the chain UI undo/redo as one
  * unit.
  *
- * Allowed mid-playback (unlike `commitEdit`): the worklet keeps its own
- * Song snapshot taken at `engine.load`, so a sample edit during playback
- * mutates only the on-screen state. The next time the user restarts
- * playback (or stops + plays), the engine receives the updated song. This
- * lets the user shape samples and synth params freely while listening.
- *
- * No-op with no song. The transform receives the live snapshot; return
- * new references for whatever changed (untouched fields can be the same
- * reference).
+ * Allowed mid-playback (unlike `commitEdit`): App.tsx wires a reactive
+ * effect on `song()` that diffs each `samples[i]` reference and forwards
+ * any changes through `engine.setSampleData(slot, sample)`, so the user
+ * hears the edit on the next loop wrap (chiptune morph) or note trigger
+ * — no need to stop and re-play. Order/pattern shape changes go the same
+ * way via `engine.replaceSong`. The transform receives the live snapshot;
+ * return new references for whatever changed (untouched fields can be the
+ * same reference). No-op with no song.
  */
 export function commitEditWithWorkbenches(
   transform: (state: EditState) => EditState,

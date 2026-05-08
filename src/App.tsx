@@ -244,8 +244,16 @@ export const App: Component = () => {
   }) => {
     if (!loaded.song) return;
     // Halt any in-flight playback before swapping the song — otherwise the
-    // worklet keeps mixing the old song under the new UI state.
+    // worklet keeps mixing the old song under the new UI state. Both the
+    // engine halt AND the transport-signal flip have to happen before the
+    // setSong below: the live-edit createEffect reads `transport()` and
+    // would otherwise dispatch wasted setSampleData / replaceSong messages
+    // to the (already stopped) worklet for every diff between the old and
+    // new song's samples and order list. Flipping transport here also
+    // makes the transient state (engine halted, signal still "playing")
+    // unobservable to anything else that reads the signal.
     stopEngine();
+    setTransport("ready");
     setPlayMode(null);
     // Mute/solo are session-only and tied to the previous song's channels;
     // carrying them over surprises the user ("why is channel 3 silent?").
@@ -303,7 +311,6 @@ export const App: Component = () => {
         });
       }
     }
-    setTransport("ready");
     setDirty(false);
   };
 

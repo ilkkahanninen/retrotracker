@@ -65,19 +65,40 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
   private readonly levelInterval = sampleRate / LEVEL_UPDATE_HZ;
   private readonly peakBuf = new Float32Array(CHANNELS);
 
-  private applyChannelMuted(): void {
-    if (!this.replayer) return;
-    for (let ch = 0; ch < CHANNELS; ch++) {
-      this.replayer.setChannelMuted(ch, this.channelMuted[ch]!);
-    }
-  }
-
   private applyAmigaModel(): void {
     this.replayer?.setAmigaModel(this.amigaModel);
   }
 
   private applyStereoSeparation(): void {
     this.replayer?.setStereoSeparation(this.stereoSeparation);
+  }
+
+  /**
+   * One place to construct a fresh Replayer with every cached preference
+   * carried in. Without this, each call site (load, play-after-finished,
+   * playFrom, end-of-song wrap) had to remember to pass `amigaModel`,
+   * `stereoSeparation`, and call `applyChannelMuted` — and at least
+   * `stereoSeparation` was being silently dropped on every recreate but
+   * `load`. Funnel through here so the worklet's cached state always
+   * reaches the new Replayer.
+   */
+  private makeReplayer(
+    extra: Partial<ConstructorParameters<typeof Replayer>[1]> = {},
+  ): Replayer {
+    if (!this.song) throw new Error("makeReplayer called with no song");
+    const r = new Replayer(this.song, {
+      sampleRate,
+      loop: true,
+      amigaModel: this.amigaModel,
+      stereoSeparation: this.stereoSeparation,
+      ...extra,
+    });
+    for (let ch = 0; ch < CHANNELS; ch++) {
+      r.setChannelMuted(ch, this.channelMuted[ch]!);
+    }
+    this.lastOrder = -1;
+    this.lastRow = -1;
+    return r;
   }
 
   constructor() {
@@ -87,28 +108,13 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
       switch (msg.type) {
         case "load":
           this.song = msg.song;
-          this.replayer = new Replayer(msg.song, {
-            sampleRate,
-            loop: true,
-            amigaModel: this.amigaModel,
-            stereoSeparation: this.stereoSeparation,
-          });
-          this.applyChannelMuted();
-          this.lastOrder = -1;
-          this.lastRow = -1;
+          this.replayer = this.makeReplayer();
           break;
         case "play":
           // Replayer is one-shot — recreate it from the stored Song if the
           // previous run finished. This is what makes Play→end→Play work.
           if (this.song && (!this.replayer || this.replayer.isFinished())) {
-            this.replayer = new Replayer(this.song, {
-              sampleRate,
-              loop: true,
-              amigaModel: this.amigaModel,
-            });
-            this.applyChannelMuted();
-            this.lastOrder = -1;
-            this.lastRow = -1;
+            this.replayer = this.makeReplayer();
           }
           this.playing = true;
           break;
@@ -136,19 +142,13 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
               msg.order,
               msg.row,
             );
-            this.replayer = new Replayer(this.song, {
-              sampleRate,
-              loop: true,
+            this.replayer = this.makeReplayer({
               initialOrder: msg.order,
               initialRow: msg.row,
               initialSpeed: speed,
               initialTempo: tempo,
               loopPattern: msg.loopPattern,
-              amigaModel: this.amigaModel,
             });
-            this.applyChannelMuted();
-            this.lastOrder = -1;
-            this.lastRow = -1;
             this.playing = true;
           }
           break;
@@ -209,14 +209,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
       // zeros after `ended` is set) — a sub-render-quantum gap on the order
       // of a few ms.
       if (this.replayer.isFinished() && this.song) {
-        this.replayer = new Replayer(this.song, {
-          sampleRate,
-          loop: true,
-          amigaModel: this.amigaModel,
-        });
-        this.applyChannelMuted();
-        this.lastOrder = -1;
-        this.lastRow = -1;
+        this.replayer = this.makeReplayer();
       }
 
       const o = this.replayer.getOrderIndex();
