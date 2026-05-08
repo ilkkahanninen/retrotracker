@@ -1,6 +1,6 @@
+import { createSignal } from "solid-js";
 import { AudioEngine } from "../core/audio/engine";
 import type { Sample } from "../core/mod/types";
-import { CHANNELS } from "../core/mod/types";
 import {
   song,
   setTransport,
@@ -10,10 +10,8 @@ import {
   playMode,
 } from "./song";
 import { cursor } from "./cursor";
-import { isChannelMuted } from "./channelMute";
 import { setChannelLevels } from "./channelLevel";
 import * as preview from "./preview";
-import { settings } from "./settings";
 
 /**
  * Audio playback orchestration. Owns the lazily-created AudioEngine and
@@ -21,44 +19,68 @@ import { settings } from "./settings";
  * of App.tsx so the engine and the play paths live next to each other.
  */
 
-let engine: AudioEngine | null = null;
+/**
+ * Reactive handle on the lazily-created AudioEngine.
+ *
+ * Reactive (a Solid signal) so the per-engine sync effects in App.tsx
+ * (channel mute, Paula filter model, stereo separation) automatically
+ * re-run when the engine first appears or is disposed. Before this was
+ * a signal, those effects only saw user-input changes and missed the
+ * "engine just got created" event entirely — `ensureEngine` had to do
+ * a parallel one-shot push of the cached preferences to compensate. With
+ * the signal, the reactive path is the only path; engine creation /
+ * disposal is just another tick the effects respond to. Removing that
+ * second sync surface is the whole point — every preference now flows
+ * through one channel.
+ *
+ * `currentEngine` is exported as the bare signal accessor (not a wrapper
+ * function) so existing call sites that read `currentEngine()` get
+ * reactive tracking for free inside `createEffect`.
+ */
+const [currentEngine, setCurrentEngine] = createSignal<AudioEngine | null>(
+  null,
+);
+export { currentEngine };
+
+/**
+ * In-flight `AudioEngine.create()` promise, deduped across concurrent
+ * `ensureEngine` callers. Without this, two near-simultaneous calls (e.g.
+ * a piano-key audition firing the moment the user hits the play hotkey)
+ * would each `await AudioEngine.create()`, both write to the engine
+ * signal, and one of the AudioContexts would be orphaned without ever
+ * being closed.
+ */
+let creating: Promise<AudioEngine | null> | null = null;
 
 /**
  * Lazy-create the AudioEngine. Returns null when the AudioContext can't
  * be constructed (jsdom, browsers gating it behind a user gesture we
  * haven't received). Callers must handle null and treat it as "no audio
  * side-effect" rather than crashing.
+ *
+ * Cached preferences (channel mute, Paula model, stereo separation) are
+ * NOT pushed here — App.tsx wires reactive effects on each that fire
+ * automatically when the engine signal flips from null to non-null. This
+ * keeps the sync surface to a single channel.
  */
 export async function ensureEngine(): Promise<AudioEngine | null> {
-  if (engine) return engine;
-  try {
-    engine = await AudioEngine.create();
-    engine.onPosition = (order, row) => setPlayPos({ order, row });
-    engine.onLevels = (peaks) => setChannelLevels(peaks);
-    // Sync the current per-channel mute gate. Without this, anything the
-    // user toggled before the engine existed would silently fail to apply
-    // on first play.
-    for (let ch = 0; ch < CHANNELS; ch++) {
-      engine.setChannelMuted(ch, isChannelMuted(ch));
+  const existing = currentEngine();
+  if (existing) return existing;
+  if (creating) return creating;
+  creating = (async () => {
+    try {
+      const eng = await AudioEngine.create();
+      eng.onPosition = (order, row) => setPlayPos({ order, row });
+      eng.onLevels = (peaks) => setChannelLevels(peaks);
+      setCurrentEngine(eng);
+      return eng;
+    } catch {
+      return null;
+    } finally {
+      creating = null;
     }
-    // Same reasoning for the Paula model: a user who picked A500 before
-    // the audio context was unlocked would otherwise hear the first
-    // playthrough through A1200 filters until the next preference change.
-    engine.setPaulaModel(settings().paulaModel);
-    engine.setStereoSeparation(settings().stereoSeparation);
-    return engine;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Read the current engine without lazily constructing it. Used by reactive
- * effects that push state changes to the worklet — no engine yet means
- * nothing to push, and the next `ensureEngine` will sync the state itself.
- */
-export function currentEngine(): AudioEngine | null {
-  return engine;
+  })();
+  return creating;
 }
 
 /**
@@ -118,11 +140,12 @@ export function livePreviewSwap(
   // The engine is created lazily, but if we're swapping a live preview
   // it must already exist. No need to await — slider drags fire many
   // updates per second and we want them queued, not awaited.
-  if (engine) void engine.previewNote(sample, period);
+  const eng = currentEngine();
+  if (eng) void eng.previewNote(sample, period);
 }
 
 export function stopPlayback(): void {
-  engine?.stop();
+  currentEngine()?.stop();
   setTransport("ready");
   setPlayMode(null);
   // Snap the playhead to the cursor so the row tint jumps back to where
@@ -187,7 +210,7 @@ export async function jumpPlaybackToOrder(order: number): Promise<void> {
   // without an AudioContext, like jsdom). A no-op engine call below
   // doesn't change the user-visible jump.
   setPlayPos({ order, row: 0 });
-  const eng = engine;
+  const eng = currentEngine();
   if (!eng) return;
   await eng.playFrom(order, 0, { loopPattern: playMode() === "pattern" });
 }
@@ -211,16 +234,19 @@ export async function togglePlayPattern(): Promise<void> {
 /** Halt the engine without touching transport state — used when swapping
  *  the loaded song so the worklet doesn't keep mixing the old one. */
 export function stopEngine(): void {
-  engine?.stop();
+  currentEngine()?.stop();
 }
 
 /** Cancel an in-flight previewNote (sample audition keyup). */
 export function stopEnginePreview(): void {
-  engine?.stopPreview();
+  currentEngine()?.stopPreview();
 }
 
-/** Tear down the engine on app unmount. */
+/** Tear down the engine on app unmount. Clear the signal first so reactive
+ *  effects stop pushing to a disposing engine; then close the AudioContext. */
 export async function disposeEngine(): Promise<void> {
-  await engine?.dispose();
-  engine = null;
+  const eng = currentEngine();
+  if (!eng) return;
+  setCurrentEngine(null);
+  await eng.dispose();
 }

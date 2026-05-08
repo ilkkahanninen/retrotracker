@@ -2239,9 +2239,11 @@ export const App: Component = () => {
     }
     cleanups.push(installShortcuts());
 
-    // Push per-channel mute/solo changes to the audio engine. We don't
-    // auto-create the engine here — if it doesn't exist yet, the next
-    // ensureEngine() will sync the current state on creation.
+    // Push per-channel mute/solo changes to the audio engine. `currentEngine`
+    // is itself a reactive signal: this effect re-runs the moment the engine
+    // is lazily created (or disposed), so any mute toggled before the
+    // AudioContext was unlocked still applies on first play. Unconditional
+    // engine read keeps Solid tracking it.
     createEffect(() => {
       const eng = currentEngine();
       for (let ch = 0; ch < CHANNELS; ch++) {
@@ -2250,22 +2252,18 @@ export const App: Component = () => {
       }
     });
 
-    // Push Paula filter model changes to both worklets. Read the signal
-    // first, unconditionally — `eng?.setPaulaModel(settings()…)` would
-    // short-circuit when the engine is still null (the lazy-creation
-    // path on first launch), and Solid would record zero dependencies
-    // on that first run, killing the effect for the whole session. With
-    // the read up front, the effect always tracks `settings`, and once
-    // the engine appears (via ensureEngine), every subsequent toggle
-    // forwards through.
+    // Push Paula filter model changes to both worklets. Read settings AND
+    // engine unconditionally so Solid records both as dependencies even
+    // when the engine is still null (a `?.` short-circuit on either read
+    // would skip the call but also skip the dependency, and the effect
+    // would never re-run).
     createEffect(() => {
       const model = settings().paulaModel;
       const eng = currentEngine();
       eng?.setPaulaModel(model);
     });
 
-    // Stereo separation — same read-first pattern so the Solid effect
-    // stays subscribed even when the engine is still null on first run.
+    // Stereo separation — same unconditional-reads pattern as above.
     createEffect(() => {
       const sep = settings().stereoSeparation;
       const eng = currentEngine();
