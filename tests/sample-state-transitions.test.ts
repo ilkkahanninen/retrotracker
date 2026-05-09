@@ -71,8 +71,8 @@ function gainNode(g: number, lastFrame: number = 1): EffectNode {
     kind: "volume",
     params: {
       points: [
-        { frame: 0, gain: g },
-        { frame: lastFrame, gain: g },
+        { frame: 0, value: g },
+        { frame: lastFrame, value: g },
       ],
     },
   };
@@ -87,14 +87,14 @@ function fadeInNode(s: number, e: number): EffectNode {
       points:
         s === 0
           ? [
-              { frame: 0, gain: 0 },
-              { frame: e, gain: 1 },
+              { frame: 0, value: 0 },
+              { frame: e, value: 1 },
             ]
           : [
-              { frame: 0, gain: 1 },
-              { frame: Math.max(0, s - 1), gain: 1 },
-              { frame: s, gain: 0 },
-              { frame: e, gain: 1 },
+              { frame: 0, value: 1 },
+              { frame: Math.max(0, s - 1), value: 1 },
+              { frame: s, value: 0 },
+              { frame: e, value: 1 },
             ],
     },
   };
@@ -106,9 +106,9 @@ function fadeOutNode(s: number, e: number): EffectNode {
     kind: "volume",
     params: {
       points: [
-        { frame: s, gain: 1 },
-        { frame: e, gain: 0 },
-        { frame: e + 1, gain: 1 },
+        { frame: s, value: 1 },
+        { frame: e, value: 0 },
+        { frame: e + 1, value: 1 },
       ],
     },
   };
@@ -799,10 +799,7 @@ describe("Effect ordering: order matters and the pipeline stays well-defined", (
     const wb = getWorkbench(0)!;
     updateCurrentWorkbench({
       ...wb,
-      chain: [
-        fadeOutNode(200, 400),
-        { kind: "normalize" },
-      ],
+      chain: [fadeOutNode(200, 400), { kind: "normalize" }],
     });
     // Peak in the int8 output should reach near ±127 (full-scale).
     const data = song()!.samples[0]!.data;
@@ -818,10 +815,7 @@ describe("Effect ordering: order matters and the pipeline stays well-defined", (
     const wb0 = getWorkbench(0)!;
     updateCurrentWorkbench({
       ...wb0,
-      chain: [
-        fadeInNode(0, 100),
-        fadeInNode(0, 100),
-      ],
+      chain: [fadeInNode(0, 100), fadeInNode(0, 100)],
     });
     const stackedBytes = Array.from(song()!.samples[0]!.data);
 

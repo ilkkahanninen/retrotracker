@@ -8,9 +8,8 @@ import { cropSample, cutSample } from "../core/mod/sampleSelection";
 import { bounceSelection } from "../core/audio/bounce";
 import type { ChiptuneParams } from "../core/audio/chiptune";
 import {
-  ENVELOPE_GAIN_MAX,
-  ENVELOPE_GAIN_MIN,
   ENVELOPE_MIN_POINTS,
+  PARAM_AXES,
   defaultEffect,
   emptySamplerWorkbench,
   materializeSource,
@@ -25,6 +24,7 @@ import {
   workbenchToAlt,
   type EffectKind,
   type EffectNode,
+  type EnvelopeParamKey,
   type EnvelopePoint,
   type MonoMix,
   type ResampleMode,
@@ -49,7 +49,11 @@ import {
 } from "./importedStash";
 import { sampleClipboard, setSampleClipboard } from "./sampleClipboard";
 import { sampleSelection } from "./sampleSelection";
-import { setSelectedEffectIndex } from "./selectedEffect";
+import {
+  defaultParamForKind,
+  setSelectedEffectIndex,
+  setSelectedEffectParam,
+} from "./selectedEffect";
 import { selection } from "./selection";
 import { activePreview } from "./preview";
 import { livePreviewSwap } from "./playback";
@@ -556,9 +560,12 @@ export function addEffect(
   const newIndex = wb.chain.length;
   updateCurrentWorkbench({ ...wb, chain: [...wb.chain, node] });
   // Auto-select the freshly-appended entry so its visual editor (the
-  // envelope overlay for `volume`, future per-effect overlays for the
-  // others) is immediately active without an extra click.
+  // envelope overlay) is immediately active without an extra click.
+  // Filter defaults to the cutoff envelope; shaper to amount; volume
+  // to its only envelope. Other kinds (normalize / range-aware /
+  // crossfade) clear the param to null.
   setSelectedEffectIndex(newIndex);
+  setSelectedEffectParam(defaultParamForKind(kind));
 }
 
 export function removeEffect(index: number): void {
@@ -568,6 +575,7 @@ export function removeEffect(index: number): void {
   // Indices shift after a removal — clearing is the simplest correct
   // policy. The user re-clicks if they were editing something downstream.
   setSelectedEffectIndex(null);
+  setSelectedEffectParam(null);
   updateCurrentWorkbench({
     ...wb,
     chain: wb.chain.filter((_, i) => i !== index),
@@ -584,6 +592,7 @@ export function moveEffect(index: number, delta: -1 | 1): void {
   // Reorder breaks the selection invariant — the index now points at a
   // different node than the user clicked. Clear and let the user re-pick.
   setSelectedEffectIndex(null);
+  setSelectedEffectParam(null);
   updateCurrentWorkbench({ ...wb, chain });
 }
 
@@ -598,33 +607,53 @@ export function patchEffect(index: number, next: EffectNode): void {
 
 // ─── Envelope point editing ──────────────────────────────────────────────
 
-/** Pull the envelope at chain index `i`, or null if it isn't a volume
- *  effect. Returns a fresh array — callers mutate it freely. */
-function envelopeAt(index: number): EnvelopePoint[] | null {
+/** Pull the envelope addressed by `(chainIndex, param)`, or null when
+ *  the combination doesn't refer to a real envelope (wrong kind, wrong
+ *  param for kind, missing chain entry). Returns a fresh array —
+ *  callers mutate it freely. */
+function envelopeAt(
+  index: number,
+  param: EnvelopeParamKey,
+): EnvelopePoint[] | null {
   const wb = getWorkbench(currentSample() - 1);
   if (!wb) return null;
   const node = wb.chain[index];
-  if (!node || node.kind !== "volume") return null;
-  return [...node.params.points];
+  if (!node) return null;
+  if (param === "volume" && node.kind === "volume") {
+    return [...node.params.points];
+  }
+  if (param === "cutoff" && node.kind === "filter") {
+    return [...node.params.cutoff];
+  }
+  if (param === "q" && node.kind === "filter") {
+    return [...node.params.q];
+  }
+  if (param === "amount" && node.kind === "shaper") {
+    return [...node.params.amount];
+  }
+  return null;
 }
 
-function clampGain(g: number): number {
-  return Math.max(ENVELOPE_GAIN_MIN, Math.min(ENVELOPE_GAIN_MAX, g));
+function clampValueForParam(v: number, param: EnvelopeParamKey): number {
+  const axis = PARAM_AXES[param];
+  return Math.max(axis.min, Math.min(axis.max, v));
 }
 
 function clampFrame(f: number): number {
   return Math.max(0, Math.floor(f));
 }
 
-/** Sort by frame, snap to integers, clamp gain, dedupe identical-frame
- *  points (keeping the LAST one written — matches editor intent: drag
- *  finishing on top of an existing point overwrites it). */
+/** Sort by frame, snap to integers, clamp value to the param's axis,
+ *  dedupe identical-frame points (keeping the LAST one written — matches
+ *  editor intent: drag finishing on top of an existing point overwrites
+ *  it). */
 function normaliseEnvelope(
   points: ReadonlyArray<EnvelopePoint>,
+  param: EnvelopeParamKey,
 ): EnvelopePoint[] {
   const cleaned = points.map((p) => ({
     frame: clampFrame(p.frame),
-    gain: clampGain(p.gain),
+    value: clampValueForParam(p.value, param),
   }));
   cleaned.sort((a, b) => a.frame - b.frame);
   const out: EnvelopePoint[] = [];
@@ -639,66 +668,111 @@ function normaliseEnvelope(
   return out;
 }
 
-function commitEnvelope(index: number, points: EnvelopePoint[]): void {
+/** Build the new node for `chain[index]` with `param`'s envelope
+ *  replaced. Returns null when the (kind, param) combination is invalid. */
+function nodeWithUpdatedEnvelope(
+  index: number,
+  param: EnvelopeParamKey,
+  points: EnvelopePoint[],
+): EffectNode | null {
+  const wb = getWorkbench(currentSample() - 1);
+  if (!wb) return null;
+  const node = wb.chain[index];
+  if (!node) return null;
+  if (param === "volume" && node.kind === "volume") {
+    return { kind: "volume", params: { points } };
+  }
+  if (param === "cutoff" && node.kind === "filter") {
+    return { kind: "filter", params: { ...node.params, cutoff: points } };
+  }
+  if (param === "q" && node.kind === "filter") {
+    return { kind: "filter", params: { ...node.params, q: points } };
+  }
+  if (param === "amount" && node.kind === "shaper") {
+    return { kind: "shaper", params: { ...node.params, amount: points } };
+  }
+  return null;
+}
+
+function commitEnvelope(
+  index: number,
+  param: EnvelopeParamKey,
+  points: EnvelopePoint[],
+): void {
   if (points.length < ENVELOPE_MIN_POINTS) return;
-  patchEffect(index, { kind: "volume", params: { points } });
+  const next = nodeWithUpdatedEnvelope(index, param, points);
+  if (!next) return;
+  patchEffect(index, next);
 }
 
-export function addEnvelopePoint(index: number, point: EnvelopePoint): void {
-  const points = envelopeAt(index);
+export function addEnvelopePoint(
+  index: number,
+  param: EnvelopeParamKey,
+  point: EnvelopePoint,
+): void {
+  const points = envelopeAt(index, param);
   if (!points) return;
-  commitEnvelope(index, normaliseEnvelope([...points, point]));
+  commitEnvelope(index, param, normaliseEnvelope([...points, point], param));
 }
 
-export function removeEnvelopePoint(index: number, pointIndex: number): void {
-  const points = envelopeAt(index);
+export function removeEnvelopePoint(
+  index: number,
+  param: EnvelopeParamKey,
+  pointIndex: number,
+): void {
+  const points = envelopeAt(index, param);
   if (!points) return;
   if (points.length <= ENVELOPE_MIN_POINTS) return;
   if (pointIndex < 0 || pointIndex >= points.length) return;
   const next = points.filter((_, i) => i !== pointIndex);
-  commitEnvelope(index, normaliseEnvelope(next));
+  commitEnvelope(index, param, normaliseEnvelope(next, param));
 }
 
 export function patchEnvelopePoint(
   index: number,
+  param: EnvelopeParamKey,
   pointIndex: number,
   next: Partial<EnvelopePoint>,
 ): void {
-  const points = envelopeAt(index);
+  const points = envelopeAt(index, param);
   if (!points) return;
   if (pointIndex < 0 || pointIndex >= points.length) return;
   const cur = points[pointIndex]!;
   points[pointIndex] = {
     frame: next.frame !== undefined ? clampFrame(next.frame) : cur.frame,
-    gain: next.gain !== undefined ? clampGain(next.gain) : cur.gain,
+    value:
+      next.value !== undefined
+        ? clampValueForParam(next.value, param)
+        : cur.value,
   };
-  commitEnvelope(index, normaliseEnvelope(points));
+  commitEnvelope(index, param, normaliseEnvelope(points, param));
 }
 
 /**
  * Drag a segment between two adjacent points: shift both endpoints'
- * gain by the same `deltaGain`. Frames stay put. Useful for raising /
- * lowering a flat region without nudging the slope at its edges.
+ * value by the same `deltaValue`. Frames stay put. Useful for raising
+ * / lowering a flat region without nudging the slope at its edges.
  */
 export function nudgeEnvelopeSegment(
   index: number,
+  param: EnvelopeParamKey,
   leftPointIndex: number,
-  deltaGain: number,
+  deltaValue: number,
 ): void {
-  const points = envelopeAt(index);
+  const points = envelopeAt(index, param);
   if (!points) return;
   if (leftPointIndex < 0 || leftPointIndex >= points.length - 1) return;
   const a = points[leftPointIndex]!;
   const b = points[leftPointIndex + 1]!;
   points[leftPointIndex] = {
     frame: a.frame,
-    gain: clampGain(a.gain + deltaGain),
+    value: clampValueForParam(a.value + deltaValue, param),
   };
   points[leftPointIndex + 1] = {
     frame: b.frame,
-    gain: clampGain(b.gain + deltaGain),
+    value: clampValueForParam(b.value + deltaValue, param),
   };
-  commitEnvelope(index, normaliseEnvelope(points));
+  commitEnvelope(index, param, normaliseEnvelope(points, param));
 }
 
 /**

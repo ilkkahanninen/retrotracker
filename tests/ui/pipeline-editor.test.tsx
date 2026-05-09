@@ -310,8 +310,8 @@ describe("pipeline editor: live param updates re-run the pipeline", () => {
           kind: "volume",
           params: {
             points: [
-              { frame: 0, gain: 2 },
-              { frame: 2, gain: 2 },
+              { frame: 0, value: 2 },
+              { frame: 2, value: 2 },
             ],
           },
         },
@@ -752,9 +752,9 @@ describe("pipeline editor: effect buttons append range-aware nodes (non-destruct
     if (node.kind === "volume") {
       expect(node.params.points).toHaveLength(2);
       // Endpoints span the chain-stage's input length and start at gain 1.
-      expect(node.params.points[0]!).toEqual({ frame: 0, gain: 1 });
+      expect(node.params.points[0]!).toEqual({ frame: 0, value: 1 });
       expect(node.params.points[1]!.frame).toBe(2047);
-      expect(node.params.points[1]!.gain).toBe(1);
+      expect(node.params.points[1]!.value).toBe(1);
     }
   });
 });
@@ -779,22 +779,37 @@ describe("pipeline editor: shaper effect", () => {
     expect(node.kind).toBe("shaper");
     if (node.kind === "shaper") {
       expect(node.params.mode).toBe("softClip");
-      expect(node.params.amount).toBe(0.5);
+      // amount is now a 2-point flat envelope at 0.5 (not a scalar).
+      expect(node.params.amount).toHaveLength(2);
+      expect(node.params.amount[0]!.value).toBe(0.5);
+      expect(node.params.amount[1]!.value).toBe(0.5);
     }
   });
 
   it("changing the mode select patches the chain entry and re-runs the pipeline", () => {
     setView("sample");
     const { container } = render(() => <App />);
-    // hardClip at amount=1 will push 0.5 → ±1 → int8 ±127. Start with mode 'none'
-    // (passthrough) so we can observe the int8 flip when the user picks hardClip.
+    // hardClip with amount envelope = 1 will push 0.5 → ±1 → int8 ±127.
+    // Start with mode 'none' (passthrough) so we can observe the int8 flip
+    // when the user picks hardClip.
     seedSampleWithWorkbench({
       source: {
         sampleRate: 44100,
         channels: [new Float32Array([0.5, -0.5])],
       },
       sourceName: "demo",
-      chain: [{ kind: "shaper", params: { mode: "none", amount: 1 } }],
+      chain: [
+        {
+          kind: "shaper",
+          params: {
+            mode: "none",
+            amount: [
+              { frame: 0, value: 1 },
+              { frame: 1, value: 1 },
+            ],
+          },
+        },
+      ],
       pt: { monoMix: "average", targetNote: null },
     });
     // 0.5 → int8 64-ish under 'none' passthrough.
@@ -806,40 +821,14 @@ describe("pipeline editor: shaper effect", () => {
     )!;
     fireEvent.change(select, { target: { value: "hardClip" } });
 
-    expect(getWorkbench(0)!.chain[0]).toEqual({
-      kind: "shaper",
-      params: { mode: "hardClip", amount: 1 },
-    });
+    const node = getWorkbench(0)!.chain[0]!;
+    expect(node.kind).toBe("shaper");
+    if (node.kind === "shaper") {
+      expect(node.params.mode).toBe("hardClip");
+      // Amount envelope preserved across the mode change.
+      expect(node.params.amount[0]!.value).toBe(1);
+    }
     // 0.5 ×9 → 4.5 → clamp to +1 → int8 127.
-    expect(song()!.samples[0]!.data[0]!).toBe(127);
-    expect(song()!.samples[0]!.data[1]!).toBe(-127);
-  });
-
-  it("dragging the Drive slider patches the amount", () => {
-    setView("sample");
-    const { container } = render(() => <App />);
-    seedSampleWithWorkbench({
-      source: {
-        sampleRate: 44100,
-        channels: [new Float32Array([0.5, -0.5])],
-      },
-      sourceName: "demo",
-      chain: [{ kind: "shaper", params: { mode: "hardClip", amount: 0 } }],
-      pt: { monoMix: "average", targetNote: null },
-    });
-    // amount=0 ⇒ passthrough; 0.5 → int8 64-ish, definitely not saturated.
-    expect(song()!.samples[0]!.data[0]!).not.toBe(127);
-
-    // The shaper row has one <input type="range"> — the Drive slider.
-    const slider = container.querySelector<HTMLInputElement>(
-      '.effect-node input[type="range"]',
-    )!;
-    fireEvent.input(slider, { target: { value: "1" } });
-
-    expect(getWorkbench(0)!.chain[0]).toEqual({
-      kind: "shaper",
-      params: { mode: "hardClip", amount: 1 },
-    });
     expect(song()!.samples[0]!.data[0]!).toBe(127);
     expect(song()!.samples[0]!.data[1]!).toBe(-127);
   });
@@ -912,8 +901,8 @@ describe("pipeline editor: undo/redo restores chain alongside song", () => {
           kind: "volume",
           params: {
             points: [
-              { frame: 0, gain: 2 },
-              { frame: 1, gain: 2 },
+              { frame: 0, value: 2 },
+              { frame: 1, value: 2 },
             ],
           },
         },

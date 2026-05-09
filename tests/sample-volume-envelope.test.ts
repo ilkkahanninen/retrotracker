@@ -72,7 +72,7 @@ function seedWithVolume(): ReturnType<
 describe("addEnvelopePoint", () => {
   it("inserts a new point and keeps the array sorted by frame", () => {
     seedWithVolume();
-    addEnvelopePoint(0, { frame: 50, gain: 0.5 });
+    addEnvelopePoint(0, "volume", { frame: 50, value: 0.5 });
     const wb = getWorkbench(0)!;
     const node = wb.chain[0]!;
     expect(node.kind).toBe("volume");
@@ -84,37 +84,37 @@ describe("addEnvelopePoint", () => {
     for (let i = 1; i < pts.length; i++) {
       expect(pts[i]!.frame).toBeGreaterThanOrEqual(pts[i - 1]!.frame);
     }
-    expect(pts.find((p) => p.frame === 50)?.gain).toBeCloseTo(0.5, 6);
+    expect(pts.find((p) => p.frame === 50)?.value).toBeCloseTo(0.5, 6);
   });
 
   it("clamps gain into [ENVELOPE_GAIN_MIN, ENVELOPE_GAIN_MAX]", () => {
     seedWithVolume();
-    addEnvelopePoint(0, { frame: 50, gain: 99 });
-    addEnvelopePoint(0, { frame: 60, gain: -99 });
+    addEnvelopePoint(0, "volume", { frame: 50, value: 99 });
+    addEnvelopePoint(0, "volume", { frame: 60, value: -99 });
     const node = getWorkbench(0)!.chain[0]!;
     if (node.kind !== "volume") throw new Error("expected volume node");
-    expect(node.params.points.find((p) => p.frame === 50)!.gain).toBe(
+    expect(node.params.points.find((p) => p.frame === 50)!.value).toBe(
       ENVELOPE_GAIN_MAX,
     );
-    expect(node.params.points.find((p) => p.frame === 60)!.gain).toBe(0);
+    expect(node.params.points.find((p) => p.frame === 60)!.value).toBe(0);
   });
 
   it("dedupes points landing on the same frame (last write wins)", () => {
     seedWithVolume();
-    addEnvelopePoint(0, { frame: 100, gain: 0.5 });
-    addEnvelopePoint(0, { frame: 100, gain: 1.5 });
+    addEnvelopePoint(0, "volume", { frame: 100, value: 0.5 });
+    addEnvelopePoint(0, "volume", { frame: 100, value: 1.5 });
     const node = getWorkbench(0)!.chain[0]!;
     if (node.kind !== "volume") throw new Error("expected volume node");
     const at100 = node.params.points.filter((p) => p.frame === 100);
     expect(at100.length).toBe(1);
-    expect(at100[0]!.gain).toBeCloseTo(1.5, 6);
+    expect(at100[0]!.value).toBeCloseTo(1.5, 6);
   });
 
   it("is a no-op when the targeted chain entry is not a volume node", () => {
     loadWavIntoCurrentSample(makeWavBytes(), "tone.wav");
     addEffect("normalize", null);
     const before = getWorkbench(0)!.chain;
-    addEnvelopePoint(0, { frame: 10, gain: 0.5 });
+    addEnvelopePoint(0, "volume", { frame: 10, value: 0.5 });
     expect(getWorkbench(0)!.chain).toEqual(before);
   });
 });
@@ -122,8 +122,8 @@ describe("addEnvelopePoint", () => {
 describe("removeEnvelopePoint", () => {
   it("removes the targeted point", () => {
     seedWithVolume();
-    addEnvelopePoint(0, { frame: 50, gain: 0.5 });
-    addEnvelopePoint(0, { frame: 100, gain: 1.5 });
+    addEnvelopePoint(0, "volume", { frame: 50, value: 0.5 });
+    addEnvelopePoint(0, "volume", { frame: 100, value: 1.5 });
     const wb1 = getWorkbench(0)!;
     const node1 = wb1.chain[0]!;
     if (node1.kind !== "volume") throw new Error("expected volume node");
@@ -131,7 +131,7 @@ describe("removeEnvelopePoint", () => {
 
     // Find the index of the frame-50 point and remove it.
     const idx = node1.params.points.findIndex((p) => p.frame === 50);
-    removeEnvelopePoint(0, idx);
+    removeEnvelopePoint(0, "volume", idx);
 
     const node2 = getWorkbench(0)!.chain[0]!;
     if (node2.kind !== "volume") throw new Error("expected volume node");
@@ -146,8 +146,8 @@ describe("removeEnvelopePoint", () => {
     if (node.kind !== "volume") throw new Error("expected volume node");
     expect(node.params.points.length).toBe(ENVELOPE_MIN_POINTS);
 
-    removeEnvelopePoint(0, 0);
-    removeEnvelopePoint(0, 1);
+    removeEnvelopePoint(0, "volume", 0);
+    removeEnvelopePoint(0, "volume", 1);
 
     const after = getWorkbench(0)!.chain[0]!;
     if (after.kind !== "volume") throw new Error("expected volume node");
@@ -157,8 +157,8 @@ describe("removeEnvelopePoint", () => {
   it("ignores out-of-range indices", () => {
     seedWithVolume();
     const before = getWorkbench(0)!.chain;
-    removeEnvelopePoint(0, -1);
-    removeEnvelopePoint(0, 99);
+    removeEnvelopePoint(0, "volume", -1);
+    removeEnvelopePoint(0, "volume", 99);
     expect(getWorkbench(0)!.chain).toEqual(before);
   });
 });
@@ -166,32 +166,32 @@ describe("removeEnvelopePoint", () => {
 describe("patchEnvelopePoint", () => {
   it("updates a point's gain (frame untouched)", () => {
     seedWithVolume();
-    patchEnvelopePoint(0, 0, { gain: 1.5 });
+    patchEnvelopePoint(0, "volume", 0, { value: 1.5 });
     const node = getWorkbench(0)!.chain[0]!;
     if (node.kind !== "volume") throw new Error("expected volume node");
-    expect(node.params.points[0]!.gain).toBeCloseTo(1.5, 6);
+    expect(node.params.points[0]!.value).toBeCloseTo(1.5, 6);
   });
 
   it("clamps gain", () => {
     seedWithVolume();
-    patchEnvelopePoint(0, 0, { gain: 999 });
-    patchEnvelopePoint(0, 1, { gain: -5 });
+    patchEnvelopePoint(0, "volume", 0, { value: 999 });
+    patchEnvelopePoint(0, "volume", 1, { value: -5 });
     const node = getWorkbench(0)!.chain[0]!;
     if (node.kind !== "volume") throw new Error("expected volume node");
-    expect(node.params.points[0]!.gain).toBe(ENVELOPE_GAIN_MAX);
-    expect(node.params.points[1]!.gain).toBe(0);
+    expect(node.params.points[0]!.value).toBe(ENVELOPE_GAIN_MAX);
+    expect(node.params.points[1]!.value).toBe(0);
   });
 
   it("normalises (sorts + dedupes) when a frame change crosses a neighbour", () => {
     seedWithVolume();
-    addEnvelopePoint(0, { frame: 100, gain: 0.5 });
+    addEnvelopePoint(0, "volume", { frame: 100, value: 0.5 });
     // Drag the rightmost (last) point to frame 50 — past the mid-point at
     // frame 100. After commit, the array should be re-sorted and the
     // landing-point should still be present.
     const before = getWorkbench(0)!.chain[0]!;
     if (before.kind !== "volume") throw new Error("expected volume node");
     const lastIdx = before.params.points.length - 1;
-    patchEnvelopePoint(0, lastIdx, { frame: 50 });
+    patchEnvelopePoint(0, "volume", lastIdx, { frame: 50 });
     const after = getWorkbench(0)!.chain[0]!;
     if (after.kind !== "volume") throw new Error("expected volume node");
     for (let i = 1; i < after.params.points.length; i++) {
@@ -210,37 +210,37 @@ describe("nudgeEnvelopeSegment", () => {
     const beforePts = before.params.points;
     const f0 = beforePts[0]!.frame;
     const f1 = beforePts[1]!.frame;
-    const g0 = beforePts[0]!.gain;
-    const g1 = beforePts[1]!.gain;
+    const g0 = beforePts[0]!.value;
+    const g1 = beforePts[1]!.value;
 
-    nudgeEnvelopeSegment(0, 0, 0.3);
+    nudgeEnvelopeSegment(0, "volume", 0, 0.3);
 
     const after = getWorkbench(0)!.chain[0]!;
     if (after.kind !== "volume") throw new Error("expected volume node");
     expect(after.params.points[0]!.frame).toBe(f0);
     expect(after.params.points[1]!.frame).toBe(f1);
-    expect(after.params.points[0]!.gain).toBeCloseTo(g0 + 0.3, 5);
-    expect(after.params.points[1]!.gain).toBeCloseTo(g1 + 0.3, 5);
+    expect(after.params.points[0]!.value).toBeCloseTo(g0 + 0.3, 5);
+    expect(after.params.points[1]!.value).toBeCloseTo(g1 + 0.3, 5);
   });
 
   it("clamps each endpoint's gain to [0, ENVELOPE_GAIN_MAX]", () => {
     seedWithVolume();
-    nudgeEnvelopeSegment(0, 0, 999);
+    nudgeEnvelopeSegment(0, "volume", 0, 999);
     const after = getWorkbench(0)!.chain[0]!;
     if (after.kind !== "volume") throw new Error("expected volume node");
-    expect(after.params.points[0]!.gain).toBe(ENVELOPE_GAIN_MAX);
-    expect(after.params.points[1]!.gain).toBe(ENVELOPE_GAIN_MAX);
+    expect(after.params.points[0]!.value).toBe(ENVELOPE_GAIN_MAX);
+    expect(after.params.points[1]!.value).toBe(ENVELOPE_GAIN_MAX);
   });
 
   it("ignores invalid leftPointIndex (last point or out-of-range)", () => {
     seedWithVolume();
     const before = getWorkbench(0)!.chain;
-    nudgeEnvelopeSegment(0, -1, 0.5);
-    nudgeEnvelopeSegment(0, 99, 0.5);
+    nudgeEnvelopeSegment(0, "volume", -1, 0.5);
+    nudgeEnvelopeSegment(0, "volume", 99, 0.5);
     // Pass the last index — there's no segment to its right.
     const node = getWorkbench(0)!.chain[0]!;
     if (node.kind !== "volume") throw new Error("expected volume node");
-    nudgeEnvelopeSegment(0, node.params.points.length - 1, 0.5);
+    nudgeEnvelopeSegment(0, "volume", node.params.points.length - 1, 0.5);
     expect(getWorkbench(0)!.chain).toEqual(before);
   });
 });
@@ -249,11 +249,11 @@ describe("integration: chain mutation goes through commit (history snapshot)", (
   it("each envelope edit produces a fresh chain reference (so the workbench-map ref churns and undo can roll it back)", () => {
     seedWithVolume();
     const c0 = getWorkbench(0)!.chain;
-    addEnvelopePoint(0, { frame: 10, gain: 0.5 });
+    addEnvelopePoint(0, "volume", { frame: 10, value: 0.5 });
     const c1 = getWorkbench(0)!.chain;
     expect(c1).not.toBe(c0);
 
-    patchEnvelopePoint(0, 0, { gain: 1.2 });
+    patchEnvelopePoint(0, "volume", 0, { value: 1.2 });
     const c2 = getWorkbench(0)!.chain;
     expect(c2).not.toBe(c1);
   });
@@ -267,16 +267,124 @@ describe("integration: chain mutation goes through commit (history snapshot)", (
       kind: "volume",
       params: {
         points: [
-          { frame: 0, gain: 0.25 },
-          { frame: 100, gain: 1.75 },
+          { frame: 0, value: 0.25 },
+          { frame: 100, value: 1.75 },
         ],
       },
     });
     const node = getWorkbench(0)!.chain[0]!;
     if (node.kind !== "volume") throw new Error("expected volume node");
     expect(node.params.points).toEqual([
-      { frame: 0, gain: 0.25 },
-      { frame: 100, gain: 1.75 },
+      { frame: 0, value: 0.25 },
+      { frame: 100, value: 1.75 },
     ]);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Filter envelope: cutoff and Q are addressed independently.
+// ──────────────────────────────────────────────────────────────────────
+
+function seedWithFilter(): void {
+  loadWavIntoCurrentSample(makeWavBytes(800), "tone.wav");
+  addEffect("filter", null);
+}
+
+describe("filter envelope state actions", () => {
+  it("addEnvelopePoint(idx, 'cutoff', ...) targets the cutoff envelope, not Q", () => {
+    seedWithFilter();
+    addEnvelopePoint(0, "cutoff", { frame: 100, value: 4000 });
+    const node = getWorkbench(0)!.chain[0]!;
+    if (node.kind !== "filter") throw new Error("expected filter node");
+    // Cutoff has 3 points, Q is unchanged at 2.
+    expect(node.params.cutoff.length).toBe(3);
+    expect(node.params.q.length).toBe(2);
+    expect(node.params.cutoff.find((p) => p.frame === 100)?.value).toBeCloseTo(
+      4000,
+      1,
+    );
+  });
+
+  it("addEnvelopePoint(idx, 'q', ...) targets the Q envelope, not cutoff", () => {
+    seedWithFilter();
+    addEnvelopePoint(0, "q", { frame: 200, value: 5 });
+    const node = getWorkbench(0)!.chain[0]!;
+    if (node.kind !== "filter") throw new Error("expected filter node");
+    expect(node.params.q.length).toBe(3);
+    expect(node.params.cutoff.length).toBe(2);
+    expect(node.params.q.find((p) => p.frame === 200)?.value).toBeCloseTo(5, 5);
+  });
+
+  it("clamps cutoff value to the cutoff axis range, q to the Q range", () => {
+    seedWithFilter();
+    // PARAM_AXES.cutoff: [10, 22050]; PARAM_AXES.q: [0.1, 20].
+    addEnvelopePoint(0, "cutoff", { frame: 50, value: 99999 });
+    addEnvelopePoint(0, "q", { frame: 50, value: 99999 });
+    const node = getWorkbench(0)!.chain[0]!;
+    if (node.kind !== "filter") throw new Error("expected filter node");
+    expect(node.params.cutoff.find((p) => p.frame === 50)!.value).toBe(22050);
+    expect(node.params.q.find((p) => p.frame === 50)!.value).toBe(20);
+  });
+
+  it("removeEnvelopePoint refuses to drop the Q envelope below 2 points", () => {
+    seedWithFilter();
+    removeEnvelopePoint(0, "q", 0);
+    removeEnvelopePoint(0, "q", 1);
+    const node = getWorkbench(0)!.chain[0]!;
+    if (node.kind !== "filter") throw new Error("expected filter node");
+    expect(node.params.q.length).toBe(2);
+  });
+
+  it("wrong (kind, param) combination is a no-op", () => {
+    seedWithFilter();
+    const before = getWorkbench(0)!.chain;
+    // 'volume' isn't a filter param — silently ignored.
+    addEnvelopePoint(0, "volume", { frame: 50, value: 0.5 });
+    // 'amount' isn't a filter param either.
+    addEnvelopePoint(0, "amount", { frame: 50, value: 0.5 });
+    expect(getWorkbench(0)!.chain).toEqual(before);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Shaper envelope: amount only.
+// ──────────────────────────────────────────────────────────────────────
+
+function seedWithShaper(): void {
+  loadWavIntoCurrentSample(makeWavBytes(800), "tone.wav");
+  addEffect("shaper", null);
+}
+
+describe("shaper envelope state actions", () => {
+  it("addEnvelopePoint(idx, 'amount', ...) appends to the amount envelope", () => {
+    seedWithShaper();
+    addEnvelopePoint(0, "amount", { frame: 100, value: 0.8 });
+    const node = getWorkbench(0)!.chain[0]!;
+    if (node.kind !== "shaper") throw new Error("expected shaper node");
+    expect(node.params.amount.length).toBe(3);
+    expect(node.params.amount.find((p) => p.frame === 100)?.value).toBeCloseTo(
+      0.8,
+      6,
+    );
+  });
+
+  it("clamps amount to [0, 1]", () => {
+    seedWithShaper();
+    addEnvelopePoint(0, "amount", { frame: 50, value: 99 });
+    addEnvelopePoint(0, "amount", { frame: 60, value: -5 });
+    const node = getWorkbench(0)!.chain[0]!;
+    if (node.kind !== "shaper") throw new Error("expected shaper node");
+    expect(node.params.amount.find((p) => p.frame === 50)!.value).toBe(1);
+    expect(node.params.amount.find((p) => p.frame === 60)!.value).toBe(0);
+  });
+
+  it("nudgeEnvelopeSegment shifts both endpoints' amount", () => {
+    seedWithShaper();
+    nudgeEnvelopeSegment(0, "amount", 0, 0.2);
+    const node = getWorkbench(0)!.chain[0]!;
+    if (node.kind !== "shaper") throw new Error("expected shaper node");
+    // Default flat envelope at 0.5 + 0.2 = 0.7 on both endpoints.
+    expect(node.params.amount[0]!.value).toBeCloseTo(0.7, 5);
+    expect(node.params.amount[1]!.value).toBeCloseTo(0.7, 5);
   });
 });

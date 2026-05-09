@@ -87,13 +87,13 @@ describe("persistence migration: legacy gain → volume envelope", () => {
     const node = chain[0] as { kind: string; params: unknown };
     expect(node.kind).toBe("volume");
     const points = (
-      node.params as { points: ReadonlyArray<{ frame: number; gain: number }> }
+      node.params as { points: ReadonlyArray<{ frame: number; value: number }> }
     ).points;
     expect(points).toHaveLength(2);
-    // Both endpoints sit at gain 1.5 (clamp-to-boundary makes this a
+    // Both endpoints sit at value 1.5 (clamp-to-boundary makes this a
     // constant ×1.5 across the whole input).
-    expect(points[0]!.gain).toBeCloseTo(1.5, 6);
-    expect(points[1]!.gain).toBeCloseTo(1.5, 6);
+    expect(points[0]!.value).toBeCloseTo(1.5, 6);
+    expect(points[1]!.value).toBeCloseTo(1.5, 6);
     // The right endpoint's frame is replaced by the chain-stage's last
     // frame at parse time (the WAV embedded above is 200 frames long).
     expect(points[0]!.frame).toBe(0);
@@ -104,8 +104,8 @@ describe("persistence migration: legacy gain → volume envelope", () => {
     const chain = tamperWithLegacyChain([
       { kind: "gain", params: { gain: 4 } },
     ]);
-    const node = chain[0] as { params: { points: { gain: number }[] } };
-    expect(node.params.points.every((p) => p.gain === 2)).toBe(true);
+    const node = chain[0] as { params: { points: { value: number }[] } };
+    expect(node.params.points.every((p) => p.value === 2)).toBe(true);
   });
 });
 
@@ -120,8 +120,8 @@ describe("persistence migration: legacy fadeIn → volume envelope", () => {
       node.params as { points: { frame: number; gain: number }[] }
     ).points;
     expect(points).toEqual([
-      { frame: 0, gain: 0 },
-      { frame: 50, gain: 1 },
+      { frame: 0, value: 0 },
+      { frame: 50, value: 1 },
     ]);
   });
 
@@ -133,10 +133,10 @@ describe("persistence migration: legacy fadeIn → volume envelope", () => {
       params: { points: { frame: number; gain: number }[] };
     };
     expect(node.params.points).toEqual([
-      { frame: 0, gain: 1 },
-      { frame: 9, gain: 1 },
-      { frame: 10, gain: 0 },
-      { frame: 30, gain: 1 },
+      { frame: 0, value: 1 },
+      { frame: 9, value: 1 },
+      { frame: 10, value: 0 },
+      { frame: 30, value: 1 },
     ]);
   });
 });
@@ -150,9 +150,9 @@ describe("persistence migration: legacy fadeOut → volume envelope", () => {
       params: { points: { frame: number; gain: number }[] };
     };
     expect(node.params.points).toEqual([
-      { frame: 100, gain: 1 },
-      { frame: 150, gain: 0 },
-      { frame: 151, gain: 1 },
+      { frame: 100, value: 1 },
+      { frame: 150, value: 0 },
+      { frame: 151, value: 1 },
     ]);
   });
 });
@@ -190,8 +190,8 @@ describe("persistence: v=6 is written when any chain has a volume envelope", () 
               kind: "volume",
               params: {
                 points: [
-                  { frame: 0, gain: 1 },
-                  { frame: 50, gain: 0.5 },
+                  { frame: 0, value: 1 },
+                  { frame: 50, value: 0.5 },
                 ],
               },
             },
@@ -204,7 +204,7 @@ describe("persistence: v=6 is written when any chain has a volume envelope", () 
     expect(parsed.v).toBe(6);
   });
 
-  it("a chain with no volume node serialises at v ≤ 5 (lowest-fits rule)", () => {
+  it("a chain with no envelope-bearing nodes serialises at v ≤ 5 (lowest-fits rule)", () => {
     const wav = {
       sampleRate: 22050,
       channels: [new Float32Array(100).fill(0)],
@@ -215,10 +215,40 @@ describe("persistence: v=6 is written when any chain has a volume envelope", () 
         0: {
           sourceName: "test",
           wav,
+          // Crop is a length-changing range-aware effect; carries no
+          // envelopes and shouldn't bump the schema version above the
+          // minimum needed for the rest of the payload (mute / pattern
+          // names are absent here, so v=3 is the floor for sampler
+          // sources).
+          chain: [{ kind: "crop", params: { startFrame: 0, endFrame: 50 } }],
+          pt: { monoMix: "average", targetNote: 12 },
+        },
+      },
+    });
+    const parsed = JSON.parse(new TextDecoder().decode(bytes));
+    expect(parsed.v).toBeLessThanOrEqual(5);
+  });
+
+  it("a chain with a filter or shaper bumps the schema to v=7", () => {
+    const wav = {
+      sampleRate: 22050,
+      channels: [new Float32Array(100).fill(0.25)],
+    };
+    // Filter envelopes need at least 2 points each.
+    const flat = (v: number) => [
+      { frame: 0, value: v },
+      { frame: 99, value: v },
+    ];
+    const bytes = projectToBytes({
+      ...baseInputs(),
+      samplerSources: {
+        0: {
+          sourceName: "test",
+          wav,
           chain: [
             {
               kind: "filter",
-              params: { type: "lowpass", cutoff: 1000, q: 0.7 },
+              params: { type: "lowpass", cutoff: flat(1000), q: flat(0.707) },
             },
           ],
           pt: { monoMix: "average", targetNote: 12 },
@@ -226,7 +256,7 @@ describe("persistence: v=6 is written when any chain has a volume envelope", () 
       },
     });
     const parsed = JSON.parse(new TextDecoder().decode(bytes));
-    expect(parsed.v).toBeLessThanOrEqual(5);
+    expect(parsed.v).toBe(7);
   });
 });
 
@@ -237,10 +267,10 @@ describe("persistence: round-trip of the new volume envelope shape", () => {
       channels: [new Float32Array(100).fill(0.25)],
     };
     const original = [
-      { frame: 0, gain: 0.5 },
-      { frame: 25, gain: 1.5 },
-      { frame: 75, gain: 0.25 },
-      { frame: 99, gain: 1 },
+      { frame: 0, value: 0.5 },
+      { frame: 25, value: 1.5 },
+      { frame: 75, value: 0.25 },
+      { frame: 99, value: 1 },
     ];
     const bytes = projectToBytes({
       ...baseInputs(),
@@ -260,5 +290,122 @@ describe("persistence: round-trip of the new volume envelope shape", () => {
     if (node.kind === "volume") {
       expect(node.params.points).toEqual(original);
     }
+  });
+});
+
+describe("persistence migration: legacy filter scalar params → envelopes", () => {
+  it("rewrites scalar cutoff and Q as 2-point flat envelopes", () => {
+    const chain = tamperWithLegacyChain([
+      {
+        kind: "filter",
+        params: { type: "lowpass", cutoff: 1000, q: 0.707 },
+      },
+    ]);
+    expect(chain).toHaveLength(1);
+    const node = chain[0] as {
+      kind: string;
+      params: {
+        type: string;
+        cutoff: { frame: number; value: number }[];
+        q: { frame: number; value: number }[];
+      };
+    };
+    expect(node.kind).toBe("filter");
+    expect(node.params.type).toBe("lowpass");
+    expect(node.params.cutoff).toHaveLength(2);
+    expect(node.params.cutoff.every((p) => p.value === 1000)).toBe(true);
+    expect(node.params.q).toHaveLength(2);
+    expect(node.params.q.every((p) => Math.abs(p.value - 0.707) < 1e-6)).toBe(
+      true,
+    );
+    // The right endpoint's frame is fixed up to chain-stage's last frame
+    // (the 200-frame WAV embedded in tamperWithLegacyChain).
+    expect(node.params.cutoff[0]!.frame).toBe(0);
+    expect(node.params.cutoff[1]!.frame).toBe(199);
+    expect(node.params.q[0]!.frame).toBe(0);
+    expect(node.params.q[1]!.frame).toBe(199);
+  });
+
+  it("clamps out-of-range scalar cutoff / Q on migration", () => {
+    const chain = tamperWithLegacyChain([
+      {
+        kind: "filter",
+        params: { type: "lowpass", cutoff: 999_999, q: 999 },
+      },
+    ]);
+    const node = chain[0] as {
+      params: {
+        cutoff: { value: number }[];
+        q: { value: number }[];
+      };
+    };
+    // PARAM_AXES: cutoff max 22050, q max 20.
+    expect(node.params.cutoff.every((p) => p.value === 22050)).toBe(true);
+    expect(node.params.q.every((p) => p.value === 20)).toBe(true);
+  });
+});
+
+describe("persistence migration: legacy shaper scalar amount → envelope", () => {
+  it("rewrites scalar amount as a 2-point flat envelope", () => {
+    const chain = tamperWithLegacyChain([
+      {
+        kind: "shaper",
+        params: { mode: "softClip", amount: 0.7 },
+      },
+    ]);
+    const node = chain[0] as {
+      kind: string;
+      params: {
+        mode: string;
+        amount: { frame: number; value: number }[];
+      };
+    };
+    expect(node.kind).toBe("shaper");
+    expect(node.params.mode).toBe("softClip");
+    expect(node.params.amount).toHaveLength(2);
+    expect(
+      node.params.amount.every((p) => Math.abs(p.value - 0.7) < 1e-6),
+    ).toBe(true);
+    expect(node.params.amount[0]!.frame).toBe(0);
+    expect(node.params.amount[1]!.frame).toBe(199);
+  });
+
+  it("clamps amount > 1 down to 1", () => {
+    const chain = tamperWithLegacyChain([
+      {
+        kind: "shaper",
+        params: { mode: "hardClip", amount: 5 },
+      },
+    ]);
+    const node = chain[0] as { params: { amount: { value: number }[] } };
+    expect(node.params.amount.every((p) => p.value === 1)).toBe(true);
+  });
+});
+
+describe("persistence: parser back-compat reads `gain`-keyed envelope points", () => {
+  it("v=6 volume payloads with `gain` keys still load as envelope points", () => {
+    // Synthesise a legacy v=6 payload where the points use the older
+    // `gain` field name. The parser falls back to `gain` when `value`
+    // is missing.
+    const chain = tamperWithLegacyChain([
+      {
+        kind: "volume",
+        params: {
+          points: [
+            { frame: 0, gain: 0.5 },
+            { frame: 50, gain: 1.5 },
+          ],
+        },
+      },
+    ]);
+    const node = chain[0] as {
+      kind: string;
+      params: { points: { frame: number; value: number }[] };
+    };
+    expect(node.kind).toBe("volume");
+    expect(node.params.points).toEqual([
+      { frame: 0, value: 0.5 },
+      { frame: 50, value: 1.5 },
+    ]);
   });
 });

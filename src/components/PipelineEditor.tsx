@@ -16,6 +16,7 @@ import {
   materializeSource,
   sourceDisplayName,
   type EffectNode,
+  type EnvelopeParamKey,
   type EnvelopePoint,
   type FilterType,
   type MonoMix,
@@ -58,27 +59,43 @@ export interface PipelineEditorProps {
   onSetTargetNote: (targetNote: number | null) => void;
   onSetResampleMode: (mode: ResampleMode) => void;
   onSetDither: (dither: boolean) => void;
-  /** Index of the chain entry whose visual editor (e.g. the volume
-   *  envelope overlay) is active, or null. */
+  /** Index of the chain entry whose visual editor (envelope overlay) is
+   *  active, or null. */
   selectedEffectIndex: number | null;
   /** Click on a chain entry → select it as the active editor. Pass
    *  `null` to deselect. */
   onSelectEffect: (index: number | null) => void;
+  /** Which envelope of the selected effect is currently being edited.
+   *  null when no effect is selected or the kind has no envelope. */
+  selectedEffectParam: EnvelopeParamKey | null;
+  /** Switch which envelope the overlay edits — used by the Cutoff / Q
+   *  toggle on filter chain entries. */
+  onSelectParam: (param: EnvelopeParamKey) => void;
 }
 
-/** "3 points · gain 0.50..1.20" — compact one-liner for the envelope
- *  summary in the chain editor. The overlay on the waveform is the
- *  actual editor; this is just orientation. */
-function volumeSummary(points: ReadonlyArray<EnvelopePoint>): string {
+/** "3 points · 0.50..1.20" — compact one-liner for any envelope. The
+ *  overlay on the waveform is the actual editor; this is just
+ *  orientation in the chain panel. `format` lets us tag the value
+ *  range with the param's unit (e.g. "Hz" for cutoff). */
+function envelopeSummary(
+  points: ReadonlyArray<EnvelopePoint>,
+  format: (v: number) => string,
+): string {
+  if (points.length === 0) return "(empty)";
   let lo = Infinity;
   let hi = -Infinity;
   for (const p of points) {
-    if (p.gain < lo) lo = p.gain;
-    if (p.gain > hi) hi = p.gain;
+    if (p.value < lo) lo = p.value;
+    if (p.value > hi) hi = p.value;
   }
   const noun = points.length === 1 ? "point" : "points";
-  return `${points.length} ${noun} · gain ${lo.toFixed(2)}..${hi.toFixed(2)}`;
+  return `${points.length} ${noun} · ${format(lo)}..${format(hi)}`;
 }
+
+const formatGain = (v: number): string => v.toFixed(2);
+const formatHz = (v: number): string => `${Math.round(v)} Hz`;
+const formatQ = (v: number): string => v.toFixed(2);
+const formatAmount = (v: number): string => v.toFixed(2);
 
 export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
   // The chain operates on the materialised source — for chiptune that's a
@@ -161,6 +178,17 @@ export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
                     node={node()}
                     sourceFrames={sourceFrames()}
                     onPatch={(next) => props.onPatchEffect(i, next)}
+                    selectedParam={
+                      isSelected() ? props.selectedEffectParam : null
+                    }
+                    // Clicking a param toggle (Cutoff / Q) on a chain
+                    // entry that isn't yet selected has to also select
+                    // the entry, otherwise the overlay won't render and
+                    // the click looks broken.
+                    onSelectParam={(param) => {
+                      if (!isSelected()) props.onSelectEffect(i);
+                      props.onSelectParam(param);
+                    }}
                   />
                 </div>
               </li>
@@ -262,6 +290,11 @@ interface EffectParamsProps {
   node: EffectNode;
   sourceFrames: number;
   onPatch: (next: EffectNode) => void;
+  /** Active envelope-param for this chain entry (drives toggle styling). */
+  selectedParam: EnvelopeParamKey | null;
+  /** Switch which envelope the waveform overlay edits. Click handler for
+   *  the Cutoff / Q (filter) and Drive (shaper) toggles. */
+  onSelectParam: (param: EnvelopeParamKey) => void;
 }
 
 /** Discriminated-union narrowing of the range-aware kinds. */
@@ -283,7 +316,7 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
     <Switch>
       <Match when={props.node.kind === "volume"}>
         <span class="effect-node__hint">
-          {volumeSummary(asVolume().params.points)}
+          {envelopeSummary(asVolume().params.points, formatGain)}
         </span>
       </Match>
       <Match when={props.node.kind === "normalize"}>
@@ -310,24 +343,9 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
             ))}
           </select>
         </label>
-        <Slider
-          label="Drive"
-          min={0}
-          max={1}
-          step={0.01}
-          value={asShaper().params.amount}
-          format={(v) => v.toFixed(2)}
-          onInput={(v) => {
-            const node = asShaper();
-            props.onPatch({
-              kind: "shaper",
-              params: {
-                mode: node.params.mode,
-                amount: Math.max(0, Math.min(1, v)),
-              },
-            });
-          }}
-        />
+        <span class="effect-node__hint">
+          drive {envelopeSummary(asShaper().params.amount, formatAmount)}
+        </span>
       </Match>
       <Match when={props.node.kind === "crossfade"}>
         <Slider
@@ -370,47 +388,41 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
             <option value="highpass">{FILTER_TYPE_LABELS.highpass}</option>
           </select>
         </label>
-        {/* Cutoff slider works in LOG space (slider value = ln(cutoff)) so
-            the resolution is even across the audible spectrum. The patch
-            stores the linear Hz value as before. */}
-        <Slider
-          label="Cutoff (Hz)"
-          min={Math.log(10)}
-          max={Math.log(22050)}
-          step={0.005}
-          value={Math.log(Math.max(10, asFilter().params.cutoff))}
-          format={(v) => `${Math.round(Math.exp(v))}`}
-          onInput={(v) => {
-            const node = asFilter();
-            props.onPatch({
-              kind: "filter",
-              params: {
-                type: node.params.type,
-                cutoff: Math.max(10, Math.exp(v)),
-                q: node.params.q,
-              },
-            });
+        {/* Cutoff and Q are envelopes — the actual editor lives on the
+            waveform overlay. These two buttons pick which curve the
+            overlay edits. Stop click propagation so the wider chain-li's
+            click-to-select handler doesn't see a deselect. */}
+        <button
+          type="button"
+          class="effect-node__param-toggle"
+          classList={{
+            "effect-node__param-toggle--selected":
+              props.selectedParam === "cutoff",
           }}
-        />
-        <Slider
-          label="Q"
-          min={0.1}
-          max={20}
-          step={0.05}
-          value={asFilter().params.q}
-          format={(v) => v.toFixed(2)}
-          onInput={(v) => {
-            const node = asFilter();
-            props.onPatch({
-              kind: "filter",
-              params: {
-                type: node.params.type,
-                cutoff: node.params.cutoff,
-                q: Math.max(0.05, v),
-              },
-            });
+          onClick={(e) => {
+            e.stopPropagation();
+            props.onSelectParam("cutoff");
           }}
-        />
+        >
+          Cutoff
+        </button>
+        <button
+          type="button"
+          class="effect-node__param-toggle"
+          classList={{
+            "effect-node__param-toggle--selected": props.selectedParam === "q",
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            props.onSelectParam("q");
+          }}
+        >
+          Q
+        </button>
+        <span class="effect-node__hint">
+          {envelopeSummary(asFilter().params.cutoff, formatHz)} · Q{" "}
+          {envelopeSummary(asFilter().params.q, formatQ)}
+        </span>
       </Match>
       <Match
         when={

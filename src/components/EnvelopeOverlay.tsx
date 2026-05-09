@@ -1,36 +1,38 @@
 import { For, createEffect, createSignal, type Component } from "solid-js";
 import { useWindowListener } from "./hooks";
 import {
-  ENVELOPE_GAIN_MAX,
   ENVELOPE_MIN_POINTS,
   type EnvelopePoint,
+  type ParamAxis,
 } from "../core/audio/sampleWorkbench";
 
 /**
- * SVG overlay for editing a piecewise-linear volume envelope on top of
- * the waveform canvas. Points sit at chain-output frames with gain on
- * the y-axis (1.0 = neutral, centred). The host (Waveform.tsx) supplies
- * coordinate helpers parameterised on its viewport so a zoomed-in
- * waveform shows the same zoom on the envelope.
+ * SVG overlay for editing a piecewise-linear envelope on top of the
+ * waveform canvas. Points sit at chain-stage frames with the param's
+ * value on the Y axis. The host (Waveform.tsx) supplies coordinate
+ * helpers parameterised on its viewport so a zoomed-in waveform shows
+ * the same zoom on the envelope.
+ *
+ * Generic over which param the envelope drives — volume / cutoff / Q /
+ * shaper drive — via the `axis` prop. The axis defines:
+ *   - value range (min / max)
+ *   - linear vs logarithmic Y mapping (cutoff is log; the rest are linear)
+ *   - the curve color (set on the SVG root as `--envelope-color`).
  *
  * Interactions:
- *   - Pointer-down on a point + drag → moves it (host clamps frames to
- *     valid neighbour bounds, gain to [0, 2]). Endpoint-frame drag is
- *     ignored — the host pins endpoints to 0 / lastFrame.
+ *   - Pointer-down on a point + drag → moves it (host clamps frame to
+ *     valid neighbour bounds and value to the axis range). Endpoint-
+ *     frame drag is ignored — endpoints stay pinned to 0 / lastFrame.
  *   - Pointer-down on a segment line + drag (vertical) → both endpoints
- *     of the segment move in gain by the same delta. Useful for raising
- *     a flat region without changing slope.
+ *     of the segment move in value by the same delta.
  *   - Double-click on a point → remove (no-op when only 2 remain).
  *   - Double-click on the SVG background or a segment line → add a new
  *     point at the click position.
- *
- * Frames are converted to bytes by the host via `frameToByte` so the
- * envelope tracks the chain-stage's view of the data even when the
- * preceding chain reshapes the length (crop / cut). Bytes go through the
- * host's `xForByte` / `byteForX` coord helpers.
  */
 export interface EnvelopeOverlayProps {
   points: ReadonlyArray<EnvelopePoint>;
+  /** Per-param domain: value range, log/linear, color. */
+  axis: ParamAxis;
   /** Total frames in the envelope's input stage — caps the rightmost point's frame. */
   sourceFrames: number;
   /** Internal canvas width / height (the SVG fills the same coord space). */
@@ -47,19 +49,32 @@ export interface EnvelopeOverlayProps {
   onAddPoint: (point: EnvelopePoint) => void;
   onRemovePoint: (pointIndex: number) => void;
   onPatchPoint: (pointIndex: number, next: Partial<EnvelopePoint>) => void;
-  onNudgeSegment: (leftPointIndex: number, deltaGain: number) => void;
+  onNudgeSegment: (leftPointIndex: number, deltaValue: number) => void;
 }
 
-/** Y-axis mapping. y=0 (top) → ENVELOPE_GAIN_MAX, y=H (bottom) → 0,
- *  centre → 1.0. Pure: caller supplies `H`. */
-function yForGain(g: number, H: number): number {
-  return H * (1 - g / ENVELOPE_GAIN_MAX);
+/**
+ * Y-axis mapping. `y=0` is the top of the canvas, `y=H` is the bottom.
+ * Linear axes split the range evenly; log axes spread it across decades
+ * so cutoff sweeps don't bunch up the bottom octaves.
+ */
+function yForValue(v: number, axis: ParamAxis, H: number): number {
+  if (axis.logarithmic) {
+    const lo = Math.log(axis.min);
+    const hi = Math.log(axis.max);
+    const lv = Math.log(Math.max(axis.min, Math.min(axis.max, v)));
+    return H * (1 - (lv - lo) / (hi - lo));
+  }
+  return H * (1 - (v - axis.min) / (axis.max - axis.min));
 }
-function gainForY(y: number, H: number): number {
-  return Math.max(
-    0,
-    Math.min(ENVELOPE_GAIN_MAX, ENVELOPE_GAIN_MAX * (1 - y / H)),
-  );
+
+function valueForY(y: number, axis: ParamAxis, H: number): number {
+  const t = Math.max(0, Math.min(1, 1 - y / H));
+  if (axis.logarithmic) {
+    return Math.exp(
+      Math.log(axis.min) + t * (Math.log(axis.max) - Math.log(axis.min)),
+    );
+  }
+  return axis.min + t * (axis.max - axis.min);
 }
 
 type Drag =
@@ -67,7 +82,7 @@ type Drag =
   | {
       kind: "segment";
       leftIndex: number;
-      startGainY: number;
+      startValue: number;
       lastDelta: number;
     };
 
@@ -88,18 +103,20 @@ export const EnvelopeOverlay: Component<EnvelopeOverlayProps> = (props) => {
     const W = props.width;
     const H = props.height;
     const segs: string[] = [];
-    // Clamp-left: extend horizontally from x=0 at the first point's gain.
+    // Clamp-left: extend horizontally from x=0 at the first point's value.
     const first = pts[0]!;
     const xFirst = props.xForFrame(first.frame);
-    segs.push(`M 0 ${yForGain(first.gain, H)}`);
-    segs.push(`L ${xFirst} ${yForGain(first.gain, H)}`);
+    segs.push(`M 0 ${yForValue(first.value, props.axis, H)}`);
+    segs.push(`L ${xFirst} ${yForValue(first.value, props.axis, H)}`);
     for (let i = 1; i < pts.length; i++) {
       const p = pts[i]!;
-      segs.push(`L ${props.xForFrame(p.frame)} ${yForGain(p.gain, H)}`);
+      segs.push(
+        `L ${props.xForFrame(p.frame)} ${yForValue(p.value, props.axis, H)}`,
+      );
     }
     // Clamp-right: extend horizontally from the last point to x=W.
     const last = pts[pts.length - 1]!;
-    segs.push(`L ${W} ${yForGain(last.gain, H)}`);
+    segs.push(`L ${W} ${yForValue(last.value, props.axis, H)}`);
     return segs.join(" ");
   };
 
@@ -122,7 +139,11 @@ export const EnvelopeOverlay: Component<EnvelopeOverlayProps> = (props) => {
     setDrag({
       kind: "segment",
       leftIndex,
-      startGainY: gainForY(props.clientToCanvasY(e.clientY), props.height),
+      startValue: valueForY(
+        props.clientToCanvasY(e.clientY),
+        props.axis,
+        props.height,
+      ),
       lastDelta: 0,
     });
   };
@@ -146,7 +167,7 @@ export const EnvelopeOverlay: Component<EnvelopeOverlayProps> = (props) => {
       0,
       Math.min(Math.max(0, props.sourceFrames - 1), props.frameForX(x)),
     );
-    props.onAddPoint({ frame, gain: gainForY(y, props.height) });
+    props.onAddPoint({ frame, value: valueForY(y, props.axis, props.height) });
   };
 
   // Window-level move/up while dragging. Using window listeners (not local
@@ -166,23 +187,23 @@ export const EnvelopeOverlay: Component<EnvelopeOverlayProps> = (props) => {
             Math.round(props.frameForX(x)),
           ),
         );
-        const gain = gainForY(y, props.height);
+        const value = valueForY(y, props.axis, props.height);
         // Endpoints stay pinned to 0 / lastFrame — let the user adjust
-        // gain only. Mid-points get full freedom; the state action
+        // value only. Mid-points get full freedom; the state action
         // sorts/dedupes if dragged past a neighbour.
         const lastIndex = props.points.length - 1;
         const isEndpoint = d.index === 0 || d.index === lastIndex;
         if (isEndpoint) {
-          props.onPatchPoint(d.index, { gain });
+          props.onPatchPoint(d.index, { value });
         } else {
-          props.onPatchPoint(d.index, { frame, gain });
+          props.onPatchPoint(d.index, { frame, value });
         }
       } else if (d.kind === "segment") {
-        const curG = gainForY(y, props.height);
-        const delta = curG - d.startGainY;
+        const curV = valueForY(y, props.axis, props.height);
+        const delta = curV - d.startValue;
         // Apply only the *incremental* delta since the last move so the
         // segment-nudge action accumulates correctly across multiple
-        // pointermoves (each call adds its delta to the current gains).
+        // pointermoves (each call adds its delta to the current values).
         const incremental = delta - d.lastDelta;
         if (incremental !== 0) {
           props.onNudgeSegment(d.leftIndex, incremental);
@@ -201,7 +222,10 @@ export const EnvelopeOverlay: Component<EnvelopeOverlayProps> = (props) => {
       class="waveform__envelope"
       // Internal coord space matches the canvases so xForFrame returns
       // values directly usable as SVG x. Stretches with the .waveform
-      // container via preserveAspectRatio="none".
+      // container via preserveAspectRatio="none". The axis color flows
+      // through CSS custom property so .envelope__path /
+      // .envelope__point can stay generic.
+      style={{ "--envelope-color": props.axis.color }}
       viewBox={`0 0 ${props.width} ${props.height}`}
       preserveAspectRatio="none"
       onDblClick={onSvgDoubleClick}
@@ -222,9 +246,9 @@ export const EnvelopeOverlay: Component<EnvelopeOverlayProps> = (props) => {
             <line
               class="envelope__segment"
               x1={props.xForFrame(a().frame)}
-              y1={yForGain(a().gain, props.height)}
+              y1={yForValue(a().value, props.axis, props.height)}
               x2={props.xForFrame(b().frame)}
-              y2={yForGain(b().gain, props.height)}
+              y2={yForValue(b().value, props.axis, props.height)}
               onPointerDown={(e) => onSegmentPointerDown(e, i())}
               onDblClick={onSegmentDoubleClick}
             />
@@ -246,7 +270,7 @@ export const EnvelopeOverlay: Component<EnvelopeOverlayProps> = (props) => {
               })(),
             }}
             cx={props.xForFrame(p.frame)}
-            cy={yForGain(p.gain, props.height)}
+            cy={yForValue(p.value, props.axis, props.height)}
             r={5}
             onPointerDown={(e) => onPointPointerDown(e, i())}
             onDblClick={(e) => onPointDoubleClick(e, i())}

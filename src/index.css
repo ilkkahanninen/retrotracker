@@ -1233,9 +1233,16 @@ h2 {
   height: 100%;
   z-index: 3;
 }
+/* Envelope color is set per-overlay as a custom property on the SVG
+   root from PARAM_AXES[param].color. Volume = orange, cutoff = cyan,
+   Q = violet, shaper drive = green. Default keeps the volume orange
+   in case a caller forgets to set it. */
+.waveform__envelope {
+  --envelope-color: #ffa64d;
+}
 .envelope__path {
   fill: none;
-  stroke: #ffa64d; /* orange — distinct from accent cyan + playhead coral */
+  stroke: var(--envelope-color);
   stroke-width: 1.5;
   stroke-linejoin: round;
   pointer-events: none;
@@ -1247,10 +1254,12 @@ h2 {
   cursor: ns-resize;
 }
 .envelope__segment:hover {
-  stroke: rgba(255, 166, 77, 0.18);
+  /* Approximate translucent fill from the curve color via mix syntax —
+     no per-color rule needed. */
+  stroke: color-mix(in srgb, var(--envelope-color) 18%, transparent);
 }
 .envelope__point {
-  fill: #ffa64d;
+  fill: var(--envelope-color);
   stroke: #1c1e26;
   stroke-width: 1.5;
   cursor: grab;
@@ -1259,11 +1268,11 @@ h2 {
     fill 80ms ease-out;
 }
 .envelope__point:hover {
-  fill: #ffd9a3;
+  fill: color-mix(in srgb, var(--envelope-color) 60%, white);
 }
 .envelope__point--dragging {
   cursor: grabbing;
-  fill: #ffd9a3;
+  fill: color-mix(in srgb, var(--envelope-color) 60%, white);
 }
 
 .sampleview__selection {
@@ -1465,9 +1474,14 @@ h2 {
   font-size: 12px;
 }
 .effect-node__param {
+  /* Row layout so label sits left of its select, and the whole label +
+     select pair vertical-centers with the param-toggle buttons / summary
+     spans alongside it. The crossfade Slider component owns its own
+     internal layout and isn't wrapped in this class. */
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
 }
 .effect-node__param input {
@@ -1483,6 +1497,31 @@ h2 {
 .effect-node__param input:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+/* Filter chain entry shows two of these (Cutoff / Q) so the user can
+   pick which envelope the waveform overlay edits. The selected one
+   borrows its color from the param's envelope identity, so the toggle
+   visually previews what curve the user is about to draw. */
+.effect-node__param-toggle {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.effect-node__param-toggle:hover {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+.effect-node__param-toggle--selected {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--fg);
 }
 
 .pipeline__add select,

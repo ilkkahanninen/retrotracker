@@ -43,10 +43,13 @@ export const DEFAULT_TARGET_NOTE = 12;
  * over the chain's input — their per-effect input is the previous chain
  * stage's output, NOT the source.
  *
- * The volume effect is amplitude-only and uses an envelope of n ≥ 2 points
- * `{ frame, gain }`. Linearly interpolated between adjacent points; clamps
- * to the boundary point's gain outside `[points[0].frame, points[last].frame]`.
- * It supersedes the older gain / fadeIn / fadeOut effects (now removed).
+ * volume / filter / shaper carry one or more *envelopes* — piecewise-linear
+ * curves of `n ≥ 2` points `{ frame, value }`. Linearly interpolated
+ * between adjacent points; clamps to the boundary point's value outside
+ * `[points[0].frame, points[last].frame]`. The volume envelope's value
+ * is a gain multiplier; filter cutoff/Q and shaper drive use their own
+ * domains (see PARAM_AXES). volume supersedes the older gain / fadeIn /
+ * fadeOut effects.
  *
  * normalize takes no params — applies to the whole input.
  */
@@ -55,15 +58,70 @@ export type FilterType = "lowpass" | "highpass";
 export interface EnvelopePoint {
   /** Frame index in this effect stage's input. Integer, ≥ 0. */
   frame: number;
-  /** Gain multiplier in [ENVELOPE_GAIN_MIN, ENVELOPE_GAIN_MAX]. */
-  gain: number;
+  /**
+   * The envelope's value at this frame. Domain depends on which param
+   * the envelope drives — see PARAM_AXES. Volume envelope: multiplier
+   * in [0, 2]. Filter cutoff: Hz. Filter q: quality factor. Shaper
+   * amount: drive in [0, 1].
+   */
+  value: number;
 }
 
-/** Permitted gain range for envelope points. 0 = silence, 1 = neutral, 2 = +6 dB. */
-export const ENVELOPE_GAIN_MIN = 0;
-export const ENVELOPE_GAIN_MAX = 2;
 /** Envelopes always carry at least 2 points so there's a segment to interpolate. */
 export const ENVELOPE_MIN_POINTS = 2;
+
+/**
+ * Animatable envelope params. Each one owns a `ParamAxis` (see
+ * PARAM_AXES) defining its valid range, scale (linear vs log), and
+ * the color the overlay paints it in. Adding a new param means: add a
+ * variant here, add a PARAM_AXES entry, route it through `envelopeAt`
+ * in `sampleEdit.ts`, and update the per-frame application of whatever
+ * effect owns the param.
+ */
+export type EnvelopeParamKey = "volume" | "cutoff" | "q" | "amount";
+
+export interface ParamAxis {
+  min: number;
+  max: number;
+  /** When true, distribute values logarithmically along the Y axis. */
+  logarithmic: boolean;
+  /** Tooltip / label suffix, e.g. "Hz". Empty string for unitless. */
+  unit: string;
+  /** CSS color for the curve + points. Defines the envelope's identity. */
+  color: string;
+}
+
+/**
+ * Per-param domain registry. Used by:
+ *   - The overlay (`EnvelopeOverlay`) for Y-axis mapping + curve color.
+ *   - The state-action helpers (`patchEnvelopePoint`, `nudgeEnvelopeSegment`)
+ *     for value clamping.
+ *   - The persistence migration to clamp legacy single-value params on read.
+ */
+export const PARAM_AXES: Readonly<Record<EnvelopeParamKey, ParamAxis>> = {
+  // Volume: gain multiplier 0..2 (silence to ~+6 dB), 1.0 neutral.
+  volume: { min: 0, max: 2, logarithmic: false, unit: "", color: "#ffa64d" },
+  // Filter cutoff: Hz across the audible band. Log Y axis so the lower
+  // octaves (where most musical content lives) get equal screen space.
+  cutoff: {
+    min: 10,
+    max: 22050,
+    logarithmic: true,
+    unit: "Hz",
+    color: "#5ec8ff",
+  },
+  // Filter Q: resonance / quality factor. 0.707 ≈ Butterworth (flat),
+  // higher rings near cutoff. Linear axis is fine — the useful range is
+  // narrow.
+  q: { min: 0.1, max: 20, logarithmic: false, unit: "", color: "#9b87ff" },
+  // Shaper drive: wet/dry blend 0..1.
+  amount: { min: 0, max: 1, logarithmic: false, unit: "", color: "#7be3a3" },
+};
+
+/** Back-compat constants for the volume range. New code should read
+ *  PARAM_AXES.volume.{min,max} directly. */
+export const ENVELOPE_GAIN_MIN = PARAM_AXES.volume.min;
+export const ENVELOPE_GAIN_MAX = PARAM_AXES.volume.max;
 
 export type EffectNode =
   | { kind: "volume"; params: { points: ReadonlyArray<EnvelopePoint> } }
@@ -76,10 +134,10 @@ export type EffectNode =
       params: {
         /** 'lowpass' attenuates above cutoff, 'highpass' attenuates below. */
         type: FilterType;
-        /** Cutoff in Hz — clamped to [10, sourceRate/2). */
-        cutoff: number;
-        /** Resonance / quality factor. ~0.707 ≈ Butterworth (no peak), higher resonates. */
-        q: number;
+        /** Cutoff envelope, values in Hz (clamped to [10, sourceRate/2) at apply time). */
+        cutoff: ReadonlyArray<EnvelopePoint>;
+        /** Resonance envelope, values in [0.05, 30]. ~0.707 ≈ Butterworth. */
+        q: ReadonlyArray<EnvelopePoint>;
       };
     }
   | {
@@ -94,8 +152,8 @@ export type EffectNode =
       params: {
         /** Waveshaper mode — see SHAPER_MODES in shapers.ts. */
         mode: ShaperMode;
-        /** Drive / wet-dry blend, 0..1. 0 = bypass, 1 = full effect. */
-        amount: number;
+        /** Drive / wet-dry blend envelope, values in [0, 1]. */
+        amount: ReadonlyArray<EnvelopePoint>;
       };
     };
 
@@ -369,21 +427,72 @@ export function applyNormalize(input: WavData): WavData {
 }
 
 /**
- * Piecewise-linear volume envelope. Points are { frame, gain }; between
- * adjacent points gain is linearly interpolated. Outside the range
- * [points[0].frame, points[last].frame], gain clamps to the boundary
- * point's value (DAW-style automation, not pass-through).
+ * Pre-sort an envelope's points by frame. The editor lets the user drag
+ * a point past its neighbour mid-gesture, so the on-disk array isn't
+ * guaranteed monotonic. Pre-sorting once and walking the sorted result
+ * costs O(n log n) per chain run; with envelopes at most ~10 points
+ * deep that's negligible.
+ */
+function sortEnvelope(
+  points: ReadonlyArray<EnvelopePoint>,
+): ReadonlyArray<EnvelopePoint> {
+  if (points.length <= 1) return points;
+  // Cheap monotonicity check — most envelopes ARE already sorted, so
+  // we skip the copy in the common case.
+  for (let i = 1; i < points.length; i++) {
+    if (points[i]!.frame < points[i - 1]!.frame) {
+      return [...points].sort((a, b) => a.frame - b.frame);
+    }
+  }
+  return points;
+}
+
+/**
+ * Sample an envelope at integer frame `i`. Linear interpolation between
+ * adjacent points; clamp-to-boundary outside `[points[0].frame, points[last].frame]`.
  *
- * The points array is defensively sorted by frame — the editor permits
- * dragging a point past its neighbour, and we need monotonic frames for
- * the segment walk.
+ * Single-frame helper — for tight loops that want to read every frame,
+ * pass an externally-cached `sorted` array (via `sortEnvelope`) and an
+ * incrementally-advanced `segHint` to skip the segment search. The plain
+ * 2-arg form does both internally and is fine for one-shot reads.
+ */
+export function evaluateEnvelopeAt(
+  points: ReadonlyArray<EnvelopePoint>,
+  i: number,
+): number {
+  if (points.length === 0) return 0;
+  if (points.length === 1) return points[0]!.value;
+  const sorted = sortEnvelope(points);
+  const first = sorted[0]!;
+  const last = sorted[sorted.length - 1]!;
+  if (i <= first.frame) return first.value;
+  if (i >= last.frame) return last.value;
+  for (let s = 0; s < sorted.length - 1; s++) {
+    const a = sorted[s]!;
+    const b = sorted[s + 1]!;
+    if (i >= a.frame && i < b.frame) {
+      const span = Math.max(1, b.frame - a.frame);
+      return a.value + (b.value - a.value) * ((i - a.frame) / span);
+    }
+  }
+  return last.value;
+}
+
+/**
+ * Piecewise-linear volume envelope: multiplies the input's amplitude
+ * frame-by-frame using the envelope's `value` (a gain multiplier).
+ * Outside the range `[points[0].frame, points[last].frame]`, gain
+ * clamps to the boundary point's value (DAW-style automation, not
+ * pass-through). Inlines the segment walk for the hot loop instead of
+ * calling `evaluateEnvelopeAt` per sample — same math, no per-frame
+ * function-call overhead.
  */
 export function applyVolumeEnvelope(
   input: WavData,
   points: ReadonlyArray<EnvelopePoint>,
 ): WavData {
   if (points.length < ENVELOPE_MIN_POINTS) return input;
-  const sorted = [...points].sort((a, b) => a.frame - b.frame);
+  const sorted = sortEnvelope(points);
   const first = sorted[0]!;
   const last = sorted[sorted.length - 1]!;
   return mapChannels(input, (ch) => {
@@ -392,9 +501,9 @@ export function applyVolumeEnvelope(
     for (let i = 0; i < ch.length; i++) {
       let g: number;
       if (i <= first.frame) {
-        g = first.gain;
+        g = first.value;
       } else if (i >= last.frame) {
-        g = last.gain;
+        g = last.value;
       } else {
         // Advance segment until i falls inside [sorted[seg].frame, sorted[seg+1].frame).
         while (seg + 1 < sorted.length - 1 && i >= sorted[seg + 1]!.frame)
@@ -402,7 +511,7 @@ export function applyVolumeEnvelope(
         const a = sorted[seg]!;
         const b = sorted[seg + 1]!;
         const span = Math.max(1, b.frame - a.frame);
-        g = a.gain + (b.gain - a.gain) * ((i - a.frame) / span);
+        g = a.value + (b.value - a.value) * ((i - a.frame) / span);
       }
       out[i] = ch[i]! * g;
     }
@@ -469,51 +578,33 @@ export function applyCut(
 }
 
 /**
- * RBJ-cookbook biquad filter applied per-channel in Direct Form I. The
- * coefficients are baked once from `(type, cutoff, q, sampleRate)`; each
+ * RBJ-cookbook biquad filter applied per-channel in Direct Form I. Each
  * channel runs its own pair of unit-delay states so cross-channel content
  * can't leak.
  *
- * Cutoff is clamped to (10, Nyquist - 1) Hz; Q to (0.05, 30). At Q=0.707
- * the response is Butterworth (no resonant peak); higher Q rings near
- * the cutoff. Out-of-range params don't blow up — they just clamp to a
- * sane edge.
+ * Cutoff and Q are envelopes — sampled per frame, with coefficients
+ * recomputed for each sample. At each frame:
+ *   - cutoff is clamped to (10, Nyquist - 1) Hz
+ *   - Q is clamped to (0.05, 30)
+ *   - the biquad coefs (b0..b2, a0..a2) are re-derived
+ * Cost: ~one Math.sin + Math.cos + a dozen multiplies per sample. The
+ * chain runs offline at commit time so the cost is one-time, not per
+ * playback frame.
+ *
+ * Out-of-range envelope values don't blow up — they just clamp to a
+ * sane edge. Constant-envelope filters (a 2-point flat envelope, the
+ * default) reproduce the previous "compute coefs once" output to within
+ * floating-point noise.
  */
 export function applyFilter(
   input: WavData,
   type: FilterType,
-  cutoff: number,
-  q: number,
+  cutoffEnv: ReadonlyArray<EnvelopePoint>,
+  qEnv: ReadonlyArray<EnvelopePoint>,
 ): WavData {
   const sr = input.sampleRate;
-  const f0 = Math.max(10, Math.min(sr * 0.5 - 1, cutoff));
-  const Q = Math.max(0.05, Math.min(30, q));
-
-  const w0 = (2 * Math.PI * f0) / sr;
-  const cosW = Math.cos(w0);
-  const alpha = Math.sin(w0) / (2 * Q);
-
-  // RBJ cookbook coefficients (https://www.w3.org/TR/audio-eq-cookbook/).
-  let b0: number, b1: number, b2: number;
-  if (type === "lowpass") {
-    b0 = (1 - cosW) * 0.5;
-    b1 = 1 - cosW;
-    b2 = (1 - cosW) * 0.5;
-  } else {
-    // highpass
-    b0 = (1 + cosW) * 0.5;
-    b1 = -(1 + cosW);
-    b2 = (1 + cosW) * 0.5;
-  }
-  const a0 = 1 + alpha;
-  const a1 = -2 * cosW;
-  const a2 = 1 - alpha;
-  // Normalise so a0 = 1; saves a divide per sample.
-  const nb0 = b0 / a0,
-    nb1 = b1 / a0,
-    nb2 = b2 / a0;
-  const na1 = a1 / a0,
-    na2 = a2 / a0;
+  const sortedCutoff = sortEnvelope(cutoffEnv);
+  const sortedQ = sortEnvelope(qEnv);
 
   return mapChannels(input, (ch) => {
     const out = new Float32Array(ch.length);
@@ -522,6 +613,38 @@ export function applyFilter(
       y1 = 0,
       y2 = 0;
     for (let i = 0; i < ch.length; i++) {
+      const f0 = Math.max(
+        10,
+        Math.min(sr * 0.5 - 1, evaluateEnvelopeAt(sortedCutoff, i)),
+      );
+      const Q = Math.max(0.05, Math.min(30, evaluateEnvelopeAt(sortedQ, i)));
+
+      const w0 = (2 * Math.PI * f0) / sr;
+      const cosW = Math.cos(w0);
+      const alpha = Math.sin(w0) / (2 * Q);
+
+      // RBJ cookbook coefficients (https://www.w3.org/TR/audio-eq-cookbook/).
+      let b0: number, b1: number, b2: number;
+      if (type === "lowpass") {
+        b0 = (1 - cosW) * 0.5;
+        b1 = 1 - cosW;
+        b2 = (1 - cosW) * 0.5;
+      } else {
+        // highpass
+        b0 = (1 + cosW) * 0.5;
+        b1 = -(1 + cosW);
+        b2 = (1 + cosW) * 0.5;
+      }
+      const a0 = 1 + alpha;
+      const a1 = -2 * cosW;
+      const a2 = 1 - alpha;
+      // Normalise so a0 = 1; saves a divide.
+      const nb0 = b0 / a0;
+      const nb1 = b1 / a0;
+      const nb2 = b2 / a0;
+      const na1 = a1 / a0;
+      const na2 = a2 / a0;
+
       const x0 = ch[i]!;
       const y0 = nb0 * x0 + nb1 * x1 + nb2 * x2 - na1 * y1 - na2 * y2;
       out[i] = y0;
@@ -580,18 +703,25 @@ export function applyCrossfade(
 /**
  * Per-sample waveshaper across every channel. Whole-input only — there's
  * no range param. `mode === 'none'` is a fast pass-through, matching the
- * shaper-stage contract from chiptune.
+ * shaper-stage contract from chiptune. The `amount` envelope is sampled
+ * per frame so the user can ramp drive in / out across the sample.
  */
 export function applyShaperEffect(
   input: WavData,
   mode: ShaperMode,
-  amount: number,
+  amountEnv: ReadonlyArray<EnvelopePoint>,
 ): WavData {
-  if (mode === "none" || amount === 0) return input;
+  if (mode === "none") return input;
+  const sortedAmount = sortEnvelope(amountEnv);
   return mapChannels(input, (ch) => {
     const out = new Float32Array(ch.length);
-    for (let i = 0; i < ch.length; i++)
-      out[i] = applyShaper(ch[i]!, mode, amount);
+    for (let i = 0; i < ch.length; i++) {
+      const amount = Math.max(
+        0,
+        Math.min(1, evaluateEnvelopeAt(sortedAmount, i)),
+      );
+      out[i] = amount === 0 ? ch[i]! : applyShaper(ch[i]!, mode, amount);
+    }
     return out;
   });
 }
@@ -753,8 +883,19 @@ export function resampleFilteredLinear(
   if (toRate >= fromRate) return resampleLinear(input, fromRate, toRate);
   const cutoff = toRate * 0.45;
   const wrap: WavData = { sampleRate: fromRate, channels: [input] };
-  const stage1 = applyFilter(wrap, "lowpass", cutoff, Math.SQRT1_2);
-  const stage2 = applyFilter(stage1, "lowpass", cutoff, Math.SQRT1_2);
+  // Wrap the constants as 2-point flat envelopes — `applyFilter` is
+  // envelope-aware now, but a constant cutoff/Q produces the same
+  // biquad response as the old "compute coefs once" form.
+  const cutoffEnv: EnvelopePoint[] = [
+    { frame: 0, value: cutoff },
+    { frame: 1, value: cutoff },
+  ];
+  const qEnv: EnvelopePoint[] = [
+    { frame: 0, value: Math.SQRT1_2 },
+    { frame: 1, value: Math.SQRT1_2 },
+  ];
+  const stage1 = applyFilter(wrap, "lowpass", cutoffEnv, qEnv);
+  const stage2 = applyFilter(stage1, "lowpass", cutoffEnv, qEnv);
   return resampleLinear(stage2.channels[0]!, fromRate, toRate);
 }
 
@@ -1016,12 +1157,7 @@ export function defaultEffect(kind: EffectKind, input: WavData): EffectNode {
     case "volume":
       return {
         kind: "volume",
-        params: {
-          points: [
-            { frame: 0, gain: 1 },
-            { frame: Math.max(1, len - 1), gain: 1 },
-          ],
-        },
+        params: { points: flatEnvelope(1, len) },
       };
     case "normalize":
       return { kind: "normalize" };
@@ -1040,7 +1176,11 @@ export function defaultEffect(kind: EffectKind, input: WavData): EffectNode {
     case "filter":
       return {
         kind: "filter",
-        params: { type: "lowpass", cutoff: 1000, q: 0.707 },
+        params: {
+          type: "lowpass",
+          cutoff: flatEnvelope(1000, len),
+          q: flatEnvelope(0.707, len),
+        },
       };
     // Default crossfade window: a small fraction of the chain output, capped
     // at 4096 frames so it stays musical on long samples and tiny on short
@@ -1055,6 +1195,19 @@ export function defaultEffect(kind: EffectKind, input: WavData): EffectNode {
     // user something to hear immediately. They can pick a different mode or
     // dial drive from the param row.
     case "shaper":
-      return { kind: "shaper", params: { mode: "softClip", amount: 0.5 } };
+      return {
+        kind: "shaper",
+        params: { mode: "softClip", amount: flatEnvelope(0.5, len) },
+      };
   }
+}
+
+/** Build a 2-point flat envelope at constant `value` spanning [0, max(1, len-1)].
+ *  Used by `defaultEffect` and the persistence layer for migration of legacy
+ *  single-value params to envelopes. */
+function flatEnvelope(value: number, len: number): EnvelopePoint[] {
+  return [
+    { frame: 0, value },
+    { frame: Math.max(1, len - 1), value },
+  ];
 }

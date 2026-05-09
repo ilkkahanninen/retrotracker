@@ -158,14 +158,23 @@ Two halves:
 
 Each pipeline node has its own params — volume envelope shape, crop bounds, normalise target, filter cutoff/resonance, shaper amount, etc. Reorder by drag, disable with the toggle, remove with `×`.
 
-### Volume envelope
+### Envelopes (volume, filter, shaper)
 
-The **Volume** effect shapes amplitude with a piecewise-linear envelope of `n ≥ 2` points (frame, gain). Click the effect in the chain to select it for editing, and an overlay appears on the waveform with draggable points and segments. Gain spans `0..2` (silence to ~+6 dB) — `1.0` is neutral. Outside the points' frame range, gain clamps to the boundary point's value (DAW-style automation). Replaces the older Gain / Fade In / Fade Out effects; old projects auto-migrate on load.
+Several effect params can be _automated_ across the sample using piecewise-linear envelopes of `n ≥ 2` points (frame, value). Click the effect in the chain to select it; an overlay appears on the waveform with draggable points and segments in the param's identity color:
+
+- **Volume** (orange) — gain `0..2` (silence to ~+6 dB), `1.0` neutral. Replaces the older Gain / Fade In / Fade Out.
+- **Filter cutoff** (cyan) — `10..22050 Hz`, log Y axis so the lower octaves get equal screen space.
+- **Filter Q** (violet) — `0.1..20`, linear. Use the **Cutoff / Q** toggle in the filter chain entry to switch which envelope the overlay edits.
+- **Shaper drive** (green) — `0..1`, linear.
+
+Outside the points' frame range, the value clamps to the boundary point (DAW-style automation). Old projects with constant filter / shaper params auto-migrate to flat 2-point envelopes on load — schema bumps to v=7.
+
+Interaction (same for every envelope):
 
 - **Add a point**: double-click anywhere on the envelope or its segment.
 - **Remove a point**: double-click the point. Endpoints can't be removed when only 2 remain.
-- **Move a point**: drag it. Endpoint frames are pinned to the sample edges; only their gain moves.
-- **Raise / lower a flat region**: drag a segment line vertically — both endpoints move in gain together.
+- **Move a point**: drag it. Endpoint frames are pinned to the sample edges; only their value moves.
+- **Raise / lower a flat region**: drag a segment line vertically — both endpoints move in value together.
 
 ### Loop
 

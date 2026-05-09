@@ -144,9 +144,9 @@ describe("persistence: sampler chain round-trip", () => {
         kind: "volume",
         params: {
           points: [
-            { frame: 0, gain: 0.5 },
-            { frame: 2, gain: 1.5 },
-            { frame: 3, gain: 0.5 },
+            { frame: 0, value: 0.5 },
+            { frame: 2, value: 1.5 },
+            { frame: 3, value: 0.5 },
           ],
         },
       },
@@ -185,7 +185,8 @@ describe("persistence: sampler chain round-trip", () => {
     expect(shaper).toBeDefined();
     if (shaper && shaper.kind === "shaper") {
       expect(shaper.params.mode).toBe("softClip");
-      expect(shaper.params.amount).toBeCloseTo(0.7, 6);
+      // amount is an envelope now — first point's value should match.
+      expect(shaper.params.amount[0]!.value).toBeCloseTo(0.7, 6);
     }
   });
 
@@ -202,8 +203,8 @@ describe("persistence: sampler chain round-trip", () => {
               kind: "volume",
               params: {
                 points: [
-                  { frame: 0, gain: 1 },
-                  { frame: 1, gain: 1 },
+                  { frame: 0, value: 1 },
+                  { frame: 1, value: 1 },
                 ],
               },
             },

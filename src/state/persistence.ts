@@ -9,6 +9,7 @@ import type { WavData } from "../core/audio/wav";
 import { readWav, writeWav } from "../core/audio/wav";
 import type {
   EffectNode,
+  EnvelopeParamKey,
   EnvelopePoint,
   MonoMix,
   PtTransformerParams,
@@ -17,9 +18,8 @@ import type {
 import {
   DEFAULT_RESAMPLE_MODE,
   DEFAULT_TARGET_NOTE,
-  ENVELOPE_GAIN_MAX,
-  ENVELOPE_GAIN_MIN,
   ENVELOPE_MIN_POINTS,
+  PARAM_AXES,
   RESAMPLE_MODES,
   materializeSource,
   runChain,
@@ -64,7 +64,7 @@ import { SHAPER_MODES, type ShaperMode } from "../core/audio/shapers";
 
 const STORAGE_KEY = "retrotracker:session:v1";
 
-type SchemaVersion = 1 | 2 | 3 | 4 | 5 | 6;
+type SchemaVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 /**
  * On-disk shape for one persisted sampler source. The whole sampler-side
@@ -263,20 +263,32 @@ function buildPayload(state: SessionInputs): PersistedShape {
     Object.values(state.samplerSources).some((s) =>
       s.chain.some((n) => n.kind === "volume"),
     );
+  // v=7 is required when any sampler chain has a filter or shaper node:
+  // those now carry envelope-shaped params (`cutoff` / `q` / `amount`
+  // arrays) instead of single numbers. A v≤6 reader expects the old
+  // single-number shape; arrays make `parseEffectNode` reject the node
+  // and silently drop it, which would lose the user's filter / shaper.
+  const hasFilterOrShaper =
+    !!state.samplerSources &&
+    Object.values(state.samplerSources).some((s) =>
+      s.chain.some((n) => n.kind === "filter" || n.kind === "shaper"),
+    );
   // Lowest version that fits the data — keeps a chiptune/sampler/names-free
   // session bit-identical to the original v=1 format and lets older builds
   // keep loading anything they can still understand.
-  const v: SchemaVersion = hasVolumeEnvelope
-    ? 6
-    : hasMute
-      ? 5
-      : hasPatternNames
-        ? 4
-        : hasSampler
-          ? 3
-          : hasChiptune
-            ? 2
-            : 1;
+  const v: SchemaVersion = hasFilterOrShaper
+    ? 7
+    : hasVolumeEnvelope
+      ? 6
+      : hasMute
+        ? 5
+        : hasPatternNames
+          ? 4
+          : hasSampler
+            ? 3
+            : hasChiptune
+              ? 2
+              : 1;
   return {
     v,
     songBase64: encodeSongCached(state.song),
@@ -379,23 +391,53 @@ function fixupSentinelFrames(
   wav: WavData,
   sourceName: string,
 ): EffectNode[] {
-  const hasSentinel = chain.some(
-    (n) =>
-      n.kind === "volume" &&
-      n.params.points.some((p) => p.frame === SENTINEL_RIGHT_FRAME),
-  );
+  const hasSentinelInPoints = (pts: ReadonlyArray<EnvelopePoint>): boolean =>
+    pts.some((p) => p.frame === SENTINEL_RIGHT_FRAME);
+  const hasSentinel = chain.some((n) => {
+    if (n.kind === "volume") return hasSentinelInPoints(n.params.points);
+    if (n.kind === "filter")
+      return (
+        hasSentinelInPoints(n.params.cutoff) || hasSentinelInPoints(n.params.q)
+      );
+    if (n.kind === "shaper") return hasSentinelInPoints(n.params.amount);
+    return false;
+  });
   if (!hasSentinel) return chain;
   const source = materializeSource({ kind: "sampler", wav, sourceName });
   const out: EffectNode[] = [];
   let stageInput: WavData = source;
+  const fixPoints = (
+    pts: ReadonlyArray<EnvelopePoint>,
+    lastFrame: number,
+  ): ReadonlyArray<EnvelopePoint> =>
+    pts.map((p) =>
+      p.frame === SENTINEL_RIGHT_FRAME ? { ...p, frame: lastFrame } : p,
+    );
   for (const node of chain) {
+    const stageLen = stageInput.channels[0]?.length ?? 0;
+    const lastFrame = Math.max(0, stageLen - 1);
     if (node.kind === "volume") {
-      const stageLen = stageInput.channels[0]?.length ?? 0;
-      const lastFrame = Math.max(0, stageLen - 1);
-      const fixed = node.params.points.map((p) =>
-        p.frame === SENTINEL_RIGHT_FRAME ? { ...p, frame: lastFrame } : p,
-      );
-      out.push({ kind: "volume", params: { points: fixed } });
+      out.push({
+        kind: "volume",
+        params: { points: fixPoints(node.params.points, lastFrame) },
+      });
+    } else if (node.kind === "filter") {
+      out.push({
+        kind: "filter",
+        params: {
+          type: node.params.type,
+          cutoff: fixPoints(node.params.cutoff, lastFrame),
+          q: fixPoints(node.params.q, lastFrame),
+        },
+      });
+    } else if (node.kind === "shaper") {
+      out.push({
+        kind: "shaper",
+        params: {
+          mode: node.params.mode,
+          amount: fixPoints(node.params.amount, lastFrame),
+        },
+      });
     } else {
       out.push(node);
     }
@@ -403,7 +445,8 @@ function fixupSentinelFrames(
     // single-element list does the dispatch for us. No RunContext: we
     // don't have the slot's loop info at parse time, so loop-aware
     // effects (crossfade) get a pass-through approximation here. The
-    // sentinel only matters for `volume`, so this is safe.
+    // sentinels only matter for envelope-bearing nodes, which we've
+    // already replaced above.
     stageInput = runChain(stageInput, [out[out.length - 1]!]);
   }
   return out;
@@ -473,8 +516,64 @@ function parseEffectChain(raw: unknown): EffectNode[] {
  */
 const SENTINEL_RIGHT_FRAME = -1;
 
-function clampEnvelopeGain(g: number): number {
-  return Math.max(ENVELOPE_GAIN_MIN, Math.min(ENVELOPE_GAIN_MAX, g));
+function clampValueForParam(v: number, param: EnvelopeParamKey): number {
+  const axis = PARAM_AXES[param];
+  return Math.max(axis.min, Math.min(axis.max, v));
+}
+
+/** Parse a single envelope-point JSON entry. Reads `value` first, falls
+ *  back to `gain` for compat with the brief v=6 window where the field
+ *  was named `gain`. Frames are floored to non-negative integers, except
+ *  the SENTINEL_RIGHT_FRAME which passes through for the loader fixup. */
+function parseEnvelopePoint(
+  raw: unknown,
+  param: EnvelopeParamKey,
+): EnvelopePoint | null {
+  if (!raw || typeof raw !== "object") return null;
+  const pt = raw as Record<string, unknown>;
+  if (typeof pt["frame"] !== "number") return null;
+  const v = pt["value"];
+  const g = pt["gain"];
+  const value =
+    typeof v === "number" ? v : typeof g === "number" ? g : undefined;
+  if (value === undefined) return null;
+  const f = pt["frame"];
+  const frame =
+    f === SENTINEL_RIGHT_FRAME
+      ? SENTINEL_RIGHT_FRAME
+      : Math.max(0, Math.floor(f));
+  return { frame, value: clampValueForParam(value, param) };
+}
+
+/**
+ * Parse an envelope param that may be either a legacy single number
+ * (pre-envelope filter / shaper, pre-v=7) or an envelope array. Single
+ * numbers become 2-point flat envelopes with the right endpoint
+ * sentinel'd for the chain-stage fixup. Returns null on malformed input.
+ */
+function parseEnvelopeOrSingle(
+  raw: unknown,
+  param: EnvelopeParamKey,
+): EnvelopePoint[] | null {
+  if (typeof raw === "number") {
+    const value = clampValueForParam(raw, param);
+    return [
+      { frame: 0, value },
+      { frame: SENTINEL_RIGHT_FRAME, value },
+    ];
+  }
+  if (!Array.isArray(raw) || raw.length < ENVELOPE_MIN_POINTS) return null;
+  const points: EnvelopePoint[] = [];
+  for (const entry of raw) {
+    const pt = parseEnvelopePoint(entry, param);
+    if (!pt) return null;
+    points.push(pt);
+  }
+  // Sort but keep sentinel frames at their position (sentinel sorts first
+  // since -1 < everything; the loader replaces it with the actual right
+  // edge before it ever feeds the runtime).
+  points.sort((a, b) => a.frame - b.frame);
+  return points;
 }
 
 /** Validate one EffectNode. Returns null on any structural mismatch.
@@ -498,13 +597,13 @@ function parseEffectNode(v: unknown): EffectNode | null {
   // sampler-source loader replaces it with the actual last frame.
   if (kind === "gain") {
     if (typeof params["gain"] !== "number") return null;
-    const g = clampEnvelopeGain(params["gain"]);
+    const value = clampValueForParam(params["gain"], "volume");
     return {
       kind: "volume",
       params: {
         points: [
-          { frame: 0, gain: g },
-          { frame: SENTINEL_RIGHT_FRAME, gain: g },
+          { frame: 0, value },
+          { frame: SENTINEL_RIGHT_FRAME, value },
         ],
       },
     };
@@ -524,14 +623,14 @@ function parseEffectNode(v: unknown): EffectNode | null {
     const points: EnvelopePoint[] =
       s === 0
         ? [
-            { frame: 0, gain: 0 },
-            { frame: e, gain: 1 },
+            { frame: 0, value: 0 },
+            { frame: e, value: 1 },
           ]
         : [
-            { frame: 0, gain: 1 },
-            { frame: Math.max(0, s - 1), gain: 1 },
-            { frame: s, gain: 0 },
-            { frame: e, gain: 1 },
+            { frame: 0, value: 1 },
+            { frame: Math.max(0, s - 1), value: 1 },
+            { frame: s, value: 0 },
+            { frame: e, value: 1 },
           ];
     return { kind: "volume", params: { points } };
   }
@@ -550,28 +649,16 @@ function parseEffectNode(v: unknown): EffectNode | null {
       kind: "volume",
       params: {
         points: [
-          { frame: s, gain: 1 },
-          { frame: e, gain: 0 },
-          { frame: e + 1, gain: 1 },
+          { frame: s, value: 1 },
+          { frame: e, value: 0 },
+          { frame: e + 1, value: 1 },
         ],
       },
     };
   }
   if (kind === "volume") {
-    const pts = params["points"];
-    if (!Array.isArray(pts) || pts.length < ENVELOPE_MIN_POINTS) return null;
-    const points: EnvelopePoint[] = [];
-    for (const raw of pts) {
-      if (!raw || typeof raw !== "object") return null;
-      const pt = raw as Record<string, unknown>;
-      if (typeof pt["frame"] !== "number" || typeof pt["gain"] !== "number")
-        return null;
-      points.push({
-        frame: Math.max(0, Math.floor(pt["frame"])),
-        gain: clampEnvelopeGain(pt["gain"]),
-      });
-    }
-    points.sort((a, b) => a.frame - b.frame);
+    const points = parseEnvelopeOrSingle(params["points"], "volume");
+    if (!points) return null;
     return { kind: "volume", params: { points } };
   }
   if (kind === "reverse" || kind === "crop" || kind === "cut") {
@@ -588,18 +675,15 @@ function parseEffectNode(v: unknown): EffectNode | null {
   if (kind === "filter") {
     const type = params["type"];
     if (type !== "lowpass" && type !== "highpass") return null;
-    if (typeof params["cutoff"] !== "number") return null;
-    if (typeof params["q"] !== "number") return null;
-    return {
-      kind: "filter",
-      params: {
-        type,
-        // Soft-clamp here mirrors the runtime guards in `applyFilter`; an
-        // out-of-range payload still loads, just snapped to a sane edge.
-        cutoff: Math.max(10, params["cutoff"]),
-        q: Math.max(0.05, Math.min(30, params["q"])),
-      },
-    };
+    // Both legacy single-number and new envelope-array forms are
+    // accepted by `parseEnvelopeOrSingle` — pre-v=7 payloads stored
+    // `cutoff` / `q` as scalars, those load as 2-point flat envelopes
+    // with a SENTINEL_RIGHT_FRAME on the right edge that the sampler
+    // loader fixes up to the chain stage's actual last frame.
+    const cutoff = parseEnvelopeOrSingle(params["cutoff"], "cutoff");
+    const q = parseEnvelopeOrSingle(params["q"], "q");
+    if (!cutoff || !q) return null;
+    return { kind: "filter", params: { type, cutoff, q } };
   }
   if (kind === "crossfade") {
     if (typeof params["length"] !== "number") return null;
@@ -615,15 +699,11 @@ function parseEffectNode(v: unknown): EffectNode | null {
       !(SHAPER_MODES as readonly string[]).includes(mode)
     )
       return null;
-    if (typeof params["amount"] !== "number") return null;
-    return {
-      kind: "shaper",
-      params: {
-        mode: mode as ShaperMode,
-        // Soft-clamp here mirrors the runtime guard in `applyShaper`.
-        amount: Math.max(0, Math.min(1, params["amount"])),
-      },
-    };
+    // Same dual-shape acceptance as filter: pre-v=7 stored a single
+    // number, v=7+ stores an envelope array.
+    const amount = parseEnvelopeOrSingle(params["amount"], "amount");
+    if (!amount) return null;
+    return { kind: "shaper", params: { mode: mode as ShaperMode, amount } };
   }
   return null;
 }
@@ -807,7 +887,8 @@ function isPersistedShape(v: unknown): v is PersistedShape {
       x["v"] === 3 ||
       x["v"] === 4 ||
       x["v"] === 5 ||
-      x["v"] === 6) &&
+      x["v"] === 6 ||
+      x["v"] === 7) &&
     typeof x["songBase64"] === "string" &&
     (x["filename"] === null || typeof x["filename"] === "string") &&
     (x["infoText"] === undefined || typeof x["infoText"] === "string") &&

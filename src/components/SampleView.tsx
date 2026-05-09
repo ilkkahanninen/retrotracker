@@ -6,14 +6,19 @@ import { getStashedLoop, stashLoop } from "../state/loopStash";
 import { getImportedStash } from "../state/importedStash";
 import {
   selectedEffectIndex,
+  selectedEffectParam,
   setSelectedEffectIndex,
+  setSelectedEffectParam,
 } from "../state/selectedEffect";
 import {
   EFFECT_LABELS,
+  PARAM_AXES,
   SOURCE_KINDS,
   SOURCE_LABELS,
   type EffectKind,
   type EffectNode,
+  type EnvelopeParamKey,
+  type EnvelopePoint,
   type MonoMix,
   type ResampleMode,
   type SampleSource,
@@ -83,26 +88,34 @@ function encodeFinetune(signed: number): number {
 
 interface Props {
   song: Song;
-  /** Append a point to the volume envelope at chain index `i`. */
+  /** Append a point to the envelope addressed by `(chainIndex, param)`. */
   onAddEnvelopePoint: (
     chainIndex: number,
-    point: import("../core/audio/sampleWorkbench").EnvelopePoint,
+    param: EnvelopeParamKey,
+    point: EnvelopePoint,
   ) => void;
-  /** Remove point `pointIndex` from the volume envelope at chain index `i`.
-   *  No-op when only the minimum 2 points remain. */
-  onRemoveEnvelopePoint: (chainIndex: number, pointIndex: number) => void;
-  /** Patch one point's frame / gain. */
+  /** Remove point `pointIndex` from the envelope addressed by
+   *  `(chainIndex, param)`. No-op when only the minimum 2 points remain. */
+  onRemoveEnvelopePoint: (
+    chainIndex: number,
+    param: EnvelopeParamKey,
+    pointIndex: number,
+  ) => void;
+  /** Patch one point's frame / value on the addressed envelope. */
   onPatchEnvelopePoint: (
     chainIndex: number,
+    param: EnvelopeParamKey,
     pointIndex: number,
-    next: Partial<import("../core/audio/sampleWorkbench").EnvelopePoint>,
+    next: Partial<EnvelopePoint>,
   ) => void;
   /** Shift both endpoints of segment `leftPointIndex..leftPointIndex+1`
-   *  by `deltaGain`. Used by the segment-drag interaction. */
+   *  on the addressed envelope by `deltaValue`. Used by the segment-drag
+   *  interaction. */
   onNudgeEnvelopeSegment: (
     chainIndex: number,
+    param: EnvelopeParamKey,
     leftPointIndex: number,
-    deltaGain: number,
+    deltaValue: number,
   ) => void;
   /** Bytes of a `.wav` file picked by the user, plus the original file name. */
   onLoadWav: (bytes: Uint8Array, filename: string) => void;
@@ -189,22 +202,39 @@ export const SampleView: Component<Props> = (props) => {
     () => workbenches().get(currentSample() - 1) ?? null,
   );
 
-  // Envelope overlay payload for the Waveform. Active only when the user
-  // has selected a `volume` chain entry on a sampler workbench. Computes
-  // the chain-stage input length so the overlay knows the upper bound on
-  // the X axis (= last valid point frame) and so it can convert frames →
-  // bytes for rendering.
+  // Envelope overlay payload for the Waveform. Active only when the
+  // user has selected a chain entry that owns the active param's
+  // envelope (volume → "volume", filter → "cutoff" or "q", shaper →
+  // "amount") on a sampler workbench. Computes the chain-stage input
+  // length so the overlay caps the X axis at the last valid frame, and
+  // so it can convert frames → bytes for rendering against the int8
+  // waveform.
   const envelopeOverlay = createMemo<WaveformEnvelopeOverlay | null>(() => {
     const wb = workbench();
     const idx = selectedEffectIndex();
-    if (!wb || idx === null) return null;
-    const node = wb.chain[idx];
-    if (!node || node.kind !== "volume") return null;
+    const param = selectedEffectParam();
+    if (!wb || idx === null || param === null) return null;
     if (wb.source.kind === "chiptune") return null;
+    const node = wb.chain[idx];
+    if (!node) return null;
+    // Dispatch on (kind, param) — only valid pairings yield a
+    // non-null envelope. Wrong combinations (e.g. param "cutoff" on a
+    // volume node) fall through to null, which hides the overlay.
+    const points: ReadonlyArray<EnvelopePoint> | null =
+      param === "volume" && node.kind === "volume"
+        ? node.params.points
+        : param === "cutoff" && node.kind === "filter"
+          ? node.params.cutoff
+          : param === "q" && node.kind === "filter"
+            ? node.params.q
+            : param === "amount" && node.kind === "shaper"
+              ? node.params.amount
+              : null;
+    if (!points) return null;
     const s = sample();
     const int8Length = s?.data.byteLength ?? 0;
     if (int8Length <= 0) return null;
-    // Chain output up to (but NOT including) the volume effect — that's
+    // Chain output up to (but NOT including) the active effect — that's
     // the input the envelope runs against, so its frames are the X-axis
     // domain.
     const stageInput = runChain(
@@ -213,15 +243,17 @@ export const SampleView: Component<Props> = (props) => {
     );
     const sourceFrames = stageInput.channels[0]?.length ?? 0;
     if (sourceFrames <= 0) return null;
-    const points = node.params.points;
     return {
       points,
+      axis: PARAM_AXES[param],
       sourceFrames,
       int8Length,
-      onAddPoint: (p) => props.onAddEnvelopePoint(idx, p),
-      onRemovePoint: (pi) => props.onRemoveEnvelopePoint(idx, pi),
-      onPatchPoint: (pi, next) => props.onPatchEnvelopePoint(idx, pi, next),
-      onNudgeSegment: (li, dg) => props.onNudgeEnvelopeSegment(idx, li, dg),
+      onAddPoint: (p) => props.onAddEnvelopePoint(idx, param, p),
+      onRemovePoint: (pi) => props.onRemoveEnvelopePoint(idx, param, pi),
+      onPatchPoint: (pi, next) =>
+        props.onPatchEnvelopePoint(idx, param, pi, next),
+      onNudgeSegment: (li, dv) =>
+        props.onNudgeEnvelopeSegment(idx, param, li, dv),
     };
   });
 
@@ -237,6 +269,7 @@ export const SampleView: Component<Props> = (props) => {
     currentSample();
     setSelection(null);
     setSelectedEffectIndex(null);
+    setSelectedEffectParam(null);
   });
   // Same when the source flips to chiptune — selection is disabled in
   // that mode, so a stale selection from the prior sampler half would
@@ -734,7 +767,29 @@ export const SampleView: Component<Props> = (props) => {
             onSetResampleMode={props.onSetResampleMode}
             onSetDither={props.onSetDither}
             selectedEffectIndex={selectedEffectIndex()}
-            onSelectEffect={setSelectedEffectIndex}
+            onSelectEffect={(i) => {
+              setSelectedEffectIndex(i);
+              // Auto-pick the right envelope for the kind we just
+              // selected; the chain-li click handler in PipelineEditor
+              // doesn't know the node, so we look it up here.
+              if (i === null) {
+                setSelectedEffectParam(null);
+                return;
+              }
+              const node = workbench()?.chain[i];
+              if (!node) return;
+              setSelectedEffectParam(
+                node.kind === "volume"
+                  ? "volume"
+                  : node.kind === "filter"
+                    ? "cutoff"
+                    : node.kind === "shaper"
+                      ? "amount"
+                      : null,
+              );
+            }}
+            selectedEffectParam={selectedEffectParam()}
+            onSelectParam={setSelectedEffectParam}
           />
         </Show>
       </Show>

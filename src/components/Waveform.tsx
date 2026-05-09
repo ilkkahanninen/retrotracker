@@ -12,7 +12,7 @@ import { previewFrame } from "../state/preview";
 import type { SampleSelection } from "../state/sampleSelection";
 import { beginDragEdit, endDragEdit } from "../state/song";
 import { EnvelopeOverlay } from "./EnvelopeOverlay";
-import type { EnvelopePoint } from "../core/audio/sampleWorkbench";
+import type { EnvelopePoint, ParamAxis } from "../core/audio/sampleWorkbench";
 
 export type { SampleSelection };
 
@@ -24,6 +24,10 @@ export type { SampleSelection };
  */
 export interface WaveformEnvelopeOverlay {
   points: ReadonlyArray<EnvelopePoint>;
+  /** Per-param domain (range, log/linear, color). Drives the overlay's
+   *  Y-axis mapping and curve color so the same component can edit
+   *  volume / cutoff / Q / shaper drive without per-param branches. */
+  axis: ParamAxis;
   /** Total frames in the envelope's input stage. */
   sourceFrames: number;
   /** Length of the int8 sample data the waveform shows. Used to scale
@@ -32,7 +36,7 @@ export interface WaveformEnvelopeOverlay {
   onAddPoint: (point: EnvelopePoint) => void;
   onRemovePoint: (pointIndex: number) => void;
   onPatchPoint: (pointIndex: number, next: Partial<EnvelopePoint>) => void;
-  onNudgeSegment: (leftPointIndex: number, deltaGain: number) => void;
+  onNudgeSegment: (leftPointIndex: number, deltaValue: number) => void;
 }
 
 /**
@@ -595,6 +599,7 @@ export const Waveform: Component<WaveformProps> = (props) => {
         {(env) => (
           <EnvelopeOverlay
             points={env().points}
+            axis={env().axis}
             sourceFrames={env().sourceFrames}
             width={W}
             height={H}

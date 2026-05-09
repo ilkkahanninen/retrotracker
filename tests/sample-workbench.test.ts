@@ -47,11 +47,21 @@ function stereo(L: number[], R: number[]) {
   };
 }
 
+/** 2-point flat envelope at constant `v` — applyFilter / applyShaperEffect
+ *  used to take scalar params; the new envelope-based signature wraps a
+ *  constant as a flat envelope with the same audible result. */
+function flatEnv(v: number): { frame: number; value: number }[] {
+  return [
+    { frame: 0, value: v },
+    { frame: 1, value: v },
+  ];
+}
+
 describe("applyVolumeEnvelope", () => {
   it("constant gain across the whole input (2 flat points)", () => {
     const out = applyVolumeEnvelope(stereo([0.125, 0.25], [-0.5, 0.0625]), [
-      { frame: 0, gain: 2 },
-      { frame: 1, gain: 2 },
+      { frame: 0, value: 2 },
+      { frame: 1, value: 2 },
     ]);
     expect(Array.from(out.channels[0]!)).toEqual([0.25, 0.5]);
     expect(Array.from(out.channels[1]!)).toEqual([-1, 0.125]);
@@ -59,8 +69,8 @@ describe("applyVolumeEnvelope", () => {
 
   it("linear interpolation between adjacent points", () => {
     const out = applyVolumeEnvelope(mono(1, 1, 1, 1, 1), [
-      { frame: 0, gain: 0 },
-      { frame: 4, gain: 1 },
+      { frame: 0, value: 0 },
+      { frame: 4, value: 1 },
     ]);
     const ch = out.channels[0]!;
     expect(ch[0]).toBe(0);
@@ -74,8 +84,8 @@ describe("applyVolumeEnvelope", () => {
     // Points at frames 1 and 3 — frames 0 (left of first) and 4 (right of last)
     // clamp to the boundary point's gain instead of passing through.
     const out = applyVolumeEnvelope(mono(1, 1, 1, 1, 1), [
-      { frame: 1, gain: 0.5 },
-      { frame: 3, gain: 1.5 },
+      { frame: 1, value: 0.5 },
+      { frame: 3, value: 1.5 },
     ]);
     const ch = out.channels[0]!;
     expect(ch[0]).toBeCloseTo(0.5, 5); // clamp-left
@@ -88,9 +98,9 @@ describe("applyVolumeEnvelope", () => {
   it("multi-segment envelope walks each segment in turn", () => {
     // 0 → 1 → 0 over 4 frames.
     const out = applyVolumeEnvelope(mono(1, 1, 1, 1, 1), [
-      { frame: 0, gain: 0 },
-      { frame: 2, gain: 1 },
-      { frame: 4, gain: 0 },
+      { frame: 0, value: 0 },
+      { frame: 2, value: 1 },
+      { frame: 4, value: 0 },
     ]);
     const ch = out.channels[0]!;
     expect(ch[0]).toBe(0);
@@ -103,14 +113,14 @@ describe("applyVolumeEnvelope", () => {
   it("returns the input untouched when fewer than 2 points are supplied", () => {
     const w = mono(1, 1, 1);
     expect(applyVolumeEnvelope(w, [])).toBe(w);
-    expect(applyVolumeEnvelope(w, [{ frame: 0, gain: 0.5 }])).toBe(w);
+    expect(applyVolumeEnvelope(w, [{ frame: 0, value: 0.5 }])).toBe(w);
   });
 
   it("defensively sorts unsorted points by frame", () => {
     // Same envelope as the linear-interp test, but with points reversed.
     const out = applyVolumeEnvelope(mono(1, 1, 1, 1, 1), [
-      { frame: 4, gain: 1 },
-      { frame: 0, gain: 0 },
+      { frame: 4, value: 1 },
+      { frame: 0, value: 0 },
     ]);
     const ch = out.channels[0]!;
     expect(ch[0]).toBe(0);
@@ -207,8 +217,8 @@ describe("applyFilter", () => {
     const out = applyFilter(
       { sampleRate: sr, channels: [sig] },
       "lowpass",
-      8000,
-      0.707,
+      flatEnv(8000),
+      flatEnv(0.707),
     );
     // Skip the first ~200 samples where the biquad is still settling from
     // its zero initial state.
@@ -232,8 +242,8 @@ describe("applyFilter", () => {
     const out = applyFilter(
       { sampleRate: sr, channels: [sig] },
       "lowpass",
-      500,
-      0.707,
+      flatEnv(500),
+      flatEnv(0.707),
     );
     let ein = 0,
       eout = 0;
@@ -252,8 +262,8 @@ describe("applyFilter", () => {
     const out = applyFilter(
       { sampleRate: sr, channels: [dc] },
       "highpass",
-      1000,
-      0.707,
+      flatEnv(1000),
+      flatEnv(0.707),
     );
     // After settling, output should be near zero.
     expect(Math.abs(out.channels[0]![N - 1]!)).toBeLessThan(0.01);
@@ -261,14 +271,59 @@ describe("applyFilter", () => {
 
   it("clamps absurd cutoff / Q values without producing NaN", () => {
     const w = mono(1, 0, -1, 0, 1, 0, -1, 0);
-    const veryHigh = applyFilter(w, "lowpass", 999_999, 0.5);
-    const veryLow = applyFilter(w, "lowpass", -100, 0.5);
-    const huge = applyFilter(w, "lowpass", 1000, 9999);
+    const veryHigh = applyFilter(w, "lowpass", flatEnv(999_999), flatEnv(0.5));
+    const veryLow = applyFilter(w, "lowpass", flatEnv(-100), flatEnv(0.5));
+    const huge = applyFilter(w, "lowpass", flatEnv(1000), flatEnv(9999));
     for (const r of [veryHigh, veryLow, huge]) {
       for (const v of r.channels[0]!) {
         expect(Number.isFinite(v)).toBe(true);
       }
     }
+  });
+
+  // Sweep test: a low-pass cutoff envelope ramping 100 Hz → 8000 Hz across
+  // a noise input should produce more high-band energy near the end of the
+  // signal than at the start (the filter "opens up" over time). This is a
+  // smoke test that the per-frame coefficient recomputation actually
+  // tracks the envelope, not a precise transfer-function check.
+  it("a sweeping cutoff envelope produces audible brightness change", () => {
+    const sr = 22050;
+    const N = 22050;
+    // White noise — flat spectrum so any band-shape change is the filter's.
+    const noise = new Float32Array(N);
+    let seed = 1234;
+    for (let i = 0; i < N; i++) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      noise[i] = (seed / 0x40000000 - 1) * 0.5;
+    }
+    const out = applyFilter(
+      { sampleRate: sr, channels: [noise] },
+      "lowpass",
+      [
+        { frame: 0, value: 100 },
+        { frame: N - 1, value: 8000 },
+      ],
+      flatEnv(0.707),
+    );
+    // Compare RMS of the first quarter (low cutoff → quiet) vs the last
+    // quarter (high cutoff → mostly passes through). The biquad has a
+    // brief settling tail at the start, so skip the first 200 samples.
+    let earlyEnergy = 0;
+    let lateEnergy = 0;
+    const earlyEnd = Math.floor(N / 4);
+    const lateStart = Math.floor((3 * N) / 4);
+    for (let i = 200; i < earlyEnd; i++) {
+      earlyEnergy += out.channels[0]![i]! * out.channels[0]![i]!;
+    }
+    for (let i = lateStart; i < N; i++) {
+      lateEnergy += out.channels[0]![i]! * out.channels[0]![i]!;
+    }
+    const earlyRms = Math.sqrt(earlyEnergy / Math.max(1, earlyEnd - 200));
+    const lateRms = Math.sqrt(lateEnergy / Math.max(1, N - lateStart));
+    // Late should be at least 2× louder than early — a 100 Hz lowpass on
+    // white noise eats almost everything; an 8 kHz lowpass barely touches
+    // it. The 2× threshold is a wide safety margin.
+    expect(lateRms / earlyRms).toBeGreaterThan(2);
   });
 });
 
@@ -331,8 +386,8 @@ describe("runChain", () => {
         kind: "volume",
         params: {
           points: [
-            { frame: 0, gain: 2 },
-            { frame: 2, gain: 2 },
+            { frame: 0, value: 2 },
+            { frame: 2, value: 2 },
           ],
         },
       },
@@ -395,8 +450,8 @@ describe("runPipeline (end-to-end)", () => {
           kind: "volume",
           params: {
             points: [
-              { frame: 0, gain: 2 },
-              { frame: 1, gain: 2 },
+              { frame: 0, value: 2 },
+              { frame: 1, value: 2 },
             ],
           },
         },
@@ -906,7 +961,7 @@ describe("defaultEffect (UI factory)", () => {
     expect(e.kind).toBe("volume");
     if (e.kind === "volume") {
       expect(e.params.points.length).toBe(2);
-      expect(e.params.points.every((p) => p.gain === 1)).toBe(true);
+      expect(e.params.points.every((p) => p.value === 1)).toBe(true);
     }
   });
 });
@@ -918,8 +973,8 @@ describe("applyEffect dispatcher", () => {
         kind: "volume",
         params: {
           points: [
-            { frame: 0, gain: 0.5 },
-            { frame: 1, gain: 0.5 },
+            { frame: 0, value: 0.5 },
+            { frame: 1, value: 0.5 },
           ],
         },
       }).channels[0],
@@ -942,7 +997,7 @@ describe("applyEffect dispatcher", () => {
     // hardClip at amount=1 has drive=9 — 0.5×9=4.5 → clamp to ±1.
     const out = applyEffect(mono(0.5, -0.5), {
       kind: "shaper",
-      params: { mode: "hardClip", amount: 1 },
+      params: { mode: "hardClip", amount: flatEnv(1) },
     });
     expect(Array.from(out.channels[0]!)).toEqual([1, -1]);
   });
@@ -951,24 +1006,31 @@ describe("applyEffect dispatcher", () => {
 describe("applyShaperEffect", () => {
   it("'none' is a fast-path passthrough (returns the same WavData reference)", () => {
     const w = mono(0.5, -0.25, 0);
-    expect(applyShaperEffect(w, "none", 1)).toBe(w);
-  });
-
-  it("amount=0 short-circuits regardless of mode (same reference)", () => {
-    const w = mono(0.5, -0.25, 0);
-    expect(applyShaperEffect(w, "hardClip", 0)).toBe(w);
-    expect(applyShaperEffect(w, "wavefold", 0)).toBe(w);
-    expect(applyShaperEffect(w, "bitcrush", 0)).toBe(w);
+    expect(applyShaperEffect(w, "none", flatEnv(1))).toBe(w);
   });
 
   it("hardClip at amount=1 clamps small inputs to ±1 across the whole sample", () => {
-    const out = applyShaperEffect(mono(0.5, -0.5, 0.5), "hardClip", 1);
+    const out = applyShaperEffect(mono(0.5, -0.5, 0.5), "hardClip", flatEnv(1));
     expect(Array.from(out.channels[0]!)).toEqual([1, -1, 1]);
+  });
+
+  it("amount-envelope sweep: head untouched at amount=0, tail saturates at amount=1", () => {
+    // 4-frame ramp from 0 → 1. With hardClip, tail (high amount) saturates,
+    // head (zero amount) passes through.
+    const out = applyShaperEffect(mono(0.5, 0.5, 0.5, 0.5), "hardClip", [
+      { frame: 0, value: 0 },
+      { frame: 3, value: 1 },
+    ]);
+    const ch = out.channels[0]!;
+    // First frame at amount=0 → input unchanged.
+    expect(ch[0]).toBeCloseTo(0.5, 5);
+    // Last frame at amount=1 → driven 9× → clamped to 1.
+    expect(ch[3]).toBeCloseTo(1, 5);
   });
 
   it("shapes each channel independently on stereo input", () => {
     const stereoIn = stereo([0.5, -0.5], [0.25, -0.25]);
-    const out = applyShaperEffect(stereoIn, "hardClip", 1);
+    const out = applyShaperEffect(stereoIn, "hardClip", flatEnv(1));
     // Both channels driven 9× then clamped — both saturate to ±1.
     expect(Array.from(out.channels[0]!)).toEqual([1, -1]);
     expect(Array.from(out.channels[1]!)).toEqual([1, -1]);
@@ -977,14 +1039,16 @@ describe("applyShaperEffect", () => {
   it("does not mutate the input WavData", () => {
     const ch = Float32Array.from([0.5, -0.5]);
     const w = { sampleRate: sr, channels: [ch] };
-    applyShaperEffect(w, "hardClip", 1);
+    applyShaperEffect(w, "hardClip", flatEnv(1));
     expect(Array.from(ch)).toEqual([0.5, -0.5]);
   });
 
   it("end-to-end: shaper node in a chain feeds the rest of the pipeline", () => {
     const wb: SampleWorkbench = {
       source: { kind: "sampler", wav: mono(0.5, -0.5), sourceName: "demo" },
-      chain: [{ kind: "shaper", params: { mode: "hardClip", amount: 1 } }],
+      chain: [
+        { kind: "shaper", params: { mode: "hardClip", amount: flatEnv(1) } },
+      ],
       pt: { monoMix: "average", targetNote: null },
       alt: null,
     };
@@ -1002,12 +1066,14 @@ describe("'shaper' effect kind registration", () => {
     expect(EFFECT_LABELS.shaper).toBe("Shaper");
   });
 
-  it("defaultEffect('shaper') produces softClip at half drive", () => {
-    const e = defaultEffect("shaper", mono(0));
+  it("defaultEffect('shaper') produces softClip with a flat 0.5 drive envelope", () => {
+    const e = defaultEffect("shaper", mono(0, 0, 0));
     expect(e.kind).toBe("shaper");
     if (e.kind === "shaper") {
       expect(e.params.mode).toBe("softClip");
-      expect(e.params.amount).toBe(0.5);
+      // Drive is now an envelope; at default it's two flat points at 0.5.
+      expect(e.params.amount).toHaveLength(2);
+      expect(e.params.amount.every((p) => p.value === 0.5)).toBe(true);
     }
   });
 });
