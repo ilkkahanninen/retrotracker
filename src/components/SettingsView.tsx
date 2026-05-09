@@ -1,7 +1,12 @@
 import { For, type Component } from "solid-js";
 import type { AmigaModel } from "../core/audio/paula";
 import {
+  MASTER_GAIN_DEFAULT,
+  MASTER_GAIN_MAX,
+  MASTER_GAIN_MIN,
+  MASTER_GAIN_STEP,
   setColorScheme,
+  setMasterGain,
   setPaulaModel,
   setStereoSeparation,
   setUiScale,
@@ -94,6 +99,32 @@ export const SettingsView: Component = () => {
             step={1}
             value={settings().stereoSeparation}
             onInput={(e) => setStereoSeparation(Number(e.currentTarget.value))}
+          />
+        </div>
+
+        <div class="settingsview__field">
+          <span class="settingsview__label">
+            Playback volume ({settings().masterGain}%)
+            {settings().masterGain !== MASTER_GAIN_DEFAULT && (
+              <button
+                type="button"
+                class="settingsview__reset"
+                onClick={() => setMasterGain(MASTER_GAIN_DEFAULT)}
+                title={`Reset to ${MASTER_GAIN_DEFAULT}%`}
+              >
+                reset
+              </button>
+            )}
+          </span>
+          <input
+            class="settingsview__slider"
+            type="range"
+            min={MASTER_GAIN_MIN}
+            max={MASTER_GAIN_MAX}
+            step={MASTER_GAIN_STEP}
+            value={settings().masterGain}
+            onInput={(e) => setMasterGain(Number(e.currentTarget.value))}
+            title="Live monitoring only — WAV / MOD export is unaffected."
           />
         </div>
       </div>

@@ -19,6 +19,14 @@ export class AudioEngine {
   private readonly ctx: AudioContext;
   private readonly node: AudioWorkletNode;
   /**
+   * Single GainNode the song worklet (and the preview worklet, on first
+   * use) routes through before reaching `ctx.destination`. One node so
+   * "master gain" is a single source of truth shared across both
+   * audition (preview) and song playback — switching between them
+   * doesn't change perceived loudness.
+   */
+  private readonly masterGainNode: GainNode;
+  /**
    * Lazily-created preview worklet. Holds a single Paula voice with
    * hot-swappable sample data, so synth slider drags morph the voice
    * gaplessly without restarting it. Created on the first `previewNote`.
@@ -43,9 +51,14 @@ export class AudioEngine {
    */
   onLevels: ((peaks: number[]) => void) | null = null;
 
-  private constructor(ctx: AudioContext, node: AudioWorkletNode) {
+  private constructor(
+    ctx: AudioContext,
+    node: AudioWorkletNode,
+    masterGainNode: GainNode,
+  ) {
     this.ctx = ctx;
     this.node = node;
+    this.masterGainNode = masterGainNode;
     this.node.port.onmessage = (e: MessageEvent<WorkletEvent>) => {
       const data = e.data;
       if (data.type === "pos") this.onPosition?.(data.order, data.row);
@@ -61,8 +74,15 @@ export class AudioEngine {
       numberOfOutputs: 1,
       outputChannelCount: [2],
     });
-    node.connect(ctx.destination);
-    return new AudioEngine(ctx, node);
+    // Worklet → masterGain → destination. Initial gain matches the
+    // engine's cached default (140% / 1.4) so the very first frame sounds
+    // the same as later ones; the App's reactive sync re-pushes the
+    // user's persisted value on mount.
+    const masterGainNode = ctx.createGain();
+    masterGainNode.gain.value = 1.4;
+    node.connect(masterGainNode);
+    masterGainNode.connect(ctx.destination);
+    return new AudioEngine(ctx, node, masterGainNode);
   }
 
   /**
@@ -82,7 +102,9 @@ export class AudioEngine {
       numberOfOutputs: 1,
       outputChannelCount: [2],
     });
-    node.connect(this.ctx.destination);
+    // Route preview through the same master gain as the song worklet so
+    // auditioning a sample tracks the user's playback-volume slider.
+    node.connect(this.masterGainNode);
     this.previewNode = node;
     // Sync the cached model into the freshly-built preview worklet — the
     // worklet's own default (A1200) is correct only if the user hasn't
@@ -218,6 +240,24 @@ export class AudioEngine {
       const previewMsg: PreviewMsg = { type: "setStereoSeparation", sep };
       this.previewNode.port.postMessage(previewMsg);
     }
+  }
+
+  /**
+   * Set the live-playback master gain. `percent` is the user-facing
+   * setting (100 = unity, 200 = +6 dB). Smoothed over ~10 ms via
+   * `setTargetAtTime` so dragging the slider doesn't click. Both the
+   * song and preview paths run through the same GainNode, so this
+   * affects audition equally.
+   *
+   * Bypassed by `bounce` / WAV export and the offline render — both
+   * call into the replayer directly without touching this node.
+   */
+  setMasterGain(percent: number): void {
+    const linear = Math.max(0, percent) / 100;
+    const param = this.masterGainNode.gain;
+    const now = this.ctx.currentTime;
+    param.cancelScheduledValues(now);
+    param.setTargetAtTime(linear, now, 0.01);
   }
 
   /**

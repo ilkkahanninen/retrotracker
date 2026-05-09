@@ -74,6 +74,9 @@ export class RecordingEngine {
   setStereoSeparation(sep: number): void {
     this.rec("setStereoSeparation", [sep]);
   }
+  setMasterGain(percent: number): void {
+    this.rec("setMasterGain", [percent]);
+  }
   async previewNote(sample: Sample, period: number): Promise<void> {
     this.rec("previewNote", [sample, period]);
   }

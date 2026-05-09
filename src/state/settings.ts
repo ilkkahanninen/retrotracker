@@ -29,6 +29,23 @@ export const STEREO_SEP_MIN = 0;
 export const STEREO_SEP_MAX = 100;
 export const STEREO_SEP_DEFAULT = 20;
 
+/**
+ * Master playback gain (percent). Multiplier on the engine's output —
+ * 100 = unity (1.0×), 200 = +6 dB, etc. The replayer's mix already scales
+ * by 0.5 (NORM_FACTOR / PAULA_VOICES) so the worst-case 4-voice peak
+ * lands at 1.0; real music sits well below that, leaving headroom we
+ * cash in here.
+ *
+ * Default is 140% (~+3 dB) — audibly louder than the conservative
+ * unity setting without clipping typical 4-voice mixes. Live monitoring
+ * only: bounce / WAV export and the offline render bypass this gain so
+ * exports stay deterministic against pt2-clone reference renders.
+ */
+export const MASTER_GAIN_MIN = 0;
+export const MASTER_GAIN_MAX = 300;
+export const MASTER_GAIN_STEP = 5;
+export const MASTER_GAIN_DEFAULT = 140;
+
 export interface Settings {
   paulaModel: AmigaModel;
   colorScheme: ColorSchemeId;
@@ -36,6 +53,8 @@ export interface Settings {
   uiScale: number;
   /** Stereo separation as a percentage. 0 = mono, 100 = full hard-pan. */
   stereoSeparation: number;
+  /** Live-playback master gain as a percentage. 100 = unity. */
+  masterGain: number;
   /** Visibility of the pattern-view tips / help right-rail. Toggled from
    *  the Help menu; persisted so the user's choice carries across sessions. */
   showPatternHelp: boolean;
@@ -46,6 +65,7 @@ const DEFAULTS: Settings = {
   colorScheme: "default",
   uiScale: UI_SCALE_DEFAULT,
   stereoSeparation: STEREO_SEP_DEFAULT,
+  masterGain: MASTER_GAIN_DEFAULT,
   showPatternHelp: true,
 };
 
@@ -66,6 +86,11 @@ function clampStereoSep(n: unknown): number {
   return Math.max(STEREO_SEP_MIN, Math.min(STEREO_SEP_MAX, Math.round(n)));
 }
 
+function clampMasterGain(n: unknown): number {
+  if (typeof n !== "number" || !Number.isFinite(n)) return DEFAULTS.masterGain;
+  return Math.max(MASTER_GAIN_MIN, Math.min(MASTER_GAIN_MAX, Math.round(n)));
+}
+
 function load(): Settings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -84,6 +109,7 @@ function load(): Settings {
       : DEFAULTS.colorScheme;
     const uiScale = clampUiScale(obj["uiScale"]);
     const stereoSeparation = clampStereoSep(obj["stereoSeparation"]);
+    const masterGain = clampMasterGain(obj["masterGain"]);
     const showPatternHelp =
       typeof obj["showPatternHelp"] === "boolean"
         ? obj["showPatternHelp"]
@@ -93,6 +119,7 @@ function load(): Settings {
       colorScheme,
       uiScale,
       stereoSeparation,
+      masterGain,
       showPatternHelp,
     };
   } catch {
@@ -139,6 +166,10 @@ export function setUiScale(scale: number): void {
 
 export function setStereoSeparation(sep: number): void {
   setSettings({ stereoSeparation: clampStereoSep(sep) });
+}
+
+export function setMasterGain(gain: number): void {
+  setSettings({ masterGain: clampMasterGain(gain) });
 }
 
 export function toggleShowPatternHelp(): void {

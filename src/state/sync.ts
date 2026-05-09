@@ -40,6 +40,12 @@ export function installEngineSync(): void {
     eng?.setStereoSeparation(sep);
   });
 
+  createEffect(() => {
+    const gain = settings().masterGain;
+    const eng = currentEngine();
+    eng?.setMasterGain(gain);
+  });
+
   // Reference-diff against the previous render's snapshot; mutation paths
   // always produce fresh objects when something changes, so `!==` is the
   // right gate.
