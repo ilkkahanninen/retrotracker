@@ -81,6 +81,12 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
    * `stereoSeparation` was being silently dropped on every recreate but
    * `load`. Funnel through here so the worklet's cached state always
    * reaches the new Replayer.
+   *
+   * Mutes are passed via the constructor (not a post-construction
+   * setChannelMuted loop) so they're in effect before the Replayer's
+   * first internal `syncPaula` — otherwise a muted channel's row-0 note
+   * triggers DMA at its full volume and only quiets at the next tick
+   * (~20 ms of leak at default tempo).
    */
   private makeReplayer(
     extra: Partial<ConstructorParameters<typeof Replayer>[1]> = {},
@@ -91,11 +97,9 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
       loop: true,
       amigaModel: this.amigaModel,
       stereoSeparation: this.stereoSeparation,
+      mutedChannels: this.channelMuted,
       ...extra,
     });
-    for (let ch = 0; ch < CHANNELS; ch++) {
-      r.setChannelMuted(ch, this.channelMuted[ch]!);
-    }
     this.lastOrder = -1;
     this.lastRow = -1;
     return r;

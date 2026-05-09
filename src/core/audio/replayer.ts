@@ -211,6 +211,11 @@ export class Replayer {
     const sep = Math.max(0, Math.min(100, opts.stereoSeparation ?? 20));
     this.sideFactor = (sep / 100) * 0.5;
     for (let i = 0; i < CHANNELS; i++) this.channels.push(newChannel());
+    if (opts.mutedChannels) {
+      for (let i = 0; i < CHANNELS; i++) {
+        this.channelMuted[i] = !!opts.mutedChannels[i];
+      }
+    }
 
     const startOrder = Math.max(
       0,

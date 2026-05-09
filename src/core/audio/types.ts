@@ -53,6 +53,13 @@ export interface ReplayerOptions {
    * existing behavior.
    */
   amigaModel?: AmigaModel;
+  /**
+   * Initial per-channel mute gates. Applied BEFORE the constructor's
+   * first `syncPaula`, so a muted channel's first row's note triggers
+   * with volume pinned to 0 instead of audibly leaking until the next
+   * tick boundary. Live worklet only; offline render leaves this alone.
+   */
+  mutedChannels?: readonly boolean[];
 }
 
 export interface RenderOptions extends ReplayerOptions {
