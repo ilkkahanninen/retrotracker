@@ -1,0 +1,16 @@
+node_modules
+dist
+dist-ssr
+coverage
+*.log
+*.tsbuildinfo
+.tsbuildinfo
+.git
+.github
+.vscode
+.idea
+.DS_Store
+tests/fixtures/*.wav
+vendor/pt2-clone/
+vendor/bin/
+vendor/headless/build/
