@@ -700,6 +700,14 @@ h2 {
 .app__samples li.sample--current.sample--empty {
   opacity: 1;
 }
+/* Drop-target highlight — a WAV is being dragged over this slot. Outline
+ * (not background) so the existing current/empty styling still reads
+ * underneath; full opacity so an empty target slot doesn't look dimmed. */
+.app__samples li.sample--drop-target {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  opacity: 1;
+}
 .num {
   color: var(--muted);
 }

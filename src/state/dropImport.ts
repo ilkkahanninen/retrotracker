@@ -93,3 +93,80 @@ export async function loadWavsIntoFreeSlots(files: File[]): Promise<void> {
     );
   }
 }
+
+/**
+ * Slot-targeted variant: the user dropped WAVs directly onto a slot in the
+ * sample list. The first WAV always replaces the target slot's contents
+ * (the user explicitly aimed there); any extras fan forward across free
+ * slots starting after the target. Non-WAV files are rejected with an
+ * error — the slot list isn't a project-load surface.
+ */
+export async function loadWavsIntoSlot(
+  targetSlot: number,
+  files: File[],
+): Promise<void> {
+  const s = song();
+  if (!s) {
+    setError("Open a song before importing WAVs.");
+    return;
+  }
+  const wavFiles = files.filter((f) => /\.wav$/i.test(f.name));
+  if (wavFiles.length === 0) {
+    setError("Drop one or more .wav files onto a sample slot.");
+    return;
+  }
+
+  setError(null);
+  const decoded: { wb: SampleWorkbench }[] = [];
+  for (const file of wavFiles) {
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      decoded.push({ wb: workbenchFromWav(bytes, file.name) });
+    } catch (err) {
+      setError(
+        `${file.name}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+  }
+
+  const targets: number[] = [targetSlot];
+  let from = targetSlot;
+  while (targets.length < decoded.length) {
+    const next = nextFreeSlot(s, from);
+    if (next === null) break;
+    targets.push(next);
+    from = next;
+  }
+
+  const pairs = decoded.slice(0, targets.length).map((d, i) => ({
+    slot: targets[i]!,
+    wb: d.wb,
+  }));
+
+  commitEditWithWorkbenches((state) => {
+    let nextSong = state.song;
+    let nextWb = state.workbenches;
+    for (let i = 0; i < pairs.length; i++) {
+      const { slot, wb } = pairs[i]!;
+      // The target slot is always overwritten — clear first so the new
+      // WAV's name takes over and volume / finetune reset to defaults
+      // (matches the sample-view overwrite path in loadWavsIntoFreeSlots).
+      if (i === 0) {
+        nextSong = clearSample(nextSong, slot);
+      }
+      nextSong = writeWorkbenchToSongPure(nextSong, slot, wb, NO_LOOP);
+      nextWb = withWorkbench(nextWb, slot, wb);
+    }
+    return { ...state, song: nextSong, workbenches: nextWb };
+  });
+
+  selectSample(pairs[0]!.slot + 1);
+
+  const skipped = decoded.length - pairs.length;
+  if (skipped > 0) {
+    setError(
+      `Out of sample slots — skipped ${skipped} file${skipped === 1 ? "" : "s"}.`,
+    );
+  }
+}

@@ -66,7 +66,7 @@ import {
   stepNextPattern,
   stepPrevPattern,
 } from "./state/orderEdit";
-import { loadWavsIntoFreeSlots } from "./state/dropImport";
+import { loadWavsIntoFreeSlots, loadWavsIntoSlot } from "./state/dropImport";
 import {
   addEffect,
   applyChainToSource,
@@ -824,6 +824,9 @@ export const App: Component = () => {
           song={song()}
           onSelect={selectSample}
           onRename={renameSample}
+          onDropFiles={(slot1Based, files) => {
+            void loadWavsIntoSlot(slot1Based - 1, files);
+          }}
         />
       </aside>
 
