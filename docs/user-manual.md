@@ -18,7 +18,7 @@ RetroTracker is a web-based ProTracker module editor: a four-channel pattern gri
 
 ## Getting started
 
-The latest build is always hosted at **<https://retrotracker.netlify.app/>** — open it in any modern browser and you're in. To run locally instead:
+The latest build is always hosted at **<https://retrotracker.partyboi.app/>** — open it in any modern browser and you're in. To run locally instead:
 
 ```bash
 npm install

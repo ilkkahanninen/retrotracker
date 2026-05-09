@@ -12,7 +12,7 @@ A web-based ProTracker module editor.
 
 ## Getting started
 
-The latest build is always live at **<https://retrotracker.netlify.app/>** — open it in any modern browser, drop a `.mod` or `.retro` onto the page (or use **File → Open**), and start editing.
+The latest build is always live at **<https://retrotracker.partyboi.app/>** — open it in any modern browser, drop a `.mod` or `.retro` onto the page (or use **File → Open**), and start editing.
 
 To run locally:
 
@@ -22,6 +22,14 @@ npm run dev
 ```
 
 Open the URL Vite prints and use the editor the same way.
+
+### Run with Docker
+
+```bash
+docker run --rm -p 8080:80 ghcr.io/ilkkahanninen/retrotracker:latest
+```
+
+Then open <http://localhost:8080>
 
 ## Documentation
 
