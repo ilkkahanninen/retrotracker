@@ -8,6 +8,9 @@ import { cropSample, cutSample } from "../core/mod/sampleSelection";
 import { bounceSelection } from "../core/audio/bounce";
 import type { ChiptuneParams } from "../core/audio/chiptune";
 import {
+  ENVELOPE_GAIN_MAX,
+  ENVELOPE_GAIN_MIN,
+  ENVELOPE_MIN_POINTS,
   defaultEffect,
   emptySamplerWorkbench,
   materializeSource,
@@ -22,6 +25,7 @@ import {
   workbenchToAlt,
   type EffectKind,
   type EffectNode,
+  type EnvelopePoint,
   type MonoMix,
   type ResampleMode,
   type RunContext,
@@ -45,6 +49,7 @@ import {
 } from "./importedStash";
 import { sampleClipboard, setSampleClipboard } from "./sampleClipboard";
 import { sampleSelection } from "./sampleSelection";
+import { setSelectedEffectIndex } from "./selectedEffect";
 import { selection } from "./selection";
 import { activePreview } from "./preview";
 import { livePreviewSwap } from "./playback";
@@ -515,9 +520,9 @@ export function loadWavIntoCurrentSample(
 }
 
 /**
- * Range-aware kinds (reverse / fadeIn / fadeOut / crop / cut) honour the
- * waveform selection if any, mapped from int8 bytes to the chain's
- * current output frame space. gain / normalize ignore selection.
+ * Range-aware kinds (reverse / crop / cut) honour the waveform selection
+ * if any, mapped from int8 bytes to the chain's current output frame
+ * space. volume / normalize / filter / shaper / crossfade ignore selection.
  */
 export function addEffect(
   kind: EffectKind,
@@ -531,12 +536,7 @@ export function addEffect(
 
   const chainOut = runChain(materializeSource(wb.source), wb.chain);
   let node: EffectNode;
-  const isRangeAware =
-    kind === "reverse" ||
-    kind === "fadeIn" ||
-    kind === "fadeOut" ||
-    kind === "crop" ||
-    kind === "cut";
+  const isRangeAware = kind === "reverse" || kind === "crop" || kind === "cut";
   if (isRangeAware && selection && s.data.byteLength > 0) {
     const chainLen = chainOut.channels[0]?.length ?? 0;
     const int8Len = s.data.byteLength;
@@ -553,13 +553,21 @@ export function addEffect(
   } else {
     node = defaultEffect(kind, chainOut);
   }
+  const newIndex = wb.chain.length;
   updateCurrentWorkbench({ ...wb, chain: [...wb.chain, node] });
+  // Auto-select the freshly-appended entry so its visual editor (the
+  // envelope overlay for `volume`, future per-effect overlays for the
+  // others) is immediately active without an extra click.
+  setSelectedEffectIndex(newIndex);
 }
 
 export function removeEffect(index: number): void {
   const wb = getWorkbench(currentSample() - 1);
   if (!wb) return;
   if (index < 0 || index >= wb.chain.length) return;
+  // Indices shift after a removal — clearing is the simplest correct
+  // policy. The user re-clicks if they were editing something downstream.
+  setSelectedEffectIndex(null);
   updateCurrentWorkbench({
     ...wb,
     chain: wb.chain.filter((_, i) => i !== index),
@@ -573,6 +581,9 @@ export function moveEffect(index: number, delta: -1 | 1): void {
   if (target < 0 || target >= wb.chain.length) return;
   const chain = [...wb.chain];
   [chain[index], chain[target]] = [chain[target]!, chain[index]!];
+  // Reorder breaks the selection invariant — the index now points at a
+  // different node than the user clicked. Clear and let the user re-pick.
+  setSelectedEffectIndex(null);
   updateCurrentWorkbench({ ...wb, chain });
 }
 
@@ -583,6 +594,111 @@ export function patchEffect(index: number, next: EffectNode): void {
   if (index < 0 || index >= wb.chain.length) return;
   const chain = wb.chain.map((n, i) => (i === index ? next : n));
   updateCurrentWorkbench({ ...wb, chain });
+}
+
+// ─── Envelope point editing ──────────────────────────────────────────────
+
+/** Pull the envelope at chain index `i`, or null if it isn't a volume
+ *  effect. Returns a fresh array — callers mutate it freely. */
+function envelopeAt(index: number): EnvelopePoint[] | null {
+  const wb = getWorkbench(currentSample() - 1);
+  if (!wb) return null;
+  const node = wb.chain[index];
+  if (!node || node.kind !== "volume") return null;
+  return [...node.params.points];
+}
+
+function clampGain(g: number): number {
+  return Math.max(ENVELOPE_GAIN_MIN, Math.min(ENVELOPE_GAIN_MAX, g));
+}
+
+function clampFrame(f: number): number {
+  return Math.max(0, Math.floor(f));
+}
+
+/** Sort by frame, snap to integers, clamp gain, dedupe identical-frame
+ *  points (keeping the LAST one written — matches editor intent: drag
+ *  finishing on top of an existing point overwrites it). */
+function normaliseEnvelope(
+  points: ReadonlyArray<EnvelopePoint>,
+): EnvelopePoint[] {
+  const cleaned = points.map((p) => ({
+    frame: clampFrame(p.frame),
+    gain: clampGain(p.gain),
+  }));
+  cleaned.sort((a, b) => a.frame - b.frame);
+  const out: EnvelopePoint[] = [];
+  for (const p of cleaned) {
+    const prev = out[out.length - 1];
+    if (prev && prev.frame === p.frame) {
+      out[out.length - 1] = p;
+      continue;
+    }
+    out.push(p);
+  }
+  return out;
+}
+
+function commitEnvelope(index: number, points: EnvelopePoint[]): void {
+  if (points.length < ENVELOPE_MIN_POINTS) return;
+  patchEffect(index, { kind: "volume", params: { points } });
+}
+
+export function addEnvelopePoint(index: number, point: EnvelopePoint): void {
+  const points = envelopeAt(index);
+  if (!points) return;
+  commitEnvelope(index, normaliseEnvelope([...points, point]));
+}
+
+export function removeEnvelopePoint(index: number, pointIndex: number): void {
+  const points = envelopeAt(index);
+  if (!points) return;
+  if (points.length <= ENVELOPE_MIN_POINTS) return;
+  if (pointIndex < 0 || pointIndex >= points.length) return;
+  const next = points.filter((_, i) => i !== pointIndex);
+  commitEnvelope(index, normaliseEnvelope(next));
+}
+
+export function patchEnvelopePoint(
+  index: number,
+  pointIndex: number,
+  next: Partial<EnvelopePoint>,
+): void {
+  const points = envelopeAt(index);
+  if (!points) return;
+  if (pointIndex < 0 || pointIndex >= points.length) return;
+  const cur = points[pointIndex]!;
+  points[pointIndex] = {
+    frame: next.frame !== undefined ? clampFrame(next.frame) : cur.frame,
+    gain: next.gain !== undefined ? clampGain(next.gain) : cur.gain,
+  };
+  commitEnvelope(index, normaliseEnvelope(points));
+}
+
+/**
+ * Drag a segment between two adjacent points: shift both endpoints'
+ * gain by the same `deltaGain`. Frames stay put. Useful for raising /
+ * lowering a flat region without nudging the slope at its edges.
+ */
+export function nudgeEnvelopeSegment(
+  index: number,
+  leftPointIndex: number,
+  deltaGain: number,
+): void {
+  const points = envelopeAt(index);
+  if (!points) return;
+  if (leftPointIndex < 0 || leftPointIndex >= points.length - 1) return;
+  const a = points[leftPointIndex]!;
+  const b = points[leftPointIndex + 1]!;
+  points[leftPointIndex] = {
+    frame: a.frame,
+    gain: clampGain(a.gain + deltaGain),
+  };
+  points[leftPointIndex + 1] = {
+    frame: b.frame,
+    gain: clampGain(b.gain + deltaGain),
+  };
+  commitEnvelope(index, normaliseEnvelope(points));
 }
 
 /**

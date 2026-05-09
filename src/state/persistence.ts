@@ -9,6 +9,7 @@ import type { WavData } from "../core/audio/wav";
 import { readWav, writeWav } from "../core/audio/wav";
 import type {
   EffectNode,
+  EnvelopePoint,
   MonoMix,
   PtTransformerParams,
   ResampleMode,
@@ -16,7 +17,12 @@ import type {
 import {
   DEFAULT_RESAMPLE_MODE,
   DEFAULT_TARGET_NOTE,
+  ENVELOPE_GAIN_MAX,
+  ENVELOPE_GAIN_MIN,
+  ENVELOPE_MIN_POINTS,
   RESAMPLE_MODES,
+  materializeSource,
+  runChain,
 } from "../core/audio/sampleWorkbench";
 import { SHAPER_MODES, type ShaperMode } from "../core/audio/shapers";
 
@@ -58,7 +64,7 @@ import { SHAPER_MODES, type ShaperMode } from "../core/audio/shapers";
 
 const STORAGE_KEY = "retrotracker:session:v1";
 
-type SchemaVersion = 1 | 2 | 3 | 4 | 5;
+type SchemaVersion = 1 | 2 | 3 | 4 | 5 | 6;
 
 /**
  * On-disk shape for one persisted sampler source. The whole sampler-side
@@ -249,18 +255,28 @@ function buildPayload(state: SessionInputs): PersistedShape {
   const hasMute =
     (state.mutedChannels?.some((b) => b) ?? false) ||
     (state.soloedChannels?.some((b) => b) ?? false);
+  // v=6 is required when any sampler chain has a `volume` envelope —
+  // older readers parse `volume` as an unknown effect kind and silently
+  // drop it, which would lose the user's amplitude shaping.
+  const hasVolumeEnvelope =
+    !!state.samplerSources &&
+    Object.values(state.samplerSources).some((s) =>
+      s.chain.some((n) => n.kind === "volume"),
+    );
   // Lowest version that fits the data — keeps a chiptune/sampler/names-free
   // session bit-identical to the original v=1 format and lets older builds
   // keep loading anything they can still understand.
-  const v: SchemaVersion = hasMute
-    ? 5
-    : hasPatternNames
-      ? 4
-      : hasSampler
-        ? 3
-        : hasChiptune
-          ? 2
-          : 1;
+  const v: SchemaVersion = hasVolumeEnvelope
+    ? 6
+    : hasMute
+      ? 5
+      : hasPatternNames
+        ? 4
+        : hasSampler
+          ? 3
+          : hasChiptune
+            ? 2
+            : 1;
   return {
     v,
     songBase64: encodeSongCached(state.song),
@@ -349,6 +365,51 @@ function payloadToSession(parsed: unknown): LoadedSession | null {
 }
 
 /**
+ * Replace any `SENTINEL_RIGHT_FRAME` (-1) markers left by the legacy
+ * `gain → volume` migration with the actual right-edge frame of the chain
+ * stage that effect runs against. Walks the chain partially: for each
+ * volume node at index i, the input length is the output of `chain[0..i)`
+ * applied to the source — so a `crop` placed before the migrated gain
+ * yields a sensibly-sized envelope, not the full source length.
+ *
+ * No-op for chains without sentinels (the common case for v=6+ projects).
+ */
+function fixupSentinelFrames(
+  chain: EffectNode[],
+  wav: WavData,
+  sourceName: string,
+): EffectNode[] {
+  const hasSentinel = chain.some(
+    (n) =>
+      n.kind === "volume" &&
+      n.params.points.some((p) => p.frame === SENTINEL_RIGHT_FRAME),
+  );
+  if (!hasSentinel) return chain;
+  const source = materializeSource({ kind: "sampler", wav, sourceName });
+  const out: EffectNode[] = [];
+  let stageInput: WavData = source;
+  for (const node of chain) {
+    if (node.kind === "volume") {
+      const stageLen = stageInput.channels[0]?.length ?? 0;
+      const lastFrame = Math.max(0, stageLen - 1);
+      const fixed = node.params.points.map((p) =>
+        p.frame === SENTINEL_RIGHT_FRAME ? { ...p, frame: lastFrame } : p,
+      );
+      out.push({ kind: "volume", params: { points: fixed } });
+    } else {
+      out.push(node);
+    }
+    // Advance the stage input by running this node — `runChain` with a
+    // single-element list does the dispatch for us. No RunContext: we
+    // don't have the slot's loop info at parse time, so loop-aware
+    // effects (crossfade) get a pass-through approximation here. The
+    // sentinel only matters for `volume`, so this is safe.
+    stageInput = runChain(stageInput, [out[out.length - 1]!]);
+  }
+  return out;
+}
+
+/**
  * Validate a `samplerSources` map. Each entry must have a string sourceName
  * and a base64 WAV payload that `readWav` accepts; bad entries are silently
  * dropped (better than failing the whole load over a single corrupt slot).
@@ -376,10 +437,11 @@ function parseSamplerSources(
     if (!wavBase64) continue;
     try {
       const wav = readWav(base64ToBytes(wavBase64));
+      const chain = parseEffectChain(entry["chain"]);
       out[slot] = {
         sourceName,
         wav,
-        chain: parseEffectChain(entry["chain"]),
+        chain: fixupSentinelFrames(chain, wav, sourceName),
         pt: parsePtParams(entry["pt"]),
       };
     } catch {
@@ -401,7 +463,28 @@ function parseEffectChain(raw: unknown): EffectNode[] {
   return out;
 }
 
-/** Validate one EffectNode. Returns null on any structural mismatch. */
+/**
+ * Sentinel "right edge" frame used during gain → volume migration: at
+ * parse time we don't know the chain output length yet, so the second
+ * point gets `frame: SENTINEL_RIGHT_FRAME` and `parseSamplerSources`
+ * fixes it up after running the chain. Any value < 0 works as a marker;
+ * choose -1 specifically so a stray un-fixed sentinel still sorts to the
+ * front (where it would clamp the envelope to its gain).
+ */
+const SENTINEL_RIGHT_FRAME = -1;
+
+function clampEnvelopeGain(g: number): number {
+  return Math.max(ENVELOPE_GAIN_MIN, Math.min(ENVELOPE_GAIN_MAX, g));
+}
+
+/** Validate one EffectNode. Returns null on any structural mismatch.
+ *
+ *  Legacy migration: old `gain` / `fadeIn` / `fadeOut` kinds (pre-v=6) are
+ *  rewritten as equivalent `volume` envelopes here. The migration is
+ *  best-effort — a fadeIn / fadeOut over [s, e) doesn't have an exact
+ *  representation as a clamp-to-boundary envelope without a 1-frame
+ *  artificial drop, so the migrated envelope can disagree with the old
+ *  effect by ≤ 1 frame at the boundary. Practically inaudible. */
 function parseEffectNode(v: unknown): EffectNode | null {
   if (!v || typeof v !== "object") return null;
   const x = v as Record<string, unknown>;
@@ -410,17 +493,88 @@ function parseEffectNode(v: unknown): EffectNode | null {
   const p = x["params"];
   if (!p || typeof p !== "object") return null;
   const params = p as Record<string, unknown>;
+  // Legacy `gain` → 2-point flat envelope. The right point's frame is
+  // sentinel'd because parse-time has no chain length yet; the
+  // sampler-source loader replaces it with the actual last frame.
   if (kind === "gain") {
     if (typeof params["gain"] !== "number") return null;
-    return { kind: "gain", params: { gain: params["gain"] } };
+    const g = clampEnvelopeGain(params["gain"]);
+    return {
+      kind: "volume",
+      params: {
+        points: [
+          { frame: 0, gain: g },
+          { frame: SENTINEL_RIGHT_FRAME, gain: g },
+        ],
+      },
+    };
   }
-  if (
-    kind === "reverse" ||
-    kind === "crop" ||
-    kind === "cut" ||
-    kind === "fadeIn" ||
-    kind === "fadeOut"
-  ) {
+  // Legacy `fadeIn` over [s, e): three-or-four-point ramp, with padding
+  // so frames 0..s-1 stay at gain 1 (matches the old pass-through
+  // outside-range semantic). When s === 0 the ramp starts at frame 0,
+  // dropping the leading padding.
+  if (kind === "fadeIn") {
+    if (
+      typeof params["startFrame"] !== "number" ||
+      typeof params["endFrame"] !== "number"
+    )
+      return null;
+    const s = Math.max(0, Math.floor(params["startFrame"]));
+    const e = Math.max(s, Math.floor(params["endFrame"]));
+    const points: EnvelopePoint[] =
+      s === 0
+        ? [
+            { frame: 0, gain: 0 },
+            { frame: e, gain: 1 },
+          ]
+        : [
+            { frame: 0, gain: 1 },
+            { frame: Math.max(0, s - 1), gain: 1 },
+            { frame: s, gain: 0 },
+            { frame: e, gain: 1 },
+          ];
+    return { kind: "volume", params: { points } };
+  }
+  // Legacy `fadeOut` over [s, e): drop to 0 at e, jump back to 1 at e+1
+  // so frames after the fade ramp pass through at full volume (clamp
+  // semantics: rightmost gain extends rightward).
+  if (kind === "fadeOut") {
+    if (
+      typeof params["startFrame"] !== "number" ||
+      typeof params["endFrame"] !== "number"
+    )
+      return null;
+    const s = Math.max(0, Math.floor(params["startFrame"]));
+    const e = Math.max(s, Math.floor(params["endFrame"]));
+    return {
+      kind: "volume",
+      params: {
+        points: [
+          { frame: s, gain: 1 },
+          { frame: e, gain: 0 },
+          { frame: e + 1, gain: 1 },
+        ],
+      },
+    };
+  }
+  if (kind === "volume") {
+    const pts = params["points"];
+    if (!Array.isArray(pts) || pts.length < ENVELOPE_MIN_POINTS) return null;
+    const points: EnvelopePoint[] = [];
+    for (const raw of pts) {
+      if (!raw || typeof raw !== "object") return null;
+      const pt = raw as Record<string, unknown>;
+      if (typeof pt["frame"] !== "number" || typeof pt["gain"] !== "number")
+        return null;
+      points.push({
+        frame: Math.max(0, Math.floor(pt["frame"])),
+        gain: clampEnvelopeGain(pt["gain"]),
+      });
+    }
+    points.sort((a, b) => a.frame - b.frame);
+    return { kind: "volume", params: { points } };
+  }
+  if (kind === "reverse" || kind === "crop" || kind === "cut") {
     if (typeof params["startFrame"] !== "number") return null;
     if (typeof params["endFrame"] !== "number") return null;
     return {
@@ -652,7 +806,8 @@ function isPersistedShape(v: unknown): v is PersistedShape {
       x["v"] === 2 ||
       x["v"] === 3 ||
       x["v"] === 4 ||
-      x["v"] === 5) &&
+      x["v"] === 5 ||
+      x["v"] === 6) &&
     typeof x["songBase64"] === "string" &&
     (x["filename"] === null || typeof x["filename"] === "string") &&
     (x["infoText"] === undefined || typeof x["infoText"] === "string") &&

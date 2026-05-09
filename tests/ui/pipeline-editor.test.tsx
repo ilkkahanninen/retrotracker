@@ -246,9 +246,9 @@ describe("pipeline editor: add / remove / reorder", () => {
       chain: [],
       pt: { monoMix: "average", targetNote: null },
     });
-    await userEvent.setup().click(findEffectButton(container, "Gain"));
+    await userEvent.setup().click(findEffectButton(container, "Volume"));
     expect(getWorkbench(0)!.chain).toHaveLength(1);
-    expect(getWorkbench(0)!.chain[0]!.kind).toBe("gain");
+    expect(getWorkbench(0)!.chain[0]!.kind).toBe("volume");
   });
 
   it("the × button removes the node at that row", async () => {
@@ -295,28 +295,38 @@ describe("pipeline editor: add / remove / reorder", () => {
 });
 
 describe("pipeline editor: live param updates re-run the pipeline", () => {
-  it("changing the gain re-renders the int8 result in the song slot", () => {
+  it("a volume envelope chain entry re-renders the int8 result in the song slot", () => {
     setView("sample");
     const { container } = render(() => <App />);
-    // Seed with a non-trivial source and a gain effect.
+    // Seed with a 2-point volume envelope at gain 2 — flat ×2 across the source.
     seedSampleWithWorkbench({
       source: {
         sampleRate: 44100,
         channels: [new Float32Array([0, 0.25, -0.25])],
       },
       sourceName: "demo",
-      chain: [{ kind: "gain", params: { gain: 1 } }],
+      chain: [
+        {
+          kind: "volume",
+          params: {
+            points: [
+              { frame: 0, gain: 2 },
+              { frame: 2, gain: 2 },
+            ],
+          },
+        },
+      ],
       pt: { monoMix: "average", targetNote: null },
     });
-    // The gain input lives inside the first .effect-node row.
-    const gainInput =
-      container.querySelector<HTMLInputElement>(".effect-node input")!;
-    fireEvent.input(gainInput, { target: { value: "4" } });
-    // 0.25 × 4 = 1.0 → int8 127. -0.25 × 4 = -1.0 → -127.
+    // 0.25 × 2 = 0.5 → int8 64 (≈127*0.5). -0.25 × 2 = -0.5 → -64.
     const data = song()!.samples[0]!.data;
     expect(data[0]).toBe(0);
-    expect(data[1]).toBe(127);
-    expect(data[2]).toBe(-127);
+    expect(Math.abs(data[1]! - 64)).toBeLessThanOrEqual(1);
+    expect(Math.abs(data[2]! + 64)).toBeLessThanOrEqual(1);
+    // The chain editor renders the envelope as a one-line summary, not a slider.
+    expect(container.querySelector(".effect-node__hint")?.textContent).toMatch(
+      /points/,
+    );
   });
 
   it("switching mono mix on a stereo source changes the int8 output", async () => {
@@ -553,29 +563,34 @@ describe("pipeline editor: editing params preserves input focus", () => {
   // reference → keyed <For>/<Show>/<Match> children disposed and remounted,
   // killing focus on each character. The structural fix (Index + non-keyed
   // Show/Match) is observable here: the same DOM input survives many edits.
-  it("the gain input element is preserved across consecutive patches", () => {
+  it("an effect-node param input is preserved across consecutive patches", () => {
+    // The volume envelope no longer renders a slider in the chain editor
+    // (it's edited on the waveform overlay), but other effects with sliders
+    // still do — use a crossfade slider to verify the same DOM-preservation
+    // contract holds.
     setView("sample");
     const { container } = render(() => <App />);
     seedSampleWithWorkbench({
       source: {
         sampleRate: 44100,
-        channels: [new Float32Array([0, 0.25, -0.25])],
+        // Need enough frames + a loop so crossfade is meaningful.
+        channels: [new Float32Array(200).fill(0.5)],
       },
       sourceName: "demo",
-      chain: [{ kind: "gain", params: { gain: 1 } }],
+      chain: [{ kind: "crossfade", params: { length: 4 } }],
       pt: { monoMix: "average", targetNote: null },
     });
     const first =
       container.querySelector<HTMLInputElement>(".effect-node input")!;
-    fireEvent.input(first, { target: { value: "2" } });
-    fireEvent.input(first, { target: { value: "2.5" } });
-    fireEvent.input(first, { target: { value: "3" } });
+    fireEvent.input(first, { target: { value: "8" } });
+    fireEvent.input(first, { target: { value: "12" } });
+    fireEvent.input(first, { target: { value: "16" } });
     const after =
       container.querySelector<HTMLInputElement>(".effect-node input")!;
     expect(after).toBe(first); // same DOM node — no remount, focus would survive
     expect(getWorkbench(0)!.chain[0]).toEqual({
-      kind: "gain",
-      params: { gain: 3 },
+      kind: "crossfade",
+      params: { length: 16 },
     });
   });
 
@@ -585,10 +600,10 @@ describe("pipeline editor: editing params preserves input focus", () => {
     seedSampleWithWorkbench({
       source: {
         sampleRate: 44100,
-        channels: [new Float32Array([0, 0.25, -0.25])],
+        channels: [new Float32Array(200).fill(0.5)],
       },
       sourceName: "demo",
-      chain: [{ kind: "gain", params: { gain: 1 } }],
+      chain: [{ kind: "crossfade", params: { length: 4 } }],
       pt: { monoMix: "average", targetNote: null },
     });
     const inputs = container.querySelectorAll<HTMLInputElement>(
@@ -600,10 +615,10 @@ describe("pipeline editor: editing params preserves input focus", () => {
         volumeBefore = el;
     }
     expect(volumeBefore).not.toBeNull();
-    // Trigger a pipeline patch by editing the gain.
-    const gain =
+    // Trigger a pipeline patch by editing the crossfade length.
+    const slider =
       container.querySelector<HTMLInputElement>(".effect-node input")!;
-    fireEvent.input(gain, { target: { value: "2" } });
+    fireEvent.input(slider, { target: { value: "12" } });
     let volumeAfter: HTMLInputElement | null = null;
     for (const el of container.querySelectorAll<HTMLInputElement>(
       '.samplemeta input[type="range"]',
@@ -640,7 +655,7 @@ describe("pipeline editor: re-run preserves user-set sample metadata", () => {
     expect(song()!.samples[0]!.volume).toBe(32);
 
     // Now add a Gain effect — pipeline re-runs.
-    await userEvent.setup().click(findEffectButton(container, "Gain"));
+    await userEvent.setup().click(findEffectButton(container, "Volume"));
 
     // Volume should still be 32, not reset to 64.
     expect(song()!.samples[0]!.volume).toBe(32);
@@ -659,7 +674,10 @@ describe("pipeline editor: re-run preserves user-set loop", () => {
         channels: [new Float32Array(200).fill(0.5)],
       },
       sourceName: "demo",
-      chain: [{ kind: "gain", params: { gain: 1 } }],
+      // Crossfade has a slider in the chain editor; volume's editor lives
+      // on the waveform overlay, so we pick crossfade to drive a re-run
+      // through a chain-editor input without leaving the panel.
+      chain: [{ kind: "crossfade", params: { length: 4 } }],
       pt: { monoMix: "average", targetNote: null },
     });
     // Configure a loop directly on the song (mirrors what dragging the
@@ -674,10 +692,10 @@ describe("pipeline editor: re-run preserves user-set loop", () => {
     expect(song()!.samples[0]!.loopStartWords).toBe(4);
     expect(song()!.samples[0]!.loopLengthWords).toBe(12);
 
-    // Tweak the gain — pipeline re-runs, sample data is rewritten.
-    const gain =
+    // Tweak the crossfade slider — pipeline re-runs, sample data is rewritten.
+    const slider =
       container.querySelector<HTMLInputElement>(".effect-node input")!;
-    fireEvent.input(gain, { target: { value: "2" } });
+    fireEvent.input(slider, { target: { value: "8" } });
 
     // Loop should still be there.
     expect(song()!.samples[0]!.loopStartWords).toBe(4);
@@ -714,7 +732,7 @@ describe("pipeline editor: effect buttons append range-aware nodes (non-destruct
     }
   });
 
-  it("Fade in with no selection appends a fadeIn over the head of the chain output", async () => {
+  it("Volume button appends a 2-point flat envelope spanning the chain output", async () => {
     setView("sample");
     const { container } = render(() => <App />);
     seedSampleWithWorkbench({
@@ -726,14 +744,17 @@ describe("pipeline editor: effect buttons append range-aware nodes (non-destruct
       chain: [],
       pt: { monoMix: "average", targetNote: null },
     });
-    await userEvent.setup().click(findEffectButton(container, "Fade in"));
+    await userEvent.setup().click(findEffectButton(container, "Volume"));
     const chain = getWorkbench(0)!.chain;
     expect(chain).toHaveLength(1);
     const node = chain[0]!;
-    expect(node.kind).toBe("fadeIn");
-    if (node.kind === "fadeIn") {
-      expect(node.params.startFrame).toBe(0);
-      expect(node.params.endFrame).toBe(1024); // head defaults to min(1024, len)
+    expect(node.kind).toBe("volume");
+    if (node.kind === "volume") {
+      expect(node.params.points).toHaveLength(2);
+      // Endpoints span the chain-stage's input length and start at gain 1.
+      expect(node.params.points[0]!).toEqual({ frame: 0, gain: 1 });
+      expect(node.params.points[1]!.frame).toBe(2047);
+      expect(node.params.points[1]!.gain).toBe(1);
     }
   });
 });
@@ -843,7 +864,7 @@ describe("pipeline editor: undo/redo restores chain alongside song", () => {
     });
     expect(getWorkbench(0)!.chain).toHaveLength(0);
 
-    await userEvent.setup().click(findEffectButton(container, "Gain"));
+    await userEvent.setup().click(findEffectButton(container, "Volume"));
     expect(getWorkbench(0)!.chain).toHaveLength(1);
 
     // Drive Undo through the Edit ▾ menu — the buttons moved out of the
@@ -867,14 +888,14 @@ describe("pipeline editor: undo/redo restores chain alongside song", () => {
       pt: { monoMix: "average", targetNote: null },
     });
 
-    await userEvent.setup().click(findEffectButton(container, "Gain"));
+    await userEvent.setup().click(findEffectButton(container, "Volume"));
     clickEditMenu(container, "Undo");
     expect(getWorkbench(0)!.chain).toHaveLength(0);
 
     clickEditMenu(container, "Redo");
 
     expect(getWorkbench(0)!.chain).toHaveLength(1);
-    expect(getWorkbench(0)!.chain[0]!.kind).toBe("gain");
+    expect(getWorkbench(0)!.chain[0]!.kind).toBe("volume");
   });
 
   it("undoing Clear Sample restores the workbench too", async () => {
@@ -886,7 +907,17 @@ describe("pipeline editor: undo/redo restores chain alongside song", () => {
         channels: [new Float32Array([0, 0.5, -0.5])],
       },
       sourceName: "demo",
-      chain: [{ kind: "gain", params: { gain: 2 } }],
+      chain: [
+        {
+          kind: "volume",
+          params: {
+            points: [
+              { frame: 0, gain: 2 },
+              { frame: 1, gain: 2 },
+            ],
+          },
+        },
+      ],
       pt: { monoMix: "average", targetNote: null },
     });
     expect(getWorkbench(0)).toBeDefined();
@@ -906,7 +937,7 @@ describe("pipeline editor: undo/redo restores chain alongside song", () => {
 
     expect(getWorkbench(0)).toBeDefined();
     expect(getWorkbench(0)!.chain).toHaveLength(1);
-    expect(getWorkbench(0)!.chain[0]!.kind).toBe("gain");
+    expect(getWorkbench(0)!.chain[0]!.kind).toBe("volume");
   });
 });
 

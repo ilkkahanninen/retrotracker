@@ -51,11 +51,68 @@ import {
 } from "../src/state/importedStash";
 import { emptySong } from "../src/core/mod/format";
 import { writeWav } from "../src/core/audio/wav";
-import { workbenchFromChiptune } from "../src/core/audio/sampleWorkbench";
+import {
+  workbenchFromChiptune,
+  type EffectNode,
+} from "../src/core/audio/sampleWorkbench";
 import { replaceSampleData } from "../src/core/mod/mutations";
 import type { Song } from "../src/core/mod/types";
 
 // ── Helpers ────────────────────────────────────────────────────────────
+
+/** Build a 2-point flat volume envelope spanning [0, lastFrame] at gain
+ *  `g`. The pipeline previously had a dedicated `gain` effect; that's
+ *  now expressed as a constant envelope. `lastFrame` defaults to 1 — the
+ *  exact value doesn't matter for tests asserting workbench machinery
+ *  rather than amplitude math, since clamp-to-boundary makes the
+ *  envelope flat at gain `g` everywhere. */
+function gainNode(g: number, lastFrame: number = 1): EffectNode {
+  return {
+    kind: "volume",
+    params: {
+      points: [
+        { frame: 0, gain: g },
+        { frame: lastFrame, gain: g },
+      ],
+    },
+  };
+}
+
+/** Old `fadeIn [s, e)` rewritten as a volume envelope. Mirrors the
+ *  persistence migration's emitted shape. */
+function fadeInNode(s: number, e: number): EffectNode {
+  return {
+    kind: "volume",
+    params: {
+      points:
+        s === 0
+          ? [
+              { frame: 0, gain: 0 },
+              { frame: e, gain: 1 },
+            ]
+          : [
+              { frame: 0, gain: 1 },
+              { frame: Math.max(0, s - 1), gain: 1 },
+              { frame: s, gain: 0 },
+              { frame: e, gain: 1 },
+            ],
+    },
+  };
+}
+
+/** Old `fadeOut [s, e)` rewritten as a volume envelope. */
+function fadeOutNode(s: number, e: number): EffectNode {
+  return {
+    kind: "volume",
+    params: {
+      points: [
+        { frame: s, gain: 1 },
+        { frame: e, gain: 0 },
+        { frame: e + 1, gain: 1 },
+      ],
+    },
+  };
+}
 
 function reset() {
   setSong(emptySong());
@@ -143,7 +200,7 @@ describe("setSourceKind: Sampler ↔ Chiptune (alt stash)", () => {
 
   it("Sampler→Chiptune→Sampler preserves the sampler chain", () => {
     loadWavIntoCurrentSample(makeWavBytes(800), "tone.wav");
-    addEffect("gain", null);
+    addEffect("volume", null);
     addEffect("normalize", null);
     const chainBefore = [...getWorkbench(0)!.chain];
     expect(chainBefore.length).toBe(2);
@@ -151,7 +208,7 @@ describe("setSourceKind: Sampler ↔ Chiptune (alt stash)", () => {
     setSourceKind("chiptune");
     // In chiptune mode the chain is the chiptune-side chain (empty by default).
     expect(getWorkbench(0)!.chain.length).toBe(0);
-    addEffect("gain", null); // chiptune-side chain edit
+    addEffect("volume", null); // chiptune-side chain edit
     expect(getWorkbench(0)!.chain.length).toBe(1);
 
     setSourceKind("sampler");
@@ -307,10 +364,10 @@ describe("Effect chain stacking: crop / cut combinations", () => {
     updateCurrentWorkbench({
       ...wb0,
       chain: [
-        { kind: "gain", params: { gain: 0.8 } },
-        { kind: "fadeIn", params: { startFrame: 0, endFrame: 100 } },
+        gainNode(0.8),
+        fadeInNode(0, 100),
         { kind: "crop", params: { startFrame: 50, endFrame: 1000 } },
-        { kind: "fadeOut", params: { startFrame: 800, endFrame: 950 } },
+        fadeOutNode(800, 950),
         { kind: "normalize" },
       ],
     });
@@ -370,14 +427,14 @@ describe("Effect chain stacking: removeEffect and reorder", () => {
 
   it("removing a middle effect from a 3-effect chain keeps the others", () => {
     loadWavIntoCurrentSample(makeWavBytes(800), "src.wav");
-    addEffect("gain", null);
+    addEffect("volume", null);
     addEffect("normalize", null);
     addEffect("reverse", { start: 0, end: 100 });
     expect(getWorkbench(0)!.chain).toHaveLength(3);
     removeEffect(1); // drop normalize
     const chain = getWorkbench(0)!.chain;
     expect(chain).toHaveLength(2);
-    expect(chain[0]!.kind).toBe("gain");
+    expect(chain[0]!.kind).toBe("volume");
     expect(chain[1]!.kind).toBe("reverse");
   });
 });
@@ -674,7 +731,7 @@ describe("Source-kind toggle with sampler chain containing length-changing effec
   it("Sampler(crop+gain)→Chiptune→Sampler restores the same chain AND the same int8 length", () => {
     loadWavIntoCurrentSample(makeWavBytes(800), "src.wav");
     addEffect("crop", { start: 0, end: 100 });
-    addEffect("gain", null);
+    addEffect("volume", null);
     const samplerChainLen = song()!.samples[0]!.lengthWords;
     const samplerChainSnapshot = [...getWorkbench(0)!.chain];
 
@@ -707,7 +764,7 @@ describe("Effect ordering: order matters and the pipeline stays well-defined", (
     updateCurrentWorkbench({
       ...wb,
       chain: [
-        { kind: "fadeIn", params: { startFrame: 0, endFrame: 100 } },
+        fadeInNode(0, 100),
         { kind: "crop", params: { startFrame: 200, endFrame: 600 } },
       ],
     });
@@ -717,7 +774,7 @@ describe("Effect ordering: order matters and the pipeline stays well-defined", (
       ...wb,
       chain: [
         { kind: "crop", params: { startFrame: 200, endFrame: 600 } },
-        { kind: "fadeIn", params: { startFrame: 0, endFrame: 100 } },
+        fadeInNode(0, 100),
       ],
     });
     const cropFirstBytes = Array.from(song()!.samples[0]!.data);
@@ -743,7 +800,7 @@ describe("Effect ordering: order matters and the pipeline stays well-defined", (
     updateCurrentWorkbench({
       ...wb,
       chain: [
-        { kind: "fadeOut", params: { startFrame: 200, endFrame: 400 } },
+        fadeOutNode(200, 400),
         { kind: "normalize" },
       ],
     });
@@ -762,15 +819,15 @@ describe("Effect ordering: order matters and the pipeline stays well-defined", (
     updateCurrentWorkbench({
       ...wb0,
       chain: [
-        { kind: "fadeIn", params: { startFrame: 0, endFrame: 100 } },
-        { kind: "fadeIn", params: { startFrame: 0, endFrame: 100 } },
+        fadeInNode(0, 100),
+        fadeInNode(0, 100),
       ],
     });
     const stackedBytes = Array.from(song()!.samples[0]!.data);
 
     updateCurrentWorkbench({
       ...wb0,
-      chain: [{ kind: "fadeIn", params: { startFrame: 0, endFrame: 100 } }],
+      chain: [fadeInNode(0, 100)],
     });
     const singleBytes = Array.from(song()!.samples[0]!.data);
 
@@ -820,7 +877,7 @@ describe("Chiptune workbench with effect chain", () => {
   it("chiptune chain survives Chiptune→Sampler→Chiptune toggle", () => {
     setWorkbench(0, workbenchFromChiptune());
     updateCurrentWorkbench(getWorkbench(0)!);
-    addEffect("gain", null);
+    addEffect("volume", null);
     addEffect("normalize", null);
     const chiptuneChain = [...getWorkbench(0)!.chain];
 
@@ -969,7 +1026,7 @@ describe("Defensive: out-of-bounds effect ranges don't crash and don't produce g
     const beforeBytes = Array.from(song()!.samples[0]!.data);
     updateCurrentWorkbench({
       ...wb0,
-      chain: [{ kind: "fadeOut", params: { startFrame: 200, endFrame: 200 } }],
+      chain: [fadeOutNode(200, 200)],
     });
     const afterBytes = Array.from(song()!.samples[0]!.data);
     expect(afterBytes).toEqual(beforeBytes);
@@ -979,7 +1036,7 @@ describe("Defensive: out-of-bounds effect ranges don't crash and don't produce g
 describe("Slot isolation: edits on slot 0 don't bleed into slot 1", () => {
   it("two independent slots maintain independent workbenches and chains", () => {
     loadWavIntoCurrentSample(makeWavBytes(400), "a.wav");
-    addEffect("gain", null);
+    addEffect("volume", null);
     const slot0Chain = [...getWorkbench(0)!.chain];
 
     setCurrentSample(2);
@@ -1074,7 +1131,7 @@ describe("Tiny / degenerate inputs", () => {
         ...wb,
         chain: [
           { kind: "crop", params: { startFrame: 100, endFrame: 100 } }, // empty
-          { kind: "fadeIn", params: { startFrame: 0, endFrame: 50 } },
+          fadeInNode(0, 50),
         ],
       });
     }).not.toThrow();

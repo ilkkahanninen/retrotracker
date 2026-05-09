@@ -140,13 +140,20 @@ describe("persistence: sampler chain round-trip", () => {
       channels: [new Float32Array([0, 0.5, -0.5, 0.25])],
     };
     const chain = [
-      { kind: "gain", params: { gain: 1.5 } },
+      {
+        kind: "volume",
+        params: {
+          points: [
+            { frame: 0, gain: 0.5 },
+            { frame: 2, gain: 1.5 },
+            { frame: 3, gain: 0.5 },
+          ],
+        },
+      },
       { kind: "normalize" },
       { kind: "reverse", params: { startFrame: 0, endFrame: 4 } },
       { kind: "crop", params: { startFrame: 1, endFrame: 4 } },
       { kind: "cut", params: { startFrame: 0, endFrame: 1 } },
-      { kind: "fadeIn", params: { startFrame: 0, endFrame: 2 } },
-      { kind: "fadeOut", params: { startFrame: 2, endFrame: 4 } },
       {
         kind: "filter",
         params: { type: "lowpass" as const, cutoff: 4000, q: 0.707 },
@@ -190,7 +197,17 @@ describe("persistence: sampler chain round-trip", () => {
         0: {
           sourceName: "test",
           wav,
-          chain: [{ kind: "gain", params: { gain: 1 } }],
+          chain: [
+            {
+              kind: "volume",
+              params: {
+                points: [
+                  { frame: 0, gain: 1 },
+                  { frame: 1, gain: 1 },
+                ],
+              },
+            },
+          ],
           pt: { monoMix: "average", targetNote: 12 },
         },
       },

@@ -39,24 +39,38 @@ export const DEFAULT_TARGET_NOTE = 12;
 // ─── Effect node types ───────────────────────────────────────────────────
 
 /**
- * Range-aware effects (reverse, fadeIn, fadeOut, crop, cut) carry a
- * [startFrame, endFrame) over the chain's input — their per-effect input is
- * the previous chain stage's output, NOT the source. Outside the range, the
- * audio passes through unchanged: a fadeIn over the selection's frames doesn't
- * silence the rest of the sample, it ramps within the selection only.
+ * Range-aware effects (reverse, crop, cut) carry a [startFrame, endFrame)
+ * over the chain's input — their per-effect input is the previous chain
+ * stage's output, NOT the source.
  *
- * gain / normalize don't take a range — they apply to the whole input.
+ * The volume effect is amplitude-only and uses an envelope of n ≥ 2 points
+ * `{ frame, gain }`. Linearly interpolated between adjacent points; clamps
+ * to the boundary point's gain outside `[points[0].frame, points[last].frame]`.
+ * It supersedes the older gain / fadeIn / fadeOut effects (now removed).
+ *
+ * normalize takes no params — applies to the whole input.
  */
 export type FilterType = "lowpass" | "highpass";
 
+export interface EnvelopePoint {
+  /** Frame index in this effect stage's input. Integer, ≥ 0. */
+  frame: number;
+  /** Gain multiplier in [ENVELOPE_GAIN_MIN, ENVELOPE_GAIN_MAX]. */
+  gain: number;
+}
+
+/** Permitted gain range for envelope points. 0 = silence, 1 = neutral, 2 = +6 dB. */
+export const ENVELOPE_GAIN_MIN = 0;
+export const ENVELOPE_GAIN_MAX = 2;
+/** Envelopes always carry at least 2 points so there's a segment to interpolate. */
+export const ENVELOPE_MIN_POINTS = 2;
+
 export type EffectNode =
-  | { kind: "gain"; params: { gain: number } }
+  | { kind: "volume"; params: { points: ReadonlyArray<EnvelopePoint> } }
   | { kind: "normalize" }
   | { kind: "reverse"; params: { startFrame: number; endFrame: number } }
   | { kind: "crop"; params: { startFrame: number; endFrame: number } }
   | { kind: "cut"; params: { startFrame: number; endFrame: number } }
-  | { kind: "fadeIn"; params: { startFrame: number; endFrame: number } }
-  | { kind: "fadeOut"; params: { startFrame: number; endFrame: number } }
   | {
       kind: "filter";
       params: {
@@ -88,13 +102,11 @@ export type EffectNode =
 export type EffectKind = EffectNode["kind"];
 
 export const EFFECT_KINDS: readonly EffectKind[] = [
-  "gain",
+  "volume",
   "normalize",
   "reverse",
   "crop",
   "cut",
-  "fadeIn",
-  "fadeOut",
   "filter",
   "crossfade",
   "shaper",
@@ -102,13 +114,11 @@ export const EFFECT_KINDS: readonly EffectKind[] = [
 
 /** Human-readable names for the picker UI. */
 export const EFFECT_LABELS: Readonly<Record<EffectKind, string>> = {
-  gain: "Gain",
+  volume: "Volume",
   normalize: "Normalize",
   reverse: "Reverse",
   crop: "Crop",
   cut: "Cut",
-  fadeIn: "Fade in",
-  fadeOut: "Fade out",
   filter: "Filter",
   crossfade: "Crossfade",
   shaper: "Shaper",
@@ -332,7 +342,12 @@ function mapChannels(
   return { sampleRate: input.sampleRate, channels: input.channels.map(fn) };
 }
 
-export function applyGain(input: WavData, gain: number): WavData {
+/**
+ * Constant gain multiplier across every channel. Internal helper — the
+ * volume effect uses `applyVolumeEnvelope` for piecewise gain, and
+ * `applyNormalize` calls this with `1/peak`.
+ */
+function applyConstantGain(input: WavData, gain: number): WavData {
   if (gain === 1) return input;
   return mapChannels(input, (ch) => {
     const out = new Float32Array(ch.length);
@@ -350,7 +365,49 @@ export function applyNormalize(input: WavData): WavData {
     }
   }
   if (peak === 0) return input; // silence
-  return applyGain(input, 1 / peak);
+  return applyConstantGain(input, 1 / peak);
+}
+
+/**
+ * Piecewise-linear volume envelope. Points are { frame, gain }; between
+ * adjacent points gain is linearly interpolated. Outside the range
+ * [points[0].frame, points[last].frame], gain clamps to the boundary
+ * point's value (DAW-style automation, not pass-through).
+ *
+ * The points array is defensively sorted by frame — the editor permits
+ * dragging a point past its neighbour, and we need monotonic frames for
+ * the segment walk.
+ */
+export function applyVolumeEnvelope(
+  input: WavData,
+  points: ReadonlyArray<EnvelopePoint>,
+): WavData {
+  if (points.length < ENVELOPE_MIN_POINTS) return input;
+  const sorted = [...points].sort((a, b) => a.frame - b.frame);
+  const first = sorted[0]!;
+  const last = sorted[sorted.length - 1]!;
+  return mapChannels(input, (ch) => {
+    const out = new Float32Array(ch.length);
+    let seg = 0; // index of the LEFT point of the current segment
+    for (let i = 0; i < ch.length; i++) {
+      let g: number;
+      if (i <= first.frame) {
+        g = first.gain;
+      } else if (i >= last.frame) {
+        g = last.gain;
+      } else {
+        // Advance segment until i falls inside [sorted[seg].frame, sorted[seg+1].frame).
+        while (seg + 1 < sorted.length - 1 && i >= sorted[seg + 1]!.frame)
+          seg++;
+        const a = sorted[seg]!;
+        const b = sorted[seg + 1]!;
+        const span = Math.max(1, b.frame - a.frame);
+        g = a.gain + (b.gain - a.gain) * ((i - a.frame) / span);
+      }
+      out[i] = ch[i]! * g;
+    }
+    return out;
+  });
 }
 
 /**
@@ -407,57 +464,6 @@ export function applyCut(
     const out = new Float32Array(ch.length - (e - s));
     out.set(ch.subarray(0, s), 0);
     out.set(ch.subarray(e), s);
-    return out;
-  });
-}
-
-/**
- * Linear ramp from gain 0 → 1 over `[startFrame, endFrame)`. Frames outside
- * the range are left untouched (the effect only modulates within the
- * selection — it does NOT silence the tail or head). With start=0 and end=N
- * you get a classic head-fade equivalent to the old `frames=N` form.
- */
-export function applyFadeIn(
-  input: WavData,
-  startFrame: number,
-  endFrame: number,
-): WavData {
-  const len = input.channels[0]?.length ?? 0;
-  const s = Math.max(0, Math.min(len, Math.floor(startFrame)));
-  const e = Math.max(s, Math.min(len, Math.floor(endFrame)));
-  if (e <= s) return input;
-  const span = e - s;
-  return mapChannels(input, (ch) => {
-    const out = new Float32Array(ch.length);
-    for (let i = 0; i < s; i++) out[i] = ch[i]!;
-    for (let i = s; i < e; i++) out[i] = ch[i]! * ((i - s) / span);
-    for (let i = e; i < ch.length; i++) out[i] = ch[i]!;
-    return out;
-  });
-}
-
-/**
- * Linear ramp from gain 1 → 0 over `[startFrame, endFrame)`. Frames outside
- * the range are left untouched (the head plays at full volume, anything
- * after the fade also plays at full volume — the effect only acts within
- * the selection). With start=len-N and end=len you get a classic tail-fade
- * equivalent to the old `frames=N` form.
- */
-export function applyFadeOut(
-  input: WavData,
-  startFrame: number,
-  endFrame: number,
-): WavData {
-  const len = input.channels[0]?.length ?? 0;
-  const s = Math.max(0, Math.min(len, Math.floor(startFrame)));
-  const e = Math.max(s, Math.min(len, Math.floor(endFrame)));
-  if (e <= s) return input;
-  const span = e - s;
-  return mapChannels(input, (ch) => {
-    const out = new Float32Array(ch.length);
-    for (let i = 0; i < s; i++) out[i] = ch[i]!;
-    for (let i = s; i < e; i++) out[i] = ch[i]! * (1 - (i - s) / span);
-    for (let i = e; i < ch.length; i++) out[i] = ch[i]!;
     return out;
   });
 }
@@ -596,8 +602,8 @@ export function applyEffect(
   ctx?: RunContext | null,
 ): WavData {
   switch (node.kind) {
-    case "gain":
-      return applyGain(input, node.params.gain);
+    case "volume":
+      return applyVolumeEnvelope(input, node.params.points);
     case "normalize":
       return applyNormalize(input);
     case "reverse":
@@ -606,10 +612,6 @@ export function applyEffect(
       return applyCrop(input, node.params.startFrame, node.params.endFrame);
     case "cut":
       return applyCut(input, node.params.startFrame, node.params.endFrame);
-    case "fadeIn":
-      return applyFadeIn(input, node.params.startFrame, node.params.endFrame);
-    case "fadeOut":
-      return applyFadeOut(input, node.params.startFrame, node.params.endFrame);
     case "filter":
       return applyFilter(
         input,
@@ -1009,8 +1011,18 @@ export function emptySamplerWorkbench(): SampleWorkbench {
 export function defaultEffect(kind: EffectKind, input: WavData): EffectNode {
   const len = input.channels[0]?.length ?? 0;
   switch (kind) {
-    case "gain":
-      return { kind: "gain", params: { gain: 1 } };
+    // Two flat points spanning the input — initially neutral. The user
+    // shapes the envelope by adding / dragging points in the overlay.
+    case "volume":
+      return {
+        kind: "volume",
+        params: {
+          points: [
+            { frame: 0, gain: 1 },
+            { frame: Math.max(1, len - 1), gain: 1 },
+          ],
+        },
+      };
     case "normalize":
       return { kind: "normalize" };
     case "reverse":
@@ -1022,16 +1034,6 @@ export function defaultEffect(kind: EffectKind, input: WavData): EffectNode {
     // selecting on the waveform and clicking "Cut".
     case "cut":
       return { kind: "cut", params: { startFrame: 0, endFrame: 0 } };
-    case "fadeIn":
-      return {
-        kind: "fadeIn",
-        params: { startFrame: 0, endFrame: Math.min(1024, len) },
-      };
-    case "fadeOut":
-      return {
-        kind: "fadeOut",
-        params: { startFrame: Math.max(0, len - 1024), endFrame: len },
-      };
     // 1 kHz / Q=0.707 — Butterworth-flat low-pass. Audible but tame
     // default that gives the user something to hear when they dial Q up
     // or sweep cutoff.

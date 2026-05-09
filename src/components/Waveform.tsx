@@ -11,8 +11,29 @@ import { currentSample } from "../state/edit";
 import { previewFrame } from "../state/preview";
 import type { SampleSelection } from "../state/sampleSelection";
 import { beginDragEdit, endDragEdit } from "../state/song";
+import { EnvelopeOverlay } from "./EnvelopeOverlay";
+import type { EnvelopePoint } from "../core/audio/sampleWorkbench";
 
 export type { SampleSelection };
+
+/**
+ * Per-slot envelope-overlay payload. The chain stage's frame indices
+ * differ from int8-byte indices when a length-changing effect (crop /
+ * cut) sits before the envelope, so we accept frames here and convert
+ * to bytes via `chainFramesToBytes` before drawing.
+ */
+export interface WaveformEnvelopeOverlay {
+  points: ReadonlyArray<EnvelopePoint>;
+  /** Total frames in the envelope's input stage. */
+  sourceFrames: number;
+  /** Length of the int8 sample data the waveform shows. Used to scale
+   *  envelope frames into byte coordinates. */
+  int8Length: number;
+  onAddPoint: (point: EnvelopePoint) => void;
+  onRemovePoint: (pointIndex: number) => void;
+  onPatchPoint: (pointIndex: number, next: Partial<EnvelopePoint>) => void;
+  onNudgeSegment: (leftPointIndex: number, deltaGain: number) => void;
+}
 
 /**
  * Min/max-bucketed PCM rendering with a zoomable byte-range viewport.
@@ -50,6 +71,13 @@ export interface WaveformProps {
    * act on it anyway). Defaults to true for callers that haven't opted in.
    */
   selectable?: boolean;
+  /**
+   * When non-null, render an editable envelope overlay on top of the
+   * waveform (e.g. for editing a `volume` effect). The host (SampleView)
+   * gates this on the user having selected a `volume` effect in the
+   * pipeline editor; passing `null` hides the overlay.
+   */
+  envelope?: WaveformEnvelopeOverlay | null;
 }
 
 /** Either dragging a loop boundary, or sweeping a selection range. */
@@ -187,6 +215,33 @@ export const Waveform: Component<WaveformProps> = (props) => {
     const rect = container.getBoundingClientRect();
     if (rect.width <= 0) return 0;
     return ((clientX - rect.left) / rect.width) * W;
+  };
+
+  /** Same for clientY → canvas-internal y (0..H). Used by the envelope
+   *  overlay to convert pointer Y to gain via its own mapping. */
+  const clientToCanvasY = (clientY: number): number => {
+    if (!container) return 0;
+    const rect = container.getBoundingClientRect();
+    if (rect.height <= 0) return 0;
+    return ((clientY - rect.top) / rect.height) * H;
+  };
+
+  /** Envelope point's chain-stage frame index → canvas-internal X.
+   *  Frames map onto bytes by the int8/source-frames ratio (the same
+   *  scaling `selectionToChainFrames` uses, inverted). */
+  const xForEnvelopeFrame = (frame: number): number => {
+    const env = props.envelope;
+    if (!env || env.sourceFrames <= 0) return xForByte(frame);
+    const byte = (frame * env.int8Length) / env.sourceFrames;
+    return xForByte(byte);
+  };
+
+  /** Inverse — canvas X → envelope-stage frame index. */
+  const envelopeFrameForX = (x: number): number => {
+    const env = props.envelope;
+    if (!env || env.int8Length <= 0) return byteForX(x);
+    const byte = byteForX(x);
+    return Math.round((byte * env.sourceFrames) / env.int8Length);
   };
 
   /** Mouse-x near a loop boundary? Returns which one, or null. */
@@ -536,6 +591,24 @@ export const Waveform: Component<WaveformProps> = (props) => {
         width={W}
         height={H}
       />
+      <Show when={props.envelope}>
+        {(env) => (
+          <EnvelopeOverlay
+            points={env().points}
+            sourceFrames={env().sourceFrames}
+            width={W}
+            height={H}
+            xForFrame={xForEnvelopeFrame}
+            frameForX={envelopeFrameForX}
+            clientToCanvasX={clientToCanvasX}
+            clientToCanvasY={clientToCanvasY}
+            onAddPoint={env().onAddPoint}
+            onRemovePoint={env().onRemovePoint}
+            onPatchPoint={env().onPatchPoint}
+            onNudgeSegment={env().onNudgeSegment}
+          />
+        )}
+      </Show>
       <Show when={cursorInfo()}>
         {(info) => (
           <div

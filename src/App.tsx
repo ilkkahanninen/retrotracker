@@ -77,16 +77,20 @@ import {
   copySampleRange,
   cropCurrentSampleToSelection,
   cutSampleRange,
+  addEnvelopePoint,
   duplicateCurrentSample,
   effectiveSampleRange,
   loadWavIntoCurrentSample,
+  nudgeEnvelopeSegment,
   pasteSampleFromClipboard,
+  patchEnvelopePoint,
   moveEffect,
   nextFreeSlot,
   NO_LOOP,
   patchCurrentSample,
   patchEffect,
   removeEffect,
+  removeEnvelopePoint,
   renameSample,
   setDither,
   setMonoMix,
@@ -983,6 +987,10 @@ export const App: Component = () => {
                   onUpdateChiptune={updateChiptune}
                   onConvertChiptuneToSampler={convertChiptuneToSampler}
                   onConvertToSampler={convertSlotToSampler}
+                  onAddEnvelopePoint={addEnvelopePoint}
+                  onRemoveEnvelopePoint={removeEnvelopePoint}
+                  onPatchEnvelopePoint={patchEnvelopePoint}
+                  onNudgeEnvelopeSegment={nudgeEnvelopeSegment}
                 />
               </div>
               <div

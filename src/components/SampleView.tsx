@@ -5,6 +5,10 @@ import { workbenches } from "../state/sampleWorkbench";
 import { getStashedLoop, stashLoop } from "../state/loopStash";
 import { getImportedStash } from "../state/importedStash";
 import {
+  selectedEffectIndex,
+  setSelectedEffectIndex,
+} from "../state/selectedEffect";
+import {
   EFFECT_LABELS,
   SOURCE_KINDS,
   SOURCE_LABELS,
@@ -18,7 +22,8 @@ import {
 } from "../core/audio/sampleWorkbench";
 import type { ChiptuneParams } from "../core/audio/chiptune";
 import { truncateSampleAtLoopEnd } from "../core/audio/loopTruncate";
-import { Waveform } from "./Waveform";
+import { Waveform, type WaveformEnvelopeOverlay } from "./Waveform";
+import { materializeSource, runChain } from "../core/audio/sampleWorkbench";
 import {
   sampleSelection as selection,
   setSampleSelection as setSelection,
@@ -32,14 +37,14 @@ export type { SampleSelection };
 
 /**
  * Effect kinds that ride the Crop/Cut row as their own buttons. Order
- * matches the on-screen layout: range-aware first (with Crop/Cut leading,
- * since those are only meaningful with a selection), then range-unaware.
+ * matches the on-screen layout: range-aware first (Crop / Cut / Reverse
+ * lead since those are only meaningful with a selection), then
+ * range-unaware. `volume` is a piecewise-linear amplitude envelope that
+ * subsumed the old gain / fadeIn / fadeOut buttons.
  */
 const EFFECT_BUTTON_KINDS: readonly EffectKind[] = [
   "reverse",
-  "fadeIn",
-  "fadeOut",
-  "gain",
+  "volume",
   "normalize",
   "filter",
   "shaper",
@@ -48,9 +53,11 @@ const EFFECT_BUTTON_KINDS: readonly EffectKind[] = [
 
 /** Hover hint that hints at selection-aware vs always-whole behaviour. */
 function titleForEffectButton(kind: EffectKind, hasSelection: boolean): string {
-  const isRangeAware =
-    kind === "reverse" || kind === "fadeIn" || kind === "fadeOut";
+  const isRangeAware = kind === "reverse";
   const label = EFFECT_LABELS[kind];
+  if (kind === "volume") {
+    return "Append a Volume envelope (double-click on the waveform to add points)";
+  }
   if (!isRangeAware) return `Append ${label} to the effect chain`;
   return hasSelection
     ? `Append ${label} over the current selection`
@@ -76,6 +83,27 @@ function encodeFinetune(signed: number): number {
 
 interface Props {
   song: Song;
+  /** Append a point to the volume envelope at chain index `i`. */
+  onAddEnvelopePoint: (
+    chainIndex: number,
+    point: import("../core/audio/sampleWorkbench").EnvelopePoint,
+  ) => void;
+  /** Remove point `pointIndex` from the volume envelope at chain index `i`.
+   *  No-op when only the minimum 2 points remain. */
+  onRemoveEnvelopePoint: (chainIndex: number, pointIndex: number) => void;
+  /** Patch one point's frame / gain. */
+  onPatchEnvelopePoint: (
+    chainIndex: number,
+    pointIndex: number,
+    next: Partial<import("../core/audio/sampleWorkbench").EnvelopePoint>,
+  ) => void;
+  /** Shift both endpoints of segment `leftPointIndex..leftPointIndex+1`
+   *  by `deltaGain`. Used by the segment-drag interaction. */
+  onNudgeEnvelopeSegment: (
+    chainIndex: number,
+    leftPointIndex: number,
+    deltaGain: number,
+  ) => void;
   /** Bytes of a `.wav` file picked by the user, plus the original file name. */
   onLoadWav: (bytes: Uint8Array, filename: string) => void;
   onClear: () => void;
@@ -161,16 +189,54 @@ export const SampleView: Component<Props> = (props) => {
     () => workbenches().get(currentSample() - 1) ?? null,
   );
 
+  // Envelope overlay payload for the Waveform. Active only when the user
+  // has selected a `volume` chain entry on a sampler workbench. Computes
+  // the chain-stage input length so the overlay knows the upper bound on
+  // the X axis (= last valid point frame) and so it can convert frames →
+  // bytes for rendering.
+  const envelopeOverlay = createMemo<WaveformEnvelopeOverlay | null>(() => {
+    const wb = workbench();
+    const idx = selectedEffectIndex();
+    if (!wb || idx === null) return null;
+    const node = wb.chain[idx];
+    if (!node || node.kind !== "volume") return null;
+    if (wb.source.kind === "chiptune") return null;
+    const s = sample();
+    const int8Length = s?.data.byteLength ?? 0;
+    if (int8Length <= 0) return null;
+    // Chain output up to (but NOT including) the volume effect — that's
+    // the input the envelope runs against, so its frames are the X-axis
+    // domain.
+    const stageInput = runChain(
+      materializeSource(wb.source),
+      wb.chain.slice(0, idx),
+    );
+    const sourceFrames = stageInput.channels[0]?.length ?? 0;
+    if (sourceFrames <= 0) return null;
+    const points = node.params.points;
+    return {
+      points,
+      sourceFrames,
+      int8Length,
+      onAddPoint: (p) => props.onAddEnvelopePoint(idx, p),
+      onRemovePoint: (pi) => props.onRemoveEnvelopePoint(idx, pi),
+      onPatchPoint: (pi, next) => props.onPatchEnvelopePoint(idx, pi, next),
+      onNudgeSegment: (li, dg) => props.onNudgeEnvelopeSegment(idx, li, dg),
+    };
+  });
+
   // Drag-selection state lives in `state/sampleSelection.ts` (lifted from
   // here so App-level shortcuts like Cmd+A can write to it). The Waveform
   // (drag overlay) and the action buttons below it (Crop / Cut) both
   // read it. Selection is in BYTE indices over the int8 sample data,
   // half-open [start, end).
   // A selection only makes sense for the slot the user drew it on;
-  // switching slots discards it.
+  // switching slots discards it. Same goes for the active-effect index —
+  // it points into the previous slot's chain, so clear it too.
   createEffect(() => {
     currentSample();
     setSelection(null);
+    setSelectedEffectIndex(null);
   });
   // Same when the source flips to chiptune — selection is disabled in
   // that mode, so a stale selection from the prior sampler half would
@@ -504,6 +570,7 @@ export const SampleView: Component<Props> = (props) => {
           // (Crop / Cut / range-aware effects) is hidden in chiptune mode
           // anyway, so a draggable selection would be inert.
           selectable={workbench()?.source.kind !== "chiptune"}
+          envelope={envelopeOverlay()}
         />
         {/* Selection-action row: Crop/Cut act on the selection (and require
             one); the remaining effect buttons append to the workbench chain
@@ -666,6 +733,8 @@ export const SampleView: Component<Props> = (props) => {
             onSetTargetNote={props.onSetTargetNote}
             onSetResampleMode={props.onSetResampleMode}
             onSetDither={props.onSetDither}
+            selectedEffectIndex={selectedEffectIndex()}
+            onSelectEffect={setSelectedEffectIndex}
           />
         </Show>
       </Show>

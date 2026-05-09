@@ -156,7 +156,16 @@ Two halves:
 - **Top — waveform + meta.** Click and drag in the waveform to make a selection. `Cmd+A` selects the whole sample. Hovering the waveform shows the frame number and the equivalent `9xx` sample-offset effect parameter (capped at `9FF`).
 - **Bottom — pipeline.** A chain of effect nodes, each non-destructive. The terminal node is the **PT transformer** which mixes to mono and quantises to 8-bit signed.
 
-Each pipeline node has its own params — gain (dB), fade duration, crop bounds, normalise target, filter cutoff/resonance, shaper amount, etc. Reorder by drag, disable with the toggle, remove with `×`.
+Each pipeline node has its own params — volume envelope shape, crop bounds, normalise target, filter cutoff/resonance, shaper amount, etc. Reorder by drag, disable with the toggle, remove with `×`.
+
+### Volume envelope
+
+The **Volume** effect shapes amplitude with a piecewise-linear envelope of `n ≥ 2` points (frame, gain). Click the effect in the chain to select it for editing, and an overlay appears on the waveform with draggable points and segments. Gain spans `0..2` (silence to ~+6 dB) — `1.0` is neutral. Outside the points' frame range, gain clamps to the boundary point's value (DAW-style automation). Replaces the older Gain / Fade In / Fade Out effects; old projects auto-migrate on load.
+
+- **Add a point**: double-click anywhere on the envelope or its segment.
+- **Remove a point**: double-click the point. Endpoints can't be removed when only 2 remain.
+- **Move a point**: drag it. Endpoint frames are pinned to the sample edges; only their gain moves.
+- **Raise / lower a flat region**: drag a segment line vertically — both endpoints move in gain together.
 
 ### Loop
 

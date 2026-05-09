@@ -1222,6 +1222,50 @@ h2 {
   z-index: 2;
 }
 
+/* Envelope overlay (volume effect editor). Renders on top of the
+   waveform + playhead canvases. Pointer-events on the SVG root are
+   default-on so dblclick on empty space can add a point; segment lines
+   are wide invisible capture targets, points are draggable circles. */
+.waveform__envelope {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 3;
+}
+.envelope__path {
+  fill: none;
+  stroke: #ffa64d; /* orange — distinct from accent cyan + playhead coral */
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.envelope__segment {
+  stroke: transparent;
+  stroke-width: 12;
+  fill: none;
+  cursor: ns-resize;
+}
+.envelope__segment:hover {
+  stroke: rgba(255, 166, 77, 0.18);
+}
+.envelope__point {
+  fill: #ffa64d;
+  stroke: #1c1e26;
+  stroke-width: 1.5;
+  cursor: grab;
+  transition:
+    r 80ms ease-out,
+    fill 80ms ease-out;
+}
+.envelope__point:hover {
+  fill: #ffd9a3;
+}
+.envelope__point--dragging {
+  cursor: grabbing;
+  fill: #ffd9a3;
+}
+
 .sampleview__selection {
   display: flex;
   flex-wrap: wrap;
@@ -1375,6 +1419,11 @@ h2 {
   background: var(--panel-2);
   border: 1px solid var(--grid-line);
   border-radius: 4px;
+  cursor: pointer;
+}
+.effect-node--selected {
+  border-color: #ffa64d;
+  background: rgba(255, 166, 77, 0.08);
 }
 .effect-node__controls {
   display: flex;

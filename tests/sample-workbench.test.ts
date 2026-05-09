@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  applyGain,
   applyNormalize,
   applyReverse,
   applyCrop,
   applyCut,
-  applyFadeIn,
-  applyFadeOut,
+  applyVolumeEnvelope,
   applyFilter,
   applyCrossfade,
   applyEffect,
@@ -49,17 +47,75 @@ function stereo(L: number[], R: number[]) {
   };
 }
 
-describe("applyGain", () => {
-  it("multiplies every sample on every channel", () => {
-    // Pick f32-exact fractions (powers of 2) so the assertion isn't fragile.
-    const out = applyGain(stereo([0.125, 0.25], [-0.5, 0.0625]), 2);
+describe("applyVolumeEnvelope", () => {
+  it("constant gain across the whole input (2 flat points)", () => {
+    const out = applyVolumeEnvelope(stereo([0.125, 0.25], [-0.5, 0.0625]), [
+      { frame: 0, gain: 2 },
+      { frame: 1, gain: 2 },
+    ]);
     expect(Array.from(out.channels[0]!)).toEqual([0.25, 0.5]);
     expect(Array.from(out.channels[1]!)).toEqual([-1, 0.125]);
   });
 
-  it("returns the same WavData reference when gain is 1 (noop short-circuit)", () => {
-    const w = mono(0.5);
-    expect(applyGain(w, 1)).toBe(w);
+  it("linear interpolation between adjacent points", () => {
+    const out = applyVolumeEnvelope(mono(1, 1, 1, 1, 1), [
+      { frame: 0, gain: 0 },
+      { frame: 4, gain: 1 },
+    ]);
+    const ch = out.channels[0]!;
+    expect(ch[0]).toBe(0);
+    expect(ch[1]).toBeCloseTo(0.25, 5);
+    expect(ch[2]).toBeCloseTo(0.5, 5);
+    expect(ch[3]).toBeCloseTo(0.75, 5);
+    expect(ch[4]).toBe(1);
+  });
+
+  it("clamp-to-boundary outside the points' frame range (left & right)", () => {
+    // Points at frames 1 and 3 — frames 0 (left of first) and 4 (right of last)
+    // clamp to the boundary point's gain instead of passing through.
+    const out = applyVolumeEnvelope(mono(1, 1, 1, 1, 1), [
+      { frame: 1, gain: 0.5 },
+      { frame: 3, gain: 1.5 },
+    ]);
+    const ch = out.channels[0]!;
+    expect(ch[0]).toBeCloseTo(0.5, 5); // clamp-left
+    expect(ch[1]).toBeCloseTo(0.5, 5);
+    expect(ch[2]).toBeCloseTo(1.0, 5);
+    expect(ch[3]).toBeCloseTo(1.5, 5);
+    expect(ch[4]).toBeCloseTo(1.5, 5); // clamp-right
+  });
+
+  it("multi-segment envelope walks each segment in turn", () => {
+    // 0 → 1 → 0 over 4 frames.
+    const out = applyVolumeEnvelope(mono(1, 1, 1, 1, 1), [
+      { frame: 0, gain: 0 },
+      { frame: 2, gain: 1 },
+      { frame: 4, gain: 0 },
+    ]);
+    const ch = out.channels[0]!;
+    expect(ch[0]).toBe(0);
+    expect(ch[1]).toBeCloseTo(0.5, 5);
+    expect(ch[2]).toBeCloseTo(1, 5);
+    expect(ch[3]).toBeCloseTo(0.5, 5);
+    expect(ch[4]).toBe(0);
+  });
+
+  it("returns the input untouched when fewer than 2 points are supplied", () => {
+    const w = mono(1, 1, 1);
+    expect(applyVolumeEnvelope(w, [])).toBe(w);
+    expect(applyVolumeEnvelope(w, [{ frame: 0, gain: 0.5 }])).toBe(w);
+  });
+
+  it("defensively sorts unsorted points by frame", () => {
+    // Same envelope as the linear-interp test, but with points reversed.
+    const out = applyVolumeEnvelope(mono(1, 1, 1, 1, 1), [
+      { frame: 4, gain: 1 },
+      { frame: 0, gain: 0 },
+    ]);
+    const ch = out.channels[0]!;
+    expect(ch[0]).toBe(0);
+    expect(ch[2]).toBeCloseTo(0.5, 5);
+    expect(ch[4]).toBe(1);
   });
 });
 
@@ -134,46 +190,6 @@ describe("applyCut", () => {
   it("returns the same reference when the cut is empty", () => {
     const w = mono(0, 1, 2);
     expect(applyCut(w, 1, 1)).toBe(w);
-  });
-});
-
-describe("applyFadeIn / applyFadeOut", () => {
-  it("fade-in ramps from 0 to 1 over [start, end), leaves the tail untouched", () => {
-    // start=0, end=4 — same as the old `frames=4` form on a length-5 input.
-    const out = applyFadeIn(mono(1, 1, 1, 1, 1), 0, 4);
-    const ch = out.channels[0]!;
-    expect(ch[0]).toBe(0);
-    expect(ch[1]).toBeCloseTo(0.25, 5);
-    expect(ch[2]).toBeCloseTo(0.5, 5);
-    expect(ch[3]).toBeCloseTo(0.75, 5);
-    expect(ch[4]).toBe(1); // outside the range — untouched
-  });
-
-  it("fade-in over a middle range only modulates within the range", () => {
-    const out = applyFadeIn(mono(1, 1, 1, 1, 1), 1, 3);
-    const ch = out.channels[0]!;
-    expect(ch[0]).toBe(1); // before start — untouched
-    expect(ch[1]).toBe(0); // ramp start
-    expect(ch[2]).toBeCloseTo(0.5, 5);
-    expect(ch[3]).toBe(1); // after end — untouched
-    expect(ch[4]).toBe(1);
-  });
-
-  it("fade-out ramps from 1 to 0 over [start, end), leaves the head untouched", () => {
-    // start=1, end=5 — same as the old `frames=4` tail form on a length-5 input.
-    const out = applyFadeOut(mono(1, 1, 1, 1, 1), 1, 5);
-    const ch = out.channels[0]!;
-    expect(ch[0]).toBe(1); // before start — untouched
-    expect(ch[1]).toBeCloseTo(1, 5);
-    expect(ch[2]).toBeCloseTo(0.75, 5);
-    expect(ch[3]).toBeCloseTo(0.5, 5);
-    expect(ch[4]).toBeCloseTo(0.25, 5);
-  });
-
-  it("empty range is a noop", () => {
-    const w = mono(1, 1, 1);
-    expect(applyFadeIn(w, 0, 0)).toBe(w);
-    expect(applyFadeOut(w, 1, 1)).toBe(w);
   });
 });
 
@@ -310,7 +326,16 @@ describe("applyCrossfade", () => {
 describe("runChain", () => {
   it("runs effects in order", () => {
     const out = runChain(mono(0.25, -0.5, 0.5), [
-      { kind: "gain", params: { gain: 2 } }, // ×2 → 0.5, -1, 1
+      // 2-point flat envelope at gain 2 → constant ×2: 0.5, -1, 1
+      {
+        kind: "volume",
+        params: {
+          points: [
+            { frame: 0, gain: 2 },
+            { frame: 2, gain: 2 },
+          ],
+        },
+      },
       { kind: "reverse", params: { startFrame: 0, endFrame: 3 } }, // → 1, -1, 0.5
     ]);
     expect(Array.from(out.channels[0]!)).toEqual([1, -1, 0.5]);
@@ -365,7 +390,17 @@ describe("runPipeline (end-to-end)", () => {
         wav: stereo([0.5, 0.5], [-0.5, -0.5]),
         sourceName: "demo",
       },
-      chain: [{ kind: "gain", params: { gain: 2 } }], // → 1, 1 / -1, -1
+      chain: [
+        {
+          kind: "volume",
+          params: {
+            points: [
+              { frame: 0, gain: 2 },
+              { frame: 1, gain: 2 },
+            ],
+          },
+        },
+      ], // → 1, 1 / -1, -1
       pt: { monoMix: "average", targetNote: null }, // → 0, 0
       alt: null,
     };
@@ -866,17 +901,28 @@ describe("defaultEffect (UI factory)", () => {
     }
   });
 
-  it("gain defaults to ×1 (audibly identity)", () => {
-    const e = defaultEffect("gain", mono(0));
-    if (e.kind === "gain") expect(e.params.gain).toBe(1);
+  it("volume defaults to a 2-point flat envelope at gain 1 (no-op)", () => {
+    const e = defaultEffect("volume", mono(0, 0, 0));
+    expect(e.kind).toBe("volume");
+    if (e.kind === "volume") {
+      expect(e.params.points.length).toBe(2);
+      expect(e.params.points.every((p) => p.gain === 1)).toBe(true);
+    }
   });
 });
 
 describe("applyEffect dispatcher", () => {
   it("dispatches each kind to its specialised function", () => {
     expect(
-      applyEffect(mono(1, -1), { kind: "gain", params: { gain: 0.5 } })
-        .channels[0],
+      applyEffect(mono(1, -1), {
+        kind: "volume",
+        params: {
+          points: [
+            { frame: 0, gain: 0.5 },
+            { frame: 1, gain: 0.5 },
+          ],
+        },
+      }).channels[0],
     ).toEqual(Float32Array.from([0.5, -0.5]));
     expect(
       applyEffect(mono(1, 2, 3), {

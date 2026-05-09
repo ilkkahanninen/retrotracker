@@ -16,6 +16,7 @@ import {
   materializeSource,
   sourceDisplayName,
   type EffectNode,
+  type EnvelopePoint,
   type FilterType,
   type MonoMix,
   type ResampleMode,
@@ -57,6 +58,26 @@ export interface PipelineEditorProps {
   onSetTargetNote: (targetNote: number | null) => void;
   onSetResampleMode: (mode: ResampleMode) => void;
   onSetDither: (dither: boolean) => void;
+  /** Index of the chain entry whose visual editor (e.g. the volume
+   *  envelope overlay) is active, or null. */
+  selectedEffectIndex: number | null;
+  /** Click on a chain entry → select it as the active editor. Pass
+   *  `null` to deselect. */
+  onSelectEffect: (index: number | null) => void;
+}
+
+/** "3 points · gain 0.50..1.20" — compact one-liner for the envelope
+ *  summary in the chain editor. The overlay on the waveform is the
+ *  actual editor; this is just orientation. */
+function volumeSummary(points: ReadonlyArray<EnvelopePoint>): string {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const p of points) {
+    if (p.gain < lo) lo = p.gain;
+    if (p.gain > hi) hi = p.gain;
+  }
+  const noun = points.length === 1 ? "point" : "points";
+  return `${points.length} ${noun} · gain ${lo.toFixed(2)}..${hi.toFixed(2)}`;
 }
 
 export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
@@ -86,48 +107,65 @@ export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
             Without this, a controlled <input> loses focus on every keystroke
             because the patch produces a new node object at the same index. */}
         <Index each={props.wb.chain}>
-          {(node, i) => (
-            <li class="effect-node">
-              <div class="effect-node__controls">
-                <button
-                  type="button"
-                  title="Move up"
-                  aria-label={`Move effect ${i + 1} up`}
-                  disabled={i === 0}
-                  onClick={() => props.onMoveEffect(i, -1)}
-                >
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  title="Move down"
-                  aria-label={`Move effect ${i + 1} down`}
-                  disabled={i === props.wb.chain.length - 1}
-                  onClick={() => props.onMoveEffect(i, 1)}
-                >
-                  ↓
-                </button>
-                <button
-                  type="button"
-                  title="Remove effect"
-                  aria-label={`Remove effect ${i + 1}`}
-                  onClick={() => props.onRemoveEffect(i)}
-                >
-                  ×
-                </button>
-              </div>
-              <div class="effect-node__body">
-                <span class="effect-node__kind">
-                  {EFFECT_LABELS[node().kind]}
-                </span>
-                <EffectParams
-                  node={node()}
-                  sourceFrames={sourceFrames()}
-                  onPatch={(next) => props.onPatchEffect(i, next)}
-                />
-              </div>
-            </li>
-          )}
+          {(node, i) => {
+            const isSelected = () => props.selectedEffectIndex === i;
+            return (
+              <li
+                class="effect-node"
+                classList={{ "effect-node--selected": isSelected() }}
+                aria-current={isSelected() ? "true" : undefined}
+                onClick={() => props.onSelectEffect(isSelected() ? null : i)}
+              >
+                <div class="effect-node__controls">
+                  <button
+                    type="button"
+                    title="Move up"
+                    aria-label={`Move effect ${i + 1} up`}
+                    disabled={i === 0}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      props.onMoveEffect(i, -1);
+                    }}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    title="Move down"
+                    aria-label={`Move effect ${i + 1} down`}
+                    disabled={i === props.wb.chain.length - 1}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      props.onMoveEffect(i, 1);
+                    }}
+                  >
+                    ↓
+                  </button>
+                  <button
+                    type="button"
+                    title="Remove effect"
+                    aria-label={`Remove effect ${i + 1}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      props.onRemoveEffect(i);
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+                <div class="effect-node__body">
+                  <span class="effect-node__kind">
+                    {EFFECT_LABELS[node().kind]}
+                  </span>
+                  <EffectParams
+                    node={node()}
+                    sourceFrames={sourceFrames()}
+                    onPatch={(next) => props.onPatchEffect(i, next)}
+                  />
+                </div>
+              </li>
+            );
+          }}
         </Index>
       </ol>
       {/* Hide the row entirely when there's nothing to apply — a disabled
@@ -227,7 +265,7 @@ interface EffectParamsProps {
 }
 
 /** Discriminated-union narrowing of the range-aware kinds. */
-type RangeKind = "reverse" | "crop" | "cut" | "fadeIn" | "fadeOut";
+type RangeKind = "reverse" | "crop" | "cut";
 
 const EffectParams: Component<EffectParamsProps> = (props) => {
   // Non-keyed Match (static children, no `(n) => ...` callback) so the
@@ -235,7 +273,7 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
   // would otherwise jump on every keystroke. Each Match's `when` predicate
   // narrows the discriminated union, but TS can't see that across the
   // children boundary, so we re-narrow with typed accessors.
-  const asGain = () => props.node as Extract<EffectNode, { kind: "gain" }>;
+  const asVolume = () => props.node as Extract<EffectNode, { kind: "volume" }>;
   const asRange = () => props.node as Extract<EffectNode, { kind: RangeKind }>;
   const asFilter = () => props.node as Extract<EffectNode, { kind: "filter" }>;
   const asCrossfade = () =>
@@ -243,18 +281,10 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
   const asShaper = () => props.node as Extract<EffectNode, { kind: "shaper" }>;
   return (
     <Switch>
-      <Match when={props.node.kind === "gain"}>
-        <Slider
-          label="Gain ×"
-          min={0}
-          max={4}
-          step={0.01}
-          value={asGain().params.gain}
-          format={(v) => v.toFixed(2)}
-          onInput={(v) =>
-            props.onPatch({ kind: "gain", params: { gain: Math.max(0, v) } })
-          }
-        />
+      <Match when={props.node.kind === "volume"}>
+        <span class="effect-node__hint">
+          {volumeSummary(asVolume().params.points)}
+        </span>
       </Match>
       <Match when={props.node.kind === "normalize"}>
         <span class="effect-node__hint">Scales to peak ±1.0</span>
@@ -386,9 +416,7 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
         when={
           props.node.kind === "reverse" ||
           props.node.kind === "crop" ||
-          props.node.kind === "cut" ||
-          props.node.kind === "fadeIn" ||
-          props.node.kind === "fadeOut"
+          props.node.kind === "cut"
         }
       >
         <Slider
