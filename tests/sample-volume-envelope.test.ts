@@ -19,6 +19,7 @@ import {
   patchEnvelopePoint,
   removeEnvelopePoint,
   nudgeEnvelopeSegment,
+  setEffectBypass,
 } from "../src/state/sampleEdit";
 import { addEffect } from "../src/state/sampleEdit";
 import { clearHistory, setSong, setTransport, song } from "../src/state/song";
@@ -437,6 +438,67 @@ describe("pitch envelope state actions", () => {
     const before = getWorkbench(0)!.chain;
     addEnvelopePoint(0, "volume", { frame: 50, value: 1.5 });
     addEnvelopePoint(0, "cutoff", { frame: 50, value: 1000 });
+    expect(getWorkbench(0)!.chain).toEqual(before);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Bypass: per-effect on/off toggle that preserves params.
+// ──────────────────────────────────────────────────────────────────────
+
+describe("setEffectBypass", () => {
+  it("setting bypassed=true marks the chain entry as bypassed", () => {
+    seedWithVolume();
+    setEffectBypass(0, true);
+    const node = getWorkbench(0)!.chain[0]!;
+    expect(node.bypassed).toBe(true);
+  });
+
+  it("setting bypassed=false strips the field entirely (clean serialisation)", () => {
+    seedWithVolume();
+    setEffectBypass(0, true);
+    setEffectBypass(0, false);
+    const node = getWorkbench(0)!.chain[0]!;
+    expect("bypassed" in node).toBe(false);
+  });
+
+  it("bypass preserves the effect's params for easy A/B", () => {
+    seedWithVolume();
+    addEnvelopePoint(0, "volume", { frame: 50, value: 0.25 });
+    const beforeBypass = getWorkbench(0)!.chain[0]!;
+    if (beforeBypass.kind !== "volume") throw new Error("expected volume");
+    const pointsBefore = beforeBypass.params.points;
+
+    setEffectBypass(0, true);
+    setEffectBypass(0, false);
+
+    const after = getWorkbench(0)!.chain[0]!;
+    if (after.kind !== "volume") throw new Error("expected volume");
+    expect(after.params.points).toEqual(pointsBefore);
+  });
+
+  it("bypassing a length-changing effect (pitch) restores the original int8 length", () => {
+    seedWithPitch();
+    const baselineLen = song()!.samples[0]!.lengthWords;
+    // 2× pitch halves the slot length.
+    patchEnvelopePoint(0, "pitch", 0, { value: 2 });
+    patchEnvelopePoint(0, "pitch", 1, { value: 2 });
+    const sped = song()!.samples[0]!.lengthWords;
+    expect(sped).toBeLessThan(baselineLen);
+    // Bypass it — the pipeline re-runs and the slot length returns
+    // to (approximately) baseline.
+    setEffectBypass(0, true);
+    const restored = song()!.samples[0]!.lengthWords;
+    // Allow ±2 words for word-alignment / boundary effects elsewhere
+    // in the chain.
+    expect(Math.abs(restored - baselineLen)).toBeLessThanOrEqual(2);
+  });
+
+  it("ignores out-of-range chain indices", () => {
+    seedWithVolume();
+    const before = getWorkbench(0)!.chain;
+    setEffectBypass(99, true);
+    setEffectBypass(-1, true);
     expect(getWorkbench(0)!.chain).toEqual(before);
   });
 });

@@ -605,6 +605,28 @@ export function patchEffect(index: number, next: EffectNode): void {
   updateCurrentWorkbench({ ...wb, chain });
 }
 
+/**
+ * Toggle the bypass flag on chain[index]. A bypassed effect short-
+ * circuits to a pass-through inside `applyEffect` (params are kept, so
+ * un-bypassing restores the previous behaviour without re-entry).
+ */
+export function setEffectBypass(index: number, bypassed: boolean): void {
+  const wb = getWorkbench(currentSample() - 1);
+  if (!wb) return;
+  const node = wb.chain[index];
+  if (!node) return;
+  // Drop the field entirely when re-enabling, so a reset effect serialises
+  // bit-identical to its pre-bypass form (no `bypassed: false` cruft).
+  const next: EffectNode = bypassed
+    ? { ...node, bypassed: true }
+    : (() => {
+        const { bypassed: _drop, ...rest } = node;
+        void _drop;
+        return rest as EffectNode;
+      })();
+  patchEffect(index, next);
+}
+
 // ─── Envelope point editing ──────────────────────────────────────────────
 
 /** Pull the envelope addressed by `(chainIndex, param)`, or null when

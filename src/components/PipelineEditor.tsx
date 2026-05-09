@@ -53,6 +53,9 @@ export interface PipelineEditorProps {
   onRemoveEffect: (index: number) => void;
   onMoveEffect: (index: number, delta: -1 | 1) => void;
   onPatchEffect: (index: number, next: EffectNode) => void;
+  /** Toggle a chain entry's bypass flag — when bypassed the effect
+   *  short-circuits to a pass-through but its params stay intact. */
+  onSetEffectBypass: (index: number, bypassed: boolean) => void;
   /** Burn the chain into the source. See SampleView.Props.onApplyChain. */
   onApplyChain: () => void;
   onSetMonoMix: (monoMix: MonoMix) => void;
@@ -127,14 +130,38 @@ export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
         <Index each={props.wb.chain}>
           {(node, i) => {
             const isSelected = () => props.selectedEffectIndex === i;
+            const isBypassed = () => node().bypassed === true;
             return (
               <li
                 class="effect-node"
-                classList={{ "effect-node--selected": isSelected() }}
+                classList={{
+                  "effect-node--selected": isSelected(),
+                  "effect-node--bypassed": isBypassed(),
+                }}
                 aria-current={isSelected() ? "true" : undefined}
                 onClick={() => props.onSelectEffect(isSelected() ? null : i)}
               >
                 <div class="effect-node__controls">
+                  <button
+                    type="button"
+                    title={isBypassed() ? "Enable effect" : "Bypass effect"}
+                    aria-label={
+                      isBypassed()
+                        ? `Enable effect ${i + 1}`
+                        : `Bypass effect ${i + 1}`
+                    }
+                    aria-pressed={isBypassed() ? "true" : "false"}
+                    classList={{
+                      "effect-node__bypass": true,
+                      "effect-node__bypass--on": isBypassed(),
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      props.onSetEffectBypass(i, !isBypassed());
+                    }}
+                  >
+                    ⏻
+                  </button>
                   <button
                     type="button"
                     title="Move up"

@@ -601,8 +601,27 @@ function parseEnvelopeOrSingle(
  *  best-effort — a fadeIn / fadeOut over [s, e) doesn't have an exact
  *  representation as a clamp-to-boundary envelope without a 1-frame
  *  artificial drop, so the migrated envelope can disagree with the old
- *  effect by ≤ 1 frame at the boundary. Practically inaudible. */
+ *  effect by ≤ 1 frame at the boundary. Practically inaudible.
+ *
+ *  After parsing the kind-specific fields, a top-level `bypassed: true`
+ *  on the raw payload is attached to the node so the user's bypass
+ *  toggle survives a save/load. Other truthy values (or absence)
+ *  produce no `bypassed` field at all (the type's `bypassed?: boolean`
+ *  default of "not bypassed" stands). */
 function parseEffectNode(v: unknown): EffectNode | null {
+  const node = parseEffectNodeInner(v);
+  if (!node) return null;
+  if (
+    v &&
+    typeof v === "object" &&
+    (v as Record<string, unknown>)["bypassed"] === true
+  ) {
+    return { ...node, bypassed: true };
+  }
+  return node;
+}
+
+function parseEffectNodeInner(v: unknown): EffectNode | null {
   if (!v || typeof v !== "object") return null;
   const x = v as Record<string, unknown>;
   const kind = x["kind"];

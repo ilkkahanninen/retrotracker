@@ -1434,6 +1434,26 @@ h2 {
   border-color: #ffa64d;
   background: rgba(255, 166, 77, 0.08);
 }
+/* Bypassed effects dim across the whole row + body so the user can see
+   at a glance which entries are inactive. The bypass toggle button
+   itself stays full-opacity so it's still discoverable. */
+.effect-node--bypassed > .effect-node__body,
+.effect-node--bypassed
+  > .effect-node__controls
+  > button:not(.effect-node__bypass) {
+  opacity: 0.4;
+}
+/* Bypass toggle: borderless little power icon that lights up cyan when
+   the effect is bypassed (active toggle state = effect is OFF). */
+.effect-node__bypass {
+  font-size: 13px;
+  line-height: 1;
+}
+.effect-node__bypass--on {
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
 .effect-node__controls {
   display: flex;
   gap: 2px;

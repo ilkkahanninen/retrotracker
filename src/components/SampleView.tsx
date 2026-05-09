@@ -158,6 +158,9 @@ interface Props {
   onRemoveEffect: (index: number) => void;
   onMoveEffect: (index: number, delta: -1 | 1) => void;
   onPatchEffect: (index: number, next: EffectNode) => void;
+  /** Toggle a chain entry's bypass (effect short-circuits to pass-through
+   *  but its params stay intact for easy A/B). */
+  onSetEffectBypass: (index: number, bypassed: boolean) => void;
   /**
    * Burn the workbench's effect chain into its source: replace the source
    * WAV with the chain output and clear the chain. PT params are preserved
@@ -768,6 +771,7 @@ export const SampleView: Component<Props> = (props) => {
             onRemoveEffect={props.onRemoveEffect}
             onMoveEffect={props.onMoveEffect}
             onPatchEffect={props.onPatchEffect}
+            onSetEffectBypass={props.onSetEffectBypass}
             onApplyChain={props.onApplyChain}
             onSetMonoMix={props.onSetMonoMix}
             onSetTargetNote={props.onSetTargetNote}

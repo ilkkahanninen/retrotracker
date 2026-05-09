@@ -472,3 +472,81 @@ describe("persistence: pitch effect (v=8)", () => {
     }
   });
 });
+
+describe("persistence: bypass flag round-trips", () => {
+  const wav = {
+    sampleRate: 22050,
+    channels: [new Float32Array(100).fill(0.25)],
+  };
+  const flat2 = (v: number) => [
+    { frame: 0, value: v },
+    { frame: 99, value: v },
+  ];
+
+  it("a bypassed effect serialises with bypassed:true and restores it", () => {
+    const bytes = projectToBytes({
+      ...baseInputs(),
+      samplerSources: {
+        0: {
+          sourceName: "test",
+          wav,
+          chain: [
+            {
+              kind: "volume",
+              bypassed: true,
+              params: { points: flat2(1.5) },
+            },
+          ],
+          pt: { monoMix: "average", targetNote: 12 },
+        },
+      },
+    });
+    // On disk the field is present and true.
+    const parsed = JSON.parse(new TextDecoder().decode(bytes));
+    expect(parsed.samplerSources["0"].chain[0].bypassed).toBe(true);
+    // Round-trip preserves it.
+    const restored = projectFromBytes(bytes);
+    expect(restored).not.toBeNull();
+    expect(restored!.samplerSources[0]!.chain[0]!.bypassed).toBe(true);
+  });
+
+  it("an un-bypassed effect omits the field on disk (bit-identical to pre-bypass)", () => {
+    const bytes = projectToBytes({
+      ...baseInputs(),
+      samplerSources: {
+        0: {
+          sourceName: "test",
+          wav,
+          chain: [{ kind: "volume", params: { points: flat2(1) } }],
+          pt: { monoMix: "average", targetNote: 12 },
+        },
+      },
+    });
+    const parsed = JSON.parse(new TextDecoder().decode(bytes));
+    expect("bypassed" in parsed.samplerSources["0"].chain[0]).toBe(false);
+  });
+
+  it("bypassed:false (explicit) parses back as not-bypassed (field absent)", () => {
+    // Tamper a payload to inject `bypassed: false` and confirm it
+    // doesn't survive — the parser only attaches when the field is
+    // truthy, so the in-memory shape stays clean.
+    const bytes = projectToBytes({
+      ...baseInputs(),
+      samplerSources: {
+        0: {
+          sourceName: "test",
+          wav,
+          chain: [{ kind: "volume", params: { points: flat2(1) } }],
+          pt: { monoMix: "average", targetNote: 12 },
+        },
+      },
+    });
+    const text = new TextDecoder().decode(bytes);
+    const parsed = JSON.parse(text);
+    parsed.samplerSources["0"].chain[0].bypassed = false;
+    const tampered = new TextEncoder().encode(JSON.stringify(parsed));
+    const restored = projectFromBytes(tampered);
+    const node = restored!.samplerSources[0]!.chain[0]!;
+    expect("bypassed" in node).toBe(false);
+  });
+});

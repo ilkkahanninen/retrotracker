@@ -1106,3 +1106,120 @@ describe("source picker: alt-stash round-trip", () => {
     expect(populated.source.wav.channels[0]!.length).toBeGreaterThan(0);
   });
 });
+
+describe("pipeline editor: bypass toggle", () => {
+  it("clicking ⏻ on a chain entry sets the bypassed flag and dims the row", () => {
+    setView("sample");
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: {
+        sampleRate: 44100,
+        channels: [new Float32Array([0.5, -0.5])],
+      },
+      sourceName: "demo",
+      // Volume × 2 will turn 0.5 into ±127 (clipped at int8 max). When
+      // bypassed it falls back to ±64.
+      chain: [
+        {
+          kind: "volume",
+          params: {
+            points: [
+              { frame: 0, value: 2 },
+              { frame: 1, value: 2 },
+            ],
+          },
+        },
+      ],
+      pt: { monoMix: "average", targetNote: null },
+    });
+    expect(song()!.samples[0]!.data[0]!).toBe(127);
+
+    const bypassBtn = container.querySelector<HTMLButtonElement>(
+      ".effect-node__bypass",
+    )!;
+    fireEvent.click(bypassBtn);
+
+    // State + DOM both updated.
+    expect(getWorkbench(0)!.chain[0]!.bypassed).toBe(true);
+    expect(
+      container
+        .querySelector(".effect-node")!
+        .classList.contains("effect-node--bypassed"),
+    ).toBe(true);
+    // The pipeline re-ran without the volume × 2 — output halves.
+    expect(song()!.samples[0]!.data[0]!).toBeLessThan(127);
+  });
+
+  it("clicking the bypass toggle a second time re-enables the effect", () => {
+    setView("sample");
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: {
+        sampleRate: 44100,
+        channels: [new Float32Array([0.5, -0.5])],
+      },
+      sourceName: "demo",
+      chain: [
+        {
+          kind: "volume",
+          params: {
+            points: [
+              { frame: 0, value: 2 },
+              { frame: 1, value: 2 },
+            ],
+          },
+        },
+      ],
+      pt: { monoMix: "average", targetNote: null },
+    });
+    const bypassBtn = container.querySelector<HTMLButtonElement>(
+      ".effect-node__bypass",
+    )!;
+    fireEvent.click(bypassBtn);
+    fireEvent.click(bypassBtn);
+    // Field should be gone (clean toggle), effect runs again.
+    const node = getWorkbench(0)!.chain[0]!;
+    expect("bypassed" in node).toBe(false);
+    expect(song()!.samples[0]!.data[0]!).toBe(127);
+  });
+
+  it("the bypass click doesn't deselect the chain entry (event propagation stopped)", () => {
+    setView("sample");
+    const { container } = render(() => <App />);
+    seedSampleWithWorkbench({
+      source: {
+        sampleRate: 44100,
+        channels: [new Float32Array([0.5])],
+      },
+      sourceName: "demo",
+      chain: [
+        {
+          kind: "volume",
+          params: {
+            points: [
+              { frame: 0, value: 1 },
+              { frame: 1, value: 1 },
+            ],
+          },
+        },
+      ],
+      pt: { monoMix: "average", targetNote: null },
+    });
+    // Select the entry first (click the row).
+    fireEvent.click(container.querySelector(".effect-node")!);
+    expect(
+      container
+        .querySelector(".effect-node")!
+        .classList.contains("effect-node--selected"),
+    ).toBe(true);
+    // Click bypass — selection survives.
+    fireEvent.click(
+      container.querySelector<HTMLButtonElement>(".effect-node__bypass")!,
+    );
+    expect(
+      container
+        .querySelector(".effect-node")!
+        .classList.contains("effect-node--selected"),
+    ).toBe(true);
+  });
+});

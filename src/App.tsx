@@ -93,6 +93,7 @@ import {
   removeEnvelopePoint,
   renameSample,
   setDither,
+  setEffectBypass,
   setMonoMix,
   setResampleMode,
   setSourceKind,
@@ -978,6 +979,7 @@ export const App: Component = () => {
                   onRemoveEffect={removeEffect}
                   onMoveEffect={moveEffect}
                   onPatchEffect={patchEffect}
+                  onSetEffectBypass={setEffectBypass}
                   onApplyChain={applyChainToSource}
                   onSetMonoMix={setMonoMix}
                   onSetTargetNote={setTargetNote}

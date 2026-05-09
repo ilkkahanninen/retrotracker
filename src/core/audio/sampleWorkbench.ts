@@ -135,54 +135,70 @@ export const PARAM_AXES: Readonly<Record<EnvelopeParamKey, ParamAxis>> = {
 export const ENVELOPE_GAIN_MIN = PARAM_AXES.volume.min;
 export const ENVELOPE_GAIN_MAX = PARAM_AXES.volume.max;
 
-export type EffectNode =
-  | { kind: "volume"; params: { points: ReadonlyArray<EnvelopePoint> } }
-  | { kind: "normalize" }
-  | { kind: "reverse"; params: { startFrame: number; endFrame: number } }
-  | { kind: "crop"; params: { startFrame: number; endFrame: number } }
-  | { kind: "cut"; params: { startFrame: number; endFrame: number } }
-  | {
-      kind: "filter";
-      params: {
-        /** 'lowpass' attenuates above cutoff, 'highpass' attenuates below. */
-        type: FilterType;
-        /** Cutoff envelope, values in Hz (clamped to [10, sourceRate/2) at apply time). */
-        cutoff: ReadonlyArray<EnvelopePoint>;
-        /** Resonance envelope, values in [0.05, 30]. ~0.707 ≈ Butterworth. */
-        q: ReadonlyArray<EnvelopePoint>;
-      };
-    }
-  | {
-      kind: "crossfade";
-      params: {
-        /** Crossfade window length in source-frame units. */
-        length: number;
-      };
-    }
-  | {
-      kind: "shaper";
-      params: {
-        /** Waveshaper mode — see SHAPER_MODES in shapers.ts. */
-        mode: ShaperMode;
-        /** Drive / wet-dry blend envelope, values in [0, 1]. */
-        amount: ReadonlyArray<EnvelopePoint>;
-      };
-    }
-  | {
-      kind: "pitch";
-      params: {
-        /**
-         * Per-frame playback-speed multiplier. The envelope's X axis is
-         * input frames; at each input frame, the value defines how
-         * quickly the read head advances (1.0 = original, 2.0 = twice
-         * as fast → output half as long, 0.5 = half speed → output
-         * twice as long). Values clamped to [0.25, 4] at apply time.
-         * The output length is variable, computed from the integral of
-         * 1/speed across the input.
-         */
-        envelope: ReadonlyArray<EnvelopePoint>;
-      };
-    };
+/**
+ * Common fields every effect kind carries. Currently just `bypassed` —
+ * an optional toggle that short-circuits the effect to a pass-through
+ * (`applyEffect` returns the input unchanged) without removing the node
+ * from the chain. Lets the user A/B an edit without losing its params.
+ *
+ * Optional + defaulting-to-false keeps old payloads byte-identical: an
+ * effect with no `bypassed` field reads as not bypassed and serialises
+ * without it.
+ */
+interface EffectNodeCommon {
+  bypassed?: boolean;
+}
+
+export type EffectNode = EffectNodeCommon &
+  (
+    | { kind: "volume"; params: { points: ReadonlyArray<EnvelopePoint> } }
+    | { kind: "normalize" }
+    | { kind: "reverse"; params: { startFrame: number; endFrame: number } }
+    | { kind: "crop"; params: { startFrame: number; endFrame: number } }
+    | { kind: "cut"; params: { startFrame: number; endFrame: number } }
+    | {
+        kind: "filter";
+        params: {
+          /** 'lowpass' attenuates above cutoff, 'highpass' attenuates below. */
+          type: FilterType;
+          /** Cutoff envelope, values in Hz (clamped to [10, sourceRate/2) at apply time). */
+          cutoff: ReadonlyArray<EnvelopePoint>;
+          /** Resonance envelope, values in [0.05, 30]. ~0.707 ≈ Butterworth. */
+          q: ReadonlyArray<EnvelopePoint>;
+        };
+      }
+    | {
+        kind: "crossfade";
+        params: {
+          /** Crossfade window length in source-frame units. */
+          length: number;
+        };
+      }
+    | {
+        kind: "shaper";
+        params: {
+          /** Waveshaper mode — see SHAPER_MODES in shapers.ts. */
+          mode: ShaperMode;
+          /** Drive / wet-dry blend envelope, values in [0, 1]. */
+          amount: ReadonlyArray<EnvelopePoint>;
+        };
+      }
+    | {
+        kind: "pitch";
+        params: {
+          /**
+           * Per-frame playback-speed multiplier. The envelope's X axis is
+           * input frames; at each input frame, the value defines how
+           * quickly the read head advances (1.0 = original, 2.0 = twice
+           * as fast → output half as long, 0.5 = half speed → output
+           * twice as long). Values clamped to [0.25, 4] at apply time.
+           * The output length is variable, computed from the integral of
+           * 1/speed across the input.
+           */
+          envelope: ReadonlyArray<EnvelopePoint>;
+        };
+      }
+  );
 
 export type EffectKind = EffectNode["kind"];
 
@@ -818,6 +834,9 @@ export function applyEffect(
   node: EffectNode,
   ctx?: RunContext | null,
 ): WavData {
+  // Bypassed effects return their input verbatim. Returning the same
+  // reference is safe — the chain treats inputs as immutable.
+  if (node.bypassed) return input;
   switch (node.kind) {
     case "volume":
       return applyVolumeEnvelope(input, node.params.points);

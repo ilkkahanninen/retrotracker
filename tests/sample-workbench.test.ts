@@ -1274,3 +1274,76 @@ describe("applyPitch", () => {
     expect(out).toBe(w);
   });
 });
+
+describe("applyEffect: bypass short-circuits to the input", () => {
+  it("a bypassed effect returns its input verbatim, params untouched", () => {
+    // Volume × 2 with bypassed=true should NOT scale the input.
+    const w = mono(0.5, -0.5);
+    const out = applyEffect(w, {
+      kind: "volume",
+      bypassed: true,
+      params: {
+        points: [
+          { frame: 0, value: 2 },
+          { frame: 1, value: 2 },
+        ],
+      },
+    });
+    // Same reference → no copy, no transformation.
+    expect(out).toBe(w);
+  });
+
+  it("an un-bypassed effect runs as normal (regression check)", () => {
+    const out = applyEffect(mono(0.5, -0.5), {
+      kind: "volume",
+      params: {
+        points: [
+          { frame: 0, value: 2 },
+          { frame: 1, value: 2 },
+        ],
+      },
+    });
+    expect(Array.from(out.channels[0]!)).toEqual([1, -1]);
+  });
+
+  it("toggling bypass on a length-changing effect (pitch) restores original length", () => {
+    // Pitch×2 normally halves the output. With bypass, it passes through
+    // at full input length.
+    const w = mono(...new Array(40).fill(0.5));
+    const sped = applyEffect(w, {
+      kind: "pitch",
+      params: {
+        envelope: [
+          { frame: 0, value: 2 },
+          { frame: 39, value: 2 },
+        ],
+      },
+    });
+    expect(sped.channels[0]!.length).toBeLessThan(w.channels[0]!.length);
+    const bypassed = applyEffect(w, {
+      kind: "pitch",
+      bypassed: true,
+      params: {
+        envelope: [
+          { frame: 0, value: 2 },
+          { frame: 39, value: 2 },
+        ],
+      },
+    });
+    expect(bypassed).toBe(w);
+  });
+
+  it("bypassed: false (explicitly) is treated the same as no bypassed field", () => {
+    const out = applyEffect(mono(0.5), {
+      kind: "volume",
+      bypassed: false,
+      params: {
+        points: [
+          { frame: 0, value: 2 },
+          { frame: 1, value: 2 },
+        ],
+      },
+    });
+    expect(out.channels[0]![0]).toBeCloseTo(1, 5);
+  });
+});
