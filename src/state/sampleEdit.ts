@@ -43,6 +43,8 @@ import {
   getImportedStash,
   stashImportedSample,
 } from "./importedStash";
+import { sampleClipboard, setSampleClipboard } from "./sampleClipboard";
+import { sampleSelection } from "./sampleSelection";
 import { selection } from "./selection";
 import { activePreview } from "./preview";
 import { livePreviewSwap } from "./playback";
@@ -346,6 +348,97 @@ export const cropCurrentSampleToSelection = (
 ): void => applySelectionEdit("crop", start, end);
 export const cutCurrentSampleSelection = (start: number, end: number): void =>
   applySelectionEdit("cut", start, end);
+
+/**
+ * Resolve the byte range an end-user clipboard op (Copy / Cut) should
+ * act on. Selection wins; otherwise fall back to the whole sample.
+ * Empty slot → null (caller should no-op).
+ *
+ * The "whole sample if no selection" fallback is the user's chosen
+ * policy — diverges from the pattern clipboard (which requires a
+ * selection) so Cmd+C with nothing selected still does the obvious
+ * thing in the sample view.
+ */
+export function effectiveSampleRange(): {
+  start: number;
+  end: number;
+} | null {
+  const slot = currentSample() - 1;
+  const s = song()?.samples[slot];
+  if (!s || s.data.byteLength < 1) return null;
+  const sel = sampleSelection();
+  if (sel && sel.end - sel.start >= 1) {
+    const start = Math.max(0, Math.min(s.data.byteLength, sel.start));
+    const end = Math.max(start, Math.min(s.data.byteLength, sel.end));
+    if (end - start < 1) return null;
+    return { start, end };
+  }
+  return { start: 0, end: s.data.byteLength };
+}
+
+/**
+ * Slice the active slot's int8 bytes onto the sample clipboard. No-op
+ * when the slot is empty. Bytes are copied (not referenced) so a later
+ * cut / pipeline edit doesn't mutate the clipboard slice.
+ */
+export function copySampleRange(start: number, end: number): void {
+  const slot = currentSample() - 1;
+  const s = song()?.samples[slot];
+  if (!s || s.data.byteLength < 1) return;
+  const lo = Math.max(0, Math.min(s.data.byteLength, start));
+  const hi = Math.max(lo, Math.min(s.data.byteLength, end));
+  if (hi - lo < 1) return;
+  // `slice` returns a fresh Int8Array — independent of the slot's data
+  // ref so undo of a follow-up cut leaves the clipboard intact.
+  setSampleClipboard(s.data.slice(lo, hi));
+}
+
+/**
+ * Cut: copy the bytes, then route through the existing
+ * `cutCurrentSampleSelection` so the workbench / no-workbench paths
+ * (chain-effect append vs. direct int8 mutation) stay shared. The
+ * clipboard write fires *before* the cut so that an undo of the cut
+ * still leaves the bytes on the clipboard for paste.
+ */
+export function cutSampleRange(start: number, end: number): void {
+  copySampleRange(start, end);
+  cutCurrentSampleSelection(start, end);
+}
+
+/**
+ * Replace the current slot's data with the clipboard bytes. Mirrors
+ * `loadWavIntoCurrentSample` (which is "load WAV file"); paste is
+ * "load WAV from in-memory int8" — same alt-stash preservation, same
+ * NO_LOOP override, same `commitEditWithWorkbenches` snapshot. No-op
+ * when the clipboard is empty.
+ */
+export function pasteSampleFromClipboard(): void {
+  const data = sampleClipboard();
+  if (!data || data.byteLength < 1) return;
+  const slot = currentSample() - 1;
+  let wb = workbenchFromInt8(data, "Pasted sample");
+  // Pasting clobbers whatever int8 was at the slot — the imported
+  // side-stash is no longer the canonical "previous state" for the
+  // slot, so drop it (same policy as `loadWavIntoCurrentSample`).
+  clearImportedStash(slot);
+  // Preserve any chiptune workbench currently at the slot as the alt
+  // so the user can toggle back to it. If the slot already had a
+  // sampler with a chiptune in alt, carry that alt through too.
+  const existing = getWorkbench(slot);
+  if (existing) {
+    if (existing.source.kind === "chiptune") {
+      wb = { ...wb, alt: workbenchToAlt(existing) };
+    } else if (existing.alt) {
+      wb = { ...wb, alt: existing.alt };
+    }
+  }
+  const wbToCommit = wb;
+  commitEditWithWorkbenches((state) => ({
+    ...state,
+    song: writeWorkbenchToSongPure(state.song, slot, wbToCommit, NO_LOOP),
+    workbenches: withWorkbench(state.workbenches, slot, wbToCommit),
+  }));
+}
 
 /**
  * Render the pattern selection through a CleanMixer (no Paula) into the

@@ -197,12 +197,17 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       run: h.selectAllSample,
     }),
   );
+  // Cmd+C / Cmd+X / Cmd+V are routed by view in App.tsx — pattern view
+  // → pattern clipboard, sample view → sample clipboard. Pattern-side
+  // ops still gate on transport (they'd race the worklet); the sample
+  // side doesn't (sample edits are allowed mid-playback). The `when`
+  // guards stay generous — the App handler bails on its own when the
+  // active view's preconditions aren't met.
   cleanups.push(
     registerShortcut({
       key: "c",
       mod: true,
       description: "Copy selection to clipboard",
-      when: () => transport() !== "playing" && view() !== "sample",
       run: h.copySelection,
     }),
   );
@@ -211,7 +216,6 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       key: "x",
       mod: true,
       description: "Cut selection to clipboard",
-      when: () => transport() !== "playing" && view() !== "sample",
       run: h.cutSelection,
     }),
   );
@@ -219,8 +223,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
     registerShortcut({
       key: "v",
       mod: true,
-      description: "Paste clipboard at cursor",
-      when: () => transport() !== "playing" && view() !== "sample",
+      description: "Paste clipboard",
       run: h.pasteAtCursor,
     }),
   );

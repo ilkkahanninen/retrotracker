@@ -31,15 +31,15 @@ import {
   backspaceCell,
   backspaceRow,
   clearAtCursor,
-  copySelection,
-  cutSelection,
+  copySelection as copyPatternSelection,
+  cutSelection as cutPatternSelection,
   deleteSelection,
   enterHexDigit,
   extendSelection,
   insertEmptyCell,
   insertEmptyRow,
   onPianoKey,
-  pasteAtCursor,
+  pasteAtCursor as pastePatternAtCursor,
   previewSampleAtPitch,
   repeatLastEffectFromAbove,
   selectAllSample,
@@ -74,10 +74,13 @@ import {
   clearCurrentSample,
   convertChiptuneToSampler,
   convertSlotToSampler,
+  copySampleRange,
   cropCurrentSampleToSelection,
-  cutCurrentSampleSelection,
+  cutSampleRange,
   duplicateCurrentSample,
+  effectiveSampleRange,
   loadWavIntoCurrentSample,
+  pasteSampleFromClipboard,
   moveEffect,
   nextFreeSlot,
   NO_LOOP,
@@ -112,6 +115,7 @@ import {
   soloedChannels,
 } from "./state/channelMute";
 import { clipboardSlice } from "./state/clipboard";
+import { sampleClipboard } from "./state/sampleClipboard";
 import { cursor, requestJumpToTop, setCursor } from "./state/cursor";
 import {
   currentOctave,
@@ -197,6 +201,40 @@ export const App: Component = () => {
   const commitPatternRename = (patternIdx: number, raw: string) => {
     setEditingOrderIdx(null);
     setPatternName(patternIdx, raw);
+  };
+
+  // Cmd+C / Cmd+X / Cmd+V dispatch by active view: pattern view → the
+  // pattern-cell clipboard (state/clipboard.ts), sample view → the
+  // sample-byte clipboard (state/sampleClipboard.ts). The two are
+  // independent — copying sample bytes never clobbers a pattern slice
+  // and vice versa. Other views (info / settings) get a no-op.
+  //
+  // The pattern branch keeps its transport gate (cut / paste race the
+  // worklet mixing the same data; copy is gated alongside for menu /
+  // shortcut symmetry). The sample branch doesn't gate — sample edits
+  // are allowed mid-playback elsewhere in the app.
+  const copyClipboardForActiveView = () => {
+    if (view() === "sample") {
+      const r = effectiveSampleRange();
+      if (r) copySampleRange(r.start, r.end);
+    } else if (view() === "pattern" && transport() !== "playing") {
+      copyPatternSelection();
+    }
+  };
+  const cutClipboardForActiveView = () => {
+    if (view() === "sample") {
+      const r = effectiveSampleRange();
+      if (r) cutSampleRange(r.start, r.end);
+    } else if (view() === "pattern" && transport() !== "playing") {
+      cutPatternSelection();
+    }
+  };
+  const pasteClipboardForActiveView = () => {
+    if (view() === "sample") {
+      pasteSampleFromClipboard();
+    } else if (view() === "pattern" && transport() !== "playing") {
+      pastePatternAtCursor();
+    }
   };
 
   let fileInput: HTMLInputElement | undefined;
@@ -357,9 +395,9 @@ export const App: Component = () => {
       saveProject,
       selectAllStep,
       selectAllSample,
-      copySelection,
-      cutSelection,
-      pasteAtCursor,
+      copySelection: copyClipboardForActiveView,
+      cutSelection: cutClipboardForActiveView,
+      pasteAtCursor: pasteClipboardForActiveView,
       bounceSelectionToSample,
       applyCursor,
       applyCursorWithSong,
@@ -435,25 +473,37 @@ export const App: Component = () => {
       },
       { separator: true, label: "" },
       // Disabled checks mirror the shortcut `when` predicates so the
-      // menu and keyboard agree on when the action is reachable.
+      // menu and keyboard agree on when the action is reachable. The
+      // sample-view branch routes through the sample clipboard and is
+      // allowed mid-playback (sample edits don't race the worklet);
+      // the pattern-view branch keeps its transport gate. The sample
+      // copy/cut "has data" check looks at the current slot rather
+      // than a selection — the action's range-resolution falls back
+      // to the whole sample when nothing is selected.
       {
         label: "Cut",
         hint: "⌘X",
-        onClick: cutSelection,
-        disabled: playing || view() === "sample" || !song(),
+        onClick: cutClipboardForActiveView,
+        disabled:
+          view() === "sample"
+            ? !song() || !currentSampleHasData()
+            : playing || !song(),
       },
       {
         label: "Copy",
         hint: "⌘C",
-        onClick: copySelection,
-        disabled: view() === "sample" || !song(),
+        onClick: copyClipboardForActiveView,
+        disabled:
+          view() === "sample" ? !song() || !currentSampleHasData() : !song(),
       },
       {
         label: "Paste",
         hint: "⌘V",
-        onClick: pasteAtCursor,
+        onClick: pasteClipboardForActiveView,
         disabled:
-          playing || view() === "sample" || !song() || !clipboardSlice(),
+          view() === "sample"
+            ? !song() || !sampleClipboard()
+            : playing || !song() || !clipboardSlice(),
       },
       { separator: true, label: "" },
       {
@@ -579,6 +629,16 @@ export const App: Component = () => {
     const s = song();
     if (!s) return 0;
     return s.samples.filter((x) => x.lengthWords > 0).length;
+  });
+
+  /** True if the active sample slot has any int8 bytes — used to gate
+   *  Copy / Cut in the sample view. The clipboard ops fall back to
+   *  "whole sample" when there's no selection, so they only need a
+   *  populated slot to be meaningful. */
+  const currentSampleHasData = createMemo(() => {
+    const s = song();
+    if (!s) return false;
+    return (s.samples[currentSample() - 1]?.data.byteLength ?? 0) > 0;
   });
 
   const modByteSize = createMemo(() => {
@@ -906,7 +966,10 @@ export const App: Component = () => {
                   canDuplicate={nextFreeSlot(s(), currentSample() - 1) !== null}
                   onPatch={patchCurrentSample}
                   onCropToSelection={cropCurrentSampleToSelection}
-                  onDeleteSelection={cutCurrentSampleSelection}
+                  onCutSelection={cutSampleRange}
+                  onCopySelection={copySampleRange}
+                  onPasteSampleClipboard={pasteSampleFromClipboard}
+                  sampleClipboardHasData={!!sampleClipboard()}
                   onAddEffect={addEffect}
                   onRemoveEffect={removeEffect}
                   onMoveEffect={moveEffect}

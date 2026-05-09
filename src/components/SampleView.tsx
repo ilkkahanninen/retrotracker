@@ -86,8 +86,22 @@ interface Props {
   onPatch: (patch: Partial<Sample>) => void;
   /** Replace sample.data with the [startByte, endByte) slice; loop translates accordingly. */
   onCropToSelection: (startByte: number, endByte: number) => void;
-  /** Replace sample.data with everything OUTSIDE [startByte, endByte). */
-  onDeleteSelection: (startByte: number, endByte: number) => void;
+  /**
+   * Copy the [startByte, endByte) slice of the slot's int8 data to the
+   * sample clipboard. Falls back to the whole sample if the caller
+   * passes the full byte range.
+   */
+  onCopySelection: (startByte: number, endByte: number) => void;
+  /**
+   * Cut: copy the [startByte, endByte) bytes to the sample clipboard,
+   * then remove them from the slot (workbench: append a `cut` effect;
+   * no-workbench: direct int8 mutation).
+   */
+  onCutSelection: (startByte: number, endByte: number) => void;
+  /** Replace the slot's int8 data with the sample clipboard contents. */
+  onPasteSampleClipboard: () => void;
+  /** Whether the sample clipboard has any bytes to paste — drives the Paste button's enabled state. */
+  sampleClipboardHasData: boolean;
   /**
    * Append an effect to the workbench chain. For range-aware kinds the
    * caller can use the user's current waveform selection (passed through)
@@ -516,6 +530,49 @@ export const SampleView: Component<Props> = (props) => {
             >
               Select all
             </button>
+            {/* Resolve the byte range Copy / Cut act on: selection if
+                non-empty, otherwise the whole sample. Mirrors the App
+                handler's `effectiveSampleRange` so the button-driven and
+                keyboard-driven paths agree on what gets copied. */}
+            <button
+              type="button"
+              onClick={() => {
+                const sel = selection();
+                const len = sample()?.data.length ?? 0;
+                const start = sel ? sel.start : 0;
+                const end = sel ? sel.end : len;
+                if (end - start < 1) return;
+                props.onCopySelection(start, end);
+              }}
+              disabled={(sample()?.data.length ?? 0) < 1}
+              title="Copy the selection (or the whole sample) to the clipboard (⌘C)"
+            >
+              Copy
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const sel = selection();
+                const len = sample()?.data.length ?? 0;
+                const start = sel ? sel.start : 0;
+                const end = sel ? sel.end : len;
+                if (end - start < 1) return;
+                props.onCutSelection(start, end);
+                setSelection(null);
+              }}
+              disabled={(sample()?.data.length ?? 0) < 1}
+              title="Copy the selection (or the whole sample) to the clipboard, then remove it (⌘X)"
+            >
+              Cut
+            </button>
+            <button
+              type="button"
+              onClick={() => props.onPasteSampleClipboard()}
+              disabled={!props.sampleClipboardHasData}
+              title="Replace the slot's data with the sample clipboard contents (⌘V)"
+            >
+              Paste
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -530,21 +587,6 @@ export const SampleView: Component<Props> = (props) => {
               title="Keep the selected range, discard the rest"
             >
               Crop
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const sel = selection();
-                if (!sel) return;
-                props.onDeleteSelection(sel.start, sel.end);
-                setSelection(null);
-              }}
-              disabled={
-                !selection() || selection()!.end - selection()!.start < 2
-              }
-              title="Remove the selected range, keep the rest"
-            >
-              Delete
             </button>
             <For each={EFFECT_BUTTON_KINDS}>
               {(kind) => {

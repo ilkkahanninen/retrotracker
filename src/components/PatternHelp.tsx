@@ -292,6 +292,11 @@ const NOTE_TIPS: TipSection[] = [
         keys: `${ALT_LABEL} + Arrow up / down`,
         action: "previous / next sample",
       },
+      // Cmd+C/X/V dispatch by view: in the sample view they target the
+      // sample clipboard (not the pattern clipboard).
+      { keys: `${MOD_LABEL} + C`, action: "copy sample data (sample view)" },
+      { keys: `${MOD_LABEL} + X`, action: "cut sample data (sample view)" },
+      { keys: `${MOD_LABEL} + V`, action: "paste sample data (sample view)" },
     ],
   },
   {
