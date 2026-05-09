@@ -534,15 +534,34 @@ export function applyChainToSource(): void {
     }
   }
 
-  updateCurrentWorkbench({
-    ...wb,
-    source: {
-      kind: "sampler",
-      wav: burned,
-      sourceName: wb.source.sourceName,
+  // Pin the slot's current loop across the burn. Without this, the
+  // post-burn re-render can come out 1 int8 byte shorter than the
+  // pre-burn slot (resampler rounding), and `writeWorkbenchToSongPure`'s
+  // `scaledLoop` rule then shaves the loop by ~one word per Apply
+  // — `loopStartWords` slides toward 0 with every burn. The user
+  // didn't ask the loop to move; it's just a re-encoding of the same
+  // audio. `replaceSampleData` clamps if the saved bounds overshoot
+  // the new (slightly shorter) data, so passing them through is safe.
+  const loopOverride =
+    sample && sample.loopLengthWords > 1
+      ? {
+          loopStartWords: sample.loopStartWords,
+          loopLengthWords: sample.loopLengthWords,
+        }
+      : undefined;
+
+  updateCurrentWorkbench(
+    {
+      ...wb,
+      source: {
+        kind: "sampler",
+        wav: burned,
+        sourceName: wb.source.sourceName,
+      },
+      chain: [],
     },
-    chain: [],
-  });
+    loopOverride,
+  );
 }
 
 export function setMonoMix(monoMix: MonoMix): void {

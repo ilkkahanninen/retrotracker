@@ -429,7 +429,33 @@ export function setSample(
     }
   }
   if (!changed) return song;
-  const newSample: Sample = { ...old, ...patch };
+  let newSample: Sample = { ...old, ...patch };
+  // Defensive loop-field clamp. The Waveform UI already clamps drag
+  // values to the slot's lengthWords, but generic-API callers
+  // (programmatic patches, persistence migrations) shouldn't be able
+  // to leave the slot in an invariant-violating state where the loop
+  // window points past the end of the data. Mirrors the clamp in
+  // `replaceSampleData`. Skipped when neither loop field is being
+  // patched — a no-op merge stays bit-identical.
+  if ("loopStartWords" in patch || "loopLengthWords" in patch) {
+    const lengthWords = newSample.lengthWords;
+    const loopStart = Math.max(
+      0,
+      Math.min(newSample.loopStartWords, Math.max(0, lengthWords - 1)),
+    );
+    const loopMax = Math.max(1, lengthWords - loopStart);
+    const loopLen = Math.max(1, Math.min(newSample.loopLengthWords, loopMax));
+    if (
+      loopStart !== newSample.loopStartWords ||
+      loopLen !== newSample.loopLengthWords
+    ) {
+      newSample = {
+        ...newSample,
+        loopStartWords: loopStart,
+        loopLengthWords: loopLen,
+      };
+    }
+  }
   const newSamples: Sample[] = [...song.samples];
   newSamples[slot] = newSample;
   return { ...song, samples: newSamples };
