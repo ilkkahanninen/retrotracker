@@ -46,6 +46,8 @@ export function defaultParamForKind(kind: EffectKind): EnvelopeParamKey | null {
       return "cutoff";
     case "shaper":
       return "amount";
+    case "pitch":
+      return "pitch";
     default:
       return null;
   }

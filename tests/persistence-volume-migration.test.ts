@@ -409,3 +409,66 @@ describe("persistence: parser back-compat reads `gain`-keyed envelope points", (
     ]);
   });
 });
+
+describe("persistence: pitch effect (v=8)", () => {
+  it("a chain containing a pitch node serialises at v=8", () => {
+    const wav = {
+      sampleRate: 22050,
+      channels: [new Float32Array(100).fill(0.25)],
+    };
+    const bytes = projectToBytes({
+      ...baseInputs(),
+      samplerSources: {
+        0: {
+          sourceName: "test",
+          wav,
+          chain: [
+            {
+              kind: "pitch",
+              params: {
+                envelope: [
+                  { frame: 0, value: 1 },
+                  { frame: 99, value: 2 },
+                ],
+              },
+            },
+          ],
+          pt: { monoMix: "average", targetNote: 12 },
+        },
+      },
+    });
+    const parsed = JSON.parse(new TextDecoder().decode(bytes));
+    expect(parsed.v).toBe(8);
+  });
+
+  it("a pitch envelope round-trips exactly through projectTo/FromBytes", () => {
+    const wav = {
+      sampleRate: 22050,
+      channels: [new Float32Array(100).fill(0.25)],
+    };
+    const original = [
+      { frame: 0, value: 0.5 },
+      { frame: 25, value: 1.5 },
+      { frame: 75, value: 2 },
+      { frame: 99, value: 1 },
+    ];
+    const bytes = projectToBytes({
+      ...baseInputs(),
+      samplerSources: {
+        0: {
+          sourceName: "test",
+          wav,
+          chain: [{ kind: "pitch", params: { envelope: original } }],
+          pt: { monoMix: "average", targetNote: 12 },
+        },
+      },
+    });
+    const restored = projectFromBytes(bytes);
+    expect(restored).not.toBeNull();
+    const node = restored!.samplerSources[0]!.chain[0]!;
+    expect(node.kind).toBe("pitch");
+    if (node.kind === "pitch") {
+      expect(node.params.envelope).toEqual(original);
+    }
+  });
+});

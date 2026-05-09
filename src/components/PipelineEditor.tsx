@@ -96,6 +96,7 @@ const formatGain = (v: number): string => v.toFixed(2);
 const formatHz = (v: number): string => `${Math.round(v)} Hz`;
 const formatQ = (v: number): string => v.toFixed(2);
 const formatAmount = (v: number): string => v.toFixed(2);
+const formatSpeed = (v: number): string => `${v.toFixed(2)}×`;
 
 export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
   // The chain operates on the materialised source — for chiptune that's a
@@ -312,11 +313,17 @@ const EffectParams: Component<EffectParamsProps> = (props) => {
   const asCrossfade = () =>
     props.node as Extract<EffectNode, { kind: "crossfade" }>;
   const asShaper = () => props.node as Extract<EffectNode, { kind: "shaper" }>;
+  const asPitch = () => props.node as Extract<EffectNode, { kind: "pitch" }>;
   return (
     <Switch>
       <Match when={props.node.kind === "volume"}>
         <span class="effect-node__hint">
           {envelopeSummary(asVolume().params.points, formatGain)}
+        </span>
+      </Match>
+      <Match when={props.node.kind === "pitch"}>
+        <span class="effect-node__hint">
+          speed {envelopeSummary(asPitch().params.envelope, formatSpeed)}
         </span>
       </Match>
       <Match when={props.node.kind === "normalize"}>

@@ -158,7 +158,7 @@ Two halves:
 
 Each pipeline node has its own params — volume envelope shape, crop bounds, normalise target, filter cutoff/resonance, shaper amount, etc. Reorder by drag, disable with the toggle, remove with `×`.
 
-### Envelopes (volume, filter, shaper)
+### Envelopes (volume, filter, shaper, pitch)
 
 Several effect params can be _automated_ across the sample using piecewise-linear envelopes of `n ≥ 2` points (frame, value). Click the effect in the chain to select it; an overlay appears on the waveform with draggable points and segments in the param's identity color:
 
@@ -166,8 +166,9 @@ Several effect params can be _automated_ across the sample using piecewise-linea
 - **Filter cutoff** (cyan) — `10..22050 Hz`, log Y axis so the lower octaves get equal screen space.
 - **Filter Q** (violet) — `0.1..20`, linear. Use the **Cutoff / Q** toggle in the filter chain entry to switch which envelope the overlay edits.
 - **Shaper drive** (green) — `0..1`, linear.
+- **Pitch** (pink) — playback-speed multiplier `0.25..4`, log Y. `1.0` is unchanged; `2.0` plays the sample twice as fast (one octave up, half the length); `0.5` half-speed (octave down, twice as long). The pitch effect changes the slot's int8 length — the output is variable, recomputed every time you drag a point.
 
-Outside the points' frame range, the value clamps to the boundary point (DAW-style automation). Old projects with constant filter / shaper params auto-migrate to flat 2-point envelopes on load — schema bumps to v=7.
+Outside the points' frame range, the value clamps to the boundary point (DAW-style automation). Old projects with constant filter / shaper params auto-migrate to flat 2-point envelopes on load — schema bumps to v=7 (filter/shaper) or v=8 (pitch).
 
 Interaction (same for every envelope):
 

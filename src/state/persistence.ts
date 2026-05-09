@@ -64,7 +64,7 @@ import { SHAPER_MODES, type ShaperMode } from "../core/audio/shapers";
 
 const STORAGE_KEY = "retrotracker:session:v1";
 
-type SchemaVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+type SchemaVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
 /**
  * On-disk shape for one persisted sampler source. The whole sampler-side
@@ -273,22 +273,32 @@ function buildPayload(state: SessionInputs): PersistedShape {
     Object.values(state.samplerSources).some((s) =>
       s.chain.some((n) => n.kind === "filter" || n.kind === "shaper"),
     );
+  // v=8 is required when any sampler chain has a `pitch` node. The
+  // pitch effect is new in v=8 — v≤7 readers don't recognise the kind
+  // and would silently drop the node, losing the user's automation.
+  const hasPitch =
+    !!state.samplerSources &&
+    Object.values(state.samplerSources).some((s) =>
+      s.chain.some((n) => n.kind === "pitch"),
+    );
   // Lowest version that fits the data — keeps a chiptune/sampler/names-free
   // session bit-identical to the original v=1 format and lets older builds
   // keep loading anything they can still understand.
-  const v: SchemaVersion = hasFilterOrShaper
-    ? 7
-    : hasVolumeEnvelope
-      ? 6
-      : hasMute
-        ? 5
-        : hasPatternNames
-          ? 4
-          : hasSampler
-            ? 3
-            : hasChiptune
-              ? 2
-              : 1;
+  const v: SchemaVersion = hasPitch
+    ? 8
+    : hasFilterOrShaper
+      ? 7
+      : hasVolumeEnvelope
+        ? 6
+        : hasMute
+          ? 5
+          : hasPatternNames
+            ? 4
+            : hasSampler
+              ? 3
+              : hasChiptune
+                ? 2
+                : 1;
   return {
     v,
     songBase64: encodeSongCached(state.song),
@@ -400,6 +410,7 @@ function fixupSentinelFrames(
         hasSentinelInPoints(n.params.cutoff) || hasSentinelInPoints(n.params.q)
       );
     if (n.kind === "shaper") return hasSentinelInPoints(n.params.amount);
+    if (n.kind === "pitch") return hasSentinelInPoints(n.params.envelope);
     return false;
   });
   if (!hasSentinel) return chain;
@@ -436,6 +447,13 @@ function fixupSentinelFrames(
         params: {
           mode: node.params.mode,
           amount: fixPoints(node.params.amount, lastFrame),
+        },
+      });
+    } else if (node.kind === "pitch") {
+      out.push({
+        kind: "pitch",
+        params: {
+          envelope: fixPoints(node.params.envelope, lastFrame),
         },
       });
     } else {
@@ -705,6 +723,13 @@ function parseEffectNode(v: unknown): EffectNode | null {
     if (!amount) return null;
     return { kind: "shaper", params: { mode: mode as ShaperMode, amount } };
   }
+  if (kind === "pitch") {
+    // v=8+. There's no pre-envelope form for pitch — the effect itself
+    // didn't exist before — so we accept only the envelope-array shape.
+    const envelope = parseEnvelopeOrSingle(params["envelope"], "pitch");
+    if (!envelope) return null;
+    return { kind: "pitch", params: { envelope } };
+  }
   return null;
 }
 
@@ -888,7 +913,8 @@ function isPersistedShape(v: unknown): v is PersistedShape {
       x["v"] === 4 ||
       x["v"] === 5 ||
       x["v"] === 6 ||
-      x["v"] === 7) &&
+      x["v"] === 7 ||
+      x["v"] === 8) &&
     typeof x["songBase64"] === "string" &&
     (x["filename"] === null || typeof x["filename"] === "string") &&
     (x["infoText"] === undefined || typeof x["infoText"] === "string") &&

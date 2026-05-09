@@ -5,6 +5,7 @@ import { workbenches } from "../state/sampleWorkbench";
 import { getStashedLoop, stashLoop } from "../state/loopStash";
 import { getImportedStash } from "../state/importedStash";
 import {
+  defaultParamForKind,
   selectedEffectIndex,
   selectedEffectParam,
   setSelectedEffectIndex,
@@ -50,6 +51,7 @@ export type { SampleSelection };
 const EFFECT_BUTTON_KINDS: readonly EffectKind[] = [
   "reverse",
   "volume",
+  "pitch",
   "normalize",
   "filter",
   "shaper",
@@ -62,6 +64,9 @@ function titleForEffectButton(kind: EffectKind, hasSelection: boolean): string {
   const label = EFFECT_LABELS[kind];
   if (kind === "volume") {
     return "Append a Volume envelope (double-click on the waveform to add points)";
+  }
+  if (kind === "pitch") {
+    return "Append a Pitch / playback-speed envelope — values >1 speed up (and shorten) the sample, <1 slow down (and stretch)";
   }
   if (!isRangeAware) return `Append ${label} to the effect chain`;
   return hasSelection
@@ -229,7 +234,9 @@ export const SampleView: Component<Props> = (props) => {
             ? node.params.q
             : param === "amount" && node.kind === "shaper"
               ? node.params.amount
-              : null;
+              : param === "pitch" && node.kind === "pitch"
+                ? node.params.envelope
+                : null;
     if (!points) return null;
     const s = sample();
     const int8Length = s?.data.byteLength ?? 0;
@@ -778,15 +785,7 @@ export const SampleView: Component<Props> = (props) => {
               }
               const node = workbench()?.chain[i];
               if (!node) return;
-              setSelectedEffectParam(
-                node.kind === "volume"
-                  ? "volume"
-                  : node.kind === "filter"
-                    ? "cutoff"
-                    : node.kind === "shaper"
-                      ? "amount"
-                      : null,
-              );
+              setSelectedEffectParam(defaultParamForKind(node.kind));
             }}
             selectedEffectParam={selectedEffectParam()}
             onSelectParam={setSelectedEffectParam}

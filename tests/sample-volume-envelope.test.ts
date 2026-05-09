@@ -388,3 +388,55 @@ describe("shaper envelope state actions", () => {
     expect(node.params.amount[1]!.value).toBeCloseTo(0.7, 5);
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────
+// Pitch envelope: speed factor only.
+// ──────────────────────────────────────────────────────────────────────
+
+function seedWithPitch(): void {
+  loadWavIntoCurrentSample(makeWavBytes(800), "tone.wav");
+  addEffect("pitch", null);
+}
+
+describe("pitch envelope state actions", () => {
+  it("addEnvelopePoint(idx, 'pitch', ...) appends to the pitch envelope", () => {
+    seedWithPitch();
+    addEnvelopePoint(0, "pitch", { frame: 100, value: 2 });
+    const node = getWorkbench(0)!.chain[0]!;
+    if (node.kind !== "pitch") throw new Error("expected pitch node");
+    expect(node.params.envelope.length).toBe(3);
+    expect(
+      node.params.envelope.find((p) => p.frame === 100)?.value,
+    ).toBeCloseTo(2, 6);
+  });
+
+  it("clamps speed to [0.25, 4]", () => {
+    seedWithPitch();
+    addEnvelopePoint(0, "pitch", { frame: 50, value: 99 });
+    addEnvelopePoint(0, "pitch", { frame: 60, value: 0.001 });
+    const node = getWorkbench(0)!.chain[0]!;
+    if (node.kind !== "pitch") throw new Error("expected pitch node");
+    expect(node.params.envelope.find((p) => p.frame === 50)!.value).toBe(4);
+    expect(node.params.envelope.find((p) => p.frame === 60)!.value).toBe(0.25);
+  });
+
+  it("changing the pitch envelope changes the slot's int8 length (output is variable)", () => {
+    seedWithPitch();
+    const baselineLen = song()!.samples[0]!.lengthWords;
+    // Push the entire envelope to 2× — output should halve.
+    patchEnvelopePoint(0, "pitch", 0, { value: 2 });
+    patchEnvelopePoint(0, "pitch", 1, { value: 2 });
+    const sped = song()!.samples[0]!.lengthWords;
+    expect(sped).toBeLessThan(baselineLen);
+    // ~half, allowing for word-alignment rounding.
+    expect(sped * 2).toBeLessThanOrEqual(baselineLen + 2);
+  });
+
+  it("wrong (kind, param) combination is a no-op", () => {
+    seedWithPitch();
+    const before = getWorkbench(0)!.chain;
+    addEnvelopePoint(0, "volume", { frame: 50, value: 1.5 });
+    addEnvelopePoint(0, "cutoff", { frame: 50, value: 1000 });
+    expect(getWorkbench(0)!.chain).toEqual(before);
+  });
+});

@@ -78,7 +78,7 @@ export const ENVELOPE_MIN_POINTS = 2;
  * in `sampleEdit.ts`, and update the per-frame application of whatever
  * effect owns the param.
  */
-export type EnvelopeParamKey = "volume" | "cutoff" | "q" | "amount";
+export type EnvelopeParamKey = "volume" | "cutoff" | "q" | "amount" | "pitch";
 
 export interface ParamAxis {
   min: number;
@@ -116,6 +116,18 @@ export const PARAM_AXES: Readonly<Record<EnvelopeParamKey, ParamAxis>> = {
   q: { min: 0.1, max: 20, logarithmic: false, unit: "", color: "#9b87ff" },
   // Shaper drive: wet/dry blend 0..1.
   amount: { min: 0, max: 1, logarithmic: false, unit: "", color: "#7be3a3" },
+  // Pitch / playback speed: multiplier on the input read pointer. 1.0 =
+  // unchanged, 2.0 = octave up (twice as fast / half as long), 0.5 =
+  // octave down. Two octaves each way is plenty for musical use; log Y
+  // so each octave gets equal screen space (matches how pitch is
+  // perceived).
+  pitch: {
+    min: 0.25,
+    max: 4,
+    logarithmic: true,
+    unit: "×",
+    color: "#ff85c0",
+  },
 };
 
 /** Back-compat constants for the volume range. New code should read
@@ -155,6 +167,21 @@ export type EffectNode =
         /** Drive / wet-dry blend envelope, values in [0, 1]. */
         amount: ReadonlyArray<EnvelopePoint>;
       };
+    }
+  | {
+      kind: "pitch";
+      params: {
+        /**
+         * Per-frame playback-speed multiplier. The envelope's X axis is
+         * input frames; at each input frame, the value defines how
+         * quickly the read head advances (1.0 = original, 2.0 = twice
+         * as fast → output half as long, 0.5 = half speed → output
+         * twice as long). Values clamped to [0.25, 4] at apply time.
+         * The output length is variable, computed from the integral of
+         * 1/speed across the input.
+         */
+        envelope: ReadonlyArray<EnvelopePoint>;
+      };
     };
 
 export type EffectKind = EffectNode["kind"];
@@ -168,6 +195,7 @@ export const EFFECT_KINDS: readonly EffectKind[] = [
   "filter",
   "crossfade",
   "shaper",
+  "pitch",
 ] as const;
 
 /** Human-readable names for the picker UI. */
@@ -180,6 +208,7 @@ export const EFFECT_LABELS: Readonly<Record<EffectKind, string>> = {
   filter: "Filter",
   crossfade: "Crossfade",
   shaper: "Shaper",
+  pitch: "Pitch",
 };
 
 /**
@@ -726,6 +755,64 @@ export function applyShaperEffect(
   });
 }
 
+/**
+ * Per-frame variable-speed resampler. The envelope (in INPUT-frame
+ * coordinates) drives how fast the read pointer advances: at 1.0 the
+ * output mirrors the input, at 2.0 it advances 2 input frames per
+ * output frame (so output is half as long), at 0.5 the output is twice
+ * as long. Linear interpolation reads fractional input positions.
+ *
+ * The output length is variable — `outLen ≈ ∫ (1/speed) dt` over the
+ * input. We compute it lazily by walking until the read head exits the
+ * input, capped at `MAX_PITCH_OUTPUT_FACTOR × inputLen` so a tiny
+ * speed value can't run away.
+ *
+ * Speed values clamp to [PARAM_AXES.pitch.min, PARAM_AXES.pitch.max]
+ * before use, so the editor's overlay range is enforced at apply time
+ * even if the persisted envelope contains out-of-range data.
+ */
+const MAX_PITCH_OUTPUT_FACTOR = 8; // hard cap: 8× input length
+export function applyPitch(
+  input: WavData,
+  envelope: ReadonlyArray<EnvelopePoint>,
+): WavData {
+  const inputLen = input.channels[0]?.length ?? 0;
+  if (inputLen === 0) return input;
+  if (envelope.length < ENVELOPE_MIN_POINTS) return input;
+  const sorted = sortEnvelope(envelope);
+  const minSpeed = PARAM_AXES.pitch.min;
+  const maxSpeed = PARAM_AXES.pitch.max;
+  // First pass: walk the envelope to compute the output length and
+  // collect the source positions we'll read at each output frame.
+  // Doing this once means the per-channel loop below doesn't recompute.
+  const maxOutLen = Math.ceil(inputLen * MAX_PITCH_OUTPUT_FACTOR);
+  const srcPositions = new Float64Array(maxOutLen);
+  let outLen = 0;
+  let srcPos = 0;
+  while (outLen < maxOutLen && srcPos < inputLen - 1) {
+    srcPositions[outLen] = srcPos;
+    outLen++;
+    const speed = Math.max(
+      minSpeed,
+      Math.min(maxSpeed, evaluateEnvelopeAt(sorted, Math.floor(srcPos))),
+    );
+    srcPos += speed;
+  }
+  if (outLen === 0) return mapChannels(input, () => new Float32Array(0));
+  return mapChannels(input, (ch) => {
+    const out = new Float32Array(outLen);
+    for (let i = 0; i < outLen; i++) {
+      const pos = srcPositions[i]!;
+      const idx = Math.floor(pos);
+      const frac = pos - idx;
+      const a = ch[idx] ?? 0;
+      const b = ch[idx + 1] ?? a;
+      out[i] = a + (b - a) * frac;
+    }
+    return out;
+  });
+}
+
 export function applyEffect(
   input: WavData,
   node: EffectNode,
@@ -751,6 +838,8 @@ export function applyEffect(
       );
     case "shaper":
       return applyShaperEffect(input, node.params.mode, node.params.amount);
+    case "pitch":
+      return applyPitch(input, node.params.envelope);
     case "crossfade": {
       // Loop info comes from the run context — without it (slot has no
       // loop, or the chain ran outside `writeWorkbenchToSongPure`) the
@@ -1198,6 +1287,13 @@ export function defaultEffect(kind: EffectKind, input: WavData): EffectNode {
       return {
         kind: "shaper",
         params: { mode: "softClip", amount: flatEnvelope(0.5, len) },
+      };
+    // Two flat points at speed 1.0 — initially a no-op. User drags
+    // points to time-stretch / time-compress regions.
+    case "pitch":
+      return {
+        kind: "pitch",
+        params: { envelope: flatEnvelope(1, len) },
       };
   }
 }

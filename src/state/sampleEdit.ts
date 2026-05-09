@@ -631,6 +631,9 @@ function envelopeAt(
   if (param === "amount" && node.kind === "shaper") {
     return [...node.params.amount];
   }
+  if (param === "pitch" && node.kind === "pitch") {
+    return [...node.params.envelope];
+  }
   return null;
 }
 
@@ -690,6 +693,9 @@ function nodeWithUpdatedEnvelope(
   }
   if (param === "amount" && node.kind === "shaper") {
     return { kind: "shaper", params: { ...node.params, amount: points } };
+  }
+  if (param === "pitch" && node.kind === "pitch") {
+    return { kind: "pitch", params: { envelope: points } };
   }
   return null;
 }

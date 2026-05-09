@@ -9,6 +9,7 @@ import {
   applyCrossfade,
   applyEffect,
   applyShaperEffect,
+  applyPitch,
   runChain,
   transformToPt,
   runPipeline,
@@ -1165,5 +1166,111 @@ describe("runPipeline: crossfade is loop-context-sensitive", () => {
     let inside = 0;
     for (let i = 68; i < 100; i++) if (withFade[i] !== noFade[i]) inside++;
     expect(inside).toBeGreaterThan(0);
+  });
+});
+
+describe("applyPitch", () => {
+  it("flat envelope at 1.0 reproduces the input length and content within interp tolerance", () => {
+    const N = 100;
+    const sig = new Float32Array(N);
+    for (let i = 0; i < N; i++) sig[i] = Math.sin((i / 8) * Math.PI) * 0.5;
+    const out = applyPitch({ sampleRate: sr, channels: [sig] }, [
+      { frame: 0, value: 1 },
+      { frame: N - 1, value: 1 },
+    ]);
+    // The walk reads at integer positions starting from 0, advancing by
+    // 1.0 each step → output is N-1 frames (last srcPos = N-1 ends the
+    // loop). Allow either N-1 or N to keep the test robust to off-by-one
+    // boundary handling.
+    expect(out.channels[0]!.length).toBeGreaterThanOrEqual(N - 1);
+    expect(out.channels[0]!.length).toBeLessThanOrEqual(N);
+    for (let i = 0; i < N - 1; i++) {
+      // At speed=1, output[i] reads input at integer i — no interp loss.
+      expect(out.channels[0]![i]).toBeCloseTo(sig[i]!, 5);
+    }
+  });
+
+  it("flat envelope at 2.0 produces output ~half the input length", () => {
+    const N = 200;
+    const sig = new Float32Array(N);
+    for (let i = 0; i < N; i++) sig[i] = i / N; // linear ramp
+    const out = applyPitch({ sampleRate: sr, channels: [sig] }, [
+      { frame: 0, value: 2 },
+      { frame: N - 1, value: 2 },
+    ]);
+    // Each output advances srcPos by 2.0; loop ends when srcPos ≥ N-1.
+    // ⌈(N-1)/2⌉ = 100 output frames.
+    expect(out.channels[0]!.length).toBe(100);
+    // Output[i] reads input at 2i — i.e. every other input frame.
+    for (let i = 0; i < 100; i++) {
+      expect(out.channels[0]![i]).toBeCloseTo(sig[i * 2]!, 5);
+    }
+  });
+
+  it("flat envelope at 0.5 produces output ~twice the input length, linearly interpolated", () => {
+    const N = 50;
+    const sig = new Float32Array(N);
+    for (let i = 0; i < N; i++) sig[i] = i; // linear ramp 0..49
+    const out = applyPitch({ sampleRate: sr, channels: [sig] }, [
+      { frame: 0, value: 0.5 },
+      { frame: N - 1, value: 0.5 },
+    ]);
+    // srcPos += 0.5 per output frame; loop runs while srcPos < N-1.
+    // (N-1)/0.5 = 98 frames.
+    expect(out.channels[0]!.length).toBe(98);
+    // out[i] reads input at i*0.5 → for i odd, it sits halfway between
+    // input[k] and input[k+1] which is k + 0.5 (linear ramp interp).
+    for (let i = 0; i < 90; i += 2) {
+      expect(out.channels[0]![i]).toBeCloseTo(sig[i / 2]!, 5);
+    }
+    for (let i = 1; i < 90; i += 2) {
+      const k = (i - 1) / 2;
+      expect(out.channels[0]![i]).toBeCloseTo(k + 0.5, 5);
+    }
+  });
+
+  it("ramped envelope produces a length between the constant-speed extremes", () => {
+    // Speed ramps from 0.5 → 2.0 across the input. Output length is the
+    // integral of 1/speed — between the all-0.5 length (≈2N) and the
+    // all-2 length (≈N/2). Concretely: with speed s(t) = 0.5 + 1.5·t/N,
+    // ∫₀ᴺ 1/s dt = (N/1.5) · ln(2/0.5) ≈ N·0.924 → ~92 for N=100.
+    const N = 100;
+    const sig = new Float32Array(N).fill(0.5);
+    const out = applyPitch({ sampleRate: sr, channels: [sig] }, [
+      { frame: 0, value: 0.5 },
+      { frame: N - 1, value: 2 },
+    ]);
+    const len = out.channels[0]!.length;
+    expect(len).toBeGreaterThan(N / 2); // shorter than all-0.5 (~2N)
+    expect(len).toBeLessThan(2 * N); // longer than all-2 (~N/2)
+  });
+
+  it("clamps speeds outside [0.25, 4] to keep the output bounded", () => {
+    const N = 50;
+    const sig = new Float32Array(N).fill(0.1);
+    // Wildly out-of-range envelope; the function should clamp internally.
+    const out = applyPitch({ sampleRate: sr, channels: [sig] }, [
+      { frame: 0, value: 1000 },
+      { frame: N - 1, value: 1000 },
+    ]);
+    // At max speed (4), output length = ⌈(N-1)/4⌉ = 13.
+    expect(out.channels[0]!.length).toBeLessThanOrEqual(N);
+    expect(out.channels[0]!.length).toBeGreaterThan(0);
+  });
+
+  it("returns the input untouched when the envelope has fewer than 2 points", () => {
+    const w = mono(1, 2, 3);
+    expect(applyPitch(w, [])).toBe(w);
+    expect(applyPitch(w, [{ frame: 0, value: 1 }])).toBe(w);
+  });
+
+  it("returns an empty WavData when the input is empty", () => {
+    const w = { sampleRate: sr, channels: [new Float32Array(0)] };
+    const out = applyPitch(w, [
+      { frame: 0, value: 1 },
+      { frame: 1, value: 1 },
+    ]);
+    // Empty-input short-circuit: same WavData reference returned.
+    expect(out).toBe(w);
   });
 });
