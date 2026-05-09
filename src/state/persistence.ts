@@ -783,7 +783,14 @@ function parsePtParams(raw: unknown): PtTransformerParams {
   // Dither defaults to false for back-compat — old projects' int8 stays
   // bit-identical until the user explicitly turns it on.
   const dither = x["dither"] === true;
-  return { monoMix, targetNote, resampleMode, dither };
+  // playingLengthTicks: optional, accept positive finite numbers; anything
+  // else (missing, null, 0, NaN, negative) → null = disabled.
+  const ticksRaw = x["playingLengthTicks"];
+  const playingLengthTicks =
+    typeof ticksRaw === "number" && Number.isFinite(ticksRaw) && ticksRaw > 0
+      ? Math.floor(ticksRaw)
+      : null;
+  return { monoMix, targetNote, resampleMode, dither, playingLengthTicks };
 }
 
 /**

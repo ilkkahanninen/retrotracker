@@ -900,6 +900,25 @@ export function setDither(dither: boolean): void {
 }
 
 /**
+ * Set the fixed playback length (PAL ticks, 1/50 s) the PT transformer
+ * resamples to. Pass null (or any non-positive / non-finite value) to
+ * disable — the transformer's "no fixed length" branch fires and the
+ * slot's int8 length goes back to the targetNote-driven default.
+ */
+export function setPlayingLengthTicks(ticks: number | null): void {
+  const wb = getWorkbench(currentSample() - 1);
+  if (!wb) return;
+  const next =
+    typeof ticks === "number" && Number.isFinite(ticks) && ticks > 0
+      ? Math.floor(ticks)
+      : null;
+  updateCurrentWorkbench({
+    ...wb,
+    pt: { ...wb.pt, playingLengthTicks: next },
+  });
+}
+
+/**
  * Non-destructive Sampler ↔ Chiptune toggle: the active half is stashed
  * in `wb.alt` and the target half is restored from `wb.alt` if it was
  * stashed there before. With no matching alt: chiptune gets fresh

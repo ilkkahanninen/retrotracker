@@ -172,6 +172,11 @@ interface Props {
   onSetTargetNote: (targetNote: number | null) => void;
   onSetResampleMode: (mode: ResampleMode) => void;
   onSetDither: (dither: boolean) => void;
+  onSetPlayingLengthTicks: (ticks: number | null) => void;
+  /** Auto-fill values for the Length-calculator modal — derived from the
+   *  song state at the cursor's (order, row) by the parent. */
+  cursorSpeed: number;
+  cursorTempo: number;
   /** Switch the source kind. Creates a default workbench if needed. */
   onSetSourceKind: (kind: SourceKind) => void;
   /** Patch the chiptune source params on the current slot. No-op for sampler. */
@@ -777,6 +782,9 @@ export const SampleView: Component<Props> = (props) => {
             onSetTargetNote={props.onSetTargetNote}
             onSetResampleMode={props.onSetResampleMode}
             onSetDither={props.onSetDither}
+            onSetPlayingLengthTicks={props.onSetPlayingLengthTicks}
+            cursorSpeed={props.cursorSpeed}
+            cursorTempo={props.cursorTempo}
             selectedEffectIndex={selectedEffectIndex()}
             onSelectEffect={(i) => {
               setSelectedEffectIndex(i);

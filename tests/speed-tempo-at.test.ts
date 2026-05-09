@@ -57,11 +57,25 @@ describe("speedTempoAt", () => {
     expect(speedTempoAt(s, 0, 10).speed).toBe(5);
   });
 
-  it("does NOT include the cursor row itself", () => {
+  it("does NOT include the cursor row itself by default", () => {
     const s = songWith(1);
     setFxx(s, 0, 10, 0, 0x03); // speed 3 set ON the cursor row
     expect(speedTempoAt(s, 0, 10).speed).toBe(6); // not seen yet
     expect(speedTempoAt(s, 0, 11).speed).toBe(3); // seen by row 11
+  });
+
+  it("with inclusive=true, the cursor row IS processed", () => {
+    const s = songWith(1);
+    setFxx(s, 0, 10, 0, 0x03); // speed 3 on the cursor row
+    setFxx(s, 0, 10, 1, 0xa0); // tempo 160 on the cursor row, later channel
+    expect(speedTempoAt(s, 0, 10, true)).toEqual({ speed: 3, tempo: 0xa0 });
+  });
+
+  it("inclusive=true still respects walk order across earlier rows", () => {
+    const s = songWith(1);
+    setFxx(s, 0, 4, 0, 0x04); // speed 4 earlier
+    setFxx(s, 0, 10, 0, 0xa0); // tempo 160 on cursor row (no speed change)
+    expect(speedTempoAt(s, 0, 10, true)).toEqual({ speed: 4, tempo: 0xa0 });
   });
 
   it("walks across patterns", () => {

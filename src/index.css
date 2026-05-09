@@ -381,6 +381,38 @@ body {
 .modal__thanks li:last-child {
   margin-bottom: 0;
 }
+.play-length-calc__fields {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin: 8px 0 16px;
+}
+.play-length-calc__fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.play-length-calc__fields input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.play-length-calc__result {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+}
+.play-length-calc__result strong {
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 110%;
+}
+.play-length-calc__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px 14px;
+  border-top: 1px solid var(--grid-line);
+}
 /* Project file size readout in the header. One combined pill carries both
  * the .mod payload size and the .retro project estimate, separated by a
  * subtle dot. Stays muted until the warning threshold (4 MB) is crossed,
@@ -1588,6 +1620,14 @@ h2 {
   flex-direction: column;
   gap: 2px;
   font-size: 12px;
+}
+.pipeline__length-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pipeline__length-row input {
+  width: 11ch;
 }
 
 /* Info view — song-level metadata form (title / filename / info text).

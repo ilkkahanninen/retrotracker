@@ -2,8 +2,31 @@ import type { Note, Song } from "./types";
 import { Effect } from "./format";
 
 /** MOD defaults the replayer falls back to before any Fxx is hit. */
-const DEFAULT_SPEED = 6;
-const DEFAULT_TEMPO = 125;
+export const DEFAULT_SPEED = 6;
+export const DEFAULT_TEMPO = 125;
+
+/**
+ * PT tick rate at the given BPM, in Hz, using the same CIA-PAL formula the
+ * replayer schedules ticks with (see [replayer.ts](../audio/replayer.ts)).
+ * At BPM 125 this collapses to 49.998 Hz — the "PAL 50 Hz" identity.
+ */
+export function tickHzForTempo(bpm: number): number {
+  return 709379 / (Math.floor(1773447 / bpm) + 1);
+}
+
+/**
+ * Convert `rows × speed` song-ticks at `bpm` into PAL ticks (1/50 s units).
+ * Used by the sample-pipeline "Length (ticks)" calculator: at BPM 125 it
+ * returns `rows × speed` exactly; at other BPMs it scales so the resulting
+ * PAL tick count maps to the same wall-clock duration.
+ */
+export function palTicksFromRowsSpeedTempo(
+  rows: number,
+  speed: number,
+  bpm: number,
+): number {
+  return Math.round((rows * speed * 50) / tickHzForTempo(bpm));
+}
 
 export interface FlatRow {
   /** Index into song.orders. */
@@ -117,24 +140,32 @@ export function visibleRowRangeForOrder(
 }
 
 /**
- * Walk the song from the start to (but not including) the given (order, row)
- * and return the speed and tempo that would be in effect at that position
- * — i.e. the most recent Fxx commands of each kind. Used when starting
- * playback mid-song so the song doesn't snap back to the MOD defaults.
+ * Walk the song from the start to the given (order, row) and return the
+ * speed and tempo in effect there — i.e. the most recent Fxx commands of
+ * each kind.
  *
- * Within each row, the channels are processed left-to-right and the last
+ * `inclusive` controls whether the target row's own Fxx is processed:
+ *   - `false` (default) — stop *before* the row. Right for mid-song
+ *     playback start: the row's own Fxx is processed by the replayer
+ *     once it actually reaches that row.
+ *   - `true` — include the row. Right for "what tempo is the user
+ *     looking at right now?" UI affordances (e.g. the sample-pipeline
+ *     length calculator).
+ *
+ * Within each row, channels are processed left-to-right and the last
  * Fxx of each kind wins, matching the replayer.
  */
 export function speedTempoAt(
   song: Song,
   order: number,
   row: number,
+  inclusive = false,
 ): { speed: number; tempo: number } {
   let speed = DEFAULT_SPEED;
   let tempo = DEFAULT_TEMPO;
   const flat = flattenSong(song);
   for (const fr of flat) {
-    if (fr.order === order && fr.rowIndex === row) break;
+    if (!inclusive && fr.order === order && fr.rowIndex === row) break;
     for (const cell of fr.cells) {
       if (cell.effect !== Effect.SetSpeed) continue;
       const p = cell.effectParam;
@@ -142,6 +173,7 @@ export function speedTempoAt(
       if (p < 0x20) speed = p;
       else tempo = p;
     }
+    if (inclusive && fr.order === order && fr.rowIndex === row) break;
   }
   return { speed, tempo };
 }

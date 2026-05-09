@@ -328,6 +328,14 @@ export interface PtTransformerParams {
    *  default to `true` since 8-bit quantisation noise correlates audibly with
    *  the signal on fade-outs / quiet tails. */
   dither?: boolean;
+  /**
+   * Force the output to play for exactly this many PAL ticks (1 tick = 1/50 s)
+   * when triggered at `targetNote`. Resamples the post-effect signal so that
+   * `frames × period_targetNote / PAULA_CLOCK = ticks / 50` seconds of
+   * playback. null/undefined = disabled (default). Requires `targetNote` to
+   * be set; ignored otherwise.
+   */
+  playingLengthTicks?: number | null;
 }
 
 // ─── Sources ──────────────────────────────────────────────────────────────
@@ -1110,10 +1118,25 @@ export function transformToPt(
   if (pt.targetNote !== null) {
     const targetRate = rateForTargetNote(pt.targetNote);
     if (targetRate !== null) {
+      // playingLengthTicks (when set, positive) overrides the output frame
+      // count so the sample plays for exactly N PAL ticks at targetRate.
+      // We re-derive an `effectiveRate` such that the resampler's
+      // `round(input.length × toRate / fromRate)` formula yields exactly
+      // the target frame count. The bytes still play at PT's
+      // `rateForTargetNote(targetNote)`, so duration ends up at
+      // `targetFrames / targetRate = ticks / 50` seconds.
+      const ticks = pt.playingLengthTicks;
+      const useFixedLength =
+        typeof ticks === "number" && Number.isFinite(ticks) && ticks > 0;
+      let toRate = targetRate;
+      if (useFixedLength && mono.length > 0) {
+        const targetFrames = Math.max(1, Math.round((ticks * targetRate) / 50));
+        toRate = (audio.sampleRate * targetFrames) / mono.length;
+      }
       mono = resampleByMode(
         mono,
         audio.sampleRate,
-        targetRate,
+        toRate,
         pt.resampleMode ?? DEFAULT_RESAMPLE_MODE,
       );
     }

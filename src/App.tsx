@@ -95,6 +95,7 @@ import {
   setDither,
   setEffectBypass,
   setMonoMix,
+  setPlayingLengthTicks,
   setResampleMode,
   setSourceKind,
   setTargetNote,
@@ -122,6 +123,7 @@ import {
 import { clipboardSlice } from "./state/clipboard";
 import { sampleClipboard } from "./state/sampleClipboard";
 import { cursor, requestJumpToTop, setCursor } from "./state/cursor";
+import { speedTempoAt } from "./core/mod/flatten";
 import {
   currentOctave,
   currentSample,
@@ -646,6 +648,18 @@ export const App: Component = () => {
     return (s.samples[currentSample() - 1]?.data.byteLength ?? 0) > 0;
   });
 
+  // Speed / tempo in effect at the cursor's (order, row) — fed to the
+  // sample-pipeline Length-calculator modal so its inputs auto-fill from
+  // wherever the user is currently editing. Inclusive: an Fxx on the
+  // cursor row itself is what the user sees, so the calculator should
+  // honor it.
+  const cursorSpeedTempo = createMemo(() => {
+    const s = song();
+    if (!s) return { speed: 6, tempo: 125 };
+    const c = cursor();
+    return speedTempoAt(s, c.order, c.row, true);
+  });
+
   const modByteSize = createMemo(() => {
     const s = song();
     if (!s) return 0;
@@ -985,6 +999,9 @@ export const App: Component = () => {
                   onSetTargetNote={setTargetNote}
                   onSetResampleMode={setResampleMode}
                   onSetDither={setDither}
+                  onSetPlayingLengthTicks={setPlayingLengthTicks}
+                  cursorSpeed={cursorSpeedTempo().speed}
+                  cursorTempo={cursorSpeedTempo().tempo}
                   onSetSourceKind={setSourceKind}
                   onUpdateChiptune={updateChiptune}
                   onConvertChiptuneToSampler={convertChiptuneToSampler}

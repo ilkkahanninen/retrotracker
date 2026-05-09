@@ -5,8 +5,10 @@ import {
   Show,
   Switch,
   createMemo,
+  createSignal,
   type Component,
 } from "solid-js";
+import { PlayLengthCalculator } from "./PlayLengthCalculator";
 import {
   DEFAULT_RESAMPLE_MODE,
   EFFECT_LABELS,
@@ -62,6 +64,11 @@ export interface PipelineEditorProps {
   onSetTargetNote: (targetNote: number | null) => void;
   onSetResampleMode: (mode: ResampleMode) => void;
   onSetDither: (dither: boolean) => void;
+  onSetPlayingLengthTicks: (ticks: number | null) => void;
+  /** Auto-fill values for the Length-calculator modal — derived from the
+   *  song state at the cursor's (order, row) by the parent. */
+  cursorSpeed: number;
+  cursorTempo: number;
   /** Index of the chain entry whose visual editor (envelope overlay) is
    *  active, or null. */
   selectedEffectIndex: number | null;
@@ -107,6 +114,7 @@ export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
   const materialised = createMemo(() => materializeSource(props.wb.source));
   const channels = () => materialised().channels.length;
   const sourceFrames = () => materialised().channels[0]?.length ?? 0;
+  const [calcOpen, setCalcOpen] = createSignal(false);
 
   return (
     <section class="pipeline">
@@ -274,6 +282,41 @@ export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
             </For>
           </select>
         </label>
+        {/* Length (ticks) — drum-loop helper. Forces the slot's int8 byte
+            count so the sample plays for exactly N PAL ticks (1/50 s) when
+            triggered at the target note. Hidden when targetNote is null
+            since the duration math needs a known play rate. */}
+        <Show when={props.wb.pt.targetNote !== null}>
+          <label>
+            <span class="samplemeta__label">Length (ticks)</span>
+            <span class="pipeline__length-row">
+              <input
+                type="number"
+                min="0"
+                step="1"
+                aria-label="Playing length in PAL ticks"
+                title="Length in PAL ticks (1/50 s) when played at the target note. Empty / 0 = disabled."
+                placeholder="(disabled)"
+                value={props.wb.pt.playingLengthTicks ?? ""}
+                onChange={(e) => {
+                  const raw = e.currentTarget.value;
+                  if (raw === "") return props.onSetPlayingLengthTicks(null);
+                  const n = Math.floor(Number(raw));
+                  props.onSetPlayingLengthTicks(
+                    Number.isFinite(n) && n > 0 ? n : null,
+                  );
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setCalcOpen(true)}
+                title="Calculate ticks from rows / speed / tempo"
+              >
+                Calc
+              </button>
+            </span>
+          </label>
+        </Show>
         {/* Resampler picker — only relevant when targetNote drives a rate
             conversion. Hidden when targetNote is null since there's no
             resample step to influence. */}
@@ -310,6 +353,14 @@ export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
           </span>
         </label>
       </div>
+      <Show when={calcOpen()}>
+        <PlayLengthCalculator
+          initialSpeed={props.cursorSpeed}
+          initialTempo={props.cursorTempo}
+          onApply={(t) => props.onSetPlayingLengthTicks(t)}
+          onClose={() => setCalcOpen(false)}
+        />
+      </Show>
     </section>
   );
 };
