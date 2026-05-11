@@ -1,14 +1,14 @@
 import type { AmigaModel } from "./paula";
 
 /**
- * Surface area the Replayer uses to push channel state at a sample mixer.
+ * Surface area the Pt2Replayer uses to push channel state at a sample mixer.
  * Paula is one implementation (BLEP + RC/LED filters); CleanMixer is a
  * second one that skips Paula's analog character and resamples cleanly —
  * used by the offline "Bounce selection" feature where the user wants the
  * highest-quality possible render of a few rows / channels.
  *
  * Methods correspond 1:1 to Paula's existing public methods so that adding
- * the abstraction was a no-behavior-change refactor: the Replayer holds a
+ * the abstraction was a no-behavior-change refactor: the Pt2Replayer holds a
  * `Mixer` reference instead of a `Paula`, and any compliant mixer can ride.
  */
 export interface Mixer {

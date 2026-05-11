@@ -1,6 +1,7 @@
 import workletUrl from "./worklet?worker&url";
 import previewWorkletUrl from "./preview-worklet?worker&url";
-import type { Sample, ModSong } from "../mod/types";
+import type { Sample } from "../mod/types";
+import type { Song } from "../song";
 import { songForPlayback, truncateSampleAtLoopEnd } from "./loopTruncate";
 import type { WorkletEvent, WorkletMessage } from "./worklet";
 import type { PreviewMsg } from "./preview-worklet-types";
@@ -128,20 +129,20 @@ export class AudioEngine {
     return this.ctx.sampleRate;
   }
 
-  load(song: ModSong): void {
-    // Snapshot the song with trailing-after-loop bytes dropped for any
-    // looped samples — see loopTruncate.ts. Keeps the editor's stored data
-    // intact (the waveform still shows the full post-pipeline int8) while
-    // the worklet plays a version where loopEnd == sampleEnd, which
-    // sidesteps the PT loopStart=0 quirk so loops sound the way the
-    // editor's preview suggests.
-    const msg: WorkletMessage = { type: "load", song: songForPlayback(song) };
+  load(song: Song): void {
+    // PT: snapshot with trailing-after-loop bytes dropped for any looped
+    // samples (see loopTruncate.ts) — sidesteps the PT loopStart=0 quirk
+    // so loops sound the way the editor's preview suggests. FT2 has its
+    // own loop semantics (forward / ping-pong) and doesn't need this
+    // dance — pass the song through unchanged.
+    const playSong: Song = song.format === "PT2" ? songForPlayback(song) : song;
+    const msg: WorkletMessage = { type: "load", song: playSong };
     this.node.port.postMessage(msg);
   }
 
   /**
    * Push a single sample slot's bytes + meta to the worklet without
-   * restarting playback. The Replayer mutates its cached ModSong so future
+   * restarting playback. The Pt2Replayer mutates its cached ModSong so future
    * note triggers use the new data, and re-latches Paula's voice
    * registers for any voice currently playing this slot — so a chiptune
    * morph audibly snaps into the new waveform within one loop period.
@@ -162,15 +163,16 @@ export class AudioEngine {
   /**
    * Push the whole song to the worklet without restarting playback.
    * Used for order-list edits (slot stepping, insert/delete, new /
-   * duplicate pattern) — the Replayer keeps its mid-stream state
+   * duplicate pattern) — the Pt2Replayer keeps its mid-stream state
    * (orderIndex, row, channel voices) and the next row processed reads
    * from the new song. Trailing-after-loop bytes are dropped per sample
    * (same `songForPlayback` transform as `load`).
    */
-  replaceSong(song: ModSong): void {
+  replaceSong(song: Song): void {
+    const playSong: Song = song.format === "PT2" ? songForPlayback(song) : song;
     const msg: WorkletMessage = {
       type: "replaceSong",
-      song: songForPlayback(song),
+      song: playSong,
     };
     this.node.port.postMessage(msg);
   }

@@ -1,6 +1,6 @@
 /**
  * "Bounce a pattern selection to a sample" — render the user's selected
- * rows × channels through a Replayer that uses CleanMixer instead of Paula,
+ * rows × channels through a Pt2Replayer that uses CleanMixer instead of Paula,
  * trim to exactly the selection's audible length, and return mono PCM that
  * `workbenchFromWavData` can wrap as a Sampler workbench.
  *
@@ -15,11 +15,11 @@ import type { PatternSelection } from "../../state/selection";
 import { CHANNELS, ROWS_PER_PATTERN, type Pattern } from "../mod/types";
 import { Effect, emptyNote, emptyPattern, emptySong } from "../mod/format";
 import { speedTempoAt } from "../mod/flatten";
-import { Replayer } from "./replayer";
+import { Pt2Replayer } from "./replayer";
 import { CleanMixer } from "./cleanMixer";
 import type { WavData } from "./wav";
 
-/** CIA timer period for `tempo` BPM, mirroring `Replayer.samplesPerTick`. */
+/** CIA timer period for `tempo` BPM, mirroring `Pt2Replayer.samplesPerTick`. */
 const CIA_PAL_CLK = 709379.0;
 function samplesPerTickAt(tempo: number, sampleRate: number): number {
   const ciaPeriod = Math.floor(1773447 / tempo);
@@ -113,7 +113,7 @@ export interface BounceResult {
 }
 
 export interface BounceOptions {
-  /** Output sample rate — passed through to the Replayer + CleanMixer. */
+  /** Output sample rate — passed through to the Pt2Replayer + CleanMixer. */
   sampleRate?: number;
   /**
    * Number of trailing frames to keep after the selection's last row, so
@@ -147,7 +147,7 @@ export function bounceSelection(
   if (exactFrames <= 0) return null;
   const renderFrames = exactFrames + tailFrames;
 
-  const replayer = new Replayer(tempSong, {
+  const replayer = new Pt2Replayer(tempSong, {
     sampleRate,
     initialOrder: 0,
     // Start at row 0 of the temp song — buildSelectionSong placed the

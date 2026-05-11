@@ -167,7 +167,7 @@ const FUNK_TABLE: readonly number[] = [
   0, 5, 6, 7, 8, 10, 11, 13, 16, 19, 22, 26, 32, 43, 64, 128,
 ];
 
-export class Replayer {
+export class Pt2Replayer {
   // Mutable so the worklet can hot-swap a re-shaped song (order list
   // edits, new/deleted patterns) while the replayer keeps its current
   // orderIndex/row position. The replayer reads `song.orders[i]` and
@@ -313,7 +313,7 @@ export class Replayer {
 
   private samplesPerTick(): number {
     const ciaPeriod = Math.floor(1773447 / this.state.tempo);
-    const tickHz = Replayer.CIA_PAL_CLK / (ciaPeriod + 1);
+    const tickHz = Pt2Replayer.CIA_PAL_CLK / (ciaPeriod + 1);
     const exact = this.sampleRate / tickHz;
     let n = Math.floor(exact);
     this.tickFracAccum += exact - n;

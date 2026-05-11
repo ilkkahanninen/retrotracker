@@ -1,7 +1,7 @@
 import { createEffect } from "solid-js";
-import { CHANNELS } from "../core/mod/types";
 import type { Sample, ModSong } from "../core/mod/types";
-import { pt2Song as song, transport } from "./song";
+import { channelCount as channelCountOf } from "../core/song";
+import { pt2Song, song, transport, xm2Song } from "./song";
 import { currentEngine } from "./playback";
 import { isChannelMuted } from "./channelMute";
 import { settings } from "./settings";
@@ -22,7 +22,9 @@ import { settings } from "./settings";
 export function installEngineSync(): void {
   createEffect(() => {
     const eng = currentEngine();
-    for (let ch = 0; ch < CHANNELS; ch++) {
+    const s = song();
+    const n = s ? channelCountOf(s) : 0;
+    for (let ch = 0; ch < n; ch++) {
       const muted = isChannelMuted(ch);
       if (eng) eng.setChannelMuted(ch, muted);
     }
@@ -46,15 +48,16 @@ export function installEngineSync(): void {
     eng?.setMasterGain(gain);
   });
 
-  // Reference-diff against the previous render's snapshot; mutation paths
-  // always produce fresh objects when something changes, so `!==` is the
-  // right gate.
+  // PT-only: reference-diff sample-array + order-list / pattern-array
+  // against the previous render's snapshot and forward changes through
+  // engine.setSampleData / engine.replaceSong. FT2 has its own block
+  // below.
   let prevSamples: Sample[] | null = null;
   let prevOrders: ModSong["orders"] | null = null;
   let prevPatterns: ModSong["patterns"] | null = null;
   let prevSongLength: number | null = null;
   createEffect(() => {
-    const s = song();
+    const s = pt2Song();
     const playing = transport() === "playing";
     if (!s) {
       prevSamples = null;
@@ -84,5 +87,40 @@ export function installEngineSync(): void {
     prevOrders = s.orders;
     prevPatterns = s.patterns;
     prevSongLength = s.songLength;
+  });
+
+  // FT2: forward order-list / pattern-array / channelCount edits to the
+  // worklet so live tweaks (insert order, change channel count) take
+  // effect on the next row processed. Sample / instrument hot-swap will
+  // come with the Phase 4 sample editor.
+  let prevXmOrders: number[] | null = null;
+  let prevXmPatterns: unknown[] | null = null;
+  let prevXmSongLength: number | null = null;
+  let prevXmChannelCount: number | null = null;
+  createEffect(() => {
+    const s = xm2Song();
+    const playing = transport() === "playing";
+    if (!s) {
+      prevXmOrders = null;
+      prevXmPatterns = null;
+      prevXmSongLength = null;
+      prevXmChannelCount = null;
+      return;
+    }
+    const eng = playing ? currentEngine() : null;
+    if (
+      eng &&
+      (s.orders !== prevXmOrders ||
+        s.patterns !== prevXmPatterns ||
+        s.songLength !== prevXmSongLength ||
+        s.channelCount !== prevXmChannelCount) &&
+      prevXmOrders !== null
+    ) {
+      eng.replaceSong(s);
+    }
+    prevXmOrders = s.orders;
+    prevXmPatterns = s.patterns;
+    prevXmSongLength = s.songLength;
+    prevXmChannelCount = s.channelCount;
   });
 }

@@ -1,18 +1,19 @@
-import type { ModSong } from "../mod/types";
-import { Replayer } from "./replayer";
+import type { Song } from "../song";
+import { makeReplayer } from "./replayerCommon";
 import type { RenderOptions, RenderedAudio } from "./types";
 
 const CHUNK = 1024;
 
 /**
- * Render a ModSong to stereo Float32 buffers offline. Used by the accuracy
- * test bed and the CLI. Same Replayer instance powers the live AudioWorklet.
+ * Render a song to stereo Float32 buffers offline. Used by the accuracy
+ * test bed and the CLI. Dispatches via `makeReplayer` so PT2 and FT2
+ * songs both render through the same path.
  */
-export function renderToBuffer(song: ModSong, opts: RenderOptions): RenderedAudio {
+export function renderToBuffer(song: Song, opts: RenderOptions): RenderedAudio {
   const stopOnSongEnd = opts.stopOnSongEnd ?? true;
   const maxFrames = Math.ceil(opts.maxSeconds * opts.sampleRate);
 
-  const replayer = new Replayer(song, opts);
+  const replayer = makeReplayer(song, opts);
   const left = new Float32Array(maxFrames);
   const right = new Float32Array(maxFrames);
 

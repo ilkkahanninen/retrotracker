@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { parseModule } from "../src/core/mod/parser";
-import { Replayer } from "../src/core/audio/replayer";
+import { Pt2Replayer } from "../src/core/audio/replayer";
 
 /**
  * Mid-playback Amiga-model swap should immediately retune the filters.
@@ -30,7 +30,7 @@ describe("Paula mid-playback model swap", () => {
       initial: "A1200" | "A500",
       swapTo: "A1200" | "A500" | null,
     ): Float32Array {
-      const r = new Replayer(song, {
+      const r = new Pt2Replayer(song, {
         sampleRate: SR,
         loop: false,
         amigaModel: initial,

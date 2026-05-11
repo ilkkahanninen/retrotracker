@@ -11,11 +11,15 @@ coverage
 .tsbuildinfo
 *.tsbuildinfo
 
-# Reference renders are generated locally by pt2-render — never committed.
-# (.mod fixtures ARE committed; they're tiny and authoritative.)
+# Reference renders are generated locally by pt2-render / xmp-cli — never
+# committed. (.mod / .xm fixtures ARE committed; they're tiny and authoritative.)
 tests/fixtures/*.wav
+tests/fixtures/xm/*.wav
 
-# Vendored third-party sources and built binaries (downloaded by build script)
+# Vendored third-party sources and built binaries (downloaded by build script).
+# libxmp is referenced by the FT2 accuracy bed for behavior research; the
+# test bed itself shells out to the system `xmp` CLI rather than building it.
 vendor/pt2-clone/
+vendor/libxmp/
 vendor/bin/
 vendor/headless/build/

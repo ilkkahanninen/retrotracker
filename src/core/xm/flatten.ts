@@ -83,3 +83,31 @@ export function flattenXmSong(song: XmSong): XmFlatRow[] {
   }
   return out;
 }
+
+/**
+ * Walk the song from (0, 0) to (order, row) and return the speed +
+ * tempo that would be in effect on arrival. Mirrors PT's
+ * `speedTempoAt` — used to seed the replayer when playback starts
+ * mid-song so the user hears the same tempo as if the song had played
+ * through normally.
+ */
+export function speedTempoAtXm(
+  song: XmSong,
+  order: number,
+  row: number,
+): { speed: number; tempo: number } {
+  let speed = song.defaultTempo;
+  let tempo = song.defaultBpm;
+  const flat = flattenXmSong(song);
+  for (const fr of flat) {
+    if (fr.order === order && fr.rowIndex === row) break;
+    for (const cell of fr.cells) {
+      if (cell.effect !== 0x0f) continue;
+      const p = cell.effectParam;
+      if (p === 0) continue; // F00 = stop song; ignore for state-tracking
+      if (p < 32) speed = p;
+      else tempo = p;
+    }
+  }
+  return { speed, tempo };
+}
