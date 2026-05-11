@@ -1,6 +1,7 @@
 import { createEffect, onCleanup, type Component } from "solid-js";
 
 import type { XmSample } from "../core/xm/types";
+import { drawSampleWaveform } from "./waveformDraw";
 
 /**
  * Read-only waveform display for FT2 samples. Draws into a canvas at
@@ -8,8 +9,10 @@ import type { XmSample } from "../core/xm/types";
  * displays. Designed to sit inside `InstrumentView` — no selection,
  * cropping, or workbench coupling (the PT-side `Waveform` carries all
  * of that; Phase 4 only needs visual verification of the imported
- * sample). Handles both 8-bit and 16-bit data uniformly via a peak
- * normalised to the type's max amplitude.
+ * sample).
+ *
+ * Min/max bucketing + polyline fallback for short samples lives in the
+ * shared `drawSampleWaveform` helper so PT and FT2 can't diverge again.
  */
 interface Props {
   sample: XmSample;
@@ -35,52 +38,16 @@ export const XmWaveform: Component<Props> = (props) => {
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // Background.
-    ctx.fillStyle =
-      getComputedStyle(canvas).getPropertyValue("--panel-2").trim() ||
-      "#1c1e26";
-    ctx.fillRect(0, 0, cssWidth, cssHeight);
-
-    // Midline.
-    ctx.strokeStyle =
-      getComputedStyle(canvas).getPropertyValue("--grid-line").trim() ||
-      "#33363f";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, cssHeight / 2);
-    ctx.lineTo(cssWidth, cssHeight / 2);
-    ctx.stroke();
-
-    const data = props.sample.data;
-    if (data.length === 0) return;
-    const peak = props.sample.bits === 16 ? 32768 : 128;
-    const half = cssHeight / 2;
-    // Bucket the samples per output column and draw the (min, max)
-    // pair as a vertical line. Mirrors PT2 Waveform.tsx's
-    // bucket strategy so dense samples don't moiré.
-    const samplesPerPx = Math.max(1, data.length / cssWidth);
-    ctx.strokeStyle = "#5ec9ff";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let x = 0; x < cssWidth; x++) {
-      const startIdx = Math.floor(x * samplesPerPx);
-      const endIdx = Math.min(
-        data.length,
-        Math.max(startIdx + 1, Math.floor((x + 1) * samplesPerPx)),
-      );
-      let min = data[startIdx] ?? 0;
-      let max = min;
-      for (let i = startIdx + 1; i < endIdx; i++) {
-        const v = data[i]!;
-        if (v < min) min = v;
-        if (v > max) max = v;
-      }
-      const yMin = half - (max / peak) * half;
-      const yMax = half - (min / peak) * half;
-      ctx.moveTo(x + 0.5, yMin);
-      ctx.lineTo(x + 0.5, yMax);
-    }
-    ctx.stroke();
+    const cs = getComputedStyle(canvas);
+    drawSampleWaveform(ctx, {
+      data: props.sample.data,
+      peak: props.sample.bits === 16 ? 32768 : 128,
+      width: cssWidth,
+      height: cssHeight,
+      bgColor: cs.getPropertyValue("--panel-2").trim() || "#1c1e26",
+      midlineColor: cs.getPropertyValue("--grid-line").trim() || "#33363f",
+      waveColor: "#5ec9ff",
+    });
   };
 
   createEffect(() => {

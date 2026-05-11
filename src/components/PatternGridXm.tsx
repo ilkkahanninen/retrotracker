@@ -27,6 +27,7 @@ import {
   toggleSolo,
 } from "../state/channelMute";
 import {
+  centerRowInView,
   computeVisibleRange,
   flatIndexOf,
   keepRowInView,
@@ -113,9 +114,22 @@ export const PatternGridXm: Component<Props> = (props) => {
     onCleanup(() => ro.disconnect());
   });
 
-  // Keep the cursor in view as it moves (e.g. when an order-list click sets
-  // cursor.order to a different slot).
+  // Centre the playhead row while the song is playing. Matches PT
+  // PatternGrid: per-tick re-centre is cheap because the visible-row
+  // <For> below is keyed by FlatRow identity, so a one-row scroll
+  // mounts/unmounts a single row instead of rewriting every row.
   createEffect(() => {
+    if (!props.active) return;
+    const idx = activeFlatIndex();
+    if (idx < 0 || !scroller) return;
+    centerRowInView(scroller, idx);
+  });
+
+  // Keep the cursor in view as it moves (e.g. order-list click switches
+  // cursor.order). Skipped during playback — the playhead-centre effect
+  // above owns scroll position then.
+  createEffect(() => {
+    if (props.active) return;
     const idx = cursorFlatIndex();
     if (idx < 0 || !scroller) return;
     keepRowInView(scroller, idx);

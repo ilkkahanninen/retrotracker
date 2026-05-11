@@ -13,6 +13,7 @@ import type { SampleSelection } from "../state/sampleSelection";
 import { beginDragEdit, endDragEdit } from "../state/song";
 import { EnvelopeOverlay } from "./EnvelopeOverlay";
 import type { EnvelopePoint, ParamAxis } from "../core/audio/sampleWorkbench";
+import { drawSampleWaveform } from "./waveformDraw";
 
 export type { SampleSelection };
 
@@ -443,76 +444,23 @@ export const Waveform: Component<WaveformProps> = (props) => {
     const ctx = c.getContext("2d");
     if (!ctx) return;
 
-    // Background.
-    ctx.fillStyle = "#1c1e26";
-    ctx.fillRect(0, 0, W, H);
-
-    // Center line.
-    ctx.fillStyle = "#2a2d38";
-    ctx.fillRect(0, H / 2, W, 1);
-
     const data = props.sample.data;
-    if (data.byteLength === 0) return;
-
     const start = viewStart();
     const end = Math.min(data.length, viewEnd());
-    const sp = Math.max(1, end - start);
 
-    ctx.fillStyle = "#5ec8ff";
-    ctx.strokeStyle = "#5ec8ff";
-    ctx.lineWidth = 1;
-    const yFor = (v: number) => H / 2 - (v / 128) * (H / 2 - 1);
+    drawSampleWaveform(ctx, {
+      data,
+      peak: 128,
+      start,
+      end,
+      width: W,
+      height: H,
+      bgColor: "#1c1e26",
+      midlineColor: "#2a2d38",
+      waveColor: "#5ec8ff",
+    });
 
-    if (sp <= W) {
-      // Visible span fits in one sample-per-pixel-or-wider — draw a
-      // polyline through every byte in the view. Adjacent samples land
-      // multiple pixels apart at high zoom, so the connecting lines are
-      // what give the eye a continuous waveform shape.
-      ctx.beginPath();
-      const pixelSpan = Math.max(1, sp - 1);
-      for (let i = 0; i < sp; i++) {
-        const x = (i / pixelSpan) * (W - 1);
-        const y = yFor(data[start + i]!);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-    } else {
-      // More visible bytes than canvas pixels — bucket each column down to
-      // a min/max bar. Bridge each bar to the previous column's last sample
-      // so columns whose bucket holds only one sample still connect to
-      // their neighbour.
-      const samplesPerPixel = sp / W;
-      let prev: number | null = null;
-      for (let x = 0; x < W; x++) {
-        const bucketStart = start + Math.floor(x * samplesPerPixel);
-        const bucketEnd = Math.min(
-          end,
-          start + Math.floor((x + 1) * samplesPerPixel),
-        );
-        if (bucketStart >= bucketEnd) continue;
-        let mn = 127;
-        let mx = -128;
-        if (prev !== null) {
-          if (prev < mn) mn = prev;
-          if (prev > mx) mx = prev;
-        }
-        for (let i = bucketStart; i < bucketEnd; i++) {
-          const v = data[i]!;
-          if (v < mn) mn = v;
-          if (v > mx) mx = v;
-        }
-        prev = data[bucketEnd - 1]!;
-        const yMax = yFor(mx);
-        const yMin = yFor(mn);
-        ctx.fillRect(
-          x,
-          Math.min(yMax, yMin),
-          1,
-          Math.max(1, Math.abs(yMax - yMin)),
-        );
-      }
-    }
+    if (data.byteLength === 0) return;
 
     if (props.showLoop) drawLoopOverlay(ctx, props.sample, W, H, xForByte);
 
