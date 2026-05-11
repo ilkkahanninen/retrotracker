@@ -11,6 +11,8 @@ interface Props {
   song: XmSong | null;
   onSelect: (index1Based: number) => void;
   onRename: (index1Based: number, name: string) => void;
+  /** Drop one or more WAV files onto the slot (1-based) to load samples. */
+  onDropFiles?: (index1Based: number, files: File[]) => void;
 }
 
 /**
@@ -26,6 +28,13 @@ interface Props {
  */
 export const InstrumentList: Component<Props> = (props) => {
   const [editingSlot, setEditingSlot] = createSignal<number | null>(null);
+  const [dropTargetSlot, setDropTargetSlot] = createSignal<number | null>(null);
+
+  // Mirrors SampleList's drag detection: dataTransfer.files isn't
+  // populated until drop, but `"Files"` is in the types list throughout
+  // the drag, so we use that for the visual highlight.
+  const dragHasFiles = (e: DragEvent): boolean =>
+    !!e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files");
 
   const submitRename = (slot1Based: number, value: string) => {
     setEditingSlot(null);
@@ -67,16 +76,39 @@ export const InstrumentList: Component<Props> = (props) => {
                 classList={{
                   "sample--empty": slot.isEmpty,
                   "sample--current": currentXmInstrument() === slotNum(),
+                  "sample--drop-target": dropTargetSlot() === slotNum(),
                 }}
                 onClick={() => {
                   if (isEditing()) return;
                   props.onSelect(slotNum());
                 }}
                 onDblClick={() => setEditingSlot(slotNum())}
+                onDragOver={(e) => {
+                  if (!props.onDropFiles || !dragHasFiles(e)) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDropTargetSlot(slotNum());
+                }}
+                onDragLeave={(e) => {
+                  e.stopPropagation();
+                  if (dropTargetSlot() === slotNum()) setDropTargetSlot(null);
+                }}
+                onDrop={(e) => {
+                  if (!props.onDropFiles || !dragHasFiles(e)) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDropTargetSlot(null);
+                  const files = e.dataTransfer?.files;
+                  if (!files || files.length === 0) return;
+                  props.onDropFiles(slotNum(), Array.from(files));
+                }}
                 title={`Select instrument ${slotNum()
                   .toString(16)
                   .toUpperCase()
-                  .padStart(2, "0")} — double-click to rename`}
+                  .padStart(
+                    2,
+                    "0",
+                  )} — double-click to rename, drop a .wav to load`}
               >
                 <span class="num">
                   {slotNum().toString(16).toUpperCase().padStart(2, "0")}

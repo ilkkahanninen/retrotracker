@@ -3,12 +3,15 @@ import {
   type SampleWorkbench,
 } from "../core/audio/sampleWorkbench";
 import { clearSample } from "../core/mod/mutations";
-import { commitEditWithWorkbenches, pt2Song as song } from "./song";
+import { importWavXmSample } from "../core/xm/sampleImport";
+import { commitEditWithWorkbenches, pt2Song as song, xm2Song } from "./song";
 import { currentSample, selectSample } from "./edit";
 import { view } from "./view";
 import { withWorkbench } from "./sampleWorkbench";
 import { NO_LOOP, nextFreeSlot, writeWorkbenchToSongPure } from "./sampleEdit";
 import { setError } from "./session";
+import { currentXmInstrument, selectXmInstrument } from "./xmEdit";
+import { setXmSample } from "./xmInstrumentEdit";
 
 /**
  * Multi-WAV drop / picker path — `.mod` / `.xm` / `.retro` go through `loadFile`.
@@ -172,3 +175,55 @@ export async function loadWavsIntoSlot(
     );
   }
 }
+
+/**
+ * FT2 counterpart of `loadWavsIntoSlot`: drop one or more WAVs onto a
+ * 1-based instrument slot. The first WAV replaces the target slot; any
+ * extras fan forward into the next instrument slots. Each import is a
+ * discrete commit so undo steps through them one at a time.
+ */
+export async function loadWavsIntoXmSlot(
+  targetSlot1Based: number,
+  files: File[],
+): Promise<void> {
+  const xm = xm2Song();
+  if (!xm) {
+    setError("Open an XM song before importing WAVs into instruments.");
+    return;
+  }
+  const wavFiles = files.filter((f) => /\.wav$/i.test(f.name));
+  if (wavFiles.length === 0) {
+    setError("Drop one or more .wav files onto an instrument slot.");
+    return;
+  }
+  setError(null);
+
+  let slot = targetSlot1Based;
+  let imported = 0;
+  for (const file of wavFiles) {
+    if (slot > 128) {
+      const skipped = wavFiles.length - imported;
+      setError(
+        `Out of instrument slots — skipped ${skipped} file${skipped === 1 ? "" : "s"}.`,
+      );
+      break;
+    }
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const result = importWavXmSample(bytes, file.name);
+      setXmSample(slot, result.sample);
+      imported++;
+      slot++;
+    } catch (err) {
+      setError(
+        `${file.name}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+  }
+  if (imported > 0) {
+    selectXmInstrument(targetSlot1Based);
+  }
+}
+
+void currentXmInstrument;

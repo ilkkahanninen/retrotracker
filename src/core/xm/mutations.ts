@@ -14,13 +14,17 @@ import {
   XM_INSTRUMENT_NAME_MAX,
   XM_KEYOFF_NOTE,
   XM_MAX_CHANNELS,
+  XM_MAX_ENVELOPE_POINTS,
   XM_MAX_INSTRUMENTS,
   XM_MAX_ORDERS,
   XM_MAX_PATTERN_ROWS,
   XM_MIN_PATTERN_ROWS,
+  type XmEnvelope,
+  type XmEnvelopePoint,
   type XmInstrument,
   type XmNote,
   type XmPattern,
+  type XmSample,
   type XmSong,
 } from "./types";
 
@@ -333,4 +337,295 @@ function emptyEnvelopeStub(): XmInstrument["volumeEnvelope"] {
     loopEnd: 0,
     points: [],
   };
+}
+
+// ─── Instrument-level mutations (Phase 4) ──────────────────────────────────
+//
+// Each setter takes a 1-based instrument slot to match the UI conventions
+// (instrument 0 = "no instrument change" in a cell, so the slot numbering
+// starts at 1 throughout the editor). They no-op cleanly when the slot is
+// out of range or the field already matches.
+
+type InstrumentEnvelopeKind = "volume" | "panning";
+
+function withInstrumentAt(
+  song: XmSong,
+  slot1Based: number,
+  transform: (inst: XmInstrument) => XmInstrument,
+): XmSong {
+  const slot = slot1Based - 1;
+  if (slot < 0 || slot >= XM_MAX_INSTRUMENTS) return song;
+  const existing =
+    song.instruments[slot] ??
+    ({
+      name: "",
+      samples: [],
+      keyMap: new Uint8Array(96),
+      volumeEnvelope: emptyEnvelopeStub(),
+      panningEnvelope: emptyEnvelopeStub(),
+      vibratoType: "sine",
+      vibratoSweep: 0,
+      vibratoDepth: 0,
+      vibratoRate: 0,
+      fadeout: 0,
+    } satisfies XmInstrument);
+  const next = transform(existing);
+  if (next === existing) return song;
+  return setXmInstrument(song, slot, next);
+}
+
+/** Patch one of the two instrument envelopes. */
+export function patchXmInstrumentEnvelope(
+  song: XmSong,
+  slot1Based: number,
+  kind: InstrumentEnvelopeKind,
+  patch: Partial<XmEnvelope>,
+): XmSong {
+  return withInstrumentAt(song, slot1Based, (inst) => {
+    const key = kind === "volume" ? "volumeEnvelope" : "panningEnvelope";
+    const current = inst[key];
+    const merged: XmEnvelope = { ...current, ...patch };
+    if (
+      merged.enabled === current.enabled &&
+      merged.sustainEnabled === current.sustainEnabled &&
+      merged.loopEnabled === current.loopEnabled &&
+      merged.sustainPoint === current.sustainPoint &&
+      merged.loopStart === current.loopStart &&
+      merged.loopEnd === current.loopEnd &&
+      merged.points === current.points
+    ) {
+      return inst;
+    }
+    return { ...inst, [key]: merged };
+  });
+}
+
+function clampEnvelopePoint(p: XmEnvelopePoint): XmEnvelopePoint {
+  return {
+    tick: Math.max(0, Math.min(0xffff, Math.floor(p.tick))),
+    value: Math.max(0, Math.min(64, Math.floor(p.value))),
+  };
+}
+
+/**
+ * Replace a single envelope point. Preserves array order — caller is
+ * responsible for keeping points monotonic by tick (the UI's drag
+ * handler clamps to the surrounding neighbours).
+ */
+export function setXmEnvelopePoint(
+  song: XmSong,
+  slot1Based: number,
+  kind: InstrumentEnvelopeKind,
+  pointIndex: number,
+  point: XmEnvelopePoint,
+): XmSong {
+  return withInstrumentAt(song, slot1Based, (inst) => {
+    const env = kind === "volume" ? inst.volumeEnvelope : inst.panningEnvelope;
+    if (pointIndex < 0 || pointIndex >= env.points.length) return inst;
+    const clamped = clampEnvelopePoint(point);
+    const existing = env.points[pointIndex]!;
+    if (existing.tick === clamped.tick && existing.value === clamped.value) {
+      return inst;
+    }
+    const points = [...env.points];
+    points[pointIndex] = clamped;
+    const key = kind === "volume" ? "volumeEnvelope" : "panningEnvelope";
+    return { ...inst, [key]: { ...env, points } };
+  });
+}
+
+/**
+ * Append a point at `(tick, value)`. No-op if the envelope is already at
+ * `XM_MAX_ENVELOPE_POINTS` capacity or the proposed tick is not strictly
+ * greater than the last point's tick (preserves the monotonic invariant
+ * the on-disk format relies on).
+ */
+export function addXmEnvelopePoint(
+  song: XmSong,
+  slot1Based: number,
+  kind: InstrumentEnvelopeKind,
+  point: XmEnvelopePoint,
+): XmSong {
+  return withInstrumentAt(song, slot1Based, (inst) => {
+    const env = kind === "volume" ? inst.volumeEnvelope : inst.panningEnvelope;
+    if (env.points.length >= XM_MAX_ENVELOPE_POINTS) return inst;
+    const clamped = clampEnvelopePoint(point);
+    const last = env.points[env.points.length - 1];
+    if (last && clamped.tick <= last.tick) return inst;
+    const points = [...env.points, clamped];
+    const key = kind === "volume" ? "volumeEnvelope" : "panningEnvelope";
+    return { ...inst, [key]: { ...env, points } };
+  });
+}
+
+/**
+ * Remove a point. Sustain / loop indices that point at or past the
+ * removed point shift down to stay valid; indices before it are
+ * unchanged.
+ */
+export function removeXmEnvelopePoint(
+  song: XmSong,
+  slot1Based: number,
+  kind: InstrumentEnvelopeKind,
+  pointIndex: number,
+): XmSong {
+  return withInstrumentAt(song, slot1Based, (inst) => {
+    const env = kind === "volume" ? inst.volumeEnvelope : inst.panningEnvelope;
+    if (pointIndex < 0 || pointIndex >= env.points.length) return inst;
+    const points = env.points.filter((_, i) => i !== pointIndex);
+    const shift = (idx: number) =>
+      idx > pointIndex
+        ? idx - 1
+        : idx === pointIndex
+          ? Math.max(0, idx - 1)
+          : idx;
+    const next: XmEnvelope = {
+      ...env,
+      points,
+      sustainPoint: shift(env.sustainPoint),
+      loopStart: shift(env.loopStart),
+      loopEnd: shift(env.loopEnd),
+    };
+    const key = kind === "volume" ? "volumeEnvelope" : "panningEnvelope";
+    return { ...inst, [key]: next };
+  });
+}
+
+/** Patch autovibrato fields (type / sweep / depth / rate). */
+export function patchXmInstrumentAutoVibrato(
+  song: XmSong,
+  slot1Based: number,
+  patch: Partial<
+    Pick<
+      XmInstrument,
+      "vibratoType" | "vibratoSweep" | "vibratoDepth" | "vibratoRate"
+    >
+  >,
+): XmSong {
+  return withInstrumentAt(song, slot1Based, (inst) => {
+    const next: XmInstrument = {
+      ...inst,
+      ...patch,
+      vibratoSweep:
+        patch.vibratoSweep !== undefined
+          ? Math.max(0, Math.min(0xff, Math.floor(patch.vibratoSweep)))
+          : inst.vibratoSweep,
+      vibratoDepth:
+        patch.vibratoDepth !== undefined
+          ? Math.max(0, Math.min(15, Math.floor(patch.vibratoDepth)))
+          : inst.vibratoDepth,
+      vibratoRate:
+        patch.vibratoRate !== undefined
+          ? Math.max(0, Math.min(63, Math.floor(patch.vibratoRate)))
+          : inst.vibratoRate,
+    };
+    if (
+      next.vibratoType === inst.vibratoType &&
+      next.vibratoSweep === inst.vibratoSweep &&
+      next.vibratoDepth === inst.vibratoDepth &&
+      next.vibratoRate === inst.vibratoRate
+    ) {
+      return inst;
+    }
+    return next;
+  });
+}
+
+/** Set the 16-bit fadeout amount (subtracted per tick from fadevol). */
+export function setXmInstrumentFadeout(
+  song: XmSong,
+  slot1Based: number,
+  fadeout: number,
+): XmSong {
+  return withInstrumentAt(song, slot1Based, (inst) => {
+    const next = Math.max(0, Math.min(0xfff, Math.floor(fadeout)));
+    if (next === inst.fadeout) return inst;
+    return { ...inst, fadeout: next };
+  });
+}
+
+/**
+ * Patch the (only — Phase 4 carries one sample per instrument) inner
+ * sample. Field-level patch so the UI can flip loop type, finetune,
+ * volume, panning, relative note, etc. without rewriting unrelated
+ * fields. Sample data and bit-depth stay put — those go through
+ * sample-import paths.
+ */
+export function patchXmInstrumentSample(
+  song: XmSong,
+  slot1Based: number,
+  patch: Partial<
+    Pick<
+      XmSample,
+      | "name"
+      | "volume"
+      | "finetune"
+      | "panning"
+      | "relativeNote"
+      | "loopType"
+      | "loopStart"
+      | "loopLength"
+    >
+  >,
+): XmSong {
+  return withInstrumentAt(song, slot1Based, (inst) => {
+    const sample = inst.samples[0];
+    if (!sample) return inst;
+    const clamp = (n: number, lo: number, hi: number) =>
+      Math.max(lo, Math.min(hi, Math.floor(n)));
+    const next: XmSample = {
+      ...sample,
+      ...(patch.name !== undefined ? { name: patch.name.slice(0, 22) } : {}),
+      ...(patch.volume !== undefined
+        ? { volume: clamp(patch.volume, 0, 64) }
+        : {}),
+      ...(patch.finetune !== undefined
+        ? { finetune: clamp(patch.finetune, -128, 127) }
+        : {}),
+      ...(patch.panning !== undefined
+        ? { panning: clamp(patch.panning, 0, 255) }
+        : {}),
+      ...(patch.relativeNote !== undefined
+        ? { relativeNote: clamp(patch.relativeNote, -96, 95) }
+        : {}),
+      ...(patch.loopType !== undefined ? { loopType: patch.loopType } : {}),
+      ...(patch.loopStart !== undefined
+        ? { loopStart: Math.max(0, Math.floor(patch.loopStart)) }
+        : {}),
+      ...(patch.loopLength !== undefined
+        ? { loopLength: Math.max(0, Math.floor(patch.loopLength)) }
+        : {}),
+    };
+    if (
+      next.name === sample.name &&
+      next.volume === sample.volume &&
+      next.finetune === sample.finetune &&
+      next.panning === sample.panning &&
+      next.relativeNote === sample.relativeNote &&
+      next.loopType === sample.loopType &&
+      next.loopStart === sample.loopStart &&
+      next.loopLength === sample.loopLength
+    ) {
+      return inst;
+    }
+    const samples: XmSample[] = [next, ...inst.samples.slice(1)];
+    return { ...inst, samples };
+  });
+}
+
+/**
+ * Replace (or set, if the instrument has no sample yet) the inner
+ * sample. The sample bring its own data + bits along — used after a
+ * fresh WAV import. Other instrument fields stay intact so the user
+ * can swap the waveform without losing envelope / vibrato edits.
+ */
+export function setXmInstrumentSample(
+  song: XmSong,
+  slot1Based: number,
+  sample: XmSample,
+): XmSong {
+  return withInstrumentAt(song, slot1Based, (inst) => {
+    if (inst.samples.length === 1 && inst.samples[0] === sample) return inst;
+    return { ...inst, samples: [sample] };
+  });
 }

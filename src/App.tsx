@@ -17,6 +17,7 @@ import { PatternGridXm } from "./components/PatternGridXm";
 import { XmOrderList } from "./components/XmOrderList";
 import { PatternHelp } from "./components/PatternHelp";
 import { InstrumentList } from "./components/InstrumentList";
+import { InstrumentView } from "./components/InstrumentView";
 import { SampleList } from "./components/SampleList";
 import { SampleView } from "./components/SampleView";
 import { SettingsView } from "./components/SettingsView";
@@ -72,7 +73,11 @@ import {
   stepNextPattern,
   stepPrevPattern,
 } from "./state/orderEdit";
-import { loadWavsIntoFreeSlots, loadWavsIntoSlot } from "./state/dropImport";
+import {
+  loadWavsIntoFreeSlots,
+  loadWavsIntoSlot,
+  loadWavsIntoXmSlot,
+} from "./state/dropImport";
 import {
   addEffect,
   applyChainToSource,
@@ -886,6 +891,9 @@ export const App: Component = () => {
               song={xm()}
               onSelect={selectXmInstrument}
               onRename={renameXmInstrument}
+              onDropFiles={(slot1Based, files) => {
+                void loadWavsIntoXmSlot(slot1Based, files);
+              }}
             />
           )}
         </Show>
@@ -894,72 +902,86 @@ export const App: Component = () => {
       <main class="app__main">
         <Show when={xm2Song()}>
           {(xm) => (
-            <div class="patternpane">
-              <div class="patternpane__meta">
-                <span class="patternpane__title">
-                  {xm().title || <em>(untitled)</em>}
-                </span>
-                <ModeBadge format="FT2" />
-                <span class="patternpane__sep">·</span>
-                <span>{filename()}</span>
-                <span class="patternpane__sep">·</span>
-                <label class="patternpane__rows">
-                  Channels
-                  <input
-                    type="number"
-                    min={2}
-                    max={XM_MAX_CHANNELS}
-                    step={1}
-                    aria-label="Channel count"
-                    title={`Song-wide channel count (range 2..${XM_MAX_CHANNELS})`}
-                    disabled={transport() === "playing"}
-                    value={xm().channelCount}
-                    onChange={(e) => {
-                      const n = Math.floor(Number(e.currentTarget.value));
-                      if (!Number.isFinite(n)) return;
-                      const clamped = Math.max(2, Math.min(XM_MAX_CHANNELS, n));
-                      setXmChannelCountAction(clamped);
-                    }}
-                  />
-                </label>
-                <span class="patternpane__sep">·</span>
-                <span>{xm().instruments.length} instruments</span>
-                <span class="patternpane__sep">·</span>
-                <label class="patternpane__rows">
-                  Rows
-                  <input
-                    type="number"
-                    min={XM_MIN_PATTERN_ROWS}
-                    max={XM_MAX_PATTERN_ROWS}
-                    step={1}
-                    aria-label="Pattern row count"
-                    title={`Row count of pattern at order ${xmCursor().order} (range ${XM_MIN_PATTERN_ROWS}..${XM_MAX_PATTERN_ROWS})`}
-                    disabled={transport() === "playing"}
-                    value={(() => {
-                      const s = xm();
-                      const idx = s.orders[xmCursor().order];
-                      return idx !== undefined
-                        ? (s.patterns[idx]?.rowCount ?? 0)
-                        : 0;
-                    })()}
-                    onChange={(e) => {
-                      const n = Math.floor(Number(e.currentTarget.value));
-                      if (!Number.isFinite(n)) return;
-                      const clamped = Math.max(
-                        XM_MIN_PATTERN_ROWS,
-                        Math.min(XM_MAX_PATTERN_ROWS, n),
-                      );
-                      setXmRowCountAtCursor(clamped);
-                    }}
-                  />
-                </label>
+            <>
+              <div
+                class="patternpane"
+                classList={{ "view-hidden": view() !== "pattern" }}
+              >
+                <div class="patternpane__meta">
+                  <span class="patternpane__title">
+                    {xm().title || <em>(untitled)</em>}
+                  </span>
+                  <ModeBadge format="FT2" />
+                  <span class="patternpane__sep">·</span>
+                  <span>{filename()}</span>
+                  <span class="patternpane__sep">·</span>
+                  <label class="patternpane__rows">
+                    Channels
+                    <input
+                      type="number"
+                      min={2}
+                      max={XM_MAX_CHANNELS}
+                      step={1}
+                      aria-label="Channel count"
+                      title={`Song-wide channel count (range 2..${XM_MAX_CHANNELS})`}
+                      disabled={transport() === "playing"}
+                      value={xm().channelCount}
+                      onChange={(e) => {
+                        const n = Math.floor(Number(e.currentTarget.value));
+                        if (!Number.isFinite(n)) return;
+                        const clamped = Math.max(
+                          2,
+                          Math.min(XM_MAX_CHANNELS, n),
+                        );
+                        setXmChannelCountAction(clamped);
+                      }}
+                    />
+                  </label>
+                  <span class="patternpane__sep">·</span>
+                  <span>{xm().instruments.length} instruments</span>
+                  <span class="patternpane__sep">·</span>
+                  <label class="patternpane__rows">
+                    Rows
+                    <input
+                      type="number"
+                      min={XM_MIN_PATTERN_ROWS}
+                      max={XM_MAX_PATTERN_ROWS}
+                      step={1}
+                      aria-label="Pattern row count"
+                      title={`Row count of pattern at order ${xmCursor().order} (range ${XM_MIN_PATTERN_ROWS}..${XM_MAX_PATTERN_ROWS})`}
+                      disabled={transport() === "playing"}
+                      value={(() => {
+                        const s = xm();
+                        const idx = s.orders[xmCursor().order];
+                        return idx !== undefined
+                          ? (s.patterns[idx]?.rowCount ?? 0)
+                          : 0;
+                      })()}
+                      onChange={(e) => {
+                        const n = Math.floor(Number(e.currentTarget.value));
+                        if (!Number.isFinite(n)) return;
+                        const clamped = Math.max(
+                          XM_MIN_PATTERN_ROWS,
+                          Math.min(XM_MAX_PATTERN_ROWS, n),
+                        );
+                        setXmRowCountAtCursor(clamped);
+                      }}
+                    />
+                  </label>
+                </div>
+                <PatternGridXm
+                  song={xm()}
+                  pos={playPos()}
+                  active={transport() === "playing"}
+                />
               </div>
-              <PatternGridXm
-                song={xm()}
-                pos={playPos()}
-                active={transport() === "playing"}
-              />
-            </div>
+              <div
+                class="sampleview-wrapper"
+                classList={{ "view-hidden": view() !== "sample" }}
+              >
+                <InstrumentView song={xm()} />
+              </div>
+            </>
           )}
         </Show>
         <Show

@@ -1,4 +1,4 @@
-import { For, type Component } from "solid-js";
+import { For, Show, type Component } from "solid-js";
 import type { AmigaModel } from "../core/audio/paula";
 import {
   MASTER_GAIN_DEFAULT,
@@ -6,6 +6,8 @@ import {
   MASTER_GAIN_MIN,
   MASTER_GAIN_STEP,
   setColorScheme,
+  setFt2Interpolation,
+  setFt2Ramping,
   setMasterGain,
   setPaulaModel,
   setStereoSeparation,
@@ -18,8 +20,20 @@ import {
   UI_SCALE_MAX,
   UI_SCALE_MIN,
   UI_SCALE_STEP,
+  type Ft2InterpolationMode,
 } from "../state/settings";
+import { xm2Song } from "../state/song";
 import { COLOR_SCHEMES } from "../state/theme";
+
+const FT2_INTERPOLATION_MODES: {
+  value: Ft2InterpolationMode;
+  label: string;
+}[] = [
+  { value: "none", label: "none" },
+  { value: "linear", label: "linear" },
+  { value: "cubic", label: "cubic" },
+  { value: "sinc8", label: "sinc8" },
+];
 
 const PAULA_MODELS: { value: AmigaModel; label: string }[] = [
   { value: "A1200", label: "A1200" },
@@ -55,52 +69,92 @@ export const SettingsView: Component = () => {
       <div class="settingsview__group">
         <span class="settingsview__group-label">Audio</span>
 
-        <div class="settingsview__field">
-          <span class="settingsview__label">
-            Paula filter model (⌘⇧A toggles)
-          </span>
-          <div class="settingsview__radios">
-            <For each={PAULA_MODELS}>
-              {(m) => (
-                <label class="settingsview__radio">
-                  <input
-                    type="radio"
-                    name="paula-model"
-                    value={m.value}
-                    checked={settings().paulaModel === m.value}
-                    onChange={() => setPaulaModel(m.value)}
-                  />
-                  <span class="settingsview__radio-label">{m.label}</span>
-                </label>
-              )}
-            </For>
+        <Show when={!xm2Song()}>
+          <div class="settingsview__field">
+            <span class="settingsview__label">
+              Paula filter model (⌘⇧A toggles)
+            </span>
+            <div class="settingsview__radios">
+              <For each={PAULA_MODELS}>
+                {(m) => (
+                  <label class="settingsview__radio">
+                    <input
+                      type="radio"
+                      name="paula-model"
+                      value={m.value}
+                      checked={settings().paulaModel === m.value}
+                      onChange={() => setPaulaModel(m.value)}
+                    />
+                    <span class="settingsview__radio-label">{m.label}</span>
+                  </label>
+                )}
+              </For>
+            </div>
           </div>
-        </div>
 
-        <div class="settingsview__field">
-          <span class="settingsview__label">
-            Stereo separation ({settings().stereoSeparation}%)
-            {settings().stereoSeparation !== STEREO_SEP_DEFAULT && (
-              <button
-                type="button"
-                class="settingsview__reset"
-                onClick={() => setStereoSeparation(STEREO_SEP_DEFAULT)}
-                title={`Reset to ${STEREO_SEP_DEFAULT}%`}
-              >
-                reset
-              </button>
-            )}
-          </span>
-          <input
-            class="settingsview__slider"
-            type="range"
-            min={STEREO_SEP_MIN}
-            max={STEREO_SEP_MAX}
-            step={1}
-            value={settings().stereoSeparation}
-            onInput={(e) => setStereoSeparation(Number(e.currentTarget.value))}
-          />
-        </div>
+          <div class="settingsview__field">
+            <span class="settingsview__label">
+              Stereo separation ({settings().stereoSeparation}%)
+              {settings().stereoSeparation !== STEREO_SEP_DEFAULT && (
+                <button
+                  type="button"
+                  class="settingsview__reset"
+                  onClick={() => setStereoSeparation(STEREO_SEP_DEFAULT)}
+                  title={`Reset to ${STEREO_SEP_DEFAULT}%`}
+                >
+                  reset
+                </button>
+              )}
+            </span>
+            <input
+              class="settingsview__slider"
+              type="range"
+              min={STEREO_SEP_MIN}
+              max={STEREO_SEP_MAX}
+              step={1}
+              value={settings().stereoSeparation}
+              onInput={(e) =>
+                setStereoSeparation(Number(e.currentTarget.value))
+              }
+            />
+          </div>
+        </Show>
+
+        <Show when={xm2Song()}>
+          <div class="settingsview__field">
+            <span class="settingsview__label">XM mixer interpolation</span>
+            <div class="settingsview__radios">
+              <For each={FT2_INTERPOLATION_MODES}>
+                {(m) => (
+                  <label class="settingsview__radio">
+                    <input
+                      type="radio"
+                      name="ft2-interpolation"
+                      value={m.value}
+                      checked={settings().ft2Interpolation === m.value}
+                      onChange={() => setFt2Interpolation(m.value)}
+                    />
+                    <span class="settingsview__radio-label">{m.label}</span>
+                  </label>
+                )}
+              </For>
+            </div>
+          </div>
+
+          <div class="settingsview__field">
+            <span class="settingsview__label">XM mixer ramping</span>
+            <label class="settingsview__radio">
+              <input
+                type="checkbox"
+                checked={settings().ft2Ramping}
+                onChange={(e) => setFt2Ramping(e.currentTarget.checked)}
+              />
+              <span class="settingsview__radio-label">
+                Anti-click volume / pan ramp on tick boundaries
+              </span>
+            </label>
+          </div>
+        </Show>
 
         <div class="settingsview__field">
           <span class="settingsview__label">

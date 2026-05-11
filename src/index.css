@@ -1451,6 +1451,213 @@ h2 {
   fill: color-mix(in srgb, var(--envelope-color) 60%, white);
 }
 
+/* FT2 envelope editor — self-contained widget (no waveform underlay).
+   Mounted in the instrument view's vol / pan envelope panels. */
+.envelope-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+.envelope-editor--disabled .envelope-editor__canvas {
+  opacity: 0.45;
+}
+.envelope-editor__toolbar {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.envelope-editor__flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  user-select: none;
+  cursor: pointer;
+}
+.envelope-editor__canvas {
+  display: block;
+  /* aspect-ratio matches the SVG's 360×120 viewBox so the
+     `preserveAspectRatio="none"` stretch lands on identical proportions
+     and the points stay circular. The grid container around the two
+     envelopes caps each cell's width; here we just fill the cell and
+     let the cell decide how wide we get. */
+  width: 100%;
+  aspect-ratio: 3 / 1;
+  background: var(--panel-2);
+  border-radius: 3px;
+  --envelope-color: #ffa64d;
+}
+.envelope-editor[data-kind="panning"] .envelope-editor__canvas {
+  --envelope-color: #5ec9ff;
+}
+.envelope-editor__bg {
+  fill: transparent;
+}
+.envelope-editor__grid {
+  stroke: var(--grid-line);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+.envelope-editor__grid--center {
+  stroke: color-mix(in srgb, var(--envelope-color) 50%, transparent);
+  stroke-dasharray: 4 4;
+}
+.envelope-editor__line {
+  fill: none;
+  stroke: var(--envelope-color);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.envelope-editor__sustain {
+  stroke: #d8d878;
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.envelope-editor__loop-bound {
+  stroke: #b07cff;
+  stroke-width: 1;
+  stroke-dasharray: 6 3;
+}
+.envelope-editor__point-hit {
+  fill: transparent;
+  cursor: grab;
+}
+.envelope-editor__point-hit:active {
+  cursor: grabbing;
+}
+.envelope-editor__point {
+  fill: var(--envelope-color);
+  stroke: #1c1e26;
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+.envelope-editor__point--sustain {
+  fill: #d8d878;
+}
+.envelope-editor__point--loop {
+  fill: #b07cff;
+}
+.envelope-editor__indices {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.envelope-editor__indices label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.envelope-editor__indices select {
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  padding: 2px 4px;
+  font: inherit;
+}
+.envelope-editor__indices select:disabled {
+  opacity: 0.4;
+}
+
+/* FT2 instrument editor — wraps the two envelope editors plus the
+   autovibrato / fadeout / sample-meta panels. Sits inside SampleView's
+   FT2 branch. */
+.instrument-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 0;
+}
+.instrument-view__section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.instrument-view__heading {
+  margin: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.instrument-view__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+}
+.instrument-view__row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+}
+.instrument-view__row input[type="number"] {
+  width: 70px;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  padding: 3px 5px;
+  font: inherit;
+}
+.instrument-view__row input[type="range"] {
+  flex: 1;
+  min-width: 160px;
+}
+.instrument-view__row select {
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  padding: 3px 6px;
+  font: inherit;
+}
+.instrument-view__readout {
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  color: var(--fg);
+}
+.instrument-view__placeholder {
+  color: var(--muted);
+  font-style: italic;
+  padding: 16px 0;
+}
+/* Two-up envelope grid: vol + pan sit side-by-side when the pane is
+   wide enough (~720px+ accounting for gap), otherwise stack. The
+   minmax floor keeps a single envelope from squashing below usable
+   size on narrow viewports. Each cell also caps its width so a
+   single column on a very wide pane doesn't stretch the canvas back
+   into a flat stripe. */
+.instrument-view__envelopes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 12px;
+}
+.instrument-view__envelopes > .instrument-view__section {
+  max-width: 640px;
+  min-width: 0;
+}
+/* Inline slider variant for the fadeout knob, which sits in the
+   autovibrato row alongside the autovib number fields. */
+.instrument-view__inline-slider {
+  flex: 1;
+  min-width: 200px;
+  gap: 8px;
+}
+.xm-waveform {
+  display: block;
+  background: var(--panel-2);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+}
+
 .sampleview__selection {
   display: flex;
   flex-wrap: wrap;

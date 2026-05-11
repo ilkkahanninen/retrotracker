@@ -2,20 +2,28 @@ import { describe, expect, it } from "vitest";
 
 import { emptyXmPattern, emptyXmSong } from "~/core/xm/format";
 import {
+  addXmEnvelopePoint,
   deleteXmOrder,
   duplicateXmPatternAtOrder,
   insertXmOrder,
   insertXmOrderAtCursor,
   newXmPatternAtOrder,
   nextXmPatternAtOrder,
+  patchXmInstrumentAutoVibrato,
+  patchXmInstrumentEnvelope,
+  patchXmInstrumentSample,
   prevXmPatternAtOrder,
+  removeXmEnvelopePoint,
   renameXmInstrument,
   setXmCell,
   setXmChannelCount,
+  setXmEnvelopePoint,
+  setXmInstrumentFadeout,
+  setXmInstrumentSample,
   setXmOrderPattern,
   setXmPatternRowCount,
 } from "~/core/xm/mutations";
-import type { XmSong } from "~/core/xm/types";
+import type { XmSample, XmSong } from "~/core/xm/types";
 
 function fresh(overrides: Partial<XmSong> = {}): XmSong {
   return { ...emptyXmSong(), ...overrides };
@@ -250,5 +258,162 @@ describe("insertXmOrder (low-level)", () => {
     const next = insertXmOrder(before, 0, 5);
     expect(next.songLength).toBe(2);
     expect(next.orders[0]).toBe(5);
+  });
+});
+
+describe("instrument envelope ops", () => {
+  it("patchXmInstrumentEnvelope toggles enabled and writes flags", () => {
+    let song = renameXmInstrument(fresh(), 1, "lead");
+    song = patchXmInstrumentEnvelope(song, 1, "volume", {
+      enabled: true,
+      sustainEnabled: true,
+      sustainPoint: 2,
+    });
+    const env = song.instruments[0]!.volumeEnvelope;
+    expect(env.enabled).toBe(true);
+    expect(env.sustainEnabled).toBe(true);
+    expect(env.sustainPoint).toBe(2);
+  });
+
+  it("addXmEnvelopePoint appends in tick order", () => {
+    let song = renameXmInstrument(fresh(), 1, "lead");
+    song = addXmEnvelopePoint(song, 1, "volume", { tick: 0, value: 64 });
+    song = addXmEnvelopePoint(song, 1, "volume", { tick: 10, value: 32 });
+    const env = song.instruments[0]!.volumeEnvelope;
+    expect(env.points).toEqual([
+      { tick: 0, value: 64 },
+      { tick: 10, value: 32 },
+    ]);
+  });
+
+  it("addXmEnvelopePoint rejects non-monotonic ticks", () => {
+    let song = renameXmInstrument(fresh(), 1, "lead");
+    song = addXmEnvelopePoint(song, 1, "volume", { tick: 10, value: 64 });
+    const before = song;
+    const after = addXmEnvelopePoint(song, 1, "volume", {
+      tick: 5,
+      value: 32,
+    });
+    expect(after).toBe(before);
+  });
+
+  it("addXmEnvelopePoint caps at XM_MAX_ENVELOPE_POINTS", () => {
+    let song = renameXmInstrument(fresh(), 1, "lead");
+    for (let i = 0; i < 12; i++) {
+      song = addXmEnvelopePoint(song, 1, "volume", { tick: i, value: 64 });
+    }
+    expect(song.instruments[0]!.volumeEnvelope.points).toHaveLength(12);
+    const before = song;
+    const after = addXmEnvelopePoint(song, 1, "volume", {
+      tick: 100,
+      value: 0,
+    });
+    expect(after).toBe(before);
+  });
+
+  it("setXmEnvelopePoint clamps value to 0..64 and tick to 0..0xFFFF", () => {
+    let song = renameXmInstrument(fresh(), 1, "lead");
+    song = addXmEnvelopePoint(song, 1, "volume", { tick: 0, value: 64 });
+    song = setXmEnvelopePoint(song, 1, "volume", 0, {
+      tick: -5,
+      value: 999,
+    });
+    expect(song.instruments[0]!.volumeEnvelope.points[0]).toEqual({
+      tick: 0,
+      value: 64,
+    });
+  });
+
+  it("removeXmEnvelopePoint shifts sustain / loop indices down", () => {
+    let song = renameXmInstrument(fresh(), 1, "lead");
+    song = addXmEnvelopePoint(song, 1, "volume", { tick: 0, value: 64 });
+    song = addXmEnvelopePoint(song, 1, "volume", { tick: 4, value: 48 });
+    song = addXmEnvelopePoint(song, 1, "volume", { tick: 12, value: 0 });
+    song = patchXmInstrumentEnvelope(song, 1, "volume", {
+      sustainPoint: 2,
+      loopStart: 1,
+      loopEnd: 2,
+    });
+    song = removeXmEnvelopePoint(song, 1, "volume", 1);
+    const env = song.instruments[0]!.volumeEnvelope;
+    expect(env.points).toHaveLength(2);
+    expect(env.sustainPoint).toBe(1);
+    expect(env.loopStart).toBe(0);
+    expect(env.loopEnd).toBe(1);
+  });
+});
+
+describe("autovibrato + fadeout", () => {
+  it("patchXmInstrumentAutoVibrato clamps depth and rate", () => {
+    let song = renameXmInstrument(fresh(), 1, "lead");
+    song = patchXmInstrumentAutoVibrato(song, 1, {
+      vibratoType: "square",
+      vibratoSweep: 40,
+      vibratoDepth: 99,
+      vibratoRate: 99,
+    });
+    const inst = song.instruments[0]!;
+    expect(inst.vibratoType).toBe("square");
+    expect(inst.vibratoSweep).toBe(40);
+    expect(inst.vibratoDepth).toBe(15);
+    expect(inst.vibratoRate).toBe(63);
+  });
+
+  it("setXmInstrumentFadeout clamps to 0..0xFFF", () => {
+    let song = renameXmInstrument(fresh(), 1, "lead");
+    song = setXmInstrumentFadeout(song, 1, 9999);
+    expect(song.instruments[0]!.fadeout).toBe(0xfff);
+  });
+});
+
+describe("sample patches", () => {
+  const sampleWith = (overrides: Partial<XmSample> = {}): XmSample => ({
+    name: "saw",
+    data: new Int8Array(64),
+    bits: 8,
+    loopStart: 0,
+    loopLength: 64,
+    loopType: "forward",
+    volume: 64,
+    finetune: 0,
+    panning: 128,
+    relativeNote: 0,
+    ...overrides,
+  });
+
+  it("patchXmInstrumentSample clamps and preserves data", () => {
+    let song = renameXmInstrument(fresh(), 1, "lead");
+    song = setXmInstrumentSample(song, 1, sampleWith());
+    song = patchXmInstrumentSample(song, 1, {
+      volume: 999,
+      finetune: -999,
+      panning: 999,
+      relativeNote: 999,
+      loopType: "ping-pong",
+    });
+    const samp = song.instruments[0]!.samples[0]!;
+    expect(samp.volume).toBe(64);
+    expect(samp.finetune).toBe(-128);
+    expect(samp.panning).toBe(255);
+    expect(samp.relativeNote).toBe(95);
+    expect(samp.loopType).toBe("ping-pong");
+    expect(samp.data.length).toBe(64);
+  });
+
+  it("setXmInstrumentSample replaces data but keeps fadeout/envelopes", () => {
+    let song = renameXmInstrument(fresh(), 1, "lead");
+    song = setXmInstrumentFadeout(song, 1, 0x800);
+    song = patchXmInstrumentEnvelope(song, 1, "volume", { enabled: true });
+    const fresh16 = sampleWith({
+      bits: 16,
+      data: new Int16Array(128),
+      loopLength: 128,
+    });
+    song = setXmInstrumentSample(song, 1, fresh16);
+    const inst = song.instruments[0]!;
+    expect(inst.samples[0]!.bits).toBe(16);
+    expect(inst.samples[0]!.data.length).toBe(128);
+    expect(inst.fadeout).toBe(0x800);
+    expect(inst.volumeEnvelope.enabled).toBe(true);
   });
 });

@@ -46,6 +46,9 @@ export const MASTER_GAIN_MAX = 300;
 export const MASTER_GAIN_STEP = 5;
 export const MASTER_GAIN_DEFAULT = 140;
 
+/** FT2 mixer interpolation modes. `linear` matches our libxmp bed. */
+export type Ft2InterpolationMode = "none" | "linear" | "cubic" | "sinc8";
+
 export interface Settings {
   paulaModel: AmigaModel;
   colorScheme: ColorSchemeId;
@@ -58,6 +61,10 @@ export interface Settings {
   /** Visibility of the pattern-view tips / help right-rail. Toggled from
    *  the Help menu; persisted so the user's choice carries across sessions. */
   showPatternHelp: boolean;
+  /** FT2 mixer interpolation. Linear matches libxmp's `-i linear`. */
+  ft2Interpolation: Ft2InterpolationMode;
+  /** Whether the FT2 mixer applies the anti-click volume ramp. */
+  ft2Ramping: boolean;
 }
 
 const DEFAULTS: Settings = {
@@ -67,7 +74,13 @@ const DEFAULTS: Settings = {
   stereoSeparation: STEREO_SEP_DEFAULT,
   masterGain: MASTER_GAIN_DEFAULT,
   showPatternHelp: true,
+  ft2Interpolation: "linear",
+  ft2Ramping: true,
 };
+
+function isFt2Interpolation(v: unknown): v is Ft2InterpolationMode {
+  return v === "none" || v === "linear" || v === "cubic" || v === "sinc8";
+}
 
 function isColorSchemeId(v: unknown): v is ColorSchemeId {
   return (
@@ -114,6 +127,15 @@ function load(): Settings {
       typeof obj["showPatternHelp"] === "boolean"
         ? obj["showPatternHelp"]
         : DEFAULTS.showPatternHelp;
+    const ft2Interpolation: Ft2InterpolationMode = isFt2Interpolation(
+      obj["ft2Interpolation"],
+    )
+      ? obj["ft2Interpolation"]
+      : DEFAULTS.ft2Interpolation;
+    const ft2Ramping =
+      typeof obj["ft2Ramping"] === "boolean"
+        ? obj["ft2Ramping"]
+        : DEFAULTS.ft2Ramping;
     return {
       paulaModel,
       colorScheme,
@@ -121,6 +143,8 @@ function load(): Settings {
       stereoSeparation,
       masterGain,
       showPatternHelp,
+      ft2Interpolation,
+      ft2Ramping,
     };
   } catch {
     return { ...DEFAULTS };
@@ -174,4 +198,12 @@ export function setMasterGain(gain: number): void {
 
 export function toggleShowPatternHelp(): void {
   setSettings({ showPatternHelp: !settings().showPatternHelp });
+}
+
+export function setFt2Interpolation(mode: Ft2InterpolationMode): void {
+  setSettings({ ft2Interpolation: mode });
+}
+
+export function setFt2Ramping(on: boolean): void {
+  setSettings({ ft2Ramping: on });
 }
