@@ -1575,6 +1575,121 @@ h2 {
   border-radius: 3px;
 }
 
+/* Multi-sample picker — one chip per sample, plus +/− buttons on the
+   right. Chips wrap as the pane narrows; active chip glows via the
+   accent ring. */
+.instrument-view__sample-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.instrument-view__sample-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.instrument-view__sample-chip:hover {
+  border-color: var(--accent);
+}
+.instrument-view__sample-chip--active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.instrument-view__sample-chip-idx {
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  color: var(--muted);
+  font-size: 10px;
+}
+.instrument-view__sample-chip-name {
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.instrument-view__sample-actions {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.instrument-view__sample-actions button {
+  width: 28px;
+  height: 24px;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.instrument-view__sample-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.instrument-view__sample-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.instrument-view__sample-name input {
+  flex: 1;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  padding: 3px 5px;
+  font: inherit;
+}
+
+/* 96-cell note → sample-index keymap painter. 8 octave rows × 12 pitch
+   classes; each cell shows the hex index of the routed sample. Touch /
+   drag paints with the currently-selected sample index. */
+.xm-keymap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  touch-action: none;
+  user-select: none;
+}
+.xm-keymap__row {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+.xm-keymap__row-label {
+  width: 44px;
+  font-size: 10px;
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+}
+.xm-keymap__cell {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 2px;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+}
+.xm-keymap__cell:hover {
+  border-color: var(--accent);
+}
+
 .sampleview__selection {
   display: flex;
   flex-wrap: wrap;

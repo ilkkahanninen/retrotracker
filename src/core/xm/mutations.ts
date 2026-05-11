@@ -10,7 +10,7 @@
  */
 
 import { makeOrderOps } from "../orderOps";
-import { emptyXmNote, emptyXmPattern } from "./format";
+import { emptyXmNote, emptyXmPattern, emptyXmSample } from "./format";
 import {
   XM_INSTRUMENT_NAME_MAX,
   XM_KEYOFF_NOTE,
@@ -690,11 +690,10 @@ export function setXmInstrumentFadeout(
 }
 
 /**
- * Patch the (only — Phase 4 carries one sample per instrument) inner
- * sample. Field-level patch so the UI can flip loop type, finetune,
- * volume, panning, relative note, etc. without rewriting unrelated
- * fields. Sample data and bit-depth stay put — those go through
- * sample-import paths.
+ * Patch the inner sample at `sampleIndex` (default 0). Field-level patch
+ * so the UI can flip loop type, finetune, volume, panning, relative
+ * note, etc. without rewriting unrelated fields. Sample data and
+ * bit-depth stay put — those go through sample-import paths.
  */
 export function patchXmInstrumentSample(
   song: XmSong,
@@ -712,9 +711,10 @@ export function patchXmInstrumentSample(
       | "loopLength"
     >
   >,
+  sampleIndex = 0,
 ): XmSong {
   return withInstrumentAt(song, slot1Based, (inst) => {
-    const sample = inst.samples[0];
+    const sample = inst.samples[sampleIndex];
     if (!sample) return inst;
     const clamp = (n: number, lo: number, hi: number) =>
       Math.max(lo, Math.min(hi, Math.floor(n)));
@@ -753,24 +753,107 @@ export function patchXmInstrumentSample(
     ) {
       return inst;
     }
-    const samples: XmSample[] = [next, ...inst.samples.slice(1)];
+    const samples: XmSample[] = [...inst.samples];
+    samples[sampleIndex] = next;
     return { ...inst, samples };
   });
 }
 
 /**
- * Replace (or set, if the instrument has no sample yet) the inner
- * sample. The sample bring its own data + bits along — used after a
- * fresh WAV import. Other instrument fields stay intact so the user
- * can swap the waveform without losing envelope / vibrato edits.
+ * Replace (or set, if the instrument has no sample at that index yet)
+ * the sample at `sampleIndex`. The sample brings its own data + bits
+ * along — used after a fresh WAV import. Other samples and instrument
+ * fields stay intact. When the index points one past the end, the
+ * sample is appended.
  */
 export function setXmInstrumentSample(
   song: XmSong,
   slot1Based: number,
   sample: XmSample,
+  sampleIndex = 0,
 ): XmSong {
   return withInstrumentAt(song, slot1Based, (inst) => {
-    if (inst.samples.length === 1 && inst.samples[0] === sample) return inst;
-    return { ...inst, samples: [sample] };
+    if (sampleIndex < 0) return inst;
+    if (
+      sampleIndex < inst.samples.length &&
+      inst.samples[sampleIndex] === sample
+    ) {
+      return inst;
+    }
+    const samples: XmSample[] = [...inst.samples];
+    while (samples.length <= sampleIndex) samples.push(emptyXmSample());
+    samples[sampleIndex] = sample;
+    return { ...inst, samples };
+  });
+}
+
+/**
+ * Append a fresh empty sample to the instrument's sample list. XM
+ * permits up to 16 samples per instrument; we mirror that cap. No-op
+ * when the cap is already reached.
+ */
+export function addXmInstrumentSample(
+  song: XmSong,
+  slot1Based: number,
+): XmSong {
+  return withInstrumentAt(song, slot1Based, (inst) => {
+    if (inst.samples.length >= 16) return inst;
+    return { ...inst, samples: [...inst.samples, emptyXmSample()] };
+  });
+}
+
+/**
+ * Remove the sample at `sampleIndex`. Any keyMap entries that pointed
+ * at the removed sample re-anchor to sample 0; entries that pointed at
+ * a higher slot shift down by one. Mirrors FT2 / OpenMPT semantics.
+ * No-op when removing would empty the sample list (every instrument
+ * must keep at least one sample).
+ */
+export function removeXmInstrumentSample(
+  song: XmSong,
+  slot1Based: number,
+  sampleIndex: number,
+): XmSong {
+  return withInstrumentAt(song, slot1Based, (inst) => {
+    if (inst.samples.length <= 1) return inst;
+    if (sampleIndex < 0 || sampleIndex >= inst.samples.length) return inst;
+    const samples = inst.samples.filter((_, i) => i !== sampleIndex);
+    const keyMap = new Uint8Array(inst.keyMap);
+    for (let i = 0; i < keyMap.length; i++) {
+      const v = keyMap[i]!;
+      if (v === sampleIndex) keyMap[i] = 0;
+      else if (v > sampleIndex) keyMap[i] = v - 1;
+    }
+    return { ...inst, samples, keyMap };
+  });
+}
+
+/**
+ * Replace the instrument's 96-byte note → sample-index map. Each entry
+ * is clamped to a valid sample slot at write time, so a saved map
+ * that out-survives a sample removal stays self-consistent. Copies the
+ * input so the caller's buffer is free to mutate.
+ */
+export function setXmInstrumentKeyMap(
+  song: XmSong,
+  slot1Based: number,
+  keyMap: Uint8Array,
+): XmSong {
+  return withInstrumentAt(song, slot1Based, (inst) => {
+    const maxIdx = inst.samples.length > 0 ? inst.samples.length - 1 : 0;
+    const fresh = new Uint8Array(96);
+    for (let i = 0; i < 96; i++) {
+      fresh[i] = Math.max(0, Math.min(maxIdx, keyMap[i] ?? 0));
+    }
+    // Skip identity assignment.
+    let changed = false;
+    for (let i = 0; i < 96; i++) {
+      if (fresh[i] !== inst.keyMap[i]) {
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) return inst;
+    return { ...inst, keyMap: fresh };
   });
 }

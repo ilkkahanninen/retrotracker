@@ -504,7 +504,7 @@ export const App: Component = () => {
     {
       label: "Export .wav…",
       onClick: exportWav,
-      disabled: !song() || song()?.format !== "PT2",
+      disabled: !song(),
     },
     { separator: true, label: "" },
     {

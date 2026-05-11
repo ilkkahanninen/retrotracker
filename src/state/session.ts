@@ -304,9 +304,15 @@ export function exportSong(): void {
  */
 export function exportWav(): void {
   const s = song();
-  if (!s || s.format !== "PT2") return;
-  const stamped = withInfoTextAsSampleNames(s, infoText());
-  const playbackSong = songForPlayback(stamped);
+  if (!s) return;
+  // PT2-specific tweaks (sample-name stamping from info text, A500/A1200
+  // filter, stereo separation) only apply to PT2 songs. For FT2 we feed
+  // the song straight through `renderToBuffer`, which dispatches to the
+  // XM replayer via `makeReplayer`.
+  const playbackSong =
+    s.format === "PT2"
+      ? songForPlayback(withInfoTextAsSampleNames(s, infoText()))
+      : s;
   const sampleRate = 44100;
   const audio = renderToBuffer(playbackSong, {
     sampleRate,

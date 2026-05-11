@@ -8,13 +8,16 @@
 import type { XmEnvelope, XmEnvelopePoint, XmSample } from "../core/xm/types";
 import {
   addXmEnvelopePoint as addXmEnvelopePointMutation,
+  addXmInstrumentSample as addXmInstrumentSampleMutation,
   patchXmInstrumentAutoVibrato as patchXmInstrumentAutoVibratoMutation,
   patchXmInstrumentEnvelope as patchXmInstrumentEnvelopeMutation,
   patchXmInstrumentSample as patchXmInstrumentSampleMutation,
   removeXmEnvelopePoint as removeXmEnvelopePointMutation,
+  removeXmInstrumentSample as removeXmInstrumentSampleMutation,
   renameXmInstrument as renameXmInstrumentMutation,
   setXmEnvelopePoint as setXmEnvelopePointMutation,
   setXmInstrumentFadeout as setXmInstrumentFadeoutMutation,
+  setXmInstrumentKeyMap as setXmInstrumentKeyMapMutation,
   setXmInstrumentSample as setXmInstrumentSampleMutation,
 } from "../core/xm/mutations";
 import { commitEditXm } from "./song";
@@ -81,15 +84,42 @@ export function setXmFadeout(slot1Based: number, fadeout: number): void {
 export function patchXmSample(
   slot1Based: number,
   patch: Parameters<typeof patchXmInstrumentSampleMutation>[2],
+  sampleIndex = 0,
 ): void {
-  commitEditXm((s) => patchXmInstrumentSampleMutation(s, slot1Based, patch));
+  commitEditXm((s) =>
+    patchXmInstrumentSampleMutation(s, slot1Based, patch, sampleIndex),
+  );
 }
 
 /**
- * Replace the inner sample (used by WAV drop-import). Brings the new
- * data + bit-depth along; envelope / vibrato / fadeout stay put so the
- * user can swap waveforms without losing instrument-level edits.
+ * Replace the inner sample at `sampleIndex` (used by WAV drop-import).
+ * Brings the new data + bit-depth along; envelope / vibrato / fadeout
+ * stay put so the user can swap waveforms without losing instrument-level
+ * edits. Index past the current length appends a new sample slot.
  */
-export function setXmSample(slot1Based: number, sample: XmSample): void {
-  commitEditXm((s) => setXmInstrumentSampleMutation(s, slot1Based, sample));
+export function setXmSample(
+  slot1Based: number,
+  sample: XmSample,
+  sampleIndex = 0,
+): void {
+  commitEditXm((s) =>
+    setXmInstrumentSampleMutation(s, slot1Based, sample, sampleIndex),
+  );
+}
+
+/** Append a fresh empty sample to the instrument's sample list (cap 16). */
+export function addXmSample(slot1Based: number): void {
+  commitEditXm((s) => addXmInstrumentSampleMutation(s, slot1Based));
+}
+
+/** Remove the sample at `sampleIndex`. KeyMap entries re-anchor to 0. */
+export function removeXmSample(slot1Based: number, sampleIndex: number): void {
+  commitEditXm((s) =>
+    removeXmInstrumentSampleMutation(s, slot1Based, sampleIndex),
+  );
+}
+
+/** Replace the instrument's 96-byte note → sample-index map. */
+export function setXmKeyMap(slot1Based: number, keyMap: Uint8Array): void {
+  commitEditXm((s) => setXmInstrumentKeyMapMutation(s, slot1Based, keyMap));
 }

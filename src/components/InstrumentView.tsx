@@ -1,4 +1,4 @@
-import { Show, type Component } from "solid-js";
+import { For, Show, createEffect, type Component } from "solid-js";
 
 import type {
   XmAutoVibratoType,
@@ -6,17 +6,24 @@ import type {
   XmLoopType,
   XmSong,
 } from "../core/xm/types";
-import { currentXmInstrument } from "../state/xmEdit";
+import {
+  currentXmInstrument,
+  currentXmSampleIndex,
+  setCurrentXmSampleIndex,
+} from "../state/xmEdit";
 import {
   addXmEnvelopePoint,
+  addXmSample,
   patchXmAutoVibrato,
   patchXmInstrumentEnvelope,
   patchXmSample,
   removeXmEnvelopePoint,
+  removeXmSample,
   setXmEnvelopePoint,
   setXmFadeout,
 } from "../state/xmInstrumentEdit";
 import { EnvelopeEditor } from "./EnvelopeEditor";
+import { XmKeyMapEditor } from "./XmKeyMapEditor";
 import { XmWaveform } from "./XmWaveform";
 
 interface Props {
@@ -33,20 +40,43 @@ const LOOP_TYPES: XmLoopType[] = ["none", "forward", "ping-pong"];
 
 /**
  * FT2 instrument editor. Renders the instrument-level fields (volume +
- * panning envelopes, autovibrato, fadeout) plus a compact sample-meta
- * row for the inner sample (relative note, finetune, panning, loop). The
- * waveform preview, name field, and audio-level "in this slot" pieces
- * stay in the host `SampleView` so PT2 and FT2 share visual chrome.
+ * panning envelopes, autovibrato, fadeout), the per-sample meta row
+ * (volume / finetune / panning / rel. note / loop), and — when an
+ * instrument carries more than one sample — a multi-sample picker plus
+ * the 96-cell note → sample keymap editor.
  *
- * Phase 4 carries exactly one sample per instrument; the multi-sample
- * key-map editor lands later. Editing while the slot is empty is a
- * no-op — selecting an empty slot shows a placeholder hint to drop a
- * WAV.
+ * The "active sample index" is held in `currentXmSampleIndex` and
+ * resets to 0 whenever the user switches instruments, so a freshly
+ * selected instrument always opens on its first sample.
  */
 export const InstrumentView: Component<Props> = (props) => {
   const slot1Based = () => currentXmInstrument();
   const instrument = (): XmInstrument | undefined =>
     props.song.instruments[slot1Based() - 1];
+
+  // Reset to the first sample whenever the instrument switches so the
+  // user doesn't land on a stale index that no longer exists.
+  createEffect(() => {
+    currentXmInstrument();
+    setCurrentXmSampleIndex(0);
+  });
+
+  // Clamp the sample index whenever the current instrument's sample
+  // count shrinks (e.g. after Remove).
+  createEffect(() => {
+    const inst = instrument();
+    if (!inst) return;
+    const max = Math.max(0, inst.samples.length - 1);
+    if (currentXmSampleIndex() > max) setCurrentXmSampleIndex(max);
+  });
+
+  const activeSampleIndex = (): number => {
+    const inst = instrument();
+    if (!inst) return 0;
+    const idx = currentXmSampleIndex();
+    const max = Math.max(0, inst.samples.length - 1);
+    return Math.min(max, Math.max(0, idx));
+  };
 
   return (
     <Show
@@ -60,14 +90,79 @@ export const InstrumentView: Component<Props> = (props) => {
     >
       {(inst) => (
         <div class="instrument-view">
-          {/* Sample / waveform / instrument-level scalar fields sit
-              at the top — they fit a single row each and give the
-              user a quick read on what the instrument actually is
-              before they edit envelope shapes underneath. */}
-          <Show when={inst().samples[0]}>
+          {/* Sample list — one button per sample, showing the hex index
+              and the sample's name. Add / remove sit on the right so
+              they don't shove the active selection around. */}
+          <section class="instrument-view__section">
+            <h4 class="instrument-view__heading">Samples</h4>
+            <div class="instrument-view__sample-list">
+              <For each={inst().samples}>
+                {(s, i) => (
+                  <button
+                    type="button"
+                    class="instrument-view__sample-chip"
+                    classList={{
+                      "instrument-view__sample-chip--active":
+                        i() === activeSampleIndex(),
+                    }}
+                    onClick={() => setCurrentXmSampleIndex(i())}
+                    title={`Sample ${i().toString(16).toUpperCase()}: ${
+                      s.name || "(unnamed)"
+                    }`}
+                  >
+                    <span class="instrument-view__sample-chip-idx">
+                      {i().toString(16).toUpperCase()}
+                    </span>
+                    <span class="instrument-view__sample-chip-name">
+                      {s.name || <em>(unnamed)</em>}
+                    </span>
+                  </button>
+                )}
+              </For>
+              <div class="instrument-view__sample-actions">
+                <button
+                  type="button"
+                  onClick={() => addXmSample(slot1Based())}
+                  disabled={inst().samples.length >= 16}
+                  title="Add sample (max 16)"
+                  aria-label="Add sample"
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    removeXmSample(slot1Based(), activeSampleIndex())
+                  }
+                  disabled={inst().samples.length <= 1}
+                  title="Remove current sample"
+                  aria-label="Remove sample"
+                >
+                  −
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <Show when={inst().samples[activeSampleIndex()]}>
             {(sample) => (
               <section class="instrument-view__section">
                 <h4 class="instrument-view__heading">Sample</h4>
+                <label class="instrument-view__sample-name">
+                  Name
+                  <input
+                    type="text"
+                    maxlength={22}
+                    value={sample().name}
+                    onInput={(e) =>
+                      patchXmSample(
+                        slot1Based(),
+                        { name: e.currentTarget.value },
+                        activeSampleIndex(),
+                      )
+                    }
+                  />
+                </label>
                 <XmWaveform sample={sample()} />
                 <div class="instrument-view__row">
                   <label>
@@ -78,9 +173,11 @@ export const InstrumentView: Component<Props> = (props) => {
                       max={64}
                       value={sample().volume}
                       onInput={(e) =>
-                        patchXmSample(slot1Based(), {
-                          volume: Number(e.currentTarget.value),
-                        })
+                        patchXmSample(
+                          slot1Based(),
+                          { volume: Number(e.currentTarget.value) },
+                          activeSampleIndex(),
+                        )
                       }
                     />
                   </label>
@@ -92,9 +189,11 @@ export const InstrumentView: Component<Props> = (props) => {
                       max={127}
                       value={sample().finetune}
                       onInput={(e) =>
-                        patchXmSample(slot1Based(), {
-                          finetune: Number(e.currentTarget.value),
-                        })
+                        patchXmSample(
+                          slot1Based(),
+                          { finetune: Number(e.currentTarget.value) },
+                          activeSampleIndex(),
+                        )
                       }
                     />
                   </label>
@@ -106,9 +205,11 @@ export const InstrumentView: Component<Props> = (props) => {
                       max={255}
                       value={sample().panning}
                       onInput={(e) =>
-                        patchXmSample(slot1Based(), {
-                          panning: Number(e.currentTarget.value),
-                        })
+                        patchXmSample(
+                          slot1Based(),
+                          { panning: Number(e.currentTarget.value) },
+                          activeSampleIndex(),
+                        )
                       }
                     />
                   </label>
@@ -120,9 +221,11 @@ export const InstrumentView: Component<Props> = (props) => {
                       max={95}
                       value={sample().relativeNote}
                       onInput={(e) =>
-                        patchXmSample(slot1Based(), {
-                          relativeNote: Number(e.currentTarget.value),
-                        })
+                        patchXmSample(
+                          slot1Based(),
+                          { relativeNote: Number(e.currentTarget.value) },
+                          activeSampleIndex(),
+                        )
                       }
                     />
                   </label>
@@ -131,9 +234,13 @@ export const InstrumentView: Component<Props> = (props) => {
                     <select
                       value={sample().loopType}
                       onChange={(e) =>
-                        patchXmSample(slot1Based(), {
-                          loopType: e.currentTarget.value as XmLoopType,
-                        })
+                        patchXmSample(
+                          slot1Based(),
+                          {
+                            loopType: e.currentTarget.value as XmLoopType,
+                          },
+                          activeSampleIndex(),
+                        )
                       }
                     >
                       {LOOP_TYPES.map((t) => (
@@ -150,9 +257,11 @@ export const InstrumentView: Component<Props> = (props) => {
                       value={sample().loopStart}
                       disabled={sample().loopType === "none"}
                       onInput={(e) =>
-                        patchXmSample(slot1Based(), {
-                          loopStart: Number(e.currentTarget.value),
-                        })
+                        patchXmSample(
+                          slot1Based(),
+                          { loopStart: Number(e.currentTarget.value) },
+                          activeSampleIndex(),
+                        )
                       }
                     />
                   </label>
@@ -165,9 +274,11 @@ export const InstrumentView: Component<Props> = (props) => {
                       value={sample().loopLength}
                       disabled={sample().loopType === "none"}
                       onInput={(e) =>
-                        patchXmSample(slot1Based(), {
-                          loopLength: Number(e.currentTarget.value),
-                        })
+                        patchXmSample(
+                          slot1Based(),
+                          { loopLength: Number(e.currentTarget.value) },
+                          activeSampleIndex(),
+                        )
                       }
                     />
                   </label>
@@ -177,6 +288,16 @@ export const InstrumentView: Component<Props> = (props) => {
                 </div>
               </section>
             )}
+          </Show>
+
+          {/* KeyMap editor — only relevant once an instrument carries
+              more than one sample. With just one sample the keymap is a
+              degenerate all-zeros table and there's nothing to paint. */}
+          <Show when={inst().samples.length > 1}>
+            <section class="instrument-view__section">
+              <h4 class="instrument-view__heading">Key map</h4>
+              <XmKeyMapEditor instrument={inst()} slot1Based={slot1Based()} />
+            </section>
           </Show>
 
           <section class="instrument-view__section">
@@ -258,8 +379,6 @@ export const InstrumentView: Component<Props> = (props) => {
             </div>
           </section>
 
-          {/* Envelopes go side-by-side when the pane is wide enough;
-              fall back to a single column below the breakpoint. */}
           <div class="instrument-view__envelopes">
             <section class="instrument-view__section">
               <h4 class="instrument-view__heading">Volume envelope</h4>

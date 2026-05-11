@@ -30,6 +30,16 @@ export const [currentXmOctave, setCurrentXmOctave] = createSignal<number>(4);
 export const [currentXmInstrument, setCurrentXmInstrument] =
   createSignal<number>(1);
 
+/**
+ * Active sample slot WITHIN the current instrument. XM instruments
+ * hold a variable list of samples plus a 96-note keyMap; this signal
+ * picks which sample the InstrumentView's waveform / properties /
+ * pipeline editor target. 0-based; reset to 0 whenever the user
+ * switches instruments (handled in App.tsx via a `createEffect`).
+ */
+export const [currentXmSampleIndex, setCurrentXmSampleIndex] =
+  createSignal<number>(0);
+
 export function xmOctaveUp(): void {
   setCurrentXmOctave((o) => Math.min(XM_MAX_OCTAVE, o + 1));
 }
