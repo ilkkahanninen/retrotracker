@@ -1982,6 +1982,53 @@ h2 {
   padding: 4px 8px 0;
 }
 
+/* Add-effect picker on the FT2 pipeline header. The button toggles a
+   floating menu of every effect kind; clicking an entry adds it. */
+.pipeline__add-effect {
+  position: relative;
+  margin-left: auto;
+}
+.pipeline__add-effect > button {
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.pipeline__add-effect > button:hover {
+  border-color: var(--accent);
+}
+.pipeline__add-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 2px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  z-index: 10;
+  min-width: 130px;
+}
+.pipeline__add-menu button {
+  background: transparent;
+  color: var(--fg);
+  border: 0;
+  text-align: left;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.pipeline__add-menu button:hover {
+  background: var(--panel-2);
+}
+
 .pipeline__transformer {
   display: flex;
   align-items: center;

@@ -1349,3 +1349,180 @@ function flatEnvelope(value: number, len: number): EnvelopePoint[] {
     { frame: Math.max(1, len - 1), value },
   ];
 }
+
+// ─── XM transformer ──────────────────────────────────────────────────────
+//
+// The FT2 sibling of `PtTransformerParams` / `transformToPt`. The chain is
+// 100% reused — only the terminal stage differs:
+//   - PT2 quantises the post-chain WavData to 8-bit signed, resampled to the
+//     Paula period of the C-2 target note.
+//   - FT2 quantises to 8-bit OR 16-bit signed, no resampling (XM stores its
+//     own playback rate per sample via finetune + relativeNote).
+
+export interface XmTransformerParams {
+  /** Mix mode when the chain output has > 1 channel. */
+  monoMix: MonoMix;
+  /** 8 = Int8Array, 16 = Int16Array. */
+  bitDepth: 8 | 16;
+  /** Optional TPDF dither at the LSB before quantisation. Off by default
+   *  — same opt-in policy as the PT pipeline. */
+  dither?: boolean;
+}
+
+export interface XmTransformerOutput {
+  data: Int8Array | Int16Array;
+  bits: 8 | 16;
+}
+
+/** Convert the chain output to the XM sample shape. Mono-mixes, optionally
+ *  dithers, and quantises to the requested bit depth. */
+export function transformToXm(
+  audio: WavData,
+  xm: XmTransformerParams,
+): XmTransformerOutput {
+  let mono: Float32Array;
+  if (audio.channels.length === 0) {
+    return {
+      data: xm.bitDepth === 8 ? new Int8Array(0) : new Int16Array(0),
+      bits: xm.bitDepth,
+    };
+  } else if (audio.channels.length === 1) {
+    mono = audio.channels[0]!;
+  } else if (xm.monoMix === "left") {
+    mono = audio.channels[0]!;
+  } else if (xm.monoMix === "right") {
+    mono = audio.channels[1] ?? audio.channels[0]!;
+  } else {
+    mono = averageChannels(audio.channels);
+  }
+  if (xm.bitDepth === 8) {
+    return {
+      data: xm.dither ? floatToInt8Dithered(mono) : floatToInt8(mono),
+      bits: 8,
+    };
+  }
+  return {
+    data: xm.dither ? floatToInt16Dithered(mono) : floatToInt16(mono),
+    bits: 16,
+  };
+}
+
+function floatToInt16(buf: Float32Array): Int16Array {
+  const out = new Int16Array(buf.length);
+  for (let i = 0; i < buf.length; i++) {
+    const v = buf[i]!;
+    const c = v < -1 ? -1 : v > 1 ? 1 : v;
+    out[i] = Math.round(c * 32767);
+  }
+  return out;
+}
+
+function floatToInt16Dithered(buf: Float32Array): Int16Array {
+  const out = new Int16Array(buf.length);
+  const lsb = 1 / 32767;
+  for (let i = 0; i < buf.length; i++) {
+    const v = buf[i]!;
+    const r = (Math.random() - Math.random()) * lsb;
+    const c = v + r;
+    const clamped = c < -1 ? -1 : c > 1 ? 1 : c;
+    out[i] = Math.round(clamped * 32767);
+  }
+  return out;
+}
+
+/**
+ * Session-only workbench shape for FT2 instruments. Same `source` + `chain`
+ * machinery as the PT-side `SampleWorkbench`; the terminal is the XM
+ * transformer instead of the PT one, and the alt-stash for source-kind
+ * toggle is sized for the XM terminal.
+ */
+export interface XmWorkbenchAlt {
+  source: SampleSource;
+  chain: EffectNode[];
+  xm: XmTransformerParams;
+}
+
+export interface XmSampleWorkbench {
+  source: SampleSource;
+  chain: EffectNode[];
+  xm: XmTransformerParams;
+  alt: XmWorkbenchAlt | null;
+}
+
+/** End-to-end: source → chain → XM transformer → int8 / int16 + bit depth. */
+export function runXmPipeline(
+  wb: XmSampleWorkbench,
+  ctx?: RunContext | null,
+): XmTransformerOutput {
+  return transformToXm(
+    runChain(materializeSource(wb.source), wb.chain, ctx),
+    wb.xm,
+  );
+}
+
+/** Wrap an existing XmSample (data + bits) as a Sampler workbench. Used
+ *  when loading a `.xm` so every populated sample gets a chain UI without
+ *  the user having to re-import. Mirrors `workbenchFromInt8` for PT. */
+export function xmWorkbenchFromSample(
+  data: Int8Array | Int16Array,
+  bits: 8 | 16,
+  sourceName: string,
+): XmSampleWorkbench {
+  // Build a Float32 WavData at a nominal rate (the chain doesn't depend on
+  // this; the XM transformer doesn't resample). 8363 Hz is the conventional
+  // XM "middle C" rate (the reference for finetune/relativeNote 0).
+  const sampleRate = 8363;
+  const ch = new Float32Array(data.length);
+  if (bits === 8) {
+    const src = data as Int8Array;
+    for (let i = 0; i < src.length; i++) ch[i] = src[i]! / 127;
+  } else {
+    const src = data as Int16Array;
+    for (let i = 0; i < src.length; i++) ch[i] = src[i]! / 32767;
+  }
+  return {
+    source: {
+      kind: "sampler",
+      wav: { sampleRate, channels: [ch] },
+      sourceName,
+    },
+    chain: [],
+    xm: { monoMix: "average", bitDepth: bits },
+    alt: null,
+  };
+}
+
+/** Decode a fresh WAV file into an XM workbench. The PT side's
+ *  `workbenchFromWavData` is for the PT terminal — XM has its own
+ *  bit-depth / monoMix defaults and no Paula resampling. */
+export function xmWorkbenchFromWav(
+  wav: WavData,
+  sourceName: string,
+): XmSampleWorkbench {
+  return {
+    source: { kind: "sampler", wav, sourceName },
+    chain: [],
+    // FT2 supports 16-bit samples natively; default fresh imports to 16
+    // bits so the user doesn't lose precision unintentionally.
+    xm: { monoMix: "average", bitDepth: 16 },
+    alt: null,
+  };
+}
+
+/** Build a fresh chiptune workbench bound to the XM terminal. */
+export function xmWorkbenchFromChiptune(
+  params: ChiptuneParams = defaultChiptuneParams(),
+): XmSampleWorkbench {
+  return {
+    source: { kind: "chiptune", params },
+    chain: [],
+    xm: { monoMix: "average", bitDepth: 8 },
+    alt: null,
+  };
+}
+
+/** Stash the active half of an XM workbench so the user can toggle
+ *  sampler ↔ chiptune without losing the other side. */
+export function xmWorkbenchToAlt(wb: XmSampleWorkbench): XmWorkbenchAlt {
+  return { source: wb.source, chain: wb.chain, xm: wb.xm };
+}

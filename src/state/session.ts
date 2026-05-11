@@ -66,6 +66,7 @@ import {
   setWorkbench,
   clearAllWorkbenches,
 } from "./sampleWorkbench";
+import { clearAllXmWorkbenches } from "./xmSampleWorkbench";
 import { clearAllStashedLoops } from "./loopStash";
 import { clearAllImportedStashes } from "./importedStash";
 import { stopEngine } from "./playback";
@@ -153,6 +154,7 @@ export function applyLoadedSession(loaded: LoadedSession): void {
   if (typeof loaded.editStep === "number") setEditStep(loaded.editStep);
   clearHistory();
   clearAllWorkbenches();
+  clearAllXmWorkbenches();
   clearAllStashedLoops();
   clearAllImportedStashes();
   if (loaded.chiptuneSources) {

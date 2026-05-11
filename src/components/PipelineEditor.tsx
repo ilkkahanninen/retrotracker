@@ -365,7 +365,7 @@ export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
   );
 };
 
-interface EffectParamsProps {
+export interface EffectParamsProps {
   node: EffectNode;
   sourceFrames: number;
   onPatch: (next: EffectNode) => void;
@@ -379,7 +379,7 @@ interface EffectParamsProps {
 /** Discriminated-union narrowing of the range-aware kinds. */
 type RangeKind = "reverse" | "crop" | "cut";
 
-const EffectParams: Component<EffectParamsProps> = (props) => {
+export const EffectParams: Component<EffectParamsProps> = (props) => {
   // Non-keyed Match (static children, no `(n) => ...` callback) so the
   // controlled <input>s aren't disposed every time the user types — focus
   // would otherwise jump on every keystroke. Each Match's `when` predicate

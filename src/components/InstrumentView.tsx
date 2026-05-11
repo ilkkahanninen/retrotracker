@@ -22,8 +22,35 @@ import {
   setXmEnvelopePoint,
   setXmFadeout,
 } from "../state/xmInstrumentEdit";
+import {
+  addXmEffect,
+  applyXmChainToSource,
+  convertXmChiptuneToSampler,
+  moveXmEffect,
+  newXmChiptune,
+  patchXmEffect,
+  removeXmEffect,
+  setXmBitDepth,
+  setXmDither,
+  setXmEffectBypass,
+  setXmMonoMix,
+  setXmSelectedEffectIndex,
+  setXmSelectedEffectParam,
+  setXmSourceKind,
+  updateXmChiptune,
+  xmSelectedEffectIndex,
+  xmSelectedEffectParam,
+} from "../state/xmSampleEdit";
+import { getXmWorkbench } from "../state/xmSampleWorkbench";
+import {
+  SOURCE_KINDS,
+  SOURCE_LABELS,
+  xmWorkbenchFromSample,
+} from "../core/audio/sampleWorkbench";
+import { ChiptuneEditor } from "./ChiptuneEditor";
 import { EnvelopeEditor } from "./EnvelopeEditor";
 import { XmKeyMapEditor } from "./XmKeyMapEditor";
+import { XmPipelineEditor } from "./XmPipelineEditor";
 import { XmWaveform } from "./XmWaveform";
 
 interface Props {
@@ -143,6 +170,70 @@ export const InstrumentView: Component<Props> = (props) => {
               </div>
             </div>
           </section>
+
+          {/* Source kind toggle — sampler vs chiptune. Chiptune feeds a
+              synth cycle into the pipeline instead of a WAV; the result
+              still terminates in the XM transformer like any other
+              sample. The toggle reads from the live workbench so the UI
+              tracks state set elsewhere (alt-stash restores, etc.). */}
+          {(() => {
+            const wb = () => getXmWorkbench(slot1Based(), activeSampleIndex());
+            const sourceKind = () => wb()?.source.kind ?? "sampler";
+            const chiptuneParams = () => {
+              const src = wb()?.source;
+              if (!src || src.kind !== "chiptune") return null;
+              return src.params;
+            };
+            return (
+              <Show when={inst().samples[activeSampleIndex()]}>
+                <section class="instrument-view__section">
+                  <h4 class="instrument-view__heading">Source</h4>
+                  <div class="instrument-view__row">
+                    <label>
+                      Kind
+                      <select
+                        value={sourceKind()}
+                        onChange={(e) =>
+                          setXmSourceKind(
+                            e.currentTarget.value as "sampler" | "chiptune",
+                          )
+                        }
+                      >
+                        {SOURCE_KINDS.map((k) => (
+                          <option value={k}>{SOURCE_LABELS[k]}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <Show when={sourceKind() === "chiptune"}>
+                      <button
+                        type="button"
+                        onClick={convertXmChiptuneToSampler}
+                        title="Bake the chiptune cycle into a WAV and switch to sampler mode"
+                      >
+                        Convert to sampler
+                      </button>
+                      <button
+                        type="button"
+                        onClick={newXmChiptune}
+                        title="Reset chiptune to default params"
+                      >
+                        Reset
+                      </button>
+                    </Show>
+                  </div>
+                  <Show when={chiptuneParams()}>
+                    {(params) => (
+                      <ChiptuneEditor
+                        params={params()}
+                        disabled={false}
+                        onUpdate={updateXmChiptune}
+                      />
+                    )}
+                  </Show>
+                </section>
+              </Show>
+            );
+          })()}
 
           <Show when={inst().samples[activeSampleIndex()]}>
             {(sample) => (
@@ -288,6 +379,48 @@ export const InstrumentView: Component<Props> = (props) => {
                 </div>
               </section>
             )}
+          </Show>
+
+          {/* DSP pipeline — feeds the active sample through a chain of
+              effects (gain envelope, normalize, filter, shaper, …) then
+              quantises to the chosen bit depth. The workbench is
+              session-only and not persisted in the .xm file. */}
+          <Show when={inst().samples[activeSampleIndex()]}>
+            {(sample) => {
+              const wb = () => {
+                const existing = getXmWorkbench(
+                  slot1Based(),
+                  activeSampleIndex(),
+                );
+                if (existing) return existing;
+                return xmWorkbenchFromSample(
+                  sample().data,
+                  sample().bits,
+                  sample().name,
+                );
+              };
+              return (
+                <section class="instrument-view__section">
+                  <h4 class="instrument-view__heading">DSP pipeline</h4>
+                  <XmPipelineEditor
+                    wb={wb()}
+                    onAddEffect={addXmEffect}
+                    onRemoveEffect={removeXmEffect}
+                    onMoveEffect={moveXmEffect}
+                    onPatchEffect={patchXmEffect}
+                    onSetEffectBypass={setXmEffectBypass}
+                    onApplyChain={applyXmChainToSource}
+                    onSetMonoMix={setXmMonoMix}
+                    onSetBitDepth={setXmBitDepth}
+                    onSetDither={setXmDither}
+                    selectedEffectIndex={xmSelectedEffectIndex()}
+                    onSelectEffect={setXmSelectedEffectIndex}
+                    selectedEffectParam={xmSelectedEffectParam()}
+                    onSelectParam={setXmSelectedEffectParam}
+                  />
+                </section>
+              );
+            }}
           </Show>
 
           {/* KeyMap editor — only relevant once an instrument carries
