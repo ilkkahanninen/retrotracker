@@ -1,40 +1,14 @@
 /**
- * Pure helpers shared by `PatternGrid` (PT) and `PatternGridXm` (FT2).
- * Both grids virtualize a tall absolute-positioned row tower the same
- * way; the only thing that differs is which signals drive cursor /
- * playhead positions and how cells are rendered. Each component still
- * owns its scroll/viewport signals and lifecycle — only the math moves
- * here.
+ * Pointer-and-scroll helpers shared by the canvas-rendered pattern
+ * grids. Per-row visibility math used to live here for DOM
+ * virtualization; canvas grids handle that inline in drawGrid*, so
+ * only the scroll-into-view + flat-row scan helpers remain.
  *
  * `PATTERN_ROW_HEIGHT` is locked in CSS via `--pat-row-height`. Keep
  * the two in sync.
  */
 
 export const PATTERN_ROW_HEIGHT = 19;
-/** Extra rows rendered above / below the viewport so quick scrolls
- *  don't reveal blank gaps before the next viewport tick. */
-export const PATTERN_ROW_BUFFER = 12;
-
-/**
- * Half-open `[start, end)` slice of `totalRows` that should be mounted
- * given the scroller's current `scrollTop` and `viewportHeight`. The
- * range is always clamped to `[0, totalRows]`.
- */
-export function computeVisibleRange(
-  scrollTop: number,
-  viewportHeight: number,
-  totalRows: number,
-  rowHeight: number = PATTERN_ROW_HEIGHT,
-  buffer: number = PATTERN_ROW_BUFFER,
-): { start: number; end: number } {
-  if (totalRows === 0) return { start: 0, end: 0 };
-  const start = Math.max(0, Math.floor(scrollTop / rowHeight) - buffer);
-  const end = Math.min(
-    totalRows,
-    Math.ceil((scrollTop + viewportHeight) / rowHeight) + buffer,
-  );
-  return { start, end };
-}
 
 /** Linear scan: find the first index where `predicate` holds, or -1. */
 export function flatIndexOf<T>(
@@ -67,6 +41,32 @@ export function keepRowInView(
     scroller.scrollTop = Math.max(0, top - margin);
   } else if (bottom + margin > viewBottom) {
     scroller.scrollTop = bottom + margin - scroller.clientHeight;
+  }
+}
+
+/**
+ * Nudge the scroller horizontally so the cell at `channelIndex` sits
+ * within `marginChannels × cellWidth` of the viewport edges. Mirrors
+ * `keepRowInView` for the horizontal axis — used to keep the cursor's
+ * channel visible after keyboard moves that would otherwise carry it
+ * past the right edge in many-channel XMs.
+ */
+export function keepChannelInView(
+  scroller: HTMLElement,
+  channelIndex: number,
+  cellWidth: number,
+  rowLabelWidth: number,
+  marginChannels: number = 1,
+): void {
+  const margin = cellWidth * marginChannels;
+  const left = rowLabelWidth + channelIndex * cellWidth;
+  const right = left + cellWidth;
+  const viewLeft = scroller.scrollLeft;
+  const viewRight = viewLeft + scroller.clientWidth;
+  if (left - margin < viewLeft) {
+    scroller.scrollLeft = Math.max(0, left - margin);
+  } else if (right + margin > viewRight) {
+    scroller.scrollLeft = right + margin - scroller.clientWidth;
   }
 }
 

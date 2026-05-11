@@ -927,35 +927,48 @@ h2 {
 }
 
 /* FT2 pattern grid reuses the PT `.patgrid*` skeleton (defined further down
- * in this file) so the look & feel stays consistent across modes. XM-only
- * additions:
- *   - .patgrid__vol: a 2-char volume-column cell between samp and eff.
- *   - .patgrid__hscroll: horizontal-scroll wrapper that holds both header
- *     and rows so they move together when the grid is wider than the
- *     viewport (typical for 16+ channel XMs).
- */
+ * in this file) for visual chrome. The body of the grid is rendered into
+ * a <canvas> by PatternGridXmCanvas via a glyph atlas; only the header
+ * stays in DOM for keyboard / accessibility coverage. */
 .patgrid--xm {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
-.patgrid--xm .patgrid__hscroll {
+.patgrid--canvas {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
 }
-/* Header and rows have their min-width set inline by the component so
- * .patgrid__rows-spacer (whose only children are absolutely positioned)
- * doesn't collapse to the viewport — `min-width: max-content` would
- * resolve to ~0 here. The component sets:
- *   .patgrid__header   { min-width: gridWidthPx }
- *   .patgrid__rows     { min-width: gridWidthPx }
- *   .patgrid__rows-spacer { width: gridWidthPx, height: rowCount × ROW_HEIGHT }
- * gridWidthPx = ROW_LABEL_PX + channelCount × CHANNEL_MIN_PX. */
+.patgrid--canvas .patgrid__header {
+  overflow: hidden;
+  /* Header doesn't scroll on its own — it follows the rows container
+   * via -scrollLeft via JS isn't wired yet; instead the header's grid
+   * template is set inline to the full grid width, and we let the
+   * header clip behind the right edge until horizontal-following is
+   * implemented. */
+}
+.patgrid--canvas .patgrid__rows {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  /* Hint to the compositor that the canvas inside will animate via
+   * transform — promotes the scrolling layer to its own GPU layer
+   * on most browsers, eliminating scroll repaints. */
+  will-change: scroll-position;
+}
+/* .patgrid--canvas .patgrid__rows-spacer is intentionally style-free
+ * — it's an empty placeholder providing scrollbar geometry. Width and
+ * height are set inline. */
+.patgrid__canvas {
+  display: block;
+  background: var(--bg);
+  /* Avoid the browser's default focusable-element outline since the
+   * canvas captures all click handling via JS. */
+  outline: none;
+}
 
 /* Inline help strip below the pattern grid — describes the cell under
  * the edit cursor (note / sample / effect-nibble breakdown). Mirrors the
@@ -1109,7 +1122,10 @@ h2 {
 .patgrid__header {
   display: grid;
   grid-template-columns: 36px repeat(4, 1fr);
-  padding: 6px 16px;
+  /* No horizontal padding — the row-label column must start at x=0 so
+   * it aligns with the canvas body's row-label area. Vertical padding
+   * stays for the chrome breathing room. */
+  padding: 6px 0;
   background: var(--panel);
   color: var(--muted);
   font-size: 10px;
@@ -1118,66 +1134,29 @@ h2 {
   border-bottom: 1px solid var(--grid-line);
   flex-shrink: 0;
 }
+/* Canvas grids: the header clips against the scroll container and an
+ * inner row translates with the body's scrollLeft so header columns
+ * follow the body's horizontal scroll while the host stays at viewport.
+ * `will-change: transform` hints the GPU compositor. */
+.patgrid--canvas .patgrid__header {
+  overflow: hidden;
+  padding: 6px 0;
+}
+.patgrid__header-inner {
+  display: grid;
+  align-items: stretch;
+  will-change: transform;
+}
+/* The grid body is canvas-rendered, so most cell-level styling lives
+ * in `gridGeometry.readGridPalette` (which reads these CSS vars) and
+ * the drawGrid* functions. CSS keeps only:
+ *   - The scroll container that hosts the canvas + spacer.
+ *   - Header / row-label / channel-header / VU / M/S styles. */
 .patgrid__rows {
   flex: 1;
-  overflow-y: auto;
+  overflow: auto;
   scroll-behavior: auto;
-  /* Make scroller the offsetParent so the virtualizer's translated rows
-     position against `scrollTop` correctly. */
   position: relative;
-}
-/* Inner placeholder gives the scrollbar the full virtual height (= total
- * flat-row count × ROW_HEIGHT). Visible rows are absolutely positioned
- * inside it by the virtualizer at top: index × ROW_HEIGHT. */
-.patgrid__rows-spacer {
-  position: relative;
-  width: 100%;
-}
-.patgrid__row {
-  display: grid;
-  grid-template-columns: 36px repeat(4, 1fr);
-  padding: 0 16px;
-  border-radius: 2px;
-  /* Locked height so the virtualizer can compute scroll positions without
-   * measuring each row. Matches font-size 13 × line-height 1.4 ≈ 19px. */
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: var(--pat-row-height);
-  line-height: var(--pat-row-height);
-  box-sizing: border-box;
-}
-.patgrid__row--beat {
-  background: rgba(255, 255, 255, 0.025);
-}
-.patgrid__row--bar {
-  background: rgba(94, 200, 255, 0.07);
-  box-shadow: inset 2px 0 0 var(--accent);
-}
-/* Note: the boundary marker used to be a top border + margin; with rows
- * absolutely positioned we render a separate ::before line within the
- * row's own box so it stays aligned without growing the row height. */
-.patgrid__row--boundary {
-  border-top: 2px dashed var(--muted);
-}
-.patgrid__part--empty {
-  opacity: 0.3;
-}
-.patgrid__row--cursor {
-  background: var(--accent-dim);
-}
-.patgrid__row--active {
-  background: var(--accent);
-  color: var(--text-on-accent);
-}
-.patgrid__row--active .patgrid__num,
-.patgrid__row--active .patgrid__note,
-.patgrid__row--active .patgrid__samp,
-.patgrid__row--active .patgrid__eff {
-  color: var(--text-on-accent);
-}
-.patgrid__row--active .patgrid__part--empty {
-  opacity: 0.5;
 }
 
 .patgrid__num {
@@ -1191,72 +1170,10 @@ h2 {
   padding: 0 6px;
   border-left: 1px solid var(--grid-line);
 }
-.patgrid__note {
-  min-width: 3ch;
-  color: var(--fg);
-}
-.patgrid__samp {
-  min-width: 2ch;
-  color: var(--accent);
-  display: inline-flex;
-}
-.patgrid__samp-char {
-  display: inline-block;
-  min-width: 1ch;
-}
-/* FT2 volume column: 2-char field (kind letter + magnitude hex digit). The
- * kind letter renders muted (it's metadata), the magnitude renders in fg.
- * Empty cells show "··" via .patgrid__part--empty. */
-.patgrid__vol {
-  min-width: 2ch;
-  display: inline-flex;
-}
-.patgrid__vol-char {
-  display: inline-block;
-  min-width: 1ch;
-}
-.patgrid__vol-char--kind {
-  color: var(--muted);
-}
-.patgrid__vol-char--mag {
-  color: var(--fg);
-}
-.patgrid__eff {
-  min-width: 3ch;
-  color: var(--muted);
-  display: inline-flex;
-}
-.patgrid__eff-char {
-  display: inline-block;
-  min-width: 1ch;
-}
 
-.patgrid__field--cursor {
-  background: var(--accent);
-  color: var(--text-on-accent);
-  opacity: 1;
-  box-shadow: 0 0 0 1px var(--accent);
-  border-radius: 2px;
-}
-
-/*
- * Range-selection highlight. Painted on the cell wrapper so it sits BENEATH
- * the field-cursor pill (which has its own opaque background) — the cursor
- * stays legible inside an active selection. cursor:cell makes the drag
- * intent obvious to the user.
- */
-.patgrid__cell--selected {
-  background: rgba(94, 200, 255, 0.18);
-  /* box-shadow: inset 0 0 0 1px rgba(94, 200, 255, 0.45); */
-}
-.patgrid__cell {
-  cursor: cell;
-  user-select: none;
-}
-
-/* Channel-header layout: name + compact M/S toggles. Header cells inherit
- * `cursor: cell` from .patgrid__cell so we restore the default cursor on
- * the buttons below. */
+/* Channel-header layout: name + compact M/S toggles. Header cells use
+ * the default cursor since they're not clickable cells in the canvas
+ * grid (the M / S buttons take their own clicks). */
 .patgrid__chhead {
   align-items: center;
   cursor: default;
