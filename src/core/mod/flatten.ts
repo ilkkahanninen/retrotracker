@@ -1,3 +1,4 @@
+import { walkOrders } from "../flatten";
 import type { Note, ModSong } from "./types";
 import { Effect } from "./format";
 
@@ -80,35 +81,14 @@ function getFlatRow(
  */
 export function flattenSong(song: ModSong): FlatRow[] {
   const out: FlatRow[] = [];
-  let nextStartRow = 0;
-  for (let o = 0; o < song.songLength; o++) {
-    const pat = song.patterns[song.orders[o] ?? 0];
-    if (!pat) continue;
-    const startRow = Math.min(nextStartRow, pat.rows.length - 1);
-    nextStartRow = 0;
-    let ignoreDxx = false;
-    for (let r = startRow; r < pat.rows.length; r++) {
-      const cells = pat.rows[r]!;
-      out.push(getFlatRow(cells, o, r, r === startRow && o > 0));
-      let dxx = -1;
-      let hasBxx = false;
-      for (const c of cells) {
-        if (c.effect === Effect.PatternBreak) dxx = c.effectParam;
-        else if (c.effect === Effect.PositionJump) hasBxx = true;
-      }
-      if (dxx >= 0) {
-        if (hasBxx) {
-          ignoreDxx = true;
-        } else if (!ignoreDxx) {
-          nextStartRow = Math.min(
-            (dxx >> 4) * 10 + (dxx & 0x0f),
-            pat.rows.length - 1,
-          );
-          break;
-        }
-      }
-    }
-  }
+  walkOrders(
+    song,
+    (pat) => pat.rows,
+    (pat) => pat.rows.length,
+    (cells, order, rowIndex, boundaryAbove) => {
+      out.push(getFlatRow(cells, order, rowIndex, boundaryAbove));
+    },
+  );
   return out;
 }
 

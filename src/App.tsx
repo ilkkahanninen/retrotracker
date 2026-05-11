@@ -16,10 +16,9 @@ import { PatternGrid } from "./components/PatternGrid";
 import { PatternGridXm } from "./components/PatternGridXm";
 import { XmOrderList } from "./components/XmOrderList";
 import { PatternHelp } from "./components/PatternHelp";
-import { InstrumentList } from "./components/InstrumentList";
 import { InstrumentView } from "./components/InstrumentView";
-import { SampleList } from "./components/SampleList";
 import { SampleView } from "./components/SampleView";
+import { SlotList, type SlotDisplay } from "./components/SlotList";
 import { SettingsView } from "./components/SettingsView";
 import { bounceSelection } from "./core/audio/bounce";
 import type { ChiptuneParams } from "./core/audio/chiptune";
@@ -146,7 +145,7 @@ import {
   setCurrentSample,
   setEditStep,
 } from "./state/edit";
-import { selectXmInstrument } from "./state/xmEdit";
+import { currentXmInstrument, selectXmInstrument } from "./state/xmEdit";
 import { renameXmInstrument } from "./state/xmInstrumentEdit";
 import { xmCursor } from "./state/cursorXm";
 import {
@@ -157,10 +156,13 @@ import {
   setXmRowCountAtCursor,
 } from "./state/xmPatternEdit";
 import {
+  XM_INSTRUMENT_NAME_MAX,
   XM_MAX_CHANNELS,
+  XM_MAX_INSTRUMENTS,
   XM_MAX_PATTERN_ROWS,
   XM_MIN_PATTERN_ROWS,
 } from "./core/xm/types";
+import { SAMPLE_NAME_MAX } from "./core/mod/sampleImport";
 import { infoText, setInfoText } from "./state/info";
 import {
   PATTERN_NAME_MAX,
@@ -876,24 +878,48 @@ export const App: Component = () => {
         <Show
           when={xm2Song()}
           fallback={
-            <SampleList
-              song={pt2Song()}
+            <SlotList
+              slots={() => {
+                const s = pt2Song();
+                if (!s) return null;
+                return s.samples.map((sample) => ({
+                  name: sample.name,
+                  isEmpty: sample.lengthWords === 0,
+                }));
+              }}
+              currentSlot={currentSample}
               onSelect={selectSample}
               onRename={renameSample}
               onDropFiles={(slot1Based, files) => {
                 void loadWavsIntoSlot(slot1Based - 1, files);
               }}
+              nameMaxLength={SAMPLE_NAME_MAX}
+              itemLabel="sample"
             />
           }
         >
           {(xm) => (
-            <InstrumentList
-              song={xm()}
+            <SlotList
+              slots={() => {
+                const insts = xm().instruments;
+                const arr: SlotDisplay[] = new Array(XM_MAX_INSTRUMENTS);
+                for (let i = 0; i < XM_MAX_INSTRUMENTS; i++) {
+                  const inst = insts[i];
+                  arr[i] = {
+                    name: inst?.name ?? "",
+                    isEmpty: !inst || inst.samples.length === 0,
+                  };
+                }
+                return arr;
+              }}
+              currentSlot={currentXmInstrument}
               onSelect={selectXmInstrument}
               onRename={renameXmInstrument}
               onDropFiles={(slot1Based, files) => {
                 void loadWavsIntoXmSlot(slot1Based, files);
               }}
+              nameMaxLength={XM_INSTRUMENT_NAME_MAX}
+              itemLabel="instrument"
             />
           )}
         </Show>

@@ -9,6 +9,7 @@
  * arrives in Phase 4.
  */
 
+import { makeOrderOps } from "../orderOps";
 import { emptyXmNote, emptyXmPattern } from "./format";
 import {
   XM_INSTRUMENT_NAME_MAX,
@@ -29,6 +30,22 @@ import {
 } from "./types";
 
 void XM_KEYOFF_NOTE;
+
+/**
+ * Order-list CRUD factory — same shape as the PT side. XM creates new
+ * patterns sized to the song's current `channelCount` (read at call
+ * time via the `emptyPattern(song)` hook), and deep-clones cells when
+ * duplicating because XmNote objects are sometimes mutated locally
+ * before commit.
+ */
+const orderOps = makeOrderOps<XmPattern, XmSong>({
+  emptyPattern: (song) => emptyXmPattern(64, song.channelCount),
+  clonePattern: (src) => ({
+    rows: src.rows.map((row) => row.map((cell) => ({ ...cell }))),
+    rowCount: src.rowCount,
+  }),
+  maxOrders: XM_MAX_ORDERS,
+});
 
 /**
  * Replace the cell at (order, row, channel) with the patch's fields.
@@ -138,66 +155,24 @@ function resizePatternChannels(
  * matches PT2's `nextPatternAtOrder` semantics so the FT2 keybind feels
  * the same. No-op when the order is out of range.
  */
-export function nextXmPatternAtOrder(song: XmSong, order: number): XmSong {
-  if (order < 0 || order >= song.songLength) return song;
-  const cur = song.orders[order] ?? 0;
-  const next = cur + 1;
-  if (next < song.patterns.length) return setXmOrderPattern(song, order, next);
-  const newPatterns: XmPattern[] = [
-    ...song.patterns,
-    emptyXmPattern(64, song.channelCount),
-  ];
-  const newOrders = [...song.orders];
-  newOrders[order] = newPatterns.length - 1;
-  return { ...song, patterns: newPatterns, orders: newOrders };
-}
+export const nextXmPatternAtOrder = orderOps.nextPatternAtOrder;
 
 /** Step the pattern number at `order` by -1, clamped at 0. */
-export function prevXmPatternAtOrder(song: XmSong, order: number): XmSong {
-  if (order < 0 || order >= song.songLength) return song;
-  const cur = song.orders[order] ?? 0;
-  if (cur <= 0) return song;
-  return setXmOrderPattern(song, order, cur - 1);
-}
+export const prevXmPatternAtOrder = orderOps.prevPatternAtOrder;
 
 /**
  * Append a fresh empty pattern and point `song.orders[order]` at it.
  * The previously-pointed-at pattern stays in the bank — other slots may
  * still reference it.
  */
-export function newXmPatternAtOrder(song: XmSong, order: number): XmSong {
-  if (order < 0 || order >= song.songLength) return song;
-  const newPatterns: XmPattern[] = [
-    ...song.patterns,
-    emptyXmPattern(64, song.channelCount),
-  ];
-  const newOrders = [...song.orders];
-  newOrders[order] = newPatterns.length - 1;
-  return { ...song, patterns: newPatterns, orders: newOrders };
-}
+export const newXmPatternAtOrder = orderOps.newPatternAtOrder;
 
 /**
  * Append a deep copy of the current pattern and point `order` at it.
  * Lets the user fork-edit a pattern from a known starting point without
  * touching the original.
  */
-export function duplicateXmPatternAtOrder(song: XmSong, order: number): XmSong {
-  if (order < 0 || order >= song.songLength) return song;
-  const cur = song.orders[order] ?? 0;
-  const source = song.patterns[cur];
-  if (!source) return song;
-  // Deep-clone rows + cells. Cells are immutable in normal use but the
-  // user might mutate the copy via setXmCell, so structural sharing of
-  // a single row would propagate edits to the original.
-  const clonedRows: XmNote[][] = source.rows.map((row) =>
-    row.map((cell) => ({ ...cell })),
-  );
-  const clone: XmPattern = { rows: clonedRows, rowCount: source.rowCount };
-  const newPatterns = [...song.patterns, clone];
-  const newOrders = [...song.orders];
-  newOrders[order] = newPatterns.length - 1;
-  return { ...song, patterns: newPatterns, orders: newOrders };
-}
+export const duplicateXmPatternAtOrder = orderOps.duplicatePatternAtOrder;
 
 /**
  * PT-style insert: duplicate the slot's current pattern number into a
@@ -211,37 +186,15 @@ export function insertXmOrderAtCursor(
 ): XmSong {
   if (orderIndex < 0 || orderIndex >= song.songLength) return song;
   const cur = song.orders[orderIndex] ?? 0;
-  return insertXmOrder(song, orderIndex, cur);
+  return orderOps.insertOrderAt(song, orderIndex, cur);
 }
 
 /** Insert a new blank pattern at the given order slot. Pushes following slots
  *  forward; the last slot falls off if songLength was already at the cap. */
-export function insertXmOrder(
-  song: XmSong,
-  orderIndex: number,
-  patternNumber: number,
-): XmSong {
-  if (orderIndex < 0 || orderIndex > song.songLength) return song;
-  if (song.songLength >= XM_MAX_ORDERS) return song;
-  const newOrders = [...song.orders];
-  for (let i = song.songLength; i > orderIndex; i--) {
-    newOrders[i] = newOrders[i - 1]!;
-  }
-  newOrders[orderIndex] = patternNumber;
-  return { ...song, songLength: song.songLength + 1, orders: newOrders };
-}
+export const insertXmOrder = orderOps.insertOrderAt;
 
 /** Delete the order slot, pulling subsequent orders back by one. */
-export function deleteXmOrder(song: XmSong, orderIndex: number): XmSong {
-  if (orderIndex < 0 || orderIndex >= song.songLength) return song;
-  if (song.songLength <= 1) return song;
-  const newOrders = [...song.orders];
-  for (let i = orderIndex; i < song.songLength - 1; i++) {
-    newOrders[i] = newOrders[i + 1]!;
-  }
-  newOrders[song.songLength - 1] = 0;
-  return { ...song, songLength: song.songLength - 1, orders: newOrders };
-}
+export const deleteXmOrder = orderOps.deleteOrder;
 
 /** Set the pattern number stored at the given order slot. */
 export function setXmOrderPattern(

@@ -11,13 +11,19 @@
  * (Phase 4's instrument view exposes them).
  */
 
+import {
+  deriveSampleName,
+  mixDownToMono,
+  quantiseToInt,
+  SAMPLE_NAME_MAX,
+} from "../audio/sampleHelpers";
 import { readWav, type WavData } from "../audio/wav";
 
 import { emptyXmSample } from "./format";
 import type { XmSample } from "./types";
 
 /** XM sample-name field is 22 ASCII bytes. Mirrors PT's `SAMPLE_NAME_MAX`. */
-export const XM_SAMPLE_NAME_MAX = 22;
+export const XM_SAMPLE_NAME_MAX = SAMPLE_NAME_MAX;
 
 export interface ImportedXmSample {
   sample: XmSample;
@@ -27,60 +33,24 @@ export interface ImportedXmSample {
 
 /** Filename → short ASCII sample name (22 chars max). */
 export function deriveXmSampleName(filename: string): string {
-  const slashAt = Math.max(
-    filename.lastIndexOf("/"),
-    filename.lastIndexOf("\\"),
-  );
-  const base = slashAt >= 0 ? filename.slice(slashAt + 1) : filename;
-  const dot = base.lastIndexOf(".");
-  const stem = dot >= 0 ? base.slice(0, dot) : base;
-  return stem
-    .replace(/[^\x20-\x7e]+/g, "_")
-    .trim()
-    .slice(0, XM_SAMPLE_NAME_MAX);
-}
-
-function floatToInt(v: number, peak: number): number {
-  const c = v < -1 ? -1 : v > 1 ? 1 : v;
-  return Math.round(c * peak);
+  return deriveSampleName(filename, XM_SAMPLE_NAME_MAX);
 }
 
 /**
- * Mix down (or pass through) channels and quantise. The output bit
- * depth is decided by `bits`: 8-bit peaks at ±127 (symmetric, matching
- * PT's range), 16-bit peaks at ±32767. The downmix is a simple equal-
- * weight average, identical to the PT importer.
+ * Mix down channels and quantise to the requested bit depth. The downmix
+ * is a simple equal-weight average, identical to the PT importer.
  */
 export function wavToXmSampleData(
   wav: WavData,
   bits: 8 | 16,
 ): Int8Array | Int16Array {
-  const channels = wav.channels;
-  const frames = channels[0]?.length ?? 0;
-  const peak = bits === 8 ? 127 : 32767;
-  const Buf = bits === 8 ? Int8Array : Int16Array;
-  const out = new Buf(frames);
-  if (channels.length === 0) return out;
-  if (channels.length === 1) {
-    const c = channels[0]!;
-    for (let i = 0; i < frames; i++) out[i] = floatToInt(c[i]!, peak);
-  } else {
-    const nch = channels.length;
-    for (let i = 0; i < frames; i++) {
-      let sum = 0;
-      for (let c = 0; c < nch; c++) sum += channels[c]![i]!;
-      out[i] = floatToInt(sum / nch, peak);
-    }
-  }
-  return out;
+  return quantiseToInt(mixDownToMono(wav), bits);
 }
 
 /**
  * Top-level convenience: WAV bytes + filename → ready-to-drop XmSample.
- * Pass `bits` to force a specific output depth; default is to pick the
- * smaller depth that fits the source's PCM format (8 if the WAV is
- * 8-bit, 16 otherwise — including float sources, which quantise to 16
- * to preserve dynamic range).
+ * Pass `bits` to force a specific output depth; default is 16-bit to
+ * preserve source fidelity (including float sources).
  */
 export function importWavXmSample(
   bytes: Uint8Array,

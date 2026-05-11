@@ -18,7 +18,7 @@ import { flattenXmSong } from "../core/xm/flatten";
 import type { XmNote, XmSong } from "../core/xm/types";
 import { beatsPerBar, rowsPerBeat } from "../state/gridConfig";
 import { setXmCursor, xmCursor, type XmField } from "../state/cursorXm";
-import { xmSelection, xmSelectionContains } from "../state/selectionXm";
+import { selectionContains, xmSelection } from "../state/selection";
 import { channelLevels } from "../state/channelLevel";
 import {
   mutedChannels,
@@ -26,6 +26,12 @@ import {
   toggleMute,
   toggleSolo,
 } from "../state/channelMute";
+import {
+  computeVisibleRange,
+  flatIndexOf,
+  keepRowInView,
+  PATTERN_ROW_HEIGHT,
+} from "./patternGridVirtualization";
 
 interface Props {
   song: XmSong;
@@ -56,46 +62,33 @@ export const PatternGridXm: Component<Props> = (props) => {
 
   /** Index of the cursor row inside the flat list, or -1 if hidden. */
   const cursorFlatIndex = createMemo(() => {
-    const items = flat();
     const c = xmCursor();
-    for (let i = 0; i < items.length; i++) {
-      const fr = items[i]!;
-      if (fr.order === c.order && fr.rowIndex === c.row) return i;
-    }
-    return -1;
+    return flatIndexOf(
+      flat(),
+      (fr) => fr.order === c.order && fr.rowIndex === c.row,
+    );
   });
 
   /** Index of the playhead row inside the flat list, or -1 if hidden. */
   const activeFlatIndex = createMemo(() => {
-    const items = flat();
     const { order, row } = props.pos;
-    for (let i = 0; i < items.length; i++) {
-      const fr = items[i]!;
-      if (fr.order === order && fr.rowIndex === row) return i;
-    }
-    return -1;
+    return flatIndexOf(
+      flat(),
+      (fr) => fr.order === order && fr.rowIndex === row,
+    );
   });
 
   // ── Virtualization ─────────────────────────────────────────────────────
   // Mirrors PT PatternGrid: only the rows in (or near) the viewport mount;
-  // the rest are absolute-positioned inside a tall placeholder. Row height
-  // is locked in CSS via --pat-row-height, but we can read it as a constant
-  // since the PT grid does the same.
-  const ROW_HEIGHT = 19;
-  const ROW_BUFFER = 12;
+  // the rest are absolute-positioned inside a tall placeholder. Row math
+  // lives in `patternGridVirtualization.ts` — shared with PatternGrid.
   const [scrollTop, setScrollTop] = createSignal(0);
   const [viewportHeight, setViewportHeight] = createSignal(0);
   let scroller: HTMLDivElement | undefined;
 
-  const visibleRange = createMemo(() => {
-    const total = flat().length;
-    if (total === 0) return { start: 0, end: 0 };
-    const top = scrollTop();
-    const h = viewportHeight();
-    const start = Math.max(0, Math.floor(top / ROW_HEIGHT) - ROW_BUFFER);
-    const end = Math.min(total, Math.ceil((top + h) / ROW_HEIGHT) + ROW_BUFFER);
-    return { start, end };
-  });
+  const visibleRange = createMemo(() =>
+    computeVisibleRange(scrollTop(), viewportHeight(), flat().length),
+  );
 
   const visibleRows = createMemo(() => {
     const { start, end } = visibleRange();
@@ -125,16 +118,7 @@ export const PatternGridXm: Component<Props> = (props) => {
   createEffect(() => {
     const idx = cursorFlatIndex();
     if (idx < 0 || !scroller) return;
-    const margin = ROW_HEIGHT * 2;
-    const top = idx * ROW_HEIGHT;
-    const bottom = top + ROW_HEIGHT;
-    const viewTop = scroller.scrollTop;
-    const viewBottom = viewTop + scroller.clientHeight;
-    if (top - margin < viewTop) {
-      scroller.scrollTop = Math.max(0, top - margin);
-    } else if (bottom + margin > viewBottom) {
-      scroller.scrollTop = bottom + margin - scroller.clientHeight;
-    }
+    keepRowInView(scroller, idx);
   });
 
   /** True if the cursor sits on (this flat-row index, this channel, this field). */
@@ -165,7 +149,7 @@ export const PatternGridXm: Component<Props> = (props) => {
   ): boolean => {
     const sel = xmSelection();
     if (!sel || sel.order !== order) return false;
-    return xmSelectionContains(sel, row, channel);
+    return selectionContains(sel, row, channel);
   };
 
   const channelHeader = (ch: number) => (ch + 1).toString().padStart(2, "0");
@@ -255,7 +239,7 @@ export const PatternGridXm: Component<Props> = (props) => {
             <div
               class="patgrid__rows-spacer"
               style={{
-                height: `${flat().length * ROW_HEIGHT}px`,
+                height: `${flat().length * PATTERN_ROW_HEIGHT}px`,
                 width: gridWidthStyle(),
               }}
             >
@@ -276,7 +260,7 @@ export const PatternGridXm: Component<Props> = (props) => {
                     <div
                       class="patgrid__row"
                       style={{
-                        top: `${flatIdx() * ROW_HEIGHT}px`,
+                        top: `${flatIdx() * PATTERN_ROW_HEIGHT}px`,
                         "grid-template-columns": gridTemplateColumns(
                           props.song.channelCount,
                         ),

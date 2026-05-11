@@ -3,12 +3,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { emptyXmSong } from "~/core/xm/format";
 import { setXmCell } from "~/core/xm/mutations";
 import { resetXmCursor, setXmCursor, xmCursor } from "~/state/cursorXm";
-import { xmClipboardSlice, setXmClipboardSlice } from "~/state/clipboardXm";
+import { xmClipboardSlice, setXmClipboardSlice } from "~/state/clipboard";
 import {
   clearXmSelection,
   setXmSelection,
   xmSelection,
-} from "~/state/selectionXm";
+} from "~/state/selection";
 import {
   applyXmCursor,
   copyXmSelection,

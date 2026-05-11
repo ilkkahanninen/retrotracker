@@ -1,6 +1,16 @@
+import { makeOrderOps } from "../orderOps";
 import type { Note, Pattern, Sample, ModSong } from "./types";
 import { MAX_ORDERS } from "./types";
 import { emptyNote, emptyPattern, emptySample, PERIOD_TABLE } from "./format";
+
+const orderOps = makeOrderOps<Pattern, ModSong>({
+  emptyPattern: () => emptyPattern(),
+  // PT Notes are immutable in normal use (setCell always replaces, never
+  // mutates), so a shallow row clone is enough — rows hold references
+  // but no caller writes through them.
+  clonePattern: (src) => ({ rows: src.rows.map((row) => [...row]) }),
+  maxOrders: MAX_ORDERS,
+});
 
 /**
  * Return a new ModSong with one cell's fields overridden, sharing every other
@@ -136,7 +146,11 @@ export function deleteCellPullUp(
  *
  * No-op when the address is out of range.
  */
-export function deleteRowPullUp(song: ModSong, order: number, row: number): ModSong {
+export function deleteRowPullUp(
+  song: ModSong,
+  order: number,
+  row: number,
+): ModSong {
   const ctx = resolvePattern(song, order);
   if (!ctx) return song;
   const { pattern, patNum } = ctx;
@@ -239,28 +253,13 @@ export function setOrderPattern(
  * the last existing pattern, append a fresh empty pattern and point the slot
  * at it (FT2-style auto-grow). No-op when the order is out of range.
  */
-export function nextPatternAtOrder(song: ModSong, order: number): ModSong {
-  if (order < 0 || order >= song.songLength) return song;
-  const cur = song.orders[order] ?? 0;
-  const next = cur + 1;
-  if (next < song.patterns.length) return setOrderPattern(song, order, next);
-  // Auto-grow: append a new empty pattern and point the slot at it.
-  const newPatterns: Pattern[] = [...song.patterns, emptyPattern()];
-  const newOrders = [...song.orders];
-  newOrders[order] = newPatterns.length - 1;
-  return { ...song, patterns: newPatterns, orders: newOrders };
-}
+export const nextPatternAtOrder = orderOps.nextPatternAtOrder;
 
 /**
  * Step the pattern number at `order` by -1, clamped at 0. No-op when the
  * order is out of range or the slot is already at pattern 0.
  */
-export function prevPatternAtOrder(song: ModSong, order: number): ModSong {
-  if (order < 0 || order >= song.songLength) return song;
-  const cur = song.orders[order] ?? 0;
-  if (cur <= 0) return song;
-  return setOrderPattern(song, order, cur - 1);
-}
+export const prevPatternAtOrder = orderOps.prevPatternAtOrder;
 
 /**
  * Insert a new order slot at index `order`, shifting subsequent slots right
@@ -270,15 +269,9 @@ export function prevPatternAtOrder(song: ModSong, order: number): ModSong {
  * No-op if the song is already at MAX_ORDERS (128) or `order` is out of range.
  */
 export function insertOrder(song: ModSong, order: number): ModSong {
-  if (song.songLength >= MAX_ORDERS) return song;
   if (order < 0 || order > song.songLength) return song;
   const cur = song.orders[order] ?? 0;
-  const newOrders = [...song.orders];
-  for (let i = newOrders.length - 1; i > order; i--) {
-    newOrders[i] = newOrders[i - 1] ?? 0;
-  }
-  newOrders[order] = cur;
-  return { ...song, orders: newOrders, songLength: song.songLength + 1 };
+  return orderOps.insertOrderAt(song, order, cur);
 }
 
 /**
@@ -289,16 +282,7 @@ export function insertOrder(song: ModSong, order: number): ModSong {
  * Note: this only edits the orders array. Patterns the deleted slot pointed
  * to remain in `song.patterns`, since other slots may still reference them.
  */
-export function deleteOrder(song: ModSong, order: number): ModSong {
-  if (song.songLength <= 1) return song;
-  if (order < 0 || order >= song.songLength) return song;
-  const newOrders = [...song.orders];
-  for (let i = order; i < newOrders.length - 1; i++) {
-    newOrders[i] = newOrders[i + 1] ?? 0;
-  }
-  newOrders[newOrders.length - 1] = 0;
-  return { ...song, orders: newOrders, songLength: song.songLength - 1 };
-}
+export const deleteOrder = orderOps.deleteOrder;
 
 /**
  * Append a fresh empty pattern and point `song.orders[order]` at it. Lets the
@@ -306,13 +290,7 @@ export function deleteOrder(song: ModSong, order: number): ModSong {
  * leaves the previously-pointed-at pattern intact (other slots may still
  * reference it). No-op when `order` is out of range.
  */
-export function newPatternAtOrder(song: ModSong, order: number): ModSong {
-  if (order < 0 || order >= song.songLength) return song;
-  const newPatterns: Pattern[] = [...song.patterns, emptyPattern()];
-  const newOrders = [...song.orders];
-  newOrders[order] = newPatterns.length - 1;
-  return { ...song, patterns: newPatterns, orders: newOrders };
-}
+export const newPatternAtOrder = orderOps.newPatternAtOrder;
 
 /**
  * Tidy the order list and pattern bank:
@@ -386,18 +364,7 @@ export function cleanupOrders(song: ModSong): {
  *
  * No-op when `order` is out of range or the slot points at a missing pattern.
  */
-export function duplicatePatternAtOrder(song: ModSong, order: number): ModSong {
-  if (order < 0 || order >= song.songLength) return song;
-  const patNum = song.orders[order];
-  if (patNum === undefined) return song;
-  const source = song.patterns[patNum];
-  if (!source) return song;
-  const dup: Pattern = { rows: source.rows.map((row) => [...row]) };
-  const newPatterns: Pattern[] = [...song.patterns, dup];
-  const newOrders = [...song.orders];
-  newOrders[order] = newPatterns.length - 1;
-  return { ...song, patterns: newPatterns, orders: newOrders };
-}
+export const duplicatePatternAtOrder = orderOps.duplicatePatternAtOrder;
 
 // ─── Samples ──────────────────────────────────────────────────────────────
 

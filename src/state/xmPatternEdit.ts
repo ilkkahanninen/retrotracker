@@ -33,7 +33,7 @@ import {
   xmMoveRight,
   setXmCursor,
 } from "./cursorXm";
-import { xmClipboardSlice, setXmClipboardSlice } from "./clipboardXm";
+import { xmClipboardSlice, setXmClipboardSlice } from "./clipboard";
 import { editStep } from "./edit";
 import { commitEditXm, transport, xm2Song as song } from "./song";
 import { setPlayPos } from "./song";
@@ -44,12 +44,12 @@ import {
 } from "./xmEdit";
 import {
   clearXmSelection,
-  makeXmSelection,
+  makeSelection,
   setXmSelection,
   setXmSelectionAnchor,
   xmSelection,
   xmSelectionAnchor,
-} from "./selectionXm";
+} from "./selection";
 
 /**
  * Commit a cursor move. Drops range selection AND its anchor — once
@@ -96,7 +96,7 @@ export function extendXmSelection(next: XmCursor): void {
     return;
   }
   setXmSelection(
-    makeXmSelection(
+    makeSelection(
       anchor.order,
       anchor.row,
       anchor.channel,
@@ -440,12 +440,10 @@ export function selectAllXmStep(): void {
     sel.startChannel === c.channel &&
     sel.endChannel === c.channel;
   if (isWholeChannel) {
-    setXmSelection(
-      makeXmSelection(c.order, first, 0, last, s.channelCount - 1),
-    );
+    setXmSelection(makeSelection(c.order, first, 0, last, s.channelCount - 1));
     return;
   }
-  setXmSelection(makeXmSelection(c.order, first, c.channel, last, c.channel));
+  setXmSelection(makeSelection(c.order, first, c.channel, last, c.channel));
 }
 
 /** Selection if any, otherwise the cursor's single cell as a range. */

@@ -10,7 +10,9 @@
  * paired and standalone cases match MOD semantics.
  */
 
-import type { XmNote, XmPattern, XmSong } from "./types";
+import { walkOrders } from "../flatten";
+
+import type { XmNote, XmSong } from "./types";
 
 export interface XmFlatRow {
   /** Index into song.orders. */
@@ -45,42 +47,16 @@ function getFlatRow(
   return fr;
 }
 
-/** XM effect codes for Dxx (PatternBreak) and Bxx (PositionJump). */
-const FX_POSITION_JUMP = 0x0b;
-const FX_PATTERN_BREAK = 0x0d;
-
 export function flattenXmSong(song: XmSong): XmFlatRow[] {
   const out: XmFlatRow[] = [];
-  let nextStartRow = 0;
-  for (let o = 0; o < song.songLength; o++) {
-    const patternIndex = song.orders[o] ?? 0;
-    const pat: XmPattern | undefined = song.patterns[patternIndex];
-    if (!pat) continue;
-    const startRow = Math.min(nextStartRow, pat.rowCount - 1);
-    nextStartRow = 0;
-    let ignoreDxx = false;
-    for (let r = startRow; r < pat.rowCount; r++) {
-      const cells = pat.rows[r]!;
-      out.push(getFlatRow(cells, o, r, r === startRow && o > 0));
-      let dxx = -1;
-      let hasBxx = false;
-      for (const c of cells) {
-        if (c.effect === FX_PATTERN_BREAK) dxx = c.effectParam;
-        else if (c.effect === FX_POSITION_JUMP) hasBxx = true;
-      }
-      if (dxx >= 0) {
-        if (hasBxx) {
-          ignoreDxx = true;
-        } else if (!ignoreDxx) {
-          nextStartRow = Math.min(
-            (dxx >> 4) * 10 + (dxx & 0x0f),
-            pat.rowCount - 1,
-          );
-          break;
-        }
-      }
-    }
-  }
+  walkOrders(
+    song,
+    (pat) => pat.rows,
+    (pat) => pat.rowCount,
+    (cells, order, rowIndex, boundaryAbove) => {
+      out.push(getFlatRow(cells, order, rowIndex, boundaryAbove));
+    },
+  );
   return out;
 }
 

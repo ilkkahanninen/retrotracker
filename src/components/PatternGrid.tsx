@@ -37,6 +37,14 @@ import {
 } from "../state/channelMute";
 import { channelLevels } from "../state/channelLevel";
 import { useWindowListener } from "./hooks";
+import {
+  centerRowInView,
+  computeVisibleRange,
+  flatIndexOf,
+  keepRowInView,
+  PATTERN_ROW_HEIGHT,
+  snapRowToTop,
+} from "./patternGridVirtualization";
 
 const NOTE_NAMES = [
   "C-",
@@ -118,24 +126,20 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
 
   /** Index of the playhead row inside the flat list, or -1 if not visible. */
   const activeFlatIndex = createMemo(() => {
-    const items = flat();
     const { order, row } = props.pos;
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i]!;
-      if (it.order === order && it.rowIndex === row) return i;
-    }
-    return -1;
+    return flatIndexOf(
+      flat(),
+      (it) => it.order === order && it.rowIndex === row,
+    );
   });
 
   /** Index of the edit cursor row inside the flat list, or -1 if hidden. */
   const cursorFlatIndex = createMemo(() => {
-    const items = flat();
     const c = cursor();
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i]!;
-      if (it.order === c.order && it.rowIndex === c.row) return i;
-    }
-    return -1;
+    return flatIndexOf(
+      flat(),
+      (it) => it.order === c.order && it.rowIndex === c.row,
+    );
   });
 
   let scroller: HTMLDivElement | undefined;
@@ -147,30 +151,16 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
   // viewport and absolute-position them inside a tall placeholder; the
   // scrollbar represents the full song while only ~80 rows live in DOM.
   //
-  // ROW_HEIGHT is locked in CSS (--pat-row-height) so we can compute every
-  // row's position arithmetically without measuring. Keep in sync.
-  const ROW_HEIGHT = 19;
-  /** Extra rows rendered above / below the viewport so quick scrolls
-   *  don't reveal blank gaps before the next viewport tick. */
-  const ROW_BUFFER = 12;
+  // Row geometry and the visible-range / scroll-into-view math live in
+  // `patternGridVirtualization.ts` — shared with PatternGridXm.
 
   const [scrollTop, setScrollTop] = createSignal(0);
   const [viewportHeight, setViewportHeight] = createSignal(0);
 
-  /** Half-open [start, end) of the slice currently mounted. Always
-   *  clamped to the flat list bounds. */
-  const visibleRange = createMemo(() => {
-    const total = flat().length;
-    if (total === 0) return { start: 0, end: 0 };
-    const top = scrollTop();
-    const h = viewportHeight();
-    const startIdx = Math.max(0, Math.floor(top / ROW_HEIGHT) - ROW_BUFFER);
-    const endIdx = Math.min(
-      total,
-      Math.ceil((top + h) / ROW_HEIGHT) + ROW_BUFFER,
-    );
-    return { start: startIdx, end: endIdx };
-  });
+  /** Half-open [start, end) of the slice currently mounted. */
+  const visibleRange = createMemo(() =>
+    computeVisibleRange(scrollTop(), viewportHeight(), flat().length),
+  );
 
   /** flat() limited to visibleRange. Re-rendered cheaply because we use
    *  Index keyed by position — small slice changes only touch the diff. */
@@ -211,27 +201,15 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
     if (!props.active) return;
     const idx = activeFlatIndex();
     if (idx < 0 || !scroller) return;
-    const top = idx * ROW_HEIGHT;
-    scroller.scrollTop = top - scroller.clientHeight / 2 + ROW_HEIGHT / 2;
+    centerRowInView(scroller, idx);
   });
 
-  // Keep the cursor visible as the user navigates with arrows. We pad the
-  // viewport edges by a couple of rows so the cursor never sits flush against
-  // the top/bottom — once it gets within `margin`, the scroller catches up.
+  // Keep the cursor visible as the user navigates with arrows.
   createEffect(() => {
     if (props.active) return;
     const idx = cursorFlatIndex();
     if (idx < 0 || !scroller) return;
-    const margin = ROW_HEIGHT * 2;
-    const top = idx * ROW_HEIGHT;
-    const bottom = top + ROW_HEIGHT;
-    const viewTop = scroller.scrollTop;
-    const viewBottom = viewTop + scroller.clientHeight;
-    if (top - margin < viewTop) {
-      scroller.scrollTop = Math.max(0, top - margin);
-    } else if (bottom + margin > viewBottom) {
-      scroller.scrollTop = bottom + margin - scroller.clientHeight;
-    }
+    keepRowInView(scroller, idx);
   });
 
   // Discrete "jump" snap: when an explicit navigation action (order-list
@@ -255,7 +233,7 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
     if (untrack(() => props.active)) return;
     const idx = untrack(cursorFlatIndex);
     if (idx < 0 || !scroller) return;
-    scroller.scrollTop = idx * ROW_HEIGHT;
+    snapRowToTop(scroller, idx);
   });
 
   /** True if the cursor is on (this row, this channel, this field). Hidden during playback. */
@@ -405,10 +383,10 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
         >
           {/* Spacer fills the scroll height so the scrollbar reflects the
               full song, not just the visible slice. Visible rows are
-              absolutely positioned inside it at top: idx × ROW_HEIGHT. */}
+              absolutely positioned inside it at top: idx × PATTERN_ROW_HEIGHT. */}
           <div
             class="patgrid__rows-spacer"
-            style={{ height: `${flat().length * ROW_HEIGHT}px` }}
+            style={{ height: `${flat().length * PATTERN_ROW_HEIGHT}px` }}
           >
             {/* <For> keyed on FlatRow identity: when the slice shifts during
                 playback only the entering / leaving row mount-or-unmount,
@@ -432,7 +410,7 @@ export const PatternGrid: Component<PatternGridProps> = (props) => {
                 return (
                   <div
                     class="patgrid__row"
-                    style={{ top: `${flatIdx() * ROW_HEIGHT}px` }}
+                    style={{ top: `${flatIdx() * PATTERN_ROW_HEIGHT}px` }}
                     classList={{
                       "patgrid__row--beat": isBeat() && !isBar(),
                       "patgrid__row--bar": isBar(),

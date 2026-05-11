@@ -89,3 +89,23 @@ export function selectionSize(sel: PatternSelection): {
     channels: sel.endChannel - sel.startChannel + 1,
   };
 }
+
+// ─── FT2-side mirror ────────────────────────────────────────────────────
+// The XM selection shape is byte-identical to PT2's. Format is locked per
+// project, so only one signal pair is ever live; keeping them separate
+// avoids stale state across project swaps. The `make*`, `selectionContains`,
+// `selectionSize` helpers above are format-agnostic — both modes use them.
+
+export const [xmSelection, setXmSelection] =
+  createSignal<PatternSelection | null>(null);
+
+export const [xmSelectionAnchor, setXmSelectionAnchor] = createSignal<{
+  order: number;
+  row: number;
+  channel: number;
+} | null>(null);
+
+export function clearXmSelection(): void {
+  setXmSelection(null);
+  setXmSelectionAnchor(null);
+}
