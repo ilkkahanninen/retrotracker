@@ -5,6 +5,7 @@ import { emptySong } from "../core/mod/format";
 import { emptyXmSong } from "../core/xm/format";
 import { parseModule } from "../core/mod/parser";
 import { writeModule } from "../core/mod/writer";
+import { parseXm } from "../core/xm/parser";
 import { isXmFile } from "../core/xm/sniff";
 import {
   workbenchFromChiptune,
@@ -165,8 +166,13 @@ export function applyLoadedSession(loaded: LoadedSession): void {
 
 /**
  * Sniffs the file: `.retro` → project, "Extended Module: " magic → XM (FT2),
- * anything else → strict M.K. `.mod`. The XM path is a stub in Phase 1 — the
- * parser arrives in Phase 2.
+ * anything else → strict M.K. `.mod`.
+ *
+ * Phase 2: XM files now parse end-to-end into an `XmSong`, but
+ * `applyLoadedSession`'s editor-runtime gate still rejects FT2 (the editor
+ * itself is Phase 3 work). The parse result flows in so callers see
+ * "FT2 mode not yet supported" with a successful parse behind it, not a
+ * bare error from the magic sniff.
  */
 export async function loadFile(file: File): Promise<void> {
   setError(null);
@@ -177,9 +183,14 @@ export async function loadFile(file: File): Promise<void> {
       if (!loaded) throw new Error("Invalid .retro project");
       applyLoadedSession(loaded);
     } else if (isXmFile(buf)) {
-      throw new Error(
-        "FT2 mode not yet supported (.xm parser arrives in Phase 2)",
-      );
+      const xm = parseXm(buf);
+      applyLoadedSession({
+        song: xm,
+        filename: file.name,
+        infoText: infoTextFromSampleNames(
+          xm.instruments.map((inst) => inst.name),
+        ),
+      });
     } else {
       const mod = parseModule(buf.buffer);
       applyLoadedSession({
