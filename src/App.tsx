@@ -17,6 +17,11 @@ import { PatternGridXmCanvas as PatternGridXm } from "./components/PatternGridXm
 import { XmOrderList } from "./components/XmOrderList";
 import { PatternHelp } from "./components/PatternHelp";
 import { XmPatternHelp } from "./components/XmPatternHelp";
+import {
+  copyXmSampleBytes,
+  cutXmSampleBytes,
+  pasteXmSampleBytes,
+} from "./state/xmSampleEdit";
 import { InstrumentView } from "./components/InstrumentView";
 import { SampleView } from "./components/SampleView";
 import { SlotList, type SlotDisplay } from "./components/SlotList";
@@ -254,8 +259,12 @@ export const App: Component = () => {
   // are allowed mid-playback elsewhere in the app.
   const copyClipboardForActiveView = () => {
     if (view() === "sample") {
-      const r = effectiveSampleRange();
-      if (r) copySampleRange(r.start, r.end);
+      if (xm2Song()) {
+        copyXmSampleBytes();
+      } else {
+        const r = effectiveSampleRange();
+        if (r) copySampleRange(r.start, r.end);
+      }
     } else if (view() === "pattern" && transport() !== "playing") {
       if (xm2Song()) copyXmSelection();
       else copyPatternSelection();
@@ -263,8 +272,12 @@ export const App: Component = () => {
   };
   const cutClipboardForActiveView = () => {
     if (view() === "sample") {
-      const r = effectiveSampleRange();
-      if (r) cutSampleRange(r.start, r.end);
+      if (xm2Song()) {
+        cutXmSampleBytes();
+      } else {
+        const r = effectiveSampleRange();
+        if (r) cutSampleRange(r.start, r.end);
+      }
     } else if (view() === "pattern" && transport() !== "playing") {
       if (xm2Song()) cutXmSelection();
       else cutPatternSelection();
@@ -272,7 +285,8 @@ export const App: Component = () => {
   };
   const pasteClipboardForActiveView = () => {
     if (view() === "sample") {
-      pasteSampleFromClipboard();
+      if (xm2Song()) pasteXmSampleBytes();
+      else pasteSampleFromClipboard();
     } else if (view() === "pattern" && transport() !== "playing") {
       if (xm2Song()) pasteXmAtCursor();
       else pastePatternAtCursor();

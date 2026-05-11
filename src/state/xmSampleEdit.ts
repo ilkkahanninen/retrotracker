@@ -36,15 +36,34 @@ import {
   defaultChiptuneParams,
   type ChiptuneParams,
 } from "../core/audio/chiptune";
-import { emptyXmSample, XM_DEFAULT_PATTERN_ROWS } from "../core/xm/format";
-import type { XmSample } from "../core/xm/types";
+import {
+  emptyXmInstrument,
+  emptyXmSample,
+  XM_DEFAULT_PATTERN_ROWS,
+} from "../core/xm/format";
+import {
+  XM_INSTRUMENT_NAME_MAX,
+  XM_MAX_INSTRUMENTS,
+  type XmSample,
+} from "../core/xm/types";
 import { commitEditXm, transport, xm2Song } from "./song";
-import { currentXmInstrument, currentXmSampleIndex } from "./xmEdit";
+import { setError } from "./session";
+import {
+  currentXmInstrument,
+  currentXmSampleIndex,
+  setCurrentXmInstrument,
+  setCurrentXmSampleIndex,
+} from "./xmEdit";
+import { xmSelection } from "./selection";
 import { getXmWorkbench, setXmWorkbench } from "./xmSampleWorkbench";
 import {
   patchXmInstrumentSample,
+  setXmInstrument,
   setXmInstrumentSample,
 } from "../core/xm/mutations";
+import { bounceXmSelection } from "../core/audio/xmBounce";
+import { xmWorkbenchFromWav } from "../core/audio/sampleWorkbench";
+import { setXmSampleClipboard, xmSampleClipboard } from "./xmSampleClipboard";
 
 void XM_DEFAULT_PATTERN_ROWS;
 void workbenchToAlt;
@@ -335,3 +354,205 @@ export function newXmChiptune(): void {
 
 void emptyXmSample;
 void patchXmInstrumentSample;
+
+// ─── Bounce ──────────────────────────────────────────────────────────────
+
+/** Find the lowest empty instrument slot (0-based, capped at
+ *  XM_MAX_INSTRUMENTS). Returns null when all 128 are taken. */
+function nextFreeXmInstrumentSlot(): number | null {
+  const s = xm2Song();
+  if (!s) return null;
+  for (let i = 0; i < XM_MAX_INSTRUMENTS; i++) {
+    const inst = s.instruments[i];
+    if (!inst) return i;
+    if (
+      inst.samples.length === 0 ||
+      inst.samples.every((sm) => sm.data.length === 0)
+    ) {
+      return i;
+    }
+  }
+  return null;
+}
+
+/**
+ * Render the current `xmSelection()` through the XM replayer into a
+ * mono PCM buffer and drop it as a fresh instrument in the next empty
+ * slot. The new instrument has a single 16-bit sample running through
+ * an empty pipeline chain; the user can edit it like any other slot.
+ * Mirrors PT2's `bounceSelectionToSample`.
+ */
+export function bounceXmSelectionToInstrument(): void {
+  if (transport() === "playing") return;
+  const s = xm2Song();
+  const sel = xmSelection();
+  if (!s || !sel) return;
+  const slot = nextFreeXmInstrumentSlot();
+  if (slot === null) {
+    setError("No free instrument slots — clear one and try again.");
+    return;
+  }
+  const result = bounceXmSelection(s, sel);
+  if (!result) return;
+  const patNum = s.orders[sel.order] ?? 0;
+  const name = `Bnc P${patNum.toString(16).toUpperCase()} R${sel.startRow
+    .toString(16)
+    .toUpperCase()
+    .padStart(2, "0")}-${sel.endRow
+    .toString(16)
+    .toUpperCase()
+    .padStart(2, "0")}`.slice(0, XM_INSTRUMENT_NAME_MAX);
+  // Build a sampler workbench at 16-bit so the bounce keeps its
+  // dynamic range; run the pipeline immediately to get the bytes.
+  const wb = xmWorkbenchFromWav(result.wav, name);
+  // Build a fresh instrument with one sample carrying the rendered
+  // bytes. setXmInstrument lands it in the chosen slot; the workbench
+  // is stored at (slot+1, 0) so subsequent chain edits keep working.
+  const fresh = emptyXmInstrument();
+  fresh.name = name;
+  // Pipeline output drives the actual bytes — uses the workbench's
+  // 16-bit transformer choice so the bounce keeps headroom.
+  const bytes = runXmPipeline(wb);
+  fresh.samples[0] = {
+    ...fresh.samples[0]!,
+    name,
+    data: bytes.data,
+    bits: bytes.bits,
+  };
+  setError(null);
+  commitEditXm((song) => setXmInstrument(song, slot, fresh));
+  setXmWorkbench(slot + 1, 0, wb);
+  setCurrentXmInstrument(slot + 1);
+  setCurrentXmSampleIndex(0);
+}
+
+// ─── Sample-bytes clipboard ──────────────────────────────────────────────
+//
+// FT2 sibling of PT2's `copySampleRange / cutSampleRange /
+// pasteSampleFromClipboard`. Operates on whole samples for now — an
+// on-waveform selection editor is a separate UI feature. Routed via the
+// App's "view==sample" clipboard branch so ⌘C / ⌘X / ⌘V hit the right
+// clipboard depending on which view is active.
+
+/** Copy the current sample's bytes (full buffer) to the XM clipboard. */
+export function copyXmSampleBytes(): void {
+  const s = xm2Song();
+  if (!s) return;
+  const inst = s.instruments[currentXmInstrument() - 1];
+  if (!inst) return;
+  const sample = inst.samples[currentXmSampleIndex()];
+  if (!sample || sample.data.length === 0) return;
+  const copyData: Int8Array | Int16Array =
+    sample.bits === 8
+      ? new Int8Array(sample.data as Int8Array)
+      : new Int16Array(sample.data as Int16Array);
+  setXmSampleClipboard({
+    data: copyData,
+    bits: sample.bits,
+    name: sample.name,
+  });
+}
+
+/** Copy + clear the current sample's bytes. The slot stays; just the
+ *  payload is wiped. The XM workbench (if any) is replaced with one
+ *  that wraps the now-empty buffer. */
+export function cutXmSampleBytes(): void {
+  if (transport() === "playing") return;
+  copyXmSampleBytes();
+  const s = xm2Song();
+  if (!s) return;
+  const inst = s.instruments[currentXmInstrument() - 1];
+  if (!inst) return;
+  const sample = inst.samples[currentXmSampleIndex()];
+  if (!sample) return;
+  const emptied: XmSample = {
+    ...sample,
+    data: sample.bits === 8 ? new Int8Array(0) : new Int16Array(0),
+    loopStart: 0,
+    loopLength: 0,
+    loopType: "none",
+  };
+  commitEditXm((song) =>
+    setXmInstrumentSample(
+      song,
+      currentXmInstrument(),
+      emptied,
+      currentXmSampleIndex(),
+    ),
+  );
+  // Reset the workbench so the next chain edit sees an empty source.
+  setXmWorkbench(
+    currentXmInstrument(),
+    currentXmSampleIndex(),
+    xmWorkbenchFromWav(
+      { sampleRate: 8363, channels: [new Float32Array(0)] },
+      emptied.name,
+    ),
+  );
+}
+
+/** Paste the XM clipboard's bytes into the current sample slot,
+ *  replacing whatever was there. The sample's bits flip to match the
+ *  clipboard's bits so 16-bit copies survive a paste into an 8-bit
+ *  slot. */
+export function pasteXmSampleBytes(): void {
+  if (transport() === "playing") return;
+  const clip = xmSampleClipboard();
+  if (!clip) return;
+  const s = xm2Song();
+  if (!s) return;
+  const inst = s.instruments[currentXmInstrument() - 1];
+  if (!inst) return;
+  const sample = inst.samples[currentXmSampleIndex()];
+  if (!sample) return;
+  const pastedData: Int8Array | Int16Array =
+    clip.bits === 8
+      ? new Int8Array(clip.data as Int8Array)
+      : new Int16Array(clip.data as Int16Array);
+  const next: XmSample = {
+    ...sample,
+    data: pastedData,
+    bits: clip.bits,
+    // Clamp the loop into the new payload bounds. The user can re-pin
+    // it in the sample-meta row if they want a specific region.
+    loopStart: Math.min(sample.loopStart, pastedData.length),
+    loopLength: Math.min(
+      sample.loopLength,
+      Math.max(0, pastedData.length - sample.loopStart),
+    ),
+  };
+  commitEditXm((song) =>
+    setXmInstrumentSample(
+      song,
+      currentXmInstrument(),
+      next,
+      currentXmSampleIndex(),
+    ),
+  );
+  // Rebuild the workbench around the pasted bytes so subsequent chain
+  // edits start from the new source.
+  setXmWorkbench(
+    currentXmInstrument(),
+    currentXmSampleIndex(),
+    xmWorkbenchFromWav(
+      sampleBytesToWav(pastedData, clip.bits),
+      clip.name ?? sample.name,
+    ),
+  );
+}
+
+function sampleBytesToWav(
+  data: Int8Array | Int16Array,
+  bits: 8 | 16,
+): { sampleRate: number; channels: Float32Array[] } {
+  const sampleRate = 8363;
+  const ch = new Float32Array(data.length);
+  if (bits === 8) {
+    const src = data as Int8Array;
+    for (let i = 0; i < src.length; i++) ch[i] = src[i]! / 127;
+  } else {
+    const src = data as Int16Array;
+    for (let i = 0; i < src.length; i++) ch[i] = src[i]! / 32767;
+  }
+  return { sampleRate, channels: [ch] };
+}

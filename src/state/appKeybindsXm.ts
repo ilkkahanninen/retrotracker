@@ -62,6 +62,7 @@ import {
 import { previewXmNote } from "./xmPreview";
 import { stopEnginePreview } from "./playback";
 import * as preview from "./preview";
+import { bounceXmSelectionToInstrument } from "./xmSampleEdit";
 import {
   deleteXmOrderSlot,
   duplicateXmCurrentPattern,
@@ -643,6 +644,21 @@ export function registerXmAppKeybinds(): Array<() => void> {
       }),
     );
   }
+
+  // ─── Bounce selection to instrument ──────────────────────────────────
+  // Cmd+E renders the current selection through the XM replayer into
+  // the next free instrument slot. Mirrors PT2's "bounce to sample" but
+  // produces an XM instrument with a single 16-bit sample.
+  cleanups.push(
+    registerShortcut({
+      key: "e",
+      mod: true,
+      description: "Bounce selection to new instrument",
+      when: () =>
+        isFt2Mode() && transport() !== "playing" && view() !== "sample",
+      run: bounceXmSelectionToInstrument,
+    }),
+  );
 
   // ─── Repeat last effect from above ───────────────────────────────────
   // Plain `,` (no modifier) walks back up the cursor's channel for the most
