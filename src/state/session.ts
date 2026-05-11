@@ -1,11 +1,16 @@
 import { createSignal } from "solid-js";
 import type { ModSong } from "../core/mod/types";
-import type { ProjectFormat, Song } from "../core/song";
+import {
+  channelCount as channelCountOf,
+  type ProjectFormat,
+  type Song,
+} from "../core/song";
 import { emptySong } from "../core/mod/format";
 import { emptyXmSong } from "../core/xm/format";
 import { parseModule } from "../core/mod/parser";
 import { writeModule } from "../core/mod/writer";
 import { parseXm } from "../core/xm/parser";
+import { writeXm } from "../core/xm/writer";
 import { isXmFile } from "../core/xm/sniff";
 import {
   workbenchFromChiptune,
@@ -26,6 +31,7 @@ import {
   clearHistory,
 } from "./song";
 import { cursor, setCursor, resetCursor, type Cursor } from "./cursor";
+import { resetXmCursor, setXmCursor } from "./cursorXm";
 import { setView, view, type View } from "./view";
 import {
   setInfoText,
@@ -98,15 +104,6 @@ export interface LoadedSession {
 
 export function applyLoadedSession(loaded: LoadedSession): void {
   if (!loaded.song) return;
-  // Phase 1: the editor runtime only handles ModSong. The mode picker can
-  // produce an XmSong via newProject("FT2"), but the rest of the editor
-  // (signal, mutations, replayer) isn't wired for it yet. Reject here so
-  // the user sees a clear error instead of a runtime explosion.
-  if (loaded.song.format !== "PT2") {
-    setError("FT2 mode not yet supported (editor wiring arrives in Phase 3)");
-    return;
-  }
-  const ptSong = loaded.song;
   // Halt the worklet AND flip transport BEFORE setSong: the live-edit
   // createEffect reads `transport()` and would otherwise dispatch wasted
   // setSampleData / replaceSong messages to the stopped worklet for
@@ -116,22 +113,37 @@ export function applyLoadedSession(loaded: LoadedSession): void {
   setPlayMode(null);
   // Mute/solo / VU / pattern names are tied to the previous song's
   // channels and pattern indices; carrying them over surprises the user.
-  resetChannelMute();
-  resetChannelLevels();
+  // Size the dynamic-length signals to match the new song's channel count
+  // so PT (4) and FT2 (2..32) projects each get correctly-shaped arrays.
+  const ch = channelCountOf(loaded.song);
+  resetChannelMute(ch);
+  resetChannelLevels(ch);
   resetPatternNames();
   if (loaded.patternNames) loadPatternNames(loaded.patternNames);
   if (loaded.mutedChannels || loaded.soloedChannels) {
-    setChannelMuteState(loaded.mutedChannels, loaded.soloedChannels);
+    setChannelMuteState(loaded.mutedChannels, loaded.soloedChannels, ch);
   }
-  setSong(ptSong);
+  setSong(loaded.song);
   setFilename(loaded.filename);
   setInfoText(loaded.infoText ?? "");
   if (loaded.view) setView(loaded.view);
   if (loaded.cursor) {
     setCursor(loaded.cursor);
     setPlayPos({ order: loaded.cursor.order, row: loaded.cursor.row });
+    // FT2 also needs its own cursor seeded — the persisted Cursor's
+    // (order, row) carry over but the field/channel land back at the
+    // start because PT and FT field types don't share names.
+    if (loaded.song.format === "FT2") {
+      setXmCursor({
+        order: loaded.cursor.order,
+        row: loaded.cursor.row,
+        channel: 0,
+        field: "note",
+      });
+    }
   } else {
     resetCursor();
+    resetXmCursor();
     setPlayPos({ order: 0, row: 0 });
   }
   if (typeof loaded.currentSample === "number")
@@ -259,6 +271,31 @@ export function exportMod(): void {
 }
 
 /**
+ * FT2 counterpart of `exportMod`. Writes the loaded `XmSong` out as
+ * `.xm` bytes. The downloaded filename uses the loaded `.xm` name when
+ * available, otherwise falls back to the song title (sanitised) — same
+ * policy as `deriveExportFilename` for `.mod`.
+ */
+export function exportXm(): void {
+  const s = song();
+  if (!s || s.format !== "FT2") return;
+  const bytes = writeXm(s);
+  io.download(
+    deriveExportFilename(filename(), s.title, "xm"),
+    bytes,
+    "audio/x-xm",
+  );
+}
+
+/** Format-aware export entry — picks the right writer for the loaded song. */
+export function exportSong(): void {
+  const s = song();
+  if (!s) return;
+  if (s.format === "PT2") exportMod();
+  else exportXm();
+}
+
+/**
  * Pipes through `songForPlayback` (loop-truncate) so the export matches
  * what the editor previews. Synchronous on the main thread — worth
  * worker-offloading the day someone hits the freeze threshold on a long
@@ -296,6 +333,11 @@ export function exportWav(): void {
 export function saveProject(): void {
   const s = song();
   if (!s) return;
+  // Workbenches / sampler sources / pattern names / chiptune are PT2-only
+  // for now (the FT2 sample workbench arrives in Phase 4). For an FT2 song
+  // we omit them — the payload still carries song bytes + filename + view
+  // / cursor / edit step so a project round-trips its editor state.
+  const isPt2 = s.format === "PT2";
   const bytes = projectToBytes({
     song: s,
     filename: filename(),
@@ -305,9 +347,9 @@ export function saveProject(): void {
     currentSample: currentSample(),
     currentOctave: currentOctave(),
     editStep: editStep(),
-    chiptuneSources: chiptuneSourcesSnapshot(),
-    samplerSources: samplerSourcesSnapshot(),
-    patternNames: patternNames(),
+    chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
+    samplerSources: isPt2 ? samplerSourcesSnapshot() : undefined,
+    patternNames: isPt2 ? patternNames() : undefined,
     mutedChannels: mutedChannels(),
     soloedChannels: soloedChannels(),
   });

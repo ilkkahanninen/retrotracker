@@ -31,7 +31,7 @@ import {
   currentSample,
   editStep,
 } from "./edit";
-import { commitEdit, setPlayPos, song, transport } from "./song";
+import { commitEdit, pt2Song as song, setPlayPos, transport } from "./song";
 import { triggerPreview } from "./playback";
 import { toggleMute, toggleSolo } from "./channelMute";
 import { getWorkbench } from "./sampleWorkbench";

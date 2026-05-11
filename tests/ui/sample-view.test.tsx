@@ -8,7 +8,7 @@ import {
   setTransport,
   setPlayPos,
   clearHistory,
-  song,
+  pt2Song as song,
 } from "../../src/state/song";
 import { setCurrentSample, setCurrentOctave } from "../../src/state/edit";
 import { setView, view } from "../../src/state/view";

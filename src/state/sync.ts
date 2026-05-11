@@ -1,7 +1,7 @@
 import { createEffect } from "solid-js";
 import { CHANNELS } from "../core/mod/types";
 import type { Sample, ModSong } from "../core/mod/types";
-import { song, transport } from "./song";
+import { pt2Song as song, transport } from "./song";
 import { currentEngine } from "./playback";
 import { isChannelMuted } from "./channelMute";
 import { settings } from "./settings";

@@ -2,7 +2,7 @@ import { createSignal } from "solid-js";
 import { AudioEngine } from "../core/audio/engine";
 import type { Sample } from "../core/mod/types";
 import {
-  song,
+  pt2Song as song,
   setTransport,
   setPlayMode,
   setPlayPos,

@@ -12,6 +12,8 @@
 
 export const XM_MAX_CHANNELS = 32;
 export const XM_MAX_INSTRUMENTS = 128;
+/** XM instrument-name field is a 22-byte ASCII slot. */
+export const XM_INSTRUMENT_NAME_MAX = 22;
 export const XM_MAX_PATTERN_ROWS = 256;
 export const XM_MIN_PATTERN_ROWS = 1;
 export const XM_MAX_ORDERS = 256;

@@ -52,14 +52,14 @@ describe("saveSession / loadSession round-trip", () => {
     saveSession(baseInputs(song));
     const loaded = loadSession();
     expect(loaded).not.toBeNull();
-    expect(loaded!.song.title).toBe("persisted");
-    expect(loaded!.song.patterns[0]!.rows[5]![0]!.period).toBe(
-      PERIOD_TABLE[0]![12]!,
-    );
-    expect(loaded!.song.patterns[0]!.rows[5]![0]!.effectParam).toBe(0x40);
-    expect(loaded!.song.samples[0]!.name).toBe("kick");
-    expect(loaded!.song.samples[0]!.lengthWords).toBe(4);
-    expect(Array.from(loaded!.song.samples[0]!.data)).toEqual([
+    const s = loaded!.song;
+    if (s.format !== "PT2") throw new Error("expected PT2 song");
+    expect(s.title).toBe("persisted");
+    expect(s.patterns[0]!.rows[5]![0]!.period).toBe(PERIOD_TABLE[0]![12]!);
+    expect(s.patterns[0]!.rows[5]![0]!.effectParam).toBe(0x40);
+    expect(s.samples[0]!.name).toBe("kick");
+    expect(s.samples[0]!.lengthWords).toBe(4);
+    expect(Array.from(s.samples[0]!.data)).toEqual([
       1, -1, 64, -64, 32, -32, 0, 127,
     ]);
   });

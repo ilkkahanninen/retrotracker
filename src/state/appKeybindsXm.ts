@@ -1,0 +1,592 @@
+/**
+ * FT2-mode keyboard shortcuts. Sibling to `state/appKeybinds.ts` (PT2);
+ * the global / format-agnostic shortcuts (Open / Save / view switch /
+ * transport / undo / select-all / clipboard) stay registered there
+ * unconditionally. This file registers the cursor-navigation, note,
+ * hex/letter, clear, and backspace bindings — all gated on FT2 mode so
+ * the PT2 set never fires when an XM song is loaded.
+ */
+
+import { registerShortcut } from "./shortcuts";
+import { song, transport, xm2Song } from "./song";
+import { view } from "./view";
+import { toggleMute, toggleSolo } from "./channelMute";
+import { rowsPerBeat, beatsPerBar } from "./gridConfig";
+import {
+  type XmCursor,
+  XM_FIELDS,
+  xmCursor,
+  xmMoveDown,
+  xmMoveLeft,
+  xmMoveRight,
+  xmMoveUp,
+  xmPageDown,
+  xmPageUp,
+  xmTabNext,
+  xmTabPrev,
+} from "./cursorXm";
+import {
+  applyXmCursor,
+  applyXmCursorWithSong,
+  backspaceXmCell,
+  clearXmAtCursor,
+  copyXmSelection,
+  cutXmSelection,
+  deleteXmSelection,
+  enterXmEffectChar,
+  enterXmHexDigit,
+  enterXmKeyOff,
+  enterXmNote,
+  extendXmSelection,
+  pasteXmAtCursor,
+  selectAllXmStep,
+  stepXmChannelLeft,
+  stepXmChannelRight,
+  stepXmRowDown,
+  stepXmRowPageDown,
+  stepXmRowPageUp,
+  stepXmRowUp,
+} from "./xmPatternEdit";
+import {
+  nextXmInstrument,
+  prevXmInstrument,
+  selectXmInstrument,
+  xmOctaveDown,
+  xmOctaveUp,
+} from "./xmEdit";
+import {
+  deleteXmOrderSlot,
+  duplicateXmCurrentPattern,
+  insertXmOrderSlot,
+  jumpXmNextOrder,
+  jumpXmPrevOrder,
+  newXmBlankPatternAtOrder,
+  stepXmNextPattern,
+  stepXmPrevPattern,
+} from "./xmOrderEdit";
+import type { XmSong } from "../core/xm/types";
+
+const isFt2Mode = () => song()?.format === "FT2";
+
+/** Same physical-key piano mapping as PT2 (see `appKeybinds.ts`). */
+const PIANO_KEYS: Readonly<Record<string, number>> = {
+  a: 0,
+  w: 1,
+  s: 2,
+  e: 3,
+  d: 4,
+  f: 5,
+  t: 6,
+  g: 7,
+  y: 8,
+  h: 9,
+  u: 10,
+  j: 11,
+  k: 12,
+  o: 13,
+  l: 14,
+  p: 15,
+  ";": 16,
+};
+
+const HEX_KEYS: Readonly<Record<string, number>> = {
+  "0": 0,
+  "1": 1,
+  "2": 2,
+  "3": 3,
+  "4": 4,
+  "5": 5,
+  "6": 6,
+  "7": 7,
+  "8": 8,
+  "9": 9,
+  a: 10,
+  b: 11,
+  c: 12,
+  d: 13,
+  e: 14,
+  f: 15,
+};
+
+/**
+ * Letters that map to XM extended effect codes (0x10..0x21, skipping the
+ * unimplemented slots). Typed when the cursor is on `effectCmd`. Lowercase
+ * keys here; the registration matches the produced character regardless
+ * of physical layout — a Nordic/Dvorak user pressing the letter G on
+ * their keyboard will get the same G effect.
+ */
+const EFFECT_LETTERS = ["g", "h", "k", "l", "p", "r", "t", "x"] as const;
+
+/** Quick-pick instrument 1..10 on the digit row. */
+const INSTRUMENT_QUICK: Readonly<Record<string, number>> = {
+  "1": 1,
+  "2": 2,
+  "3": 3,
+  "4": 4,
+  "5": 5,
+  "6": 6,
+  "7": 7,
+  "8": 8,
+  "9": 9,
+  "0": 10,
+};
+
+/** True when the cursor's field accepts a hex digit (anything but `note`). */
+function isXmHexField(): boolean {
+  return xmCursor().field !== "note";
+}
+
+/** True when the cursor's field is the effect-cmd column (accepts letters G..X). */
+function isEffectCmdField(): boolean {
+  return xmCursor().field === "effectCmd";
+}
+
+export function registerXmAppKeybinds(): Array<() => void> {
+  const cleanups: Array<() => void> = [];
+
+  // ─── Cursor navigation ───────────────────────────────────────────────
+  const navStep = (mover: (c: XmCursor, s: XmSong) => XmCursor) => () =>
+    applyXmCursorWithSong(mover);
+  cleanups.push(
+    registerShortcut({
+      key: "arrowleft",
+      description: "Cursor left",
+      when: isFt2Mode,
+      run: navStep(xmMoveLeft),
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "arrowright",
+      description: "Cursor right",
+      when: isFt2Mode,
+      run: navStep(xmMoveRight),
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "arrowup",
+      description: "Cursor up",
+      when: isFt2Mode,
+      run: navStep(xmMoveUp),
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "arrowdown",
+      description: "Cursor down",
+      when: isFt2Mode,
+      run: navStep(xmMoveDown),
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "tab",
+      description: "Next channel",
+      when: isFt2Mode,
+      run: navStep(xmTabNext),
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "tab",
+      shift: true,
+      description: "Previous channel",
+      when: isFt2Mode,
+      run: navStep(xmTabPrev),
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "pageup",
+      description: "Page up",
+      when: isFt2Mode,
+      run: () =>
+        applyXmCursorWithSong((c, s) =>
+          xmPageUp(c, s, rowsPerBeat() * beatsPerBar()),
+        ),
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "pagedown",
+      description: "Page down",
+      when: isFt2Mode,
+      run: () =>
+        applyXmCursorWithSong((c, s) =>
+          xmPageDown(c, s, rowsPerBeat() * beatsPerBar()),
+        ),
+    }),
+  );
+
+  // ─── Note entry ──────────────────────────────────────────────────────
+  // Piano-row only fires on the note field (so the same physical keys
+  // can route to hex digits / effect letters elsewhere in the cell).
+  for (const [k, offset] of Object.entries(PIANO_KEYS)) {
+    cleanups.push(
+      registerShortcut({
+        key: k,
+        position: true,
+        description: `Note (offset ${offset})`,
+        when: () =>
+          isFt2Mode() &&
+          transport() !== "playing" &&
+          view() !== "sample" &&
+          xmCursor().field === "note",
+        run: () => enterXmNote(offset),
+      }),
+    );
+  }
+  // Backtick — XM key-off (note 97). Only on the note field, like piano.
+  cleanups.push(
+    registerShortcut({
+      key: "`",
+      position: true,
+      description: "Key off (XM note 97)",
+      when: () =>
+        isFt2Mode() &&
+        transport() !== "playing" &&
+        view() !== "sample" &&
+        xmCursor().field === "note",
+      run: enterXmKeyOff,
+    }),
+  );
+
+  // ─── Hex-digit entry ─────────────────────────────────────────────────
+  // Same physical keys as piano (A..F overlap), but the `when` gate
+  // routes by cursor field. Effect-cmd column accepts letters G..X via
+  // the separate registration below.
+  for (const [k, val] of Object.entries(HEX_KEYS)) {
+    cleanups.push(
+      registerShortcut({
+        key: k,
+        description: `Hex digit ${val.toString(16).toUpperCase()}`,
+        when: () =>
+          isFt2Mode() &&
+          transport() !== "playing" &&
+          view() !== "sample" &&
+          isXmHexField(),
+        run: () => enterXmHexDigit(val),
+      }),
+    );
+  }
+  // Effect-cmd letters: G..X (XM extended commands). Only fire when the
+  // cursor is exactly on the effect-cmd field — otherwise they'd shadow
+  // the piano keys and hex-letter entry on overlapping letters.
+  for (const ch of EFFECT_LETTERS) {
+    cleanups.push(
+      registerShortcut({
+        key: ch,
+        description: `Effect command ${ch.toUpperCase()}`,
+        when: () =>
+          isFt2Mode() &&
+          transport() !== "playing" &&
+          view() !== "sample" &&
+          isEffectCmdField(),
+        run: () => enterXmEffectChar(ch),
+      }),
+    );
+  }
+
+  // ─── Octave / instrument quick-pick ──────────────────────────────────
+  cleanups.push(
+    registerShortcut({
+      key: "z",
+      position: true,
+      description: "Octave down",
+      when: isFt2Mode,
+      run: xmOctaveDown,
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "x",
+      position: true,
+      description: "Octave up",
+      when: isFt2Mode,
+      run: xmOctaveUp,
+    }),
+  );
+  for (const [k, n] of Object.entries(INSTRUMENT_QUICK)) {
+    cleanups.push(
+      registerShortcut({
+        key: k,
+        description: `Select instrument ${n}`,
+        when: () =>
+          isFt2Mode() &&
+          transport() !== "playing" &&
+          (view() === "sample" || xmCursor().field === "note"),
+        run: () => selectXmInstrument(n),
+      }),
+    );
+    cleanups.push(
+      registerShortcut({
+        key: k,
+        shift: true,
+        description: `Select instrument ${n + 10}`,
+        when: () => isFt2Mode() && transport() !== "playing",
+        run: () => selectXmInstrument(n + 10),
+      }),
+    );
+  }
+  cleanups.push(
+    registerShortcut({
+      key: "arrowup",
+      alt: true,
+      description: "Previous instrument",
+      when: () => isFt2Mode() && transport() !== "playing",
+      run: prevXmInstrument,
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "arrowdown",
+      alt: true,
+      description: "Next instrument",
+      when: () => isFt2Mode() && transport() !== "playing",
+      run: nextXmInstrument,
+    }),
+  );
+
+  // ─── Shift+arrow / page selection ────────────────────────────────────
+  // Mirrors PT2: left/right hop a whole channel (the per-cell sub-fields
+  // don't matter for a selection rectangle); up/down/page step rows.
+  // All gated on FT2 + pattern view + transport idle.
+  const selectionWhen = () =>
+    isFt2Mode() && transport() !== "playing" && view() !== "sample";
+  cleanups.push(
+    registerShortcut({
+      key: "arrowleft",
+      shift: true,
+      description: "Extend selection left",
+      when: selectionWhen,
+      run: () => extendXmSelection(stepXmChannelLeft(xmCursor())),
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "arrowright",
+      shift: true,
+      description: "Extend selection right",
+      when: selectionWhen,
+      run: () => extendXmSelection(stepXmChannelRight(xmCursor())),
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "arrowup",
+      shift: true,
+      description: "Extend selection up",
+      when: selectionWhen,
+      run: () => extendXmSelection(stepXmRowUp(xmCursor())),
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "arrowdown",
+      shift: true,
+      description: "Extend selection down",
+      when: selectionWhen,
+      run: () => extendXmSelection(stepXmRowDown(xmCursor())),
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "pageup",
+      shift: true,
+      description: "Extend selection by a page up",
+      when: selectionWhen,
+      run: () =>
+        extendXmSelection(
+          stepXmRowPageUp(xmCursor(), rowsPerBeat() * beatsPerBar()),
+        ),
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "pagedown",
+      shift: true,
+      description: "Extend selection by a page down",
+      when: selectionWhen,
+      run: () =>
+        extendXmSelection(
+          stepXmRowPageDown(xmCursor(), rowsPerBeat() * beatsPerBar()),
+        ),
+    }),
+  );
+  // Cmd+A — three-level cycle: cursor's channel → whole pattern → no-op.
+  cleanups.push(
+    registerShortcut({
+      key: "a",
+      mod: true,
+      description: "Select all rows of channel / pattern",
+      when: selectionWhen,
+      run: selectAllXmStep,
+    }),
+  );
+  // Delete — clear the selected range.
+  cleanups.push(
+    registerShortcut({
+      key: "delete",
+      description: "Clear selected range",
+      when: () => isFt2Mode() && transport() !== "playing",
+      run: deleteXmSelection,
+    }),
+  );
+
+  // ─── Order list ──────────────────────────────────────────────────────
+  // Mirrors PT2's bracket-key map exactly so muscle memory carries:
+  //   [  / ]            → previous / next order in the song
+  //   Shift + [ / ]     → previous / next pattern at the current slot
+  //   ⌘ + ]             → insert a duplicate order slot
+  //   ⌘ + [             → delete the order slot
+  //   Option + [        → new blank pattern at the slot
+  //   Option + ]        → duplicate the current pattern into a new slot
+  cleanups.push(
+    registerShortcut({
+      key: "[",
+      position: true,
+      description: "Previous order in song",
+      when: isFt2Mode,
+      run: jumpXmPrevOrder,
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "]",
+      position: true,
+      description: "Next order in song",
+      when: isFt2Mode,
+      run: jumpXmNextOrder,
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "[",
+      shift: true,
+      position: true,
+      description: "Previous pattern at slot",
+      when: isFt2Mode,
+      run: stepXmPrevPattern,
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "]",
+      shift: true,
+      position: true,
+      description: "Next pattern at slot",
+      when: isFt2Mode,
+      run: stepXmNextPattern,
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "]",
+      mod: true,
+      position: true,
+      description: "Insert order slot",
+      when: isFt2Mode,
+      run: insertXmOrderSlot,
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "[",
+      mod: true,
+      position: true,
+      description: "Delete order slot",
+      when: isFt2Mode,
+      run: deleteXmOrderSlot,
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "[",
+      alt: true,
+      position: true,
+      description: "New blank pattern at slot",
+      when: isFt2Mode,
+      run: newXmBlankPatternAtOrder,
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "]",
+      alt: true,
+      position: true,
+      description: "Duplicate pattern at slot",
+      when: isFt2Mode,
+      run: duplicateXmCurrentPattern,
+    }),
+  );
+
+  // ─── Clear / backspace ───────────────────────────────────────────────
+  cleanups.push(
+    registerShortcut({
+      key: ".",
+      description: "Clear field under cursor",
+      when: isFt2Mode,
+      run: clearXmAtCursor,
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "backspace",
+      description: "Clear cell above, step up",
+      when: isFt2Mode,
+      run: backspaceXmCell,
+    }),
+  );
+
+  // ─── Per-channel mute / solo ─────────────────────────────────────────
+  // Option+1..9, 0 → mute channels 1..10. Shift adds solo. The bare digit
+  // is reserved for FT2 instrument quick-pick (registered above), so we
+  // use Option as the modifier — matches PT's keybind precisely. Channels
+  // 11..32 don't get a single-key shortcut (no digit row available); the
+  // header buttons handle those.
+  const muteDigits: Record<string, number> = {
+    "1": 1,
+    "2": 2,
+    "3": 3,
+    "4": 4,
+    "5": 5,
+    "6": 6,
+    "7": 7,
+    "8": 8,
+    "9": 9,
+    "0": 10,
+  };
+  // Skip the binding entirely when the FT2 song has fewer channels than
+  // the digit refers to — pressing Option+9 on a 4-channel song shouldn't
+  // toggle a non-existent channel.
+  const channelExists = (channel: number) => {
+    const s = xm2Song();
+    return !!s && channel < s.channelCount;
+  };
+  for (const [k, n] of Object.entries(muteDigits)) {
+    const channel = n - 1;
+    cleanups.push(
+      registerShortcut({
+        key: k,
+        alt: true,
+        description: `Mute channel ${n}`,
+        when: () => isFt2Mode() && channelExists(channel),
+        run: () => toggleMute(channel),
+      }),
+    );
+    cleanups.push(
+      registerShortcut({
+        key: k,
+        alt: true,
+        shift: true,
+        description: `Solo channel ${n}`,
+        when: () => isFt2Mode() && channelExists(channel),
+        run: () => toggleSolo(channel),
+      }),
+    );
+  }
+
+  void XM_FIELDS;
+  return cleanups;
+}

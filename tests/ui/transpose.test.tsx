@@ -8,7 +8,7 @@ import {
   setTransport,
   setPlayPos,
   clearHistory,
-  song,
+  pt2Song as song,
   setDirty,
 } from "../../src/state/song";
 import {

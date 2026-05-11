@@ -1,5 +1,7 @@
-import { createSignal } from "solid-js";
+import { createMemo, createSignal } from "solid-js";
 import type { ModSong } from "../core/mod/types";
+import type { Song } from "../core/song";
+import type { XmSong } from "../core/xm/types";
 import {
   workbenches as workbenchesSig,
   setWorkbenchesRaw,
@@ -12,15 +14,27 @@ import {
 
 /**
  * Loaded song. Held as a signal so the UI reactively re-renders on swap;
- * the ModSong itself is not deeply reactive — pattern editing will go through
+ * the song itself is not deeply reactive — pattern editing will go through
  * a dedicated store later when we wire up editing.
  *
- * Phase 1: this signal is intentionally narrow to PT2 (`ModSong`). FT2 mode
- * is plumbed through the loader and picker, but selecting it currently
- * surfaces an error — no XmSong reaches the editor runtime yet. The signal
- * widens to `Song` (the union) in Phase 2 when the XM parser lands.
+ * Phase 3: widened from `ModSong | null` to `Song | null` (the cross-format
+ * union). The vast majority of editor state still narrows to PT2 internally;
+ * `pt2Song()` and `xm2Song()` below are the canonical narrowing accessors
+ * for the rest of the editor.
  */
-export const [song, setSong] = createSignal<ModSong | null>(null);
+export const [song, setSong] = createSignal<Song | null>(null);
+
+/** Narrow accessor for the loaded song when (and only when) it is PT2. */
+export const pt2Song = createMemo<ModSong | null>(() => {
+  const s = song();
+  return s && s.format === "PT2" ? s : null;
+});
+
+/** Narrow accessor for the loaded song when (and only when) it is FT2. */
+export const xm2Song = createMemo<XmSong | null>(() => {
+  const s = song();
+  return s && s.format === "FT2" ? s : null;
+});
 
 export type Transport = "idle" | "ready" | "playing";
 export const [transport, setTransport] = createSignal<Transport>("idle");
@@ -74,7 +88,14 @@ export const [dirty, setDirty] = createSignal(false);
 export const HISTORY_LIMIT = 200;
 
 interface EditState {
-  song: ModSong;
+  /**
+   * Snapshot of the full editable song. Widened from `ModSong` to the
+   * `Song` union in Phase 3-4 to cover XM commits — `commitEditXm` pushes
+   * `XmSong` snapshots through the same stack. The PT-only bookkeeping
+   * (workbenches, patternNames) carries through unchanged on XM commits;
+   * `applyCommit` skips updating them when format !== "PT2".
+   */
+  song: Song;
   workbenches: WorkbenchMap;
   /**
    * Pattern names (project-only state) bundled into the snapshot so an op
@@ -128,7 +149,7 @@ export const canRedo = () => future().length > 0;
 export function beginDragEdit(): void {
   if (dragSnapshot) return;
   const cur = song();
-  if (!cur) return;
+  if (!cur || cur.format !== "PT2") return;
   dragSnapshot = {
     song: cur,
     workbenches: workbenchesSig(),
@@ -146,7 +167,8 @@ export function endDragEdit(): void {
   dragSnapshot = null;
   if (!snap) return;
   const cur = song();
-  if (!cur) return;
+  if (!cur || cur.format !== "PT2") return;
+  if (snap.song.format !== "PT2") return;
   if (
     snap.song === cur &&
     snap.workbenches === workbenchesSig() &&
@@ -173,6 +195,10 @@ export function endDragEdit(): void {
 function applyCommit(next: EditState): void {
   const currentSong = song();
   if (!currentSong) return;
+  // The two formats can never be swapped through a commit (the picker /
+  // file-load flow is the only path that changes format) — guard against
+  // accidental cross-format commits at the seam.
+  if (currentSong.format !== next.song.format) return;
   const currentWb = workbenchesSig();
   const currentNames = patternNamesSig();
   if (
@@ -209,7 +235,26 @@ function applyCommit(next: EditState): void {
 export function commitEdit(transform: (song: ModSong) => ModSong): void {
   if (transport() === "playing") return;
   const current = song();
-  if (!current) return;
+  if (!current || current.format !== "PT2") return;
+  const next = transform(current);
+  if (next === current) return;
+  applyCommit({
+    song: next,
+    workbenches: workbenchesSig(),
+    patternNames: patternNamesSig(),
+  });
+}
+
+/**
+ * XM counterpart of `commitEdit`. Runs the transform against the current
+ * `XmSong` and pushes a history snapshot. Workbenches and pattern names
+ * pass through untouched (FT2 has no sample workbenches yet — Phase 4 —
+ * and pattern naming is PT-only). Like `commitEdit`, no-ops while playing.
+ */
+export function commitEditXm(transform: (song: XmSong) => XmSong): void {
+  if (transport() === "playing") return;
+  const current = song();
+  if (!current || current.format !== "FT2") return;
   const next = transform(current);
   if (next === current) return;
   applyCommit({
@@ -236,11 +281,11 @@ export function commitEdit(transform: (song: ModSong) => ModSong): void {
  * same reference). No-op with no song.
  */
 export function commitEditWithWorkbenches(
-  transform: (state: EditState) => EditState,
+  transform: (state: PtEditState) => PtEditState,
 ): void {
   const current = song();
-  if (!current) return;
-  const before: EditState = {
+  if (!current || current.format !== "PT2") return;
+  const before: PtEditState = {
     song: current,
     workbenches: workbenchesSig(),
     patternNames: patternNamesSig(),
@@ -255,6 +300,17 @@ export function commitEditWithWorkbenches(
   applyCommit(next);
 }
 
+/**
+ * Narrowed view of `EditState` for PT2-only callers (sample-pipeline ops).
+ * Same shape, but `song` is `ModSong` so the transform doesn't need to
+ * narrow on every read.
+ */
+interface PtEditState {
+  song: ModSong;
+  workbenches: WorkbenchMap;
+  patternNames: Record<number, string>;
+}
+
 /** Pop the latest entry off the undo stack and restore it. No-op while playing. */
 export function undo(): void {
   if (transport() === "playing") return;
@@ -264,6 +320,11 @@ export function undo(): void {
   const currentSong = song();
   const currentWb = workbenchesSig();
   const currentNames = patternNamesSig();
+  // The history stack only ever contains entries matching the active
+  // format (the format is locked for the lifetime of a project, and
+  // `clearHistory` is called on file-load), so a mismatch here means a
+  // stale entry leaked through — refuse it rather than corrupt state.
+  if (currentSong && currentSong.format !== previous.song.format) return;
   setPast(list.slice(0, -1));
   if (currentSong) {
     setFuture([
@@ -292,6 +353,7 @@ export function redo(): void {
   const currentSong = song();
   const currentWb = workbenchesSig();
   const currentNames = patternNamesSig();
+  if (currentSong && currentSong.format !== next.song.format) return;
   setFuture(list.slice(0, -1));
   if (currentSong) {
     setPast([

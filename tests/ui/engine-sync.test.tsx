@@ -10,7 +10,7 @@ import {
   setPlayMode,
   setPlayPos,
   clearHistory,
-  song,
+  pt2Song as song,
   transport,
 } from "../../src/state/song";
 import {

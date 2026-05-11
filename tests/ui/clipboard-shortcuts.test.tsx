@@ -7,7 +7,7 @@ import {
   setTransport,
   setPlayPos,
   clearHistory,
-  song,
+  pt2Song as song,
 } from "../../src/state/song";
 import {
   setCurrentSample,

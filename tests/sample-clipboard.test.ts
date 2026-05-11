@@ -32,7 +32,7 @@ import {
   clearHistory,
   setSong,
   setTransport,
-  song,
+  pt2Song as song,
   undo,
 } from "../src/state/song";
 import { setCurrentSample } from "../src/state/edit";

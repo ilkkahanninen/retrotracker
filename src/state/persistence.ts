@@ -1,6 +1,10 @@
 import { parseModule } from "../core/mod/parser";
 import { writeModule } from "../core/mod/writer";
 import type { ModSong } from "../core/mod/types";
+import type { Song } from "../core/song";
+import { parseXm } from "../core/xm/parser";
+import { writeXm } from "../core/xm/writer";
+import type { XmSong } from "../core/xm/types";
 import { FIELDS, type Cursor, type Field } from "./cursor";
 import type { View } from "./view";
 import type { ChiptuneParams } from "../core/audio/chiptune";
@@ -152,7 +156,12 @@ export interface SamplerSourceInputs {
 }
 
 export interface SessionInputs {
-  song: ModSong;
+  /**
+   * Song to persist. The `format` discriminator picks the right writer:
+   * PT2 → writeModule, FT2 → writeXm. The two share `songBase64` on disk
+   * because the reader sniffs the format field (v=9+) before parsing.
+   */
+  song: Song;
   filename: string | null;
   /** Optional — defaults to '' when omitted. */
   infoText?: string;
@@ -237,12 +246,14 @@ function base64ToBytes(b64: string): Uint8Array {
  * sound proxy for "song unchanged". A direct `setSong` from outside the
  * commit path would invalidate the cache the moment it's called.
  */
-let lastSong: ModSong | null = null;
+let lastSong: Song | null = null;
 let lastBase64: string | null = null;
 
-function encodeSongCached(song: ModSong): string {
+function encodeSongCached(song: Song): string {
   if (lastSong === song && lastBase64 !== null) return lastBase64;
-  const b64 = bytesToBase64(writeModule(song));
+  const b64 = bytesToBase64(
+    song.format === "PT2" ? writeModule(song) : writeXm(song),
+  );
   lastSong = song;
   lastBase64 = b64;
   return b64;
@@ -301,7 +312,7 @@ function buildPayload(state: SessionInputs): PersistedShape {
   const v: SchemaVersion = 9;
   return {
     v,
-    format: "PT2",
+    format: state.song.format,
     songBase64: encodeSongCached(state.song),
     filename: state.filename,
     infoText: state.infoText ?? "",
@@ -354,10 +365,18 @@ function encodeSamplerSources(
  *  `.retro` file-import path so they validate identically. */
 function payloadToSession(parsed: unknown): LoadedSession | null {
   if (!isPersistedShape(parsed)) return null;
-  let song: ModSong;
+  // The `format` discriminator is v=9+; older payloads predate XM and
+  // are always PT2 — fall through to writeModule's parser. v=9 still
+  // round-trips PT2 fine (the field is set explicitly there).
+  const format: "PT2" | "FT2" = parsed.format === "FT2" ? "FT2" : "PT2";
+  let song: Song;
   try {
     const bytes = base64ToBytes(parsed.songBase64);
-    song = parseModule(bytes.buffer);
+    if (format === "FT2") {
+      song = parseXm(bytes.buffer as ArrayBuffer) as XmSong;
+    } else {
+      song = parseModule(bytes.buffer);
+    }
   } catch {
     return null;
   }

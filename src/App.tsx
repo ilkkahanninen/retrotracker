@@ -13,7 +13,10 @@ import { ModeBadge } from "./components/ModeBadge";
 import { InfoView } from "./components/InfoView";
 import { Menu, type MenuItem } from "./components/Menu";
 import { PatternGrid } from "./components/PatternGrid";
+import { PatternGridXm } from "./components/PatternGridXm";
+import { XmOrderList } from "./components/XmOrderList";
 import { PatternHelp } from "./components/PatternHelp";
+import { InstrumentList } from "./components/InstrumentList";
 import { SampleList } from "./components/SampleList";
 import { SampleView } from "./components/SampleView";
 import { SettingsView } from "./components/SettingsView";
@@ -26,6 +29,7 @@ import {
 import { emptySong } from "./core/mod/format";
 import { writeModule } from "./core/mod/writer";
 import { registerAppKeybinds } from "./state/appKeybinds";
+import { registerXmAppKeybinds } from "./state/appKeybindsXm";
 import { installEngineSync } from "./state/sync";
 import {
   applyCursor,
@@ -107,7 +111,7 @@ import {
 import {
   chiptuneSourcesSnapshot,
   error,
-  exportMod,
+  exportSong,
   exportWav,
   filename,
   loadFile,
@@ -137,6 +141,21 @@ import {
   setCurrentSample,
   setEditStep,
 } from "./state/edit";
+import { selectXmInstrument } from "./state/xmEdit";
+import { renameXmInstrument } from "./state/xmInstrumentEdit";
+import { xmCursor } from "./state/cursorXm";
+import {
+  copyXmSelection,
+  cutXmSelection,
+  pasteXmAtCursor,
+  setXmChannelCountAction,
+  setXmRowCountAtCursor,
+} from "./state/xmPatternEdit";
+import {
+  XM_MAX_CHANNELS,
+  XM_MAX_PATTERN_ROWS,
+  XM_MIN_PATTERN_ROWS,
+} from "./core/xm/types";
 import { infoText, setInfoText } from "./state/info";
 import {
   PATTERN_NAME_MAX,
@@ -167,6 +186,7 @@ import {
   commitEditWithWorkbenches,
   playMode,
   playPos,
+  pt2Song,
   redo,
   setPlayPos,
   setSong,
@@ -174,6 +194,7 @@ import {
   song,
   transport,
   undo,
+  xm2Song,
 } from "./state/song";
 import { applyColorScheme, applyUiScale } from "./state/theme";
 import { setView, view } from "./state/view";
@@ -228,7 +249,8 @@ export const App: Component = () => {
       const r = effectiveSampleRange();
       if (r) copySampleRange(r.start, r.end);
     } else if (view() === "pattern" && transport() !== "playing") {
-      copyPatternSelection();
+      if (xm2Song()) copyXmSelection();
+      else copyPatternSelection();
     }
   };
   const cutClipboardForActiveView = () => {
@@ -236,14 +258,16 @@ export const App: Component = () => {
       const r = effectiveSampleRange();
       if (r) cutSampleRange(r.start, r.end);
     } else if (view() === "pattern" && transport() !== "playing") {
-      cutPatternSelection();
+      if (xm2Song()) cutXmSelection();
+      else cutPatternSelection();
     }
   };
   const pasteClipboardForActiveView = () => {
     if (view() === "sample") {
       pasteSampleFromClipboard();
     } else if (view() === "pattern" && transport() !== "playing") {
-      pastePatternAtCursor();
+      if (xm2Song()) pasteXmAtCursor();
+      else pastePatternAtCursor();
     }
   };
 
@@ -277,10 +301,11 @@ export const App: Component = () => {
     setDragOver(false);
     const files = e.dataTransfer?.files;
     if (!files || files.length === 0) return;
-    // A single .mod / .retro replaces the current project — anything else is
-    // treated as a batch of WAV imports and fanned out across free slots.
+    // A single .mod / .xm / .retro replaces the current project — anything
+    // else is treated as a batch of WAV imports and fanned out across free
+    // slots.
     const first = files[0]!;
-    if (files.length === 1 && /\.(mod|retro)$/i.test(first.name)) {
+    if (files.length === 1 && /\.(mod|xm|retro)$/i.test(first.name)) {
       void loadFile(first);
       return;
     }
@@ -375,6 +400,7 @@ export const App: Component = () => {
       workbenches();
       const names = patternNames();
       if (!s) return;
+      const isPt2 = s.format === "PT2";
       if (saveTimer !== null) window.clearTimeout(saveTimer);
       const muted = mutedChannels();
       const soloed = soloedChannels();
@@ -388,9 +414,11 @@ export const App: Component = () => {
           currentSample: samp,
           currentOctave: oct,
           editStep: step,
-          chiptuneSources: chiptuneSourcesSnapshot(),
-          samplerSources: samplerSourcesSnapshot(),
-          patternNames: names,
+          // Workbenches / sampler / chiptune / pattern-names are PT-only
+          // (Phase 4 adds an FT2 sample editor; until then nothing to save).
+          chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
+          samplerSources: isPt2 ? samplerSourcesSnapshot() : undefined,
+          patternNames: isPt2 ? names : undefined,
           mutedChannels: muted,
           soloedChannels: soloed,
         });
@@ -441,6 +469,11 @@ export const App: Component = () => {
       toggleChannelSolo,
     }))
       cleanups.push(c);
+    // FT2 keybinds — registered alongside the PT2 set, each gated on the
+    // active song format. The format is locked for a project's lifetime
+    // (modal picker on new, sniff on load), so a single registration covers
+    // the whole session.
+    for (const c of registerXmAppKeybinds()) cleanups.push(c);
   });
   onCleanup(() => {
     for (const c of cleanups) c();
@@ -455,8 +488,16 @@ export const App: Component = () => {
     { label: "Open…", hint: "⌘O", onClick: openFilePicker },
     { separator: true, label: "" },
     { label: "Save…", hint: "⌘S", onClick: saveProject, disabled: !song() },
-    { label: "Export .mod…", onClick: exportMod, disabled: !song() },
-    { label: "Export .wav…", onClick: exportWav, disabled: !song() },
+    {
+      label: song()?.format === "FT2" ? "Export .xm…" : "Export .mod…",
+      onClick: exportSong,
+      disabled: !song(),
+    },
+    {
+      label: "Export .wav…",
+      onClick: exportWav,
+      disabled: !song() || song()?.format !== "PT2",
+    },
     { separator: true, label: "" },
     {
       label: "Song info",
@@ -525,7 +566,7 @@ export const App: Component = () => {
           view() === "sample" ||
           !song() ||
           !selection() ||
-          nextFreeSlot(song(), -1) === null,
+          nextFreeSlot(pt2Song(), -1) === null,
       },
       { separator: true, label: "" },
       { label: "Settings", hint: "F5", onClick: () => setView("settings") },
@@ -533,7 +574,7 @@ export const App: Component = () => {
   };
 
   const samplesMenuItems = (): MenuItem[] => {
-    const s = song();
+    const s = pt2Song();
     const playing = transport() === "playing";
     const hasSong = !!s;
     return [
@@ -638,6 +679,9 @@ export const App: Component = () => {
   const sampleCount = createMemo(() => {
     const s = song();
     if (!s) return 0;
+    if (s.format === "FT2") {
+      return s.instruments.filter((inst) => inst.samples.length > 0).length;
+    }
     return s.samples.filter((x) => x.lengthWords > 0).length;
   });
 
@@ -647,7 +691,7 @@ export const App: Component = () => {
    *  populated slot to be meaningful. */
   const currentSampleHasData = createMemo(() => {
     const s = song();
-    if (!s) return false;
+    if (!s || s.format !== "PT2") return false;
     return (s.samples[currentSample() - 1]?.data.byteLength ?? 0) > 0;
   });
 
@@ -658,14 +702,14 @@ export const App: Component = () => {
   // honor it.
   const cursorSpeedTempo = createMemo(() => {
     const s = song();
-    if (!s) return { speed: 6, tempo: 125 };
+    if (!s || s.format !== "PT2") return { speed: 6, tempo: 125 };
     const c = cursor();
     return speedTempoAt(s, c.order, c.row, true);
   });
 
   const modByteSize = createMemo(() => {
     const s = song();
-    if (!s) return 0;
+    if (!s || s.format !== "PT2") return 0;
     return writeModule(s).length;
   });
 
@@ -676,6 +720,7 @@ export const App: Component = () => {
   const projectByteSize = createMemo(() => {
     const s = song();
     if (!s) return 0;
+    const isPt2 = s.format === "PT2";
     return projectToBytes({
       song: s,
       filename: filename(),
@@ -685,9 +730,9 @@ export const App: Component = () => {
       currentSample: 1,
       currentOctave: 1,
       editStep: 1,
-      chiptuneSources: chiptuneSourcesSnapshot(),
-      samplerSources: samplerSourcesSnapshot(),
-      patternNames: patternNames(),
+      chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
+      samplerSources: isPt2 ? samplerSourcesSnapshot() : undefined,
+      patternNames: isPt2 ? patternNames() : undefined,
       mutedChannels: mutedChannels(),
       soloedChannels: soloedChannels(),
     }).length;
@@ -713,7 +758,7 @@ export const App: Component = () => {
           {/* Hidden — clicked by File→Open and Cmd+O. */}
           <input
             type="file"
-            accept=".retro,.mod"
+            accept=".retro,.mod,.xm"
             onChange={onPickFile}
             hidden
             ref={fileInput}
@@ -822,30 +867,115 @@ export const App: Component = () => {
       </header>
 
       <aside class="app__samples">
-        <h2>Samples</h2>
-        <SampleList
-          song={song()}
-          onSelect={selectSample}
-          onRename={renameSample}
-          onDropFiles={(slot1Based, files) => {
-            void loadWavsIntoSlot(slot1Based - 1, files);
-          }}
-        />
+        <h2>{xm2Song() ? "Instruments" : "Samples"}</h2>
+        <Show
+          when={xm2Song()}
+          fallback={
+            <SampleList
+              song={pt2Song()}
+              onSelect={selectSample}
+              onRename={renameSample}
+              onDropFiles={(slot1Based, files) => {
+                void loadWavsIntoSlot(slot1Based - 1, files);
+              }}
+            />
+          }
+        >
+          {(xm) => (
+            <InstrumentList
+              song={xm()}
+              onSelect={selectXmInstrument}
+              onRename={renameXmInstrument}
+            />
+          )}
+        </Show>
       </aside>
 
       <main class="app__main">
-        <Show
-          when={song()}
-          fallback={
-            <div class="dropzone">
-              <p>
-                Drop a <code>.mod</code> file anywhere, or use{" "}
-                <em>Load .mod…</em>
-              </p>
-              <Show when={error()}>
-                <p class="error">{error()}</p>
-              </Show>
+        <Show when={xm2Song()}>
+          {(xm) => (
+            <div class="patternpane">
+              <div class="patternpane__meta">
+                <span class="patternpane__title">
+                  {xm().title || <em>(untitled)</em>}
+                </span>
+                <ModeBadge format="FT2" />
+                <span class="patternpane__sep">·</span>
+                <span>{filename()}</span>
+                <span class="patternpane__sep">·</span>
+                <label class="patternpane__rows">
+                  Channels
+                  <input
+                    type="number"
+                    min={2}
+                    max={XM_MAX_CHANNELS}
+                    step={1}
+                    aria-label="Channel count"
+                    title={`Song-wide channel count (range 2..${XM_MAX_CHANNELS})`}
+                    disabled={transport() === "playing"}
+                    value={xm().channelCount}
+                    onChange={(e) => {
+                      const n = Math.floor(Number(e.currentTarget.value));
+                      if (!Number.isFinite(n)) return;
+                      const clamped = Math.max(2, Math.min(XM_MAX_CHANNELS, n));
+                      setXmChannelCountAction(clamped);
+                    }}
+                  />
+                </label>
+                <span class="patternpane__sep">·</span>
+                <span>{xm().instruments.length} instruments</span>
+                <span class="patternpane__sep">·</span>
+                <label class="patternpane__rows">
+                  Rows
+                  <input
+                    type="number"
+                    min={XM_MIN_PATTERN_ROWS}
+                    max={XM_MAX_PATTERN_ROWS}
+                    step={1}
+                    aria-label="Pattern row count"
+                    title={`Row count of pattern at order ${xmCursor().order} (range ${XM_MIN_PATTERN_ROWS}..${XM_MAX_PATTERN_ROWS})`}
+                    disabled={transport() === "playing"}
+                    value={(() => {
+                      const s = xm();
+                      const idx = s.orders[xmCursor().order];
+                      return idx !== undefined
+                        ? (s.patterns[idx]?.rowCount ?? 0)
+                        : 0;
+                    })()}
+                    onChange={(e) => {
+                      const n = Math.floor(Number(e.currentTarget.value));
+                      if (!Number.isFinite(n)) return;
+                      const clamped = Math.max(
+                        XM_MIN_PATTERN_ROWS,
+                        Math.min(XM_MAX_PATTERN_ROWS, n),
+                      );
+                      setXmRowCountAtCursor(clamped);
+                    }}
+                  />
+                </label>
+              </div>
+              <PatternGridXm
+                song={xm()}
+                pos={playPos()}
+                active={transport() === "playing"}
+              />
             </div>
+          )}
+        </Show>
+        <Show
+          when={pt2Song()}
+          fallback={
+            <Show when={!song()}>
+              <div class="dropzone">
+                <p>
+                  Drop a <code>.mod</code> or <code>.xm</code> file anywhere, or
+                  use <em>Load .mod…</em>
+                </p>
+                <Show when={error()}>
+                  <p class="error">{error()}</p>
+                </Show>
+              </div>
+            </Show>
           }
         >
           {(s) => (
@@ -1052,7 +1182,8 @@ export const App: Component = () => {
       <Show when={view() === "pattern"}>
         <aside class="app__order">
           <h2>Order</h2>
-          <Show when={song()} fallback={<p class="placeholder">—</p>}>
+          <Show when={xm2Song()}>{(xm) => <XmOrderList song={xm()} />}</Show>
+          <Show when={pt2Song()} fallback={<p class="placeholder">—</p>}>
             {(s) => {
               // Disable a button when the corresponding action would no-op
               // so the UI doesn't lie about what's possible. Order edits

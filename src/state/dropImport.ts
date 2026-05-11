@@ -3,7 +3,7 @@ import {
   type SampleWorkbench,
 } from "../core/audio/sampleWorkbench";
 import { clearSample } from "../core/mod/mutations";
-import { commitEditWithWorkbenches, song } from "./song";
+import { commitEditWithWorkbenches, pt2Song as song } from "./song";
 import { currentSample, selectSample } from "./edit";
 import { view } from "./view";
 import { withWorkbench } from "./sampleWorkbench";
@@ -11,7 +11,7 @@ import { NO_LOOP, nextFreeSlot, writeWorkbenchToSongPure } from "./sampleEdit";
 import { setError } from "./session";
 
 /**
- * Multi-WAV drop / picker path — `.mod` / `.retro` go through `loadFile`.
+ * Multi-WAV drop / picker path — `.mod` / `.xm` / `.retro` go through `loadFile`.
  * All slot writes land in one history entry so undo reverts the batch.
  */
 export async function loadWavsIntoFreeSlots(files: File[]): Promise<void> {
@@ -22,7 +22,9 @@ export async function loadWavsIntoFreeSlots(files: File[]): Promise<void> {
   }
   const wavFiles = files.filter((f) => /\.wav$/i.test(f.name));
   if (wavFiles.length === 0) {
-    setError("Unsupported file. Drop a .mod, .retro, or one or more .wav.");
+    setError(
+      "Unsupported file. Drop a .mod, .xm, .retro, or one or more .wav.",
+    );
     return;
   }
 

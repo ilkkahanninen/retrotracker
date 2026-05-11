@@ -874,6 +874,28 @@ h2 {
 .patternpane__sep {
   opacity: 0.5;
 }
+/* Pattern row-count input in the FT2 meta strip — fixed-width so the
+ * meta strip doesn't reflow when the user types and the digits stay
+ * tabular for quick scan. */
+.patternpane__rows {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.patternpane__rows input {
+  font: inherit;
+  width: 5ch;
+  padding: 0 2px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 2px;
+  text-align: right;
+}
+.patternpane__rows input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
 .patternpane__editstep {
   display: inline-flex;
   align-items: center;
@@ -903,6 +925,37 @@ h2 {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+
+/* FT2 pattern grid reuses the PT `.patgrid*` skeleton (defined further down
+ * in this file) so the look & feel stays consistent across modes. XM-only
+ * additions:
+ *   - .patgrid__vol: a 2-char volume-column cell between samp and eff.
+ *   - .patgrid__hscroll: horizontal-scroll wrapper that holds both header
+ *     and rows so they move together when the grid is wider than the
+ *     viewport (typical for 16+ channel XMs).
+ */
+.patgrid--xm {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.patgrid--xm .patgrid__hscroll {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+/* Header and rows have their min-width set inline by the component so
+ * .patgrid__rows-spacer (whose only children are absolutely positioned)
+ * doesn't collapse to the viewport — `min-width: max-content` would
+ * resolve to ~0 here. The component sets:
+ *   .patgrid__header   { min-width: gridWidthPx }
+ *   .patgrid__rows     { min-width: gridWidthPx }
+ *   .patgrid__rows-spacer { width: gridWidthPx, height: rowCount × ROW_HEIGHT }
+ * gridWidthPx = ROW_LABEL_PX + channelCount × CHANNEL_MIN_PX. */
 
 /* Inline help strip below the pattern grid — describes the cell under
  * the edit cursor (note / sample / effect-nibble breakdown). Mirrors the
@@ -1150,6 +1203,23 @@ h2 {
 .patgrid__samp-char {
   display: inline-block;
   min-width: 1ch;
+}
+/* FT2 volume column: 2-char field (kind letter + magnitude hex digit). The
+ * kind letter renders muted (it's metadata), the magnitude renders in fg.
+ * Empty cells show "··" via .patgrid__part--empty. */
+.patgrid__vol {
+  min-width: 2ch;
+  display: inline-flex;
+}
+.patgrid__vol-char {
+  display: inline-block;
+  min-width: 1ch;
+}
+.patgrid__vol-char--kind {
+  color: var(--muted);
+}
+.patgrid__vol-char--mag {
+  color: var(--fg);
 }
 .patgrid__eff {
   min-width: 3ch;

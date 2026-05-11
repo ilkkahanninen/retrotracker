@@ -9,7 +9,7 @@ import {
   setPlayPos,
   playPos,
   clearHistory,
-  song,
+  pt2Song as song,
   transport,
 } from "../../src/state/song";
 import { setCurrentSample, setCurrentOctave } from "../../src/state/edit";

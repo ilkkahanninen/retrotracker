@@ -22,7 +22,7 @@ import {
   setEffectBypass,
 } from "../src/state/sampleEdit";
 import { addEffect } from "../src/state/sampleEdit";
-import { clearHistory, setSong, setTransport, song } from "../src/state/song";
+import { clearHistory, setSong, setTransport, pt2Song as song } from "../src/state/song";
 import { setCurrentSample } from "../src/state/edit";
 import {
   clearAllWorkbenches,

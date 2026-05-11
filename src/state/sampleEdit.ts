@@ -33,7 +33,12 @@ import {
   type SourceKind,
 } from "../core/audio/sampleWorkbench";
 import type { SampleSelection } from "../components/SampleView";
-import { commitEdit, commitEditWithWorkbenches, song, transport } from "./song";
+import {
+  commitEdit,
+  commitEditWithWorkbenches,
+  pt2Song as song,
+  transport,
+} from "./song";
 import { currentSample, selectSample } from "./edit";
 import {
   getWorkbench,

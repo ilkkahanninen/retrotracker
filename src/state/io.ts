@@ -25,8 +25,12 @@ export function deriveExportFilename(
   songTitle: string,
   ext: string = "mod",
 ): string {
+  // Strip whichever loadable extension the file was opened with so the
+  // base is just "song" — callers that ask for a different extension
+  // (e.g. .wav for export) get a clean swap. .retro is the project
+  // archive; .mod / .xm are the format-native binaries.
   const base = loadedName
-    ? loadedName.replace(/\.mod$/i, "")
+    ? loadedName.replace(/\.(mod|xm|retro)$/i, "")
     : songTitle.trim();
   const sanitised = base.replace(/[^\w.\- ]+/g, "_").replace(/\s+/g, "_");
   const trimmed = sanitised.slice(0, 64);
