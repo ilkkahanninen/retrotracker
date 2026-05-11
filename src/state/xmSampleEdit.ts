@@ -64,6 +64,7 @@ import {
 import { bounceXmSelection } from "../core/audio/xmBounce";
 import { xmWorkbenchFromWav } from "../core/audio/sampleWorkbench";
 import { setXmSampleClipboard, xmSampleClipboard } from "./xmSampleClipboard";
+import { setXmSampleSelection, xmSampleSelection } from "./xmSampleSelection";
 
 void XM_DEFAULT_PATTERN_ROWS;
 void workbenchToAlt;
@@ -426,69 +427,106 @@ export function bounceXmSelectionToInstrument(): void {
   setCurrentXmSampleIndex(0);
 }
 
-// ─── Sample-bytes clipboard ──────────────────────────────────────────────
+// ─── Sample-bytes clipboard / range edits ────────────────────────────────
 //
 // FT2 sibling of PT2's `copySampleRange / cutSampleRange /
-// pasteSampleFromClipboard`. Operates on whole samples for now — an
-// on-waveform selection editor is a separate UI feature. Routed via the
-// App's "view==sample" clipboard branch so ⌘C / ⌘X / ⌘V hit the right
-// clipboard depending on which view is active.
+// cropCurrentSampleToSelection / pasteSampleFromClipboard`. Operates on
+// frame ranges over the sample's data array (which is Int8Array for
+// 8-bit samples, Int16Array for 16-bit). The half-open `[start, end)`
+// indices come from the waveform's drag selection; the App-level
+// clipboard router supplies a "whole sample" range when no selection is
+// active via `effectiveXmSampleRange()`.
 
-/** Copy the current sample's bytes (full buffer) to the XM clipboard. */
-export function copyXmSampleBytes(): void {
+/** Resolve the frame range an end-user clipboard op should act on.
+ *  Selection wins; otherwise fall back to the whole sample. Returns
+ *  null when there's nothing to act on (no song / no slot / empty
+ *  data). */
+export function effectiveXmSampleRange(): {
+  start: number;
+  end: number;
+} | null {
+  const s = xm2Song();
+  if (!s) return null;
+  const inst = s.instruments[currentXmInstrument() - 1];
+  if (!inst) return null;
+  const sample = inst.samples[currentXmSampleIndex()];
+  if (!sample || sample.data.length === 0) return null;
+  const len = sample.data.length;
+  const sel = xmSampleSelection();
+  if (sel && sel.end - sel.start >= 1) {
+    const start = Math.max(0, Math.min(len, sel.start));
+    const end = Math.max(start, Math.min(len, sel.end));
+    if (end - start < 1) return null;
+    return { start, end };
+  }
+  return { start: 0, end: len };
+}
+
+/** Slice the active sample's frames onto the XM clipboard. No-op on an
+ *  empty range. Frames are deep-copied so a later cut / pipeline edit
+ *  doesn't mutate the clipboard payload. */
+export function copyXmSampleRange(start: number, end: number): void {
   const s = xm2Song();
   if (!s) return;
   const inst = s.instruments[currentXmInstrument() - 1];
   if (!inst) return;
   const sample = inst.samples[currentXmSampleIndex()];
   if (!sample || sample.data.length === 0) return;
-  const copyData: Int8Array | Int16Array =
+  const lo = Math.max(0, Math.min(sample.data.length, start));
+  const hi = Math.max(lo, Math.min(sample.data.length, end));
+  if (hi - lo < 1) return;
+  const slice: Int8Array | Int16Array =
     sample.bits === 8
-      ? new Int8Array(sample.data as Int8Array)
-      : new Int16Array(sample.data as Int16Array);
+      ? (sample.data as Int8Array).slice(lo, hi)
+      : (sample.data as Int16Array).slice(lo, hi);
   setXmSampleClipboard({
-    data: copyData,
+    data: slice,
     bits: sample.bits,
     name: sample.name,
   });
 }
 
-/** Copy + clear the current sample's bytes. The slot stays; just the
- *  payload is wiped. The XM workbench (if any) is replaced with one
- *  that wraps the now-empty buffer. */
-export function cutXmSampleBytes(): void {
+/** Drop the selected frames from the sample (and pull the rest in to
+ *  close the gap). Re-runs the workbench's pipeline through the new
+ *  source so chain effects keep working. */
+export function cutXmCurrentSampleSelection(start: number, end: number): void {
   if (transport() === "playing") return;
-  copyXmSampleBytes();
   const s = xm2Song();
   if (!s) return;
   const inst = s.instruments[currentXmInstrument() - 1];
   if (!inst) return;
   const sample = inst.samples[currentXmSampleIndex()];
-  if (!sample) return;
-  const emptied: XmSample = {
-    ...sample,
-    data: sample.bits === 8 ? new Int8Array(0) : new Int16Array(0),
-    loopStart: 0,
-    loopLength: 0,
-    loopType: "none",
-  };
-  commitEditXm((song) =>
-    setXmInstrumentSample(
-      song,
-      currentXmInstrument(),
-      emptied,
-      currentXmSampleIndex(),
-    ),
-  );
-  // Reset the workbench so the next chain edit sees an empty source.
-  setXmWorkbench(
-    currentXmInstrument(),
-    currentXmSampleIndex(),
-    xmWorkbenchFromWav(
-      { sampleRate: 8363, channels: [new Float32Array(0)] },
-      emptied.name,
-    ),
-  );
+  if (!sample || sample.data.length === 0) return;
+  const lo = Math.max(0, Math.min(sample.data.length, start));
+  const hi = Math.max(lo, Math.min(sample.data.length, end));
+  if (hi - lo < 1) return;
+  const next = spliceSampleFrames(sample, lo, hi);
+  commitSampleData(next);
+}
+
+/** Trim the sample down to the selected region. */
+export function cropXmCurrentSampleToSelection(
+  start: number,
+  end: number,
+): void {
+  if (transport() === "playing") return;
+  const s = xm2Song();
+  if (!s) return;
+  const inst = s.instruments[currentXmInstrument() - 1];
+  if (!inst) return;
+  const sample = inst.samples[currentXmSampleIndex()];
+  if (!sample || sample.data.length === 0) return;
+  const lo = Math.max(0, Math.min(sample.data.length, start));
+  const hi = Math.max(lo, Math.min(sample.data.length, end));
+  if (hi - lo < 1) return;
+  const next = cropSampleFrames(sample, lo, hi);
+  commitSampleData(next);
+}
+
+/** Copy + cut combined — same shape as PT's `cutSampleRange`. */
+export function cutXmSampleRange(start: number, end: number): void {
+  copyXmSampleRange(start, end);
+  cutXmCurrentSampleSelection(start, end);
 }
 
 /** Paste the XM clipboard's bytes into the current sample slot,
@@ -539,6 +577,84 @@ export function pasteXmSampleBytes(): void {
       clip.name ?? sample.name,
     ),
   );
+}
+
+/** Drop frames [start, end) from a sample, pulling subsequent frames
+ *  forward. Loop fields shift / clamp into the new shorter buffer. */
+function spliceSampleFrames(
+  sample: XmSample,
+  start: number,
+  end: number,
+): XmSample {
+  const removed = end - start;
+  const remaining = sample.data.length - removed;
+  const next: Int8Array | Int16Array =
+    sample.bits === 8 ? new Int8Array(remaining) : new Int16Array(remaining);
+  // Frames before the cut.
+  for (let i = 0; i < start; i++) next[i] = sample.data[i]!;
+  // Frames after the cut, pulled forward.
+  for (let i = end; i < sample.data.length; i++) {
+    next[i - removed] = sample.data[i]!;
+  }
+  // Loop fields: drop into [0, remaining] window. If the loop straddled
+  // the cut, the simplest correct policy is to clamp endpoints.
+  const loopStart = Math.min(sample.loopStart, remaining);
+  const loopEnd = Math.min(sample.loopStart + sample.loopLength, remaining);
+  const loopLength = Math.max(0, loopEnd - loopStart);
+  return {
+    ...sample,
+    data: next,
+    loopStart,
+    loopLength,
+    loopType: loopLength > 0 ? sample.loopType : "none",
+  };
+}
+
+/** Keep only frames [start, end) — the rest is discarded. */
+function cropSampleFrames(
+  sample: XmSample,
+  start: number,
+  end: number,
+): XmSample {
+  const len = end - start;
+  const next: Int8Array | Int16Array =
+    sample.bits === 8 ? new Int8Array(len) : new Int16Array(len);
+  for (let i = 0; i < len; i++) next[i] = sample.data[start + i]!;
+  // Loop fields: shift by `start`, clamp into [0, len].
+  const loopStart = Math.max(0, Math.min(len, sample.loopStart - start));
+  const loopEnd = Math.max(
+    loopStart,
+    Math.min(len, sample.loopStart + sample.loopLength - start),
+  );
+  const loopLength = loopEnd - loopStart;
+  return {
+    ...sample,
+    data: next,
+    loopStart,
+    loopLength,
+    loopType: loopLength > 0 ? sample.loopType : "none",
+  };
+}
+
+/** Commit a fresh sample buffer into the current (instrument, sample)
+ *  slot and rebuild the workbench around it so chain edits keep working. */
+function commitSampleData(next: XmSample): void {
+  commitEditXm((song) =>
+    setXmInstrumentSample(
+      song,
+      currentXmInstrument(),
+      next,
+      currentXmSampleIndex(),
+    ),
+  );
+  setXmWorkbench(
+    currentXmInstrument(),
+    currentXmSampleIndex(),
+    xmWorkbenchFromWav(sampleBytesToWav(next.data, next.bits), next.name),
+  );
+  // The selection is now over a different buffer — clear it so the
+  // overlay doesn't paint a stale rectangle.
+  setXmSampleSelection(null);
 }
 
 function sampleBytesToWav(

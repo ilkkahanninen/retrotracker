@@ -12,6 +12,11 @@ import {
   setCurrentXmSampleIndex,
 } from "../state/xmEdit";
 import {
+  clearXmSampleSelection,
+  setXmSampleSelection,
+  xmSampleSelection,
+} from "../state/xmSampleSelection";
+import {
   addXmEnvelopePoint,
   addXmSample,
   patchXmAutoVibrato,
@@ -26,8 +31,12 @@ import {
   addXmEffect,
   applyXmChainToSource,
   convertXmChiptuneToSampler,
+  copyXmSampleRange,
+  cropXmCurrentSampleToSelection,
+  cutXmSampleRange,
   moveXmEffect,
   newXmChiptune,
+  pasteXmSampleBytes,
   patchXmEffect,
   removeXmEffect,
   setXmBitDepth,
@@ -41,6 +50,7 @@ import {
   xmSelectedEffectIndex,
   xmSelectedEffectParam,
 } from "../state/xmSampleEdit";
+import { xmSampleClipboard } from "../state/xmSampleClipboard";
 import { getXmWorkbench } from "../state/xmSampleWorkbench";
 import {
   SOURCE_KINDS,
@@ -86,6 +96,16 @@ export const InstrumentView: Component<Props> = (props) => {
   createEffect(() => {
     currentXmInstrument();
     setCurrentXmSampleIndex(0);
+  });
+
+  // Clear the waveform selection whenever the (instrument, sample-index)
+  // pair changes — selections are bound to a specific buffer, and a
+  // stale range would mis-paint and mis-clip clipboard ops on the new
+  // slot.
+  createEffect(() => {
+    currentXmInstrument();
+    currentXmSampleIndex();
+    clearXmSampleSelection();
   });
 
   // Clamp the sample index whenever the current instrument's sample
@@ -254,7 +274,89 @@ export const InstrumentView: Component<Props> = (props) => {
                     }
                   />
                 </label>
-                <XmWaveform sample={sample()} />
+                <XmWaveform
+                  sample={sample()}
+                  selection={xmSampleSelection()}
+                  onSelect={setXmSampleSelection}
+                  selectable={sample().data.length > 0}
+                />
+                {/* Selection toolbar — Copy / Cut act on the selected
+                    range (or the whole sample if nothing's selected);
+                    Crop trims down to the selection; Paste replaces the
+                    sample with whatever's on the XM clipboard. */}
+                <div class="instrument-view__row instrument-view__selection-actions">
+                  {(() => {
+                    const sel = () => xmSampleSelection();
+                    const len = () => sample().data.length;
+                    const hasData = () => len() > 0;
+                    const range = () => {
+                      const s = sel();
+                      const l = len();
+                      const start = s ? s.start : 0;
+                      const end = s ? s.end : l;
+                      return { start, end };
+                    };
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          disabled={!hasData()}
+                          title="Select the whole sample (⌘A)"
+                          onClick={() =>
+                            setXmSampleSelection({ start: 0, end: len() })
+                          }
+                        >
+                          Select all
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!hasData()}
+                          title="Copy the selection (or the whole sample) to the clipboard (⌘C)"
+                          onClick={() => {
+                            const r = range();
+                            if (r.end - r.start < 1) return;
+                            copyXmSampleRange(r.start, r.end);
+                          }}
+                        >
+                          Copy
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!hasData()}
+                          title="Copy and remove the selection (or the whole sample) (⌘X)"
+                          onClick={() => {
+                            const r = range();
+                            if (r.end - r.start < 1) return;
+                            cutXmSampleRange(r.start, r.end);
+                            setXmSampleSelection(null);
+                          }}
+                        >
+                          Cut
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!xmSampleClipboard()}
+                          title="Replace the sample with the clipboard contents (⌘V)"
+                          onClick={pasteXmSampleBytes}
+                        >
+                          Paste
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!sel() || sel()!.end - sel()!.start < 1}
+                          title="Keep the selected range, discard the rest"
+                          onClick={() => {
+                            const s = sel();
+                            if (!s) return;
+                            cropXmCurrentSampleToSelection(s.start, s.end);
+                          }}
+                        >
+                          Crop
+                        </button>
+                      </>
+                    );
+                  })()}
+                </div>
                 <div class="instrument-view__row">
                   <label>
                     Volume

@@ -1568,11 +1568,39 @@ h2 {
   min-width: 200px;
   gap: 8px;
 }
+.xm-waveform-wrap {
+  /* Hosts the canvas + click-drag handlers. The canvas itself is
+     pointer-events: none on its own but inherits via the wrapper so
+     mouse coordinates resolve against the wrapper's bounding rect. */
+  cursor: crosshair;
+  user-select: none;
+}
 .xm-waveform {
   display: block;
   background: var(--panel-2);
   border: 1px solid var(--grid-line);
   border-radius: 3px;
+}
+
+.instrument-view__selection-actions {
+  gap: 6px;
+}
+.instrument-view__selection-actions button {
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.instrument-view__selection-actions button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.instrument-view__selection-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* Multi-sample picker — one chip per sample, plus +/− buttons on the

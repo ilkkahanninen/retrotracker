@@ -18,8 +18,9 @@ import { XmOrderList } from "./components/XmOrderList";
 import { PatternHelp } from "./components/PatternHelp";
 import { XmPatternHelp } from "./components/XmPatternHelp";
 import {
-  copyXmSampleBytes,
-  cutXmSampleBytes,
+  copyXmSampleRange,
+  cutXmSampleRange,
+  effectiveXmSampleRange,
   pasteXmSampleBytes,
 } from "./state/xmSampleEdit";
 import { InstrumentView } from "./components/InstrumentView";
@@ -151,7 +152,12 @@ import {
   setCurrentSample,
   setEditStep,
 } from "./state/edit";
-import { currentXmInstrument, selectXmInstrument } from "./state/xmEdit";
+import {
+  currentXmInstrument,
+  currentXmSampleIndex,
+  selectXmInstrument,
+} from "./state/xmEdit";
+import { setXmSampleSelection } from "./state/xmSampleSelection";
 import { renameXmInstrument } from "./state/xmInstrumentEdit";
 import { xmCursor } from "./state/cursorXm";
 import {
@@ -260,7 +266,8 @@ export const App: Component = () => {
   const copyClipboardForActiveView = () => {
     if (view() === "sample") {
       if (xm2Song()) {
-        copyXmSampleBytes();
+        const r = effectiveXmSampleRange();
+        if (r) copyXmSampleRange(r.start, r.end);
       } else {
         const r = effectiveSampleRange();
         if (r) copySampleRange(r.start, r.end);
@@ -273,7 +280,8 @@ export const App: Component = () => {
   const cutClipboardForActiveView = () => {
     if (view() === "sample") {
       if (xm2Song()) {
-        cutXmSampleBytes();
+        const r = effectiveXmSampleRange();
+        if (r) cutXmSampleRange(r.start, r.end);
       } else {
         const r = effectiveSampleRange();
         if (r) cutSampleRange(r.start, r.end);
@@ -450,11 +458,24 @@ export const App: Component = () => {
       if (saveTimer !== null) window.clearTimeout(saveTimer);
     });
 
+    const selectAllSampleForActiveSong = () => {
+      const s = song();
+      if (!s) return;
+      if (s.format === "FT2") {
+        const inst = s.instruments[currentXmInstrument() - 1];
+        const sample = inst?.samples[currentXmSampleIndex()];
+        if (!sample || sample.data.length < 2) return;
+        setXmSampleSelection({ start: 0, end: sample.data.length });
+        return;
+      }
+      selectAllSample();
+    };
+
     for (const c of registerAppKeybinds({
       openFilePicker,
       saveProject,
       selectAllStep,
-      selectAllSample,
+      selectAllSample: selectAllSampleForActiveSong,
       copySelection: copyClipboardForActiveView,
       cutSelection: cutClipboardForActiveView,
       pasteAtCursor: pasteClipboardForActiveView,
