@@ -16,6 +16,7 @@ import { PatternGridCanvas as PatternGrid } from "./components/PatternGridCanvas
 import { PatternGridXmCanvas as PatternGridXm } from "./components/PatternGridXmCanvas";
 import { XmOrderList } from "./components/XmOrderList";
 import { PatternHelp } from "./components/PatternHelp";
+import { XmPatternHelp } from "./components/XmPatternHelp";
 import { InstrumentView } from "./components/InstrumentView";
 import { SampleView } from "./components/SampleView";
 import { SlotList, type SlotDisplay } from "./components/SlotList";
@@ -1000,6 +1001,9 @@ export const App: Component = () => {
                   pos={playPos()}
                   active={transport() === "playing"}
                 />
+                <Show when={settings().showPatternHelp}>
+                  <XmPatternHelp song={xm()} cursor={xmCursor()} />
+                </Show>
               </div>
               <div
                 class="sampleview-wrapper"
