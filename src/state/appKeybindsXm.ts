@@ -29,6 +29,7 @@ import {
   applyXmCursor,
   applyXmCursorWithSong,
   backspaceXmCell,
+  backspaceXmRow,
   clearXmAtCursor,
   copyXmSelection,
   cutXmSelection,
@@ -38,7 +39,10 @@ import {
   enterXmKeyOff,
   enterXmNote,
   extendXmSelection,
+  insertEmptyXmCell,
+  insertEmptyXmRow,
   pasteXmAtCursor,
+  repeatLastXmEffectFromAbove,
   selectAllXmStep,
   stepXmChannelLeft,
   stepXmChannelRight,
@@ -46,6 +50,7 @@ import {
   stepXmRowPageDown,
   stepXmRowPageUp,
   stepXmRowUp,
+  transposeXmAtCursor,
 } from "./xmPatternEdit";
 import {
   nextXmInstrument,
@@ -54,6 +59,9 @@ import {
   xmOctaveDown,
   xmOctaveUp,
 } from "./xmEdit";
+import { previewXmNote } from "./xmPreview";
+import { stopEnginePreview } from "./playback";
+import * as preview from "./preview";
 import {
   deleteXmOrderSlot,
   duplicateXmCurrentPattern,
@@ -234,6 +242,28 @@ export function registerXmAppKeybinds(): Array<() => void> {
           view() !== "sample" &&
           xmCursor().field === "note",
         run: () => enterXmNote(offset),
+        runUp: () => {
+          stopEnginePreview();
+          preview.stopPreview();
+        },
+      }),
+    );
+    // Shift+piano: preview-only, no commit. Mirrors PT2's piano preview
+    // so the user can audition from any cursor field. Routes through the
+    // adapter in xmPreview.ts that morphs an XM sample into the PT2
+    // preview worklet's shape — fidelity is "good enough for an audition".
+    cleanups.push(
+      registerShortcut({
+        key: k,
+        position: true,
+        shift: true,
+        description: `Preview note (offset ${offset})`,
+        when: () => isFt2Mode() && transport() !== "playing",
+        run: () => previewXmNote(offset),
+        runUp: () => {
+          stopEnginePreview();
+          preview.stopPreview();
+        },
       }),
     );
   }
@@ -533,9 +563,36 @@ export function registerXmAppKeybinds(): Array<() => void> {
   cleanups.push(
     registerShortcut({
       key: "backspace",
-      description: "Clear cell above, step up",
+      description: "Clear selection / clear cell, step up",
       when: isFt2Mode,
       run: backspaceXmCell,
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "backspace",
+      shift: true,
+      description:
+        "Clear selected rows / clear current row, step up (all channels)",
+      when: isFt2Mode,
+      run: backspaceXmRow,
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "enter",
+      description: "Insert empty cell (push channel down)",
+      when: isFt2Mode,
+      run: insertEmptyXmCell,
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "enter",
+      shift: true,
+      description: "Insert empty row (push all channels down)",
+      when: isFt2Mode,
+      run: insertEmptyXmRow,
     }),
   );
 
@@ -586,6 +643,66 @@ export function registerXmAppKeybinds(): Array<() => void> {
       }),
     );
   }
+
+  // ─── Repeat last effect from above ───────────────────────────────────
+  // Plain `,` (no modifier) walks back up the cursor's channel for the most
+  // recent non-empty effect and copies it to the cursor cell. Pattern view
+  // only — sample view shares the cursor signal but doesn't address a cell.
+  cleanups.push(
+    registerShortcut({
+      key: ",",
+      description: "Repeat last effect from above on this channel",
+      when: () =>
+        isFt2Mode() && transport() !== "playing" && view() !== "sample",
+      run: repeatLastXmEffectFromAbove,
+    }),
+  );
+
+  // ─── Transpose ───────────────────────────────────────────────────────
+  // Layered onto the dash / equals keys with Shift to walk a phrase up or
+  // down; Cmd extends the step from semitone to octave. Operates on the
+  // selection when one exists, otherwise on the cell at the cursor —
+  // mirrors PT2's behaviour exactly.
+  const transposeWhen = () =>
+    isFt2Mode() && transport() !== "playing" && view() !== "sample";
+  cleanups.push(
+    registerShortcut({
+      key: "-",
+      shift: true,
+      description: "Transpose down 1 semitone",
+      when: transposeWhen,
+      run: () => transposeXmAtCursor(-1),
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "=",
+      shift: true,
+      description: "Transpose up 1 semitone",
+      when: transposeWhen,
+      run: () => transposeXmAtCursor(1),
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "-",
+      mod: true,
+      shift: true,
+      description: "Transpose down 1 octave",
+      when: transposeWhen,
+      run: () => transposeXmAtCursor(-12),
+    }),
+  );
+  cleanups.push(
+    registerShortcut({
+      key: "=",
+      mod: true,
+      shift: true,
+      description: "Transpose up 1 octave",
+      when: transposeWhen,
+      run: () => transposeXmAtCursor(12),
+    }),
+  );
 
   void XM_FIELDS;
   return cleanups;

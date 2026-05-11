@@ -20,9 +20,14 @@ import {
 } from "../core/xm/clipboardOps";
 import { effectCodeForChar } from "../core/xm/effectLabels";
 import {
+  deleteXmCellPullUp,
+  deleteXmRowPullUp,
+  insertXmCellPushDown,
+  insertXmRowPushDown,
   setXmCell,
   setXmChannelCount,
   setXmPatternRowCount,
+  transposeRangeXm,
 } from "../core/xm/mutations";
 import { rowsOfPattern } from "../core/song";
 import {
@@ -345,27 +350,76 @@ export function setXmChannelCountAction(channelCount: number): void {
 }
 
 /**
- * Backspace — clear the cell above on this channel and step the cursor
- * up by one row. No PT-style pull-up yet (XM's variable-row patterns
- * make the semantics fuzzier — keep this minimal until users push for
- * the full insert/delete-row machinery in a later phase).
+ * With selection: clear it, leave the cursor put. Without: delete the
+ * cell above on this channel and pull the rest of the channel up by one
+ * row — text-editor Backspace. Mirrors PT2's `backspaceCell`.
  */
 export function backspaceXmCell(): void {
   if (transport() === "playing") return;
   const s = song();
   if (!s) return;
+  const sel = xmSelection();
+  if (sel) {
+    commitEditXm((s) => clearXmRange(s, sel));
+    return;
+  }
   const c = xmCursor();
   if (c.row <= 0) return;
-  commitEditXm((s) =>
-    setXmCell(s, c.order, c.row - 1, c.channel, {
-      note: 0,
-      instrument: 0,
-      volumeColumn: 0,
-      effect: 0,
-      effectParam: 0,
-    }),
-  );
+  commitEditXm((s) => deleteXmCellPullUp(s, c.order, c.row - 1, c.channel));
   applyXmCursor({ ...c, row: c.row - 1 });
+}
+
+/**
+ * Shift+Backspace — same shape as `backspaceXmCell` but spanning all
+ * channels. With a selection, clears every channel within the selected
+ * rows; without, pulls the entire row above the cursor up by one across
+ * every channel.
+ */
+export function backspaceXmRow(): void {
+  if (transport() === "playing") return;
+  const s = song();
+  if (!s) return;
+  const sel = xmSelection();
+  if (sel) {
+    commitEditXm((song) =>
+      clearXmRange(song, {
+        order: sel.order,
+        startRow: sel.startRow,
+        endRow: sel.endRow,
+        startChannel: 0,
+        endChannel: song.channelCount - 1,
+      }),
+    );
+    return;
+  }
+  const c = xmCursor();
+  if (c.row <= 0) return;
+  commitEditXm((s) => deleteXmRowPullUp(s, c.order, c.row - 1));
+  applyXmCursor({ ...c, row: c.row - 1 });
+}
+
+/**
+ * Enter — push the cursor's cell (and everything below it on this
+ * channel) down by one row, dropping an empty cell at the cursor.
+ * Cursor then steps one row down so the user can keep entering notes.
+ */
+export function insertEmptyXmCell(): void {
+  if (transport() === "playing") return;
+  const s = song();
+  if (!s) return;
+  const c = xmCursor();
+  commitEditXm((s) => insertXmCellPushDown(s, c.order, c.row, c.channel));
+  applyXmCursor(stepXmRowDown(c));
+}
+
+/** Shift+Enter — same as `insertEmptyXmCell` but spanning all channels. */
+export function insertEmptyXmRow(): void {
+  if (transport() === "playing") return;
+  const s = song();
+  if (!s) return;
+  const c = xmCursor();
+  commitEditXm((s) => insertXmRowPushDown(s, c.order, c.row));
+  applyXmCursor(stepXmRowDown(c));
 }
 
 // ─── Selection step helpers ─────────────────────────────────────────────
@@ -499,6 +553,61 @@ export function pasteXmAtCursor(): void {
   const c = xmCursor();
   commitEditXm((s) => pasteXmSlice(s, slice.rows, c.order, c.row, c.channel));
   applyXmCursor(stepXmRowPageDown(c, slice.rows.length));
+}
+
+/**
+ * Walk back up the cursor's channel for the most recent non-empty
+ * effect, copy it to the cursor cell, advance. No-op when no prior
+ * effect — silently writing zeros would be destructive on accidental key.
+ * Format-agnostic logic; XmNote happens to share `effect` / `effectParam`
+ * field names with the PT2 Note.
+ */
+export function repeatLastXmEffectFromAbove(): void {
+  if (transport() === "playing") return;
+  const s = song();
+  if (!s) return;
+  const c = xmCursor();
+  const pat = s.patterns[s.orders[c.order] ?? -1];
+  if (!pat) return;
+  let copy: { effect: number; effectParam: number } | null = null;
+  for (let r = c.row - 1; r >= 0; r--) {
+    const cell = pat.rows[r]?.[c.channel];
+    if (!cell) continue;
+    if (cell.effect !== 0 || cell.effectParam !== 0) {
+      copy = { effect: cell.effect, effectParam: cell.effectParam };
+      break;
+    }
+  }
+  if (!copy) return;
+  const patch = copy;
+  commitEditXm((s) => setXmCell(s, c.order, c.row, c.channel, patch));
+  advanceByEditStep();
+}
+
+/**
+ * Selection if any, otherwise the cursor cell as a one-cell range.
+ * Mirrors PT2's `transposeAtCursor` so the user can chord ⇧- / ⇧= to
+ * walk a phrase up or down. Empty cells and key-off stay as they are;
+ * non-empty notes clamp at the 1..96 XM range.
+ */
+export function transposeXmAtCursor(deltaSemitones: number): void {
+  if (transport() === "playing") return;
+  const s = song();
+  if (!s) return;
+  const sel = xmSelection();
+  const range =
+    sel ??
+    (() => {
+      const c = xmCursor();
+      return {
+        order: c.order,
+        startRow: c.row,
+        endRow: c.row,
+        startChannel: c.channel,
+        endChannel: c.channel,
+      };
+    })();
+  commitEditXm((s) => transposeRangeXm(s, range, deltaSemitones));
 }
 
 /**

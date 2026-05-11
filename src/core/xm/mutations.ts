@@ -29,8 +29,6 @@ import {
   type XmSong,
 } from "./types";
 
-void XM_KEYOFF_NOTE;
-
 /**
  * Order-list CRUD factory — same shape as the PT side. XM creates new
  * patterns sized to the song's current `channelCount` (read at call
@@ -85,6 +83,200 @@ export function setXmCell(
   const newPattern: XmPattern = { rows: newRows, rowCount: pattern.rowCount };
   const newPatterns: XmPattern[] = [...song.patterns];
   newPatterns[patternIndex] = newPattern;
+  return { ...song, patterns: newPatterns };
+}
+
+/**
+ * Delete the cell at (order, row, channel) and pull every cell below
+ * it on the same channel up by one row. The pattern's last row on this
+ * channel becomes an empty note. Other channels are untouched.
+ *
+ * No-op when the address is out of range.
+ */
+export function deleteXmCellPullUp(
+  song: XmSong,
+  order: number,
+  row: number,
+  channel: number,
+): XmSong {
+  if (order < 0 || order >= song.songLength) return song;
+  const patIdx = song.orders[order];
+  if (patIdx === undefined) return song;
+  const pattern = song.patterns[patIdx];
+  if (!pattern) return song;
+  if (row < 0 || row >= pattern.rowCount) return song;
+  if (channel < 0 || channel >= song.channelCount) return song;
+
+  const newRows: XmNote[][] = pattern.rows.map((r, idx) => {
+    if (idx < row) return r;
+    const newRow: XmNote[] = [...r];
+    if (idx === pattern.rowCount - 1) {
+      newRow[channel] = emptyXmNote();
+    } else {
+      newRow[channel] = pattern.rows[idx + 1]![channel]!;
+    }
+    return newRow;
+  });
+  const newPattern: XmPattern = { rows: newRows, rowCount: pattern.rowCount };
+  const newPatterns: XmPattern[] = [...song.patterns];
+  newPatterns[patIdx] = newPattern;
+  return { ...song, patterns: newPatterns };
+}
+
+/**
+ * Delete the row at (order, row) — every channel — and pull every row
+ * below it up by one. The pattern's last row becomes empty across all
+ * channels.
+ *
+ * No-op when the address is out of range.
+ */
+export function deleteXmRowPullUp(
+  song: XmSong,
+  order: number,
+  row: number,
+): XmSong {
+  if (order < 0 || order >= song.songLength) return song;
+  const patIdx = song.orders[order];
+  if (patIdx === undefined) return song;
+  const pattern = song.patterns[patIdx];
+  if (!pattern) return song;
+  if (row < 0 || row >= pattern.rowCount) return song;
+
+  const newRows: XmNote[][] = [...pattern.rows];
+  for (let r = row; r < pattern.rowCount - 1; r++) {
+    newRows[r] = pattern.rows[r + 1]!;
+  }
+  const lastRow: XmNote[] = new Array(song.channelCount);
+  for (let c = 0; c < song.channelCount; c++) lastRow[c] = emptyXmNote();
+  newRows[pattern.rowCount - 1] = lastRow;
+
+  const newPattern: XmPattern = { rows: newRows, rowCount: pattern.rowCount };
+  const newPatterns: XmPattern[] = [...song.patterns];
+  newPatterns[patIdx] = newPattern;
+  return { ...song, patterns: newPatterns };
+}
+
+/**
+ * Insert an empty row at (order, row) — every channel — shifting every
+ * row at or below this row down by one. The row that was on the last
+ * position of the pattern falls off the end.
+ *
+ * No-op when the address is out of range.
+ */
+export function insertXmRowPushDown(
+  song: XmSong,
+  order: number,
+  row: number,
+): XmSong {
+  if (order < 0 || order >= song.songLength) return song;
+  const patIdx = song.orders[order];
+  if (patIdx === undefined) return song;
+  const pattern = song.patterns[patIdx];
+  if (!pattern) return song;
+  if (row < 0 || row >= pattern.rowCount) return song;
+
+  const newRows: XmNote[][] = [...pattern.rows];
+  for (let r = pattern.rowCount - 1; r > row; r--) {
+    newRows[r] = pattern.rows[r - 1]!;
+  }
+  const blank: XmNote[] = new Array(song.channelCount);
+  for (let c = 0; c < song.channelCount; c++) blank[c] = emptyXmNote();
+  newRows[row] = blank;
+
+  const newPattern: XmPattern = { rows: newRows, rowCount: pattern.rowCount };
+  const newPatterns: XmPattern[] = [...song.patterns];
+  newPatterns[patIdx] = newPattern;
+  return { ...song, patterns: newPatterns };
+}
+
+/**
+ * Insert an empty cell at (order, row, channel), shifting every cell at
+ * or below this row on the same channel down by one. The cell that was
+ * on the last row of this channel falls off the end. Other channels are
+ * untouched.
+ *
+ * No-op when the address is out of range.
+ */
+export function insertXmCellPushDown(
+  song: XmSong,
+  order: number,
+  row: number,
+  channel: number,
+): XmSong {
+  if (order < 0 || order >= song.songLength) return song;
+  const patIdx = song.orders[order];
+  if (patIdx === undefined) return song;
+  const pattern = song.patterns[patIdx];
+  if (!pattern) return song;
+  if (row < 0 || row >= pattern.rowCount) return song;
+  if (channel < 0 || channel >= song.channelCount) return song;
+
+  const newRows: XmNote[][] = pattern.rows.map((r, idx) => {
+    if (idx < row) return r;
+    const newRow: XmNote[] = [...r];
+    if (idx === row) {
+      newRow[channel] = emptyXmNote();
+    } else {
+      newRow[channel] = pattern.rows[idx - 1]![channel]!;
+    }
+    return newRow;
+  });
+  const newPattern: XmPattern = { rows: newRows, rowCount: pattern.rowCount };
+  const newPatterns: XmPattern[] = [...song.patterns];
+  newPatterns[patIdx] = newPattern;
+  return { ...song, patterns: newPatterns };
+}
+
+/**
+ * Transpose every non-empty melodic note inside a rectangular range by
+ * the given number of semitones. Empty cells (note = 0) and key-off
+ * (note = 97) are skipped — transpose never introduces a note where
+ * there wasn't one, and key-off has no pitch to shift. Notes that would
+ * fall outside the 1..96 range clamp at the bound, matching how PT2's
+ * `transposeRange` clamps at the period table edges.
+ *
+ * Returns the same XmSong reference when nothing changed (the range was
+ * empty, all cells were already at the clamp edge, etc.) so commitEditXm's
+ * "no-op" guard skips a redundant history entry.
+ */
+export function transposeRangeXm(
+  song: XmSong,
+  range: {
+    order: number;
+    startRow: number;
+    endRow: number;
+    startChannel: number;
+    endChannel: number;
+  },
+  deltaSemitones: number,
+): XmSong {
+  if (deltaSemitones === 0) return song;
+  if (range.order < 0 || range.order >= song.songLength) return song;
+  const patIdx = song.orders[range.order];
+  if (patIdx === undefined) return song;
+  const pattern = song.patterns[patIdx];
+  if (!pattern) return song;
+
+  let patternChanged = false;
+  const newRows: XmNote[][] = pattern.rows.map((row, rowIdx) => {
+    if (rowIdx < range.startRow || rowIdx > range.endRow) return row;
+    let rowChanged = false;
+    const newRow: XmNote[] = row.map((cell, chIdx) => {
+      if (chIdx < range.startChannel || chIdx > range.endChannel) return cell;
+      if (cell.note === 0 || cell.note === XM_KEYOFF_NOTE) return cell;
+      const next = Math.max(1, Math.min(96, cell.note + deltaSemitones));
+      if (next === cell.note) return cell;
+      rowChanged = true;
+      return { ...cell, note: next };
+    });
+    if (!rowChanged) return row;
+    patternChanged = true;
+    return newRow;
+  });
+
+  if (!patternChanged) return song;
+  const newPatterns: XmPattern[] = [...song.patterns];
+  newPatterns[patIdx] = { rows: newRows, rowCount: pattern.rowCount };
   return { ...song, patterns: newPatterns };
 }
 

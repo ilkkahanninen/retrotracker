@@ -260,9 +260,9 @@ describe("clearXmAtCursor", () => {
 });
 
 describe("backspaceXmCell", () => {
-  it("clears the cell above and steps the cursor up", () => {
+  it("deletes the cell above and pulls the channel up, then steps cursor up", () => {
     setXmCursor({ order: 0, row: 0, channel: 0, field: "note" });
-    enterXmNote(0); // row 0
+    enterXmNote(0); // row 0, C-4
     setEditStep(0);
     setXmCursor({ order: 0, row: 1, channel: 0, field: "note" });
     enterXmNote(2); // row 1, D-4
@@ -270,10 +270,14 @@ describe("backspaceXmCell", () => {
 
     backspaceXmCell();
 
+    // Cursor stepped up one row.
     expect(xmCursor().row).toBe(0);
+    // Pull-up: row 0 (formerly C-4) is replaced by what was at row 1 (D-4).
     setXmCursor({ order: 0, row: 0, channel: 0, field: "note" });
+    expect(cellAtCursor().note).toBe(51); // D-4 in XM note numbering
+    // Row 1 is now empty after the pull-up.
+    setXmCursor({ order: 0, row: 1, channel: 0, field: "note" });
     expect(cellAtCursor().note).toBe(0);
-    expect(cellAtCursor().instrument).toBe(0);
   });
 
   it("no-op at row 0", () => {
