@@ -84,7 +84,7 @@ export async function ensureEngine(): Promise<AudioEngine | null> {
 }
 
 /**
- * Ensure the engine exists and push the current Song into it before play.
+ * Ensure the engine exists and push the current ModSong into it before play.
  * The worklet keeps its own copy of the song, so without this every edit
  * would only show up in the UI — the user would press Play and hear the
  * pre-edit version. Returns null if no song is loaded or the engine

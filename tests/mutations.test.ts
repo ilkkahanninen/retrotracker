@@ -18,9 +18,9 @@ import {
 } from "../src/core/mod/mutations";
 import { emptyPattern, emptySong, PERIOD_TABLE } from "../src/core/mod/format";
 import { MAX_ORDERS } from "../src/core/mod/types";
-import type { Song } from "../src/core/mod/types";
+import type { ModSong } from "../src/core/mod/types";
 
-function makeSong(): Song {
+function makeSong(): ModSong {
   const s = emptySong();
   s.patterns = [emptyPattern(), emptyPattern()];
   s.songLength = 2;
@@ -53,7 +53,7 @@ describe("setCell", () => {
     expect(cell.effectParam).toBe(0x40);
   });
 
-  it("returns a new Song reference", () => {
+  it("returns a new ModSong reference", () => {
     const s = makeSong();
     const next = setCell(s, 0, 0, 0, { period: 428 });
     expect(next).not.toBe(s);
@@ -68,7 +68,7 @@ describe("setCell", () => {
     expect(next.patterns[0]).not.toBe(s.patterns[0]);
   });
 
-  it("returns the same Song reference when nothing changes", () => {
+  it("returns the same ModSong reference when nothing changes", () => {
     const s = makeSong();
     s.patterns[0]!.rows[0]![0] = {
       period: 428,
@@ -90,7 +90,7 @@ describe("setCell", () => {
 });
 
 describe("deleteCellPullUp", () => {
-  function seedChannel(s: Song, order: number, channel: number) {
+  function seedChannel(s: ModSong, order: number, channel: number) {
     const pat = s.patterns[s.orders[order]!]!;
     pat.rows[0]![channel] = {
       period: 100,
@@ -152,7 +152,7 @@ describe("deleteCellPullUp", () => {
 });
 
 describe("insertCellPushDown", () => {
-  function seedChannel(s: Song, order: number, channel: number) {
+  function seedChannel(s: ModSong, order: number, channel: number) {
     const pat = s.patterns[s.orders[order]!]!;
     pat.rows[0]![channel] = {
       period: 100,
@@ -381,7 +381,7 @@ describe("duplicatePatternAtOrder", () => {
 });
 
 describe("cleanupOrders", () => {
-  function songWith(orders: number[], patternCount: number): Song {
+  function songWith(orders: number[], patternCount: number): ModSong {
     const s = emptySong();
     s.patterns = Array.from({ length: patternCount }, () => emptyPattern());
     s.songLength = orders.length;
@@ -429,7 +429,7 @@ describe("cleanupOrders", () => {
     expect(next.orders[100]).toBe(0);
   });
 
-  it("returns the same Song reference when nothing would change", () => {
+  it("returns the same ModSong reference when nothing would change", () => {
     // Already canonical: orders [0,1,2] over exactly 3 patterns.
     const s = songWith([0, 1, 2], 3);
     const { song: next, remap } = cleanupOrders(s);
@@ -468,7 +468,7 @@ describe("setSample", () => {
     expect(next.samples[0]!.finetune).toBe(3);
   });
 
-  it("returns the same Song reference when nothing actually changed", () => {
+  it("returns the same ModSong reference when nothing actually changed", () => {
     const s = makeSong();
     s.samples[0]!.volume = 32;
     expect(setSample(s, 0, { volume: 32 })).toBe(s);
@@ -652,7 +652,7 @@ describe("transposeRange", () => {
     expect(after.effectParam).toBe(0x42);
   });
 
-  it("returns the same Song reference when nothing changed (delta=0 / all empty)", () => {
+  it("returns the same ModSong reference when nothing changed (delta=0 / all empty)", () => {
     const s = makeSong();
     expect(transposeRange(s, rangeAt(0, 3, 1), 0)).toBe(s);
   });

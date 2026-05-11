@@ -14,10 +14,10 @@ import {
 } from "../../src/state/song";
 import { setCurrentSample, setCurrentOctave } from "../../src/state/edit";
 import { emptyPattern, emptySong } from "../../src/core/mod/format";
-import type { Song } from "../../src/core/mod/types";
+import type { ModSong } from "../../src/core/mod/types";
 
 /** A song with N patterns and orders [0, 1, …, N-1]. */
-function songWith(numPatterns: number): Song {
+function songWith(numPatterns: number): ModSong {
   const s = emptySong();
   s.patterns = Array.from({ length: numPatterns }, emptyPattern);
   s.songLength = numPatterns;

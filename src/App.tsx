@@ -8,6 +8,8 @@ import {
   type Component,
 } from "solid-js";
 import { AboutModal } from "./components/AboutModal";
+import { ModePicker } from "./components/ModePicker";
+import { ModeBadge } from "./components/ModeBadge";
 import { InfoView } from "./components/InfoView";
 import { Menu, type MenuItem } from "./components/Menu";
 import { PatternGrid } from "./components/PatternGrid";
@@ -192,6 +194,7 @@ export const App: Component = () => {
   const [dragOver, setDragOver] = createSignal(false);
   const [editingTitle, setEditingTitle] = createSignal(false);
   const [aboutOpen, setAboutOpen] = createSignal(false);
+  const [modePickerOpen, setModePickerOpen] = createSignal(false);
 
   const USER_MANUAL_URL =
     "https://github.com/ilkkahanninen/retrotracker/blob/main/docs/user-manual.md";
@@ -448,7 +451,7 @@ export const App: Component = () => {
   // Functions, not arrays — disabled flags need to re-evaluate every
   // time the Menu reads `props.items`.
   const fileMenuItems = (): MenuItem[] => [
-    { label: "New", onClick: newProject },
+    { label: "New", onClick: () => setModePickerOpen(true) },
     { label: "Open…", hint: "⌘O", onClick: openFilePicker },
     { separator: true, label: "" },
     { label: "Save…", hint: "⌘S", onClick: saveProject, disabled: !song() },
@@ -895,6 +898,7 @@ export const App: Component = () => {
                       }}
                     />
                   </Show>
+                  <ModeBadge format={s().format} />
                   <span class="patternpane__sep">·</span>
                   <span>{filename()}</span>
                   <span class="patternpane__sep">·</span>
@@ -1198,6 +1202,15 @@ export const App: Component = () => {
       </Show>
       <Show when={aboutOpen()}>
         <AboutModal onClose={() => setAboutOpen(false)} />
+      </Show>
+      <Show when={modePickerOpen()}>
+        <ModePicker
+          onPick={(format) => {
+            setModePickerOpen(false);
+            newProject(format);
+          }}
+          onCancel={() => setModePickerOpen(false)}
+        />
       </Show>
     </div>
   );

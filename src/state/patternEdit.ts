@@ -105,7 +105,7 @@ export function extendSelection(next: Cursor): void {
   );
 }
 
-/** applyCursor variant for movement functions that need to read the Song. */
+/** applyCursor variant for movement functions that need to read the ModSong. */
 export function applyCursorWithSong(
   fn: (c: Cursor, s: NonNullable<ReturnType<typeof song>>) => Cursor,
 ): void {

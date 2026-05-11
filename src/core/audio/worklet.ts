@@ -6,14 +6,14 @@
  * Vite bundles imports together, so we can pull in the full Replayer here.
  */
 
-import type { Sample, Song } from "../mod/types";
+import type { Sample, ModSong } from "../mod/types";
 import { CHANNELS } from "../mod/types";
 import { speedTempoAt } from "../mod/flatten";
 import { Replayer } from "./replayer";
 import type { AmigaModel } from "./paula";
 
 export type WorkletMessage =
-  | { type: "load"; song: Song }
+  | { type: "load"; song: ModSong }
   | { type: "play" }
   | { type: "stop" }
   | { type: "reset" }
@@ -22,7 +22,7 @@ export type WorkletMessage =
   | { type: "setAmigaModel"; model: AmigaModel }
   | { type: "setStereoSeparation"; sep: number }
   | { type: "setSampleData"; slot: number; sample: Sample }
-  | { type: "replaceSong"; song: Song };
+  | { type: "replaceSong"; song: ModSong };
 
 export type WorkletEvent =
   | { type: "pos"; order: number; row: number }
@@ -33,7 +33,7 @@ const LEVEL_UPDATE_HZ = 30;
 
 class RetrotrackerProcessor extends AudioWorkletProcessor {
   private replayer: Replayer | null = null;
-  private song: Song | null = null;
+  private song: ModSong | null = null;
   private playing = false;
   // -1 forces an initial 'pos' post on the first process() call after load/play.
   private lastOrder = -1;
@@ -115,7 +115,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           this.replayer = this.makeReplayer();
           break;
         case "play":
-          // Replayer is one-shot — recreate it from the stored Song if the
+          // Replayer is one-shot — recreate it from the stored ModSong if the
           // previous run finished. This is what makes Play→end→Play work.
           if (this.song && (!this.replayer || this.replayer.isFinished())) {
             this.replayer = this.makeReplayer();
@@ -172,8 +172,8 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           break;
         case "setSampleData":
           // Hot-swap a single sample slot during playback. Both the cached
-          // Song (used to recreate the Replayer on song-end wrap) and the
-          // live Replayer share the same Song reference, so the
+          // ModSong (used to recreate the Replayer on song-end wrap) and the
+          // live Replayer share the same ModSong reference, so the
           // Replayer's `replaceSampleSlot` mutation is enough — no extra
           // bookkeeping here. No-op when no song is loaded yet.
           if (this.song && this.replayer) {
@@ -182,7 +182,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           break;
         case "replaceSong":
           // Hot-swap the whole song reference (order list / pattern array
-          // changes). Update both the cached Song and the live Replayer
+          // changes). Update both the cached ModSong and the live Replayer
           // so the next song-end-wrap recreate also picks up the new
           // shape. Sample data was already hot-swapped per-slot via
           // `setSampleData`, but `msg.song` is authoritative — pushing

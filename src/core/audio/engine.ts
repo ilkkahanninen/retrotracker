@@ -1,6 +1,6 @@
 import workletUrl from "./worklet?worker&url";
 import previewWorkletUrl from "./preview-worklet?worker&url";
-import type { Sample, Song } from "../mod/types";
+import type { Sample, ModSong } from "../mod/types";
 import { songForPlayback, truncateSampleAtLoopEnd } from "./loopTruncate";
 import type { WorkletEvent, WorkletMessage } from "./worklet";
 import type { PreviewMsg } from "./preview-worklet-types";
@@ -128,7 +128,7 @@ export class AudioEngine {
     return this.ctx.sampleRate;
   }
 
-  load(song: Song): void {
+  load(song: ModSong): void {
     // Snapshot the song with trailing-after-loop bytes dropped for any
     // looped samples — see loopTruncate.ts. Keeps the editor's stored data
     // intact (the waveform still shows the full post-pipeline int8) while
@@ -141,7 +141,7 @@ export class AudioEngine {
 
   /**
    * Push a single sample slot's bytes + meta to the worklet without
-   * restarting playback. The Replayer mutates its cached Song so future
+   * restarting playback. The Replayer mutates its cached ModSong so future
    * note triggers use the new data, and re-latches Paula's voice
    * registers for any voice currently playing this slot — so a chiptune
    * morph audibly snaps into the new waveform within one loop period.
@@ -167,7 +167,7 @@ export class AudioEngine {
    * from the new song. Trailing-after-loop bytes are dropped per sample
    * (same `songForPlayback` transform as `load`).
    */
-  replaceSong(song: Song): void {
+  replaceSong(song: ModSong): void {
     const msg: WorkletMessage = {
       type: "replaceSong",
       song: songForPlayback(song),

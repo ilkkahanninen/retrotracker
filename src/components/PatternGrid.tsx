@@ -9,7 +9,7 @@ import {
   untrack,
   type Component,
 } from "solid-js";
-import type { Note, Song } from "../core/mod/types";
+import type { Note, ModSong } from "../core/mod/types";
 import { CHANNELS } from "../core/mod/types";
 import { PERIOD_TABLE } from "../core/mod/format";
 import { flattenSong } from "../core/mod/flatten";
@@ -100,7 +100,7 @@ function effectChars(note: Note, forceShow: boolean): EffectChars {
 }
 
 interface PatternGridProps {
-  song: Song;
+  song: ModSong;
   pos: { order: number; row: number };
   active: boolean;
   /**

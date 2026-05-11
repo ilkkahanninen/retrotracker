@@ -1,4 +1,4 @@
-import type { Note, Pattern, Song } from "./types";
+import type { Note, Pattern, ModSong } from "./types";
 import { CHANNELS } from "./types";
 import { emptyNote } from "./format";
 
@@ -20,7 +20,7 @@ export interface PatternRange {
  * the returned array are FRESH copies — callers can store them on the
  * clipboard without aliasing the song's note objects.
  */
-export function readSlice(song: Song, range: PatternRange): Note[][] | null {
+export function readSlice(song: ModSong, range: PatternRange): Note[][] | null {
   if (range.order < 0 || range.order >= song.songLength) return null;
   const patNum = song.orders[range.order];
   if (patNum === undefined) return null;
@@ -42,11 +42,11 @@ export function readSlice(song: Song, range: PatternRange): Note[][] | null {
 }
 
 /**
- * Zero out every cell inside `range`. Returns a new Song; rows / patterns
+ * Zero out every cell inside `range`. Returns a new ModSong; rows / patterns
  * outside the range share refs with the input. No-op (returns the same
  * song reference) when the range doesn't resolve to a real pattern.
  */
-export function clearRange(song: Song, range: PatternRange): Song {
+export function clearRange(song: ModSong, range: PatternRange): ModSong {
   const target = resolveAndCloneRange(song, range);
   if (!target) return song;
   const { newPatterns, patNum, pattern, sR, eR, sC, eC } = target;
@@ -69,15 +69,15 @@ export function clearRange(song: Song, range: PatternRange): Song {
  * trailing rows just disappear, which is the friendliest behaviour for
  * "paste at cursor".
  *
- * Returns a new Song; an empty / out-of-range slice returns the same ref.
+ * Returns a new ModSong; an empty / out-of-range slice returns the same ref.
  */
 export function pasteSlice(
-  song: Song,
+  song: ModSong,
   slice: Note[][],
   order: number,
   row: number,
   channel: number,
-): Song {
+): ModSong {
   if (slice.length === 0) return song;
   if (order < 0 || order >= song.songLength) return song;
   const patNum = song.orders[order];
@@ -129,11 +129,11 @@ interface RangeContext {
 
 /**
  * Resolve a PatternRange + clone the patterns array so the caller can
- * mutate `newPatterns[patNum]` without aliasing the original Song.
+ * mutate `newPatterns[patNum]` without aliasing the original ModSong.
  * Returns null on the same conditions as `readSlice`.
  */
 function resolveAndCloneRange(
-  song: Song,
+  song: ModSong,
   range: PatternRange,
 ): RangeContext | null {
   if (range.order < 0 || range.order >= song.songLength) return null;

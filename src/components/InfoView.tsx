@@ -1,9 +1,9 @@
 import type { Component } from "solid-js";
-import type { Song } from "../core/mod/types";
+import type { ModSong } from "../core/mod/types";
 import { INFO_MAX_LINES } from "../state/info";
 
 interface Props {
-  song: Song;
+  song: ModSong;
   filename: string | null;
   infoText: string;
   onTitleChange: (title: string) => void;
@@ -12,7 +12,7 @@ interface Props {
 }
 
 /**
- * Song-level metadata editor. Edits to the title round-trip through
+ * ModSong-level metadata editor. Edits to the title round-trip through
  * `commitEditWithWorkbenches` so they participate in undo/redo and stay
  * live during playback; filename and info text are session signals
  * (persisted in `.retro` projects, not in the `.mod` directly — info
@@ -26,7 +26,7 @@ export const InfoView: Component<Props> = (props) => {
       <h2>Info</h2>
 
       <label class="infoview__field">
-        <span class="infoview__label">Song title</span>
+        <span class="infoview__label">ModSong title</span>
         <input
           type="text"
           class="infoview__input"

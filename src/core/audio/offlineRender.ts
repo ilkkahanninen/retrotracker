@@ -1,14 +1,14 @@
-import type { Song } from "../mod/types";
+import type { ModSong } from "../mod/types";
 import { Replayer } from "./replayer";
 import type { RenderOptions, RenderedAudio } from "./types";
 
 const CHUNK = 1024;
 
 /**
- * Render a Song to stereo Float32 buffers offline. Used by the accuracy
+ * Render a ModSong to stereo Float32 buffers offline. Used by the accuracy
  * test bed and the CLI. Same Replayer instance powers the live AudioWorklet.
  */
-export function renderToBuffer(song: Song, opts: RenderOptions): RenderedAudio {
+export function renderToBuffer(song: ModSong, opts: RenderOptions): RenderedAudio {
   const stopOnSongEnd = opts.stopOnSongEnd ?? true;
   const maxFrames = Math.ceil(opts.maxSeconds * opts.sampleRate);
 

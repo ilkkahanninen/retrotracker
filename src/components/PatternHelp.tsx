@@ -6,7 +6,7 @@ import {
   onMount,
   type Component,
 } from "solid-js";
-import type { Note, Song } from "../core/mod/types";
+import type { Note, ModSong } from "../core/mod/types";
 import { PERIOD_TABLE } from "../core/mod/format";
 import type { Cursor, Field } from "../state/cursor";
 import { selection } from "../state/selection";
@@ -412,7 +412,7 @@ function isEffectField(f: Field): boolean {
 }
 
 interface Props {
-  song: Song;
+  song: ModSong;
   cursor: Cursor;
 }
 

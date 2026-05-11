@@ -7,9 +7,9 @@ import {
   emptySong,
   PERIOD_TABLE,
 } from "../../src/core/mod/format";
-import type { Song } from "../../src/core/mod/types";
+import type { ModSong } from "../../src/core/mod/types";
 
-function songFixture(): Song {
+function songFixture(): ModSong {
   const s = emptySong();
   s.title = "ui-test";
   s.patterns = [emptyPattern()];

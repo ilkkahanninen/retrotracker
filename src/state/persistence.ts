@@ -1,6 +1,6 @@
 import { parseModule } from "../core/mod/parser";
 import { writeModule } from "../core/mod/writer";
-import type { Song } from "../core/mod/types";
+import type { ModSong } from "../core/mod/types";
 import { FIELDS, type Cursor, type Field } from "./cursor";
 import type { View } from "./view";
 import type { ChiptuneParams } from "../core/audio/chiptune";
@@ -64,7 +64,7 @@ import { SHAPER_MODES, type ShaperMode } from "../core/audio/shapers";
 
 const STORAGE_KEY = "retrotracker:session:v1";
 
-type SchemaVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+type SchemaVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 /**
  * On-disk shape for one persisted sampler source. The whole sampler-side
@@ -94,6 +94,12 @@ interface PersistedSamplerSource {
 
 interface PersistedShape {
   v: SchemaVersion;
+  /**
+   * v≥9 only: which tracker format the embedded song is. Older payloads
+   * silently treat the song as PT2 — the field is absent on disk and the
+   * loader fills it in.
+   */
+  format?: "PT2" | "FT2";
   songBase64: string;
   filename: string | null;
   /** Optional in v=1: older snapshots predate the Info view and load with ''. */
@@ -146,7 +152,7 @@ export interface SamplerSourceInputs {
 }
 
 export interface SessionInputs {
-  song: Song;
+  song: ModSong;
   filename: string | null;
   /** Optional — defaults to '' when omitted. */
   infoText?: string;
@@ -219,22 +225,22 @@ function base64ToBytes(b64: string): Uint8Array {
 }
 
 /**
- * Cached base64 encoding of the most recently encoded Song. The autosave
+ * Cached base64 encoding of the most recently encoded ModSong. The autosave
  * effect fires on every cursor move / view toggle / current-sample change,
  * but the song itself rarely changes between those firings. Re-running
  * writeModule + base64 on a 16-pattern song with samples is ~10–50 ms of
  * synchronous work; reusing the cached string when `state.song === lastSong`
  * keeps a Cmd+S / autosave roundtrip in the sub-millisecond range.
  *
- * We compare by reference because every commit produces a new Song —
+ * We compare by reference because every commit produces a new ModSong —
  * `commitEdit` builds the new song immutably, so reference equality is a
  * sound proxy for "song unchanged". A direct `setSong` from outside the
  * commit path would invalidate the cache the moment it's called.
  */
-let lastSong: Song | null = null;
+let lastSong: ModSong | null = null;
 let lastBase64: string | null = null;
 
-function encodeSongCached(song: Song): string {
+function encodeSongCached(song: ModSong): string {
   if (lastSong === song && lastBase64 !== null) return lastBase64;
   const b64 = bytesToBase64(writeModule(song));
   lastSong = song;
@@ -281,26 +287,21 @@ function buildPayload(state: SessionInputs): PersistedShape {
     Object.values(state.samplerSources).some((s) =>
       s.chain.some((n) => n.kind === "pitch"),
     );
-  // Lowest version that fits the data — keeps a chiptune/sampler/names-free
-  // session bit-identical to the original v=1 format and lets older builds
-  // keep loading anything they can still understand.
-  const v: SchemaVersion = hasPitch
-    ? 8
-    : hasFilterOrShaper
-      ? 7
-      : hasVolumeEnvelope
-        ? 6
-        : hasMute
-          ? 5
-          : hasPatternNames
-            ? 4
-            : hasSampler
-              ? 3
-              : hasChiptune
-                ? 2
-                : 1;
+  // Once XM landed (v=9), every new write stamps the current version: the
+  // `format` discriminator was added unconditionally and older readers
+  // shouldn't be guessing it. Older builds (pre-XM) will refuse to load
+  // these files; that's the user-confirmed trade-off.
+  void hasPitch;
+  void hasFilterOrShaper;
+  void hasVolumeEnvelope;
+  void hasMute;
+  void hasPatternNames;
+  void hasSampler;
+  void hasChiptune;
+  const v: SchemaVersion = 9;
   return {
     v,
+    format: "PT2",
     songBase64: encodeSongCached(state.song),
     filename: state.filename,
     infoText: state.infoText ?? "",
@@ -353,7 +354,7 @@ function encodeSamplerSources(
  *  `.retro` file-import path so they validate identically. */
 function payloadToSession(parsed: unknown): LoadedSession | null {
   if (!isPersistedShape(parsed)) return null;
-  let song: Song;
+  let song: ModSong;
   try {
     const bytes = base64ToBytes(parsed.songBase64);
     song = parseModule(bytes.buffer);
@@ -940,7 +941,8 @@ function isPersistedShape(v: unknown): v is PersistedShape {
       x["v"] === 5 ||
       x["v"] === 6 ||
       x["v"] === 7 ||
-      x["v"] === 8) &&
+      x["v"] === 8 ||
+      x["v"] === 9) &&
     typeof x["songBase64"] === "string" &&
     (x["filename"] === null || typeof x["filename"] === "string") &&
     (x["infoText"] === undefined || typeof x["infoText"] === "string") &&

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Replayer } from "../src/core/audio/replayer";
 import { emptySong, emptyPattern } from "../src/core/mod/format";
-import type { Song } from "../src/core/mod/types";
+import type { ModSong } from "../src/core/mod/types";
 
 /**
  * `replaceSong` is the worklet's hot-swap path for order-list edits.
@@ -21,7 +21,7 @@ describe("Replayer.replaceSong", () => {
     });
     expect(r.getOrderIndex()).toBe(3);
 
-    const s2: Song = { ...s1, songLength: 2, orders: [...s1.orders] };
+    const s2: ModSong = { ...s1, songLength: 2, orders: [...s1.orders] };
     r.replaceSong(s2);
     expect(r.getOrderIndex()).toBe(1);
   });
@@ -37,7 +37,7 @@ describe("Replayer.replaceSong", () => {
     });
     expect(r.getOrderIndex()).toBe(2);
 
-    const s2: Song = { ...s1, orders: [...s1.orders] };
+    const s2: ModSong = { ...s1, orders: [...s1.orders] };
     s2.orders[2] = 1; // user stepped slot 2 to a different pattern
     r.replaceSong(s2);
     expect(r.getOrderIndex()).toBe(2);
@@ -83,7 +83,7 @@ describe("Replayer.replaceSong", () => {
     // Process enough to land past row 0 but before the song wraps.
     r.process(L, R, 4096);
 
-    const song2: Song = { ...song1, orders: [...song1.orders] };
+    const song2: ModSong = { ...song1, orders: [...song1.orders] };
     song2.orders[0] = 1;
     r.replaceSong(song2);
 
@@ -120,7 +120,7 @@ describe("Replayer.replaceSong", () => {
     const L = new Float32Array(44100 * 4);
     const R = new Float32Array(44100 * 4);
     r.process(L, R, L.length);
-    const s2: Song = { ...s1, orders: [...s1.orders] };
+    const s2: ModSong = { ...s1, orders: [...s1.orders] };
     expect(() => r.replaceSong(s2)).not.toThrow();
   });
 });

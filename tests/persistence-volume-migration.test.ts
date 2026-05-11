@@ -201,7 +201,7 @@ describe("persistence: v=6 is written when any chain has a volume envelope", () 
       },
     });
     const parsed = JSON.parse(new TextDecoder().decode(bytes));
-    expect(parsed.v).toBe(6);
+    expect(parsed.v).toBe(9);
   });
 
   it("a chain with no envelope-bearing nodes serialises at v ≤ 5 (lowest-fits rule)", () => {
@@ -226,7 +226,9 @@ describe("persistence: v=6 is written when any chain has a volume envelope", () 
       },
     });
     const parsed = JSON.parse(new TextDecoder().decode(bytes));
-    expect(parsed.v).toBeLessThanOrEqual(5);
+    // Phase 1: writes always emit v=9 regardless of which optional fields
+    // are populated. The lowest-fits policy was retired.
+    expect(parsed.v).toBe(9);
   });
 
   it("a chain with a filter or shaper bumps the schema to v=7", () => {
@@ -256,7 +258,7 @@ describe("persistence: v=6 is written when any chain has a volume envelope", () 
       },
     });
     const parsed = JSON.parse(new TextDecoder().decode(bytes));
-    expect(parsed.v).toBe(7);
+    expect(parsed.v).toBe(9);
   });
 });
 
@@ -438,7 +440,7 @@ describe("persistence: pitch effect (v=8)", () => {
       },
     });
     const parsed = JSON.parse(new TextDecoder().decode(bytes));
-    expect(parsed.v).toBe(8);
+    expect(parsed.v).toBe(9);
   });
 
   it("a pitch envelope round-trips exactly through projectTo/FromBytes", () => {

@@ -1,4 +1,4 @@
-import type { Note, Song } from "./types";
+import type { Note, ModSong } from "./types";
 import { Effect } from "./format";
 
 /** MOD defaults the replayer falls back to before any Fxx is hit. */
@@ -78,7 +78,7 @@ function getFlatRow(
  * If multiple Dxx commands appear on the same row, the last one (highest
  * channel index) wins for the resume row, matching pt2-clone.
  */
-export function flattenSong(song: Song): FlatRow[] {
+export function flattenSong(song: ModSong): FlatRow[] {
   const out: FlatRow[] = [];
   let nextStartRow = 0;
   for (let o = 0; o < song.songLength; o++) {
@@ -124,7 +124,7 @@ export function flattenSong(song: Song): FlatRow[] {
  * see and never edits.
  */
 export function visibleRowRangeForOrder(
-  song: Song,
+  song: ModSong,
   order: number,
 ): { first: number; last: number } | null {
   const flat = flattenSong(song);
@@ -156,7 +156,7 @@ export function visibleRowRangeForOrder(
  * Fxx of each kind wins, matching the replayer.
  */
 export function speedTempoAt(
-  song: Song,
+  song: ModSong,
   order: number,
   row: number,
   inclusive = false,

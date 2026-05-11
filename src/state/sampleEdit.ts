@@ -1,4 +1,4 @@
-import type { Sample, Song } from "../core/mod/types";
+import type { Sample, ModSong } from "../core/mod/types";
 import {
   clearSample,
   replaceSampleData,
@@ -71,7 +71,7 @@ import { setError } from "./session";
 export const NO_LOOP = { loopStartWords: 0, loopLengthWords: 1 };
 
 /** Lowest empty slot (`lengthWords === 0`) strictly after `from`. */
-export function nextFreeSlot(s: Song | null, from: number): number | null {
+export function nextFreeSlot(s: ModSong | null, from: number): number | null {
   if (!s) return null;
   for (let i = from + 1; i < s.samples.length; i++) {
     if (s.samples[i]!.lengthWords === 0) return i;
@@ -95,11 +95,11 @@ export function nextFreeSlot(s: Song | null, from: number): number | null {
  * beats both the chiptune full-loop rule and the preserve-old fallback.
  */
 export function writeWorkbenchToSongPure(
-  s: Song,
+  s: ModSong,
   slot: number,
   wb: SampleWorkbench,
   loopOverride?: { loopStartWords: number; loopLengthWords: number },
-): Song {
+): ModSong {
   const old = s.samples[slot];
   // Loop-aware effects (currently just crossfade) re-scale these into
   // their own input frame space, so a `crop → crossfade` chain places

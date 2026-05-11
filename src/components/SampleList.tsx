@@ -1,10 +1,10 @@
 import { For, Show, createSignal, type Component } from "solid-js";
-import type { Song } from "../core/mod/types";
+import type { ModSong } from "../core/mod/types";
 import { currentSample } from "../state/edit";
 import { SAMPLE_NAME_MAX } from "../core/mod/sampleImport";
 
 interface Props {
-  song: Song | null;
+  song: ModSong | null;
   onSelect: (index1Based: number) => void;
   onRename: (index1Based: number, name: string) => void;
   /**

@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import type { Song } from "../core/mod/types";
+import type { ModSong } from "../core/mod/types";
 import { CHANNELS } from "../core/mod/types";
 import { flattenSong } from "../core/mod/flatten";
 
@@ -75,7 +75,7 @@ export function requestJumpToTop(): void {
 // ─── Pure movement primitives ─────────────────────────────────────────────
 
 /** Find the cursor's index in the flat list, or -1 if its row is hidden. */
-function flatIndexOf(c: Cursor, song: Song): number {
+function flatIndexOf(c: Cursor, song: ModSong): number {
   const flat = flattenSong(song);
   for (let i = 0; i < flat.length; i++) {
     const fr = flat[i]!;
@@ -85,7 +85,7 @@ function flatIndexOf(c: Cursor, song: Song): number {
 }
 
 /** Place the cursor at the given flat-list index (clamped). */
-function atFlatIndex(c: Cursor, song: Song, target: number): Cursor {
+function atFlatIndex(c: Cursor, song: ModSong, target: number): Cursor {
   const flat = flattenSong(song);
   if (flat.length === 0) return c;
   const clamped = Math.max(0, Math.min(flat.length - 1, target));
@@ -113,7 +113,7 @@ export function moveRight(c: Cursor): Cursor {
 // before the cursor's (order, row) before applying `delta` — that way the
 // user "uncovers" themselves onto a real row instead of teleporting to the
 // song's start, which is what `idx < 0 ? 0 : idx` did before.
-function moveByRows(c: Cursor, song: Song, delta: number): Cursor {
+function moveByRows(c: Cursor, song: ModSong, delta: number): Cursor {
   const idx = flatIndexOf(c, song);
   if (idx >= 0) return atFlatIndex(c, song, idx + delta);
   const flat = flattenSong(song);
@@ -128,19 +128,19 @@ function moveByRows(c: Cursor, song: Song, delta: number): Cursor {
   return atFlatIndex(c, song, snap + delta);
 }
 
-export function moveUp(c: Cursor, song: Song): Cursor {
+export function moveUp(c: Cursor, song: ModSong): Cursor {
   return moveByRows(c, song, -1);
 }
 
-export function moveDown(c: Cursor, song: Song): Cursor {
+export function moveDown(c: Cursor, song: ModSong): Cursor {
   return moveByRows(c, song, 1);
 }
 
-export function pageUp(c: Cursor, song: Song, pageRows: number): Cursor {
+export function pageUp(c: Cursor, song: ModSong, pageRows: number): Cursor {
   return moveByRows(c, song, -Math.max(1, pageRows));
 }
 
-export function pageDown(c: Cursor, song: Song, pageRows: number): Cursor {
+export function pageDown(c: Cursor, song: ModSong, pageRows: number): Cursor {
   return moveByRows(c, song, Math.max(1, pageRows));
 }
 

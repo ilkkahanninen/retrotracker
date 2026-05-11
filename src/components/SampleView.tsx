@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createMemo, type Component } from "solid-js";
-import type { Sample, Song } from "../core/mod/types";
+import type { Sample, ModSong } from "../core/mod/types";
 import { currentSample } from "../state/edit";
 import { workbenches } from "../state/sampleWorkbench";
 import { getStashedLoop, stashLoop } from "../state/loopStash";
@@ -92,7 +92,7 @@ function encodeFinetune(signed: number): number {
 }
 
 interface Props {
-  song: Song;
+  song: ModSong;
   /** Append a point to the envelope addressed by `(chainIndex, param)`. */
   onAddEnvelopePoint: (
     chainIndex: number,

@@ -1,4 +1,4 @@
-import type { Song, Sample } from "../mod/types";
+import type { ModSong, Sample } from "../mod/types";
 
 /**
  * Sidestep PT/Amiga's loopStart=0 quirk by feeding the live-playback path
@@ -9,7 +9,7 @@ import type { Song, Sample } from "../mod/types";
  * preview (Web Audio's source.loop never plays past loopEnd).
  *
  * This module is the editor-side fix: drop the trailing bytes ONLY in the
- * snapshot we hand to the worklet. The Song held on the main thread keeps
+ * snapshot we hand to the worklet. The ModSong held on the main thread keeps
  * the full post-pipeline int8 — that's what the waveform shows, and the
  * user can drag the loop end back outward at any time. The trailing data
  * is preserved.
@@ -32,6 +32,6 @@ export function truncateSampleAtLoopEnd(s: Sample): Sample {
 }
 
 /** Apply `truncateSampleAtLoopEnd` to every populated sample in the song. */
-export function songForPlayback(song: Song): Song {
+export function songForPlayback(song: ModSong): ModSong {
   return { ...song, samples: song.samples.map(truncateSampleAtLoopEnd) };
 }

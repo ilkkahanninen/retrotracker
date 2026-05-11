@@ -1,6 +1,6 @@
 /**
  * Sample workbench — a per-slot, session-only editing pipeline that lives
- * outside the Song.
+ * outside the ModSong.
  *
  *   source → effect chain → PT transformer → Int8Array
  *

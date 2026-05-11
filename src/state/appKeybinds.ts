@@ -35,7 +35,7 @@ import {
   stopEnginePreview,
 } from "./playback";
 import * as preview from "./preview";
-import type { Song } from "../core/mod/types";
+import type { ModSong } from "../core/mod/types";
 
 /**
  * Piano-row key mapping → semitone offset from the current octave's C.
@@ -113,7 +113,7 @@ export interface AppKeybindHandlers {
   pasteAtCursor: () => void;
   bounceSelectionToSample: () => void;
   applyCursor: (next: Cursor) => void;
-  applyCursorWithSong: (mover: (c: Cursor, s: Song) => Cursor) => void;
+  applyCursorWithSong: (mover: (c: Cursor, s: ModSong) => Cursor) => void;
   extendSelection: (next: Cursor) => void;
   stepChannelLeft: (c: Cursor) => Cursor;
   stepChannelRight: (c: Cursor) => Cursor;

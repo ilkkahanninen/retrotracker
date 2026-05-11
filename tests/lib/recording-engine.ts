@@ -18,7 +18,7 @@
 
 import { vi } from "vitest";
 import { AudioEngine } from "../../src/core/audio/engine";
-import type { Sample, Song } from "../../src/core/mod/types";
+import type { Sample, ModSong } from "../../src/core/mod/types";
 import type { AmigaModel } from "../../src/core/audio/paula";
 
 export interface EngineCall {
@@ -43,13 +43,13 @@ export class RecordingEngine {
     this.calls.push({ method, args });
   }
 
-  load(song: Song): void {
+  load(song: ModSong): void {
     this.rec("load", [song]);
   }
   setSampleData(slot: number, sample: Sample): void {
     this.rec("setSampleData", [slot, sample]);
   }
-  replaceSong(song: Song): void {
+  replaceSong(song: ModSong): void {
     this.rec("replaceSong", [song]);
   }
   async play(): Promise<void> {

@@ -1,6 +1,6 @@
 import { createEffect } from "solid-js";
 import { CHANNELS } from "../core/mod/types";
-import type { Sample, Song } from "../core/mod/types";
+import type { Sample, ModSong } from "../core/mod/types";
 import { song, transport } from "./song";
 import { currentEngine } from "./playback";
 import { isChannelMuted } from "./channelMute";
@@ -50,8 +50,8 @@ export function installEngineSync(): void {
   // always produce fresh objects when something changes, so `!==` is the
   // right gate.
   let prevSamples: Sample[] | null = null;
-  let prevOrders: Song["orders"] | null = null;
-  let prevPatterns: Song["patterns"] | null = null;
+  let prevOrders: ModSong["orders"] | null = null;
+  let prevPatterns: ModSong["patterns"] | null = null;
   let prevSongLength: number | null = null;
   createEffect(() => {
     const s = song();

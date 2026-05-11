@@ -8,10 +8,10 @@ import {
   Effect,
   PERIOD_TABLE,
 } from "../src/core/mod/format";
-import type { Song } from "../src/core/mod/types";
+import type { ModSong } from "../src/core/mod/types";
 
 /** Build a 1-pattern song with one sample (single-byte int8 fixture). */
-function songWithSample(sampleData: Int8Array, name = "test"): Song {
+function songWithSample(sampleData: Int8Array, name = "test"): ModSong {
   const s = emptySong();
   const sm = emptySample();
   sm.name = name;
@@ -25,7 +25,7 @@ function songWithSample(sampleData: Int8Array, name = "test"): Song {
 
 /** Place a note + sample trigger on (row, channel). */
 function placeNote(
-  s: Song,
+  s: ModSong,
   row: number,
   channel: number,
   period: number,

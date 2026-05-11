@@ -9,14 +9,14 @@ import {
   emptySong,
   PERIOD_TABLE,
 } from "../../src/core/mod/format";
-import type { Song } from "../../src/core/mod/types";
+import type { ModSong } from "../../src/core/mod/types";
 
 const STORAGE_KEY = "retrotracker:session:v1";
 
 beforeEach(() => clearSession());
 afterEach(() => clearSession());
 
-function songWithStamps(): Song {
+function songWithStamps(): ModSong {
   const s = emptySong();
   s.title = "persisted";
   s.patterns = [emptyPattern()];
@@ -36,7 +36,7 @@ function songWithStamps(): Song {
   return s;
 }
 
-const baseInputs = (song: Song) => ({
+const baseInputs = (song: ModSong) => ({
   song,
   filename: "demo.mod",
   view: "pattern" as const,

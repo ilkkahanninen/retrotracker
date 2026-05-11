@@ -1,13 +1,13 @@
 import { CHANNELS, MAX_ORDERS, NUM_SAMPLES, ROWS_PER_PATTERN } from "./types";
-import type { Note, Pattern, Sample, Song } from "./types";
+import type { ModSong, Note, Pattern, Sample } from "./types";
 
 const HEADER_SIZE = 1084;
 
 /**
- * Serialize a Song into a strict 4-channel ProTracker module ("M.K.").
+ * Serialize a ModSong into a strict 4-channel ProTracker module ("M.K.").
  * Always writes 31 sample slots, 128 order entries, and signature "M.K.".
  */
-export function writeModule(song: Song): Uint8Array {
+export function writeModule(song: ModSong): Uint8Array {
   if (song.samples.length !== NUM_SAMPLES) {
     throw new Error(
       `Song must have exactly ${NUM_SAMPLES} samples (got ${song.samples.length})`,

@@ -1,8 +1,11 @@
 import { createSignal } from "solid-js";
-import type { Song } from "../core/mod/types";
+import type { ModSong } from "../core/mod/types";
+import type { ProjectFormat, Song } from "../core/song";
 import { emptySong } from "../core/mod/format";
+import { emptyXmSong } from "../core/xm/format";
 import { parseModule } from "../core/mod/parser";
 import { writeModule } from "../core/mod/writer";
+import { isXmFile } from "../core/xm/sniff";
 import {
   workbenchFromChiptune,
   workbenchFromWavData,
@@ -94,6 +97,15 @@ export interface LoadedSession {
 
 export function applyLoadedSession(loaded: LoadedSession): void {
   if (!loaded.song) return;
+  // Phase 1: the editor runtime only handles ModSong. The mode picker can
+  // produce an XmSong via newProject("FT2"), but the rest of the editor
+  // (signal, mutations, replayer) isn't wired for it yet. Reject here so
+  // the user sees a clear error instead of a runtime explosion.
+  if (loaded.song.format !== "PT2") {
+    setError("FT2 mode not yet supported (editor wiring arrives in Phase 3)");
+    return;
+  }
+  const ptSong = loaded.song;
   // Halt the worklet AND flip transport BEFORE setSong: the live-edit
   // createEffect reads `transport()` and would otherwise dispatch wasted
   // setSampleData / replaceSong messages to the stopped worklet for
@@ -110,7 +122,7 @@ export function applyLoadedSession(loaded: LoadedSession): void {
   if (loaded.mutedChannels || loaded.soloedChannels) {
     setChannelMuteState(loaded.mutedChannels, loaded.soloedChannels);
   }
-  setSong(loaded.song);
+  setSong(ptSong);
   setFilename(loaded.filename);
   setInfoText(loaded.infoText ?? "");
   if (loaded.view) setView(loaded.view);
@@ -151,7 +163,11 @@ export function applyLoadedSession(loaded: LoadedSession): void {
   setDirty(false);
 }
 
-/** Sniffs the extension: `.retro` → project, anything else → strict M.K. `.mod`. */
+/**
+ * Sniffs the file: `.retro` → project, "Extended Module: " magic → XM (FT2),
+ * anything else → strict M.K. `.mod`. The XM path is a stub in Phase 1 — the
+ * parser arrives in Phase 2.
+ */
 export async function loadFile(file: File): Promise<void> {
   setError(null);
   try {
@@ -160,6 +176,10 @@ export async function loadFile(file: File): Promise<void> {
       const loaded = projectFromBytes(buf);
       if (!loaded) throw new Error("Invalid .retro project");
       applyLoadedSession(loaded);
+    } else if (isXmFile(buf)) {
+      throw new Error(
+        "FT2 mode not yet supported (.xm parser arrives in Phase 2)",
+      );
     } else {
       const mod = parseModule(buf.buffer);
       applyLoadedSession({
@@ -180,7 +200,7 @@ export async function loadFile(file: File): Promise<void> {
  * user never edited. Per-line truncation matches the .mod sample-name
  * field width (22 chars) so writeModule's writeAscii doesn't drop the tail.
  */
-export function withInfoTextAsSampleNames(s: Song, text: string): Song {
+export function withInfoTextAsSampleNames(s: ModSong, text: string): ModSong {
   if (text.length === 0) return s;
   const lines = wrapInfoText(text, INFO_LINE_WIDTH, INFO_MAX_LINES);
   const samples = s.samples.map((sample, i) => ({
@@ -221,7 +241,7 @@ export function samplerSourcesSnapshot(): Record<number, SamplerSourceInputs> {
 
 export function exportMod(): void {
   const s = song();
-  if (!s) return;
+  if (!s || s.format !== "PT2") return;
   const stamped = withInfoTextAsSampleNames(s, infoText());
   const bytes = writeModule(stamped);
   io.download(deriveExportFilename(filename(), s.title), bytes, "audio/x-mod");
@@ -236,7 +256,7 @@ export function exportMod(): void {
  */
 export function exportWav(): void {
   const s = song();
-  if (!s) return;
+  if (!s || s.format !== "PT2") return;
   const stamped = withInfoTextAsSampleNames(s, infoText());
   const playbackSong = songForPlayback(stamped);
   const sampleRate = 44100;
@@ -288,7 +308,7 @@ export function saveProject(): void {
   setDirty(false);
 }
 
-export function newProject(): void {
+export function newProject(format: ProjectFormat = "PT2"): void {
   // jsdom stubs `window.confirm` to true so tests don't hang on the prompt.
   if (dirty()) {
     const ok =
@@ -297,5 +317,6 @@ export function newProject(): void {
         : true;
     if (!ok) return;
   }
-  applyLoadedSession({ song: emptySong(), filename: null });
+  const fresh = format === "FT2" ? emptyXmSong() : emptySong();
+  applyLoadedSession({ song: fresh, filename: null });
 }

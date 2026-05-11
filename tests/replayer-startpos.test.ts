@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { Replayer } from "../src/core/audio/replayer";
 import { emptyPattern, emptySong } from "../src/core/mod/format";
-import type { Song } from "../src/core/mod/types";
+import type { ModSong } from "../src/core/mod/types";
 
 const SR = 44100;
 
 /** Build a song with N empty patterns, orders [0..N-1]. */
-function songWith(numPatterns: number): Song {
+function songWith(numPatterns: number): ModSong {
   const s = emptySong();
   s.patterns = Array.from({ length: numPatterns }, emptyPattern);
   s.songLength = numPatterns;

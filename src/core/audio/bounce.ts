@@ -10,7 +10,7 @@
  * while leaving room for our sinc resampler to do its work.
  */
 
-import type { Song } from "../mod/types";
+import type { ModSong } from "../mod/types";
 import type { PatternSelection } from "../../state/selection";
 import { CHANNELS, ROWS_PER_PATTERN, type Pattern } from "../mod/types";
 import { Effect, emptyNote, emptyPattern, emptySong } from "../mod/format";
@@ -38,7 +38,7 @@ function samplesPerTickAt(tempo: number, sampleRate: number): number {
  * channels process left-to-right and the last Fxx of each kind wins.
  */
 function selectionFrameCount(
-  song: Song,
+  song: ModSong,
   sel: PatternSelection,
   sampleRate: number,
 ): number {
@@ -73,7 +73,7 @@ function selectionFrameCount(
  * Sample slots are deep-shared with the source song: the audio data is
  * read-only at playback time, so referential sharing is safe.
  */
-function buildSelectionSong(song: Song, sel: PatternSelection): Song {
+function buildSelectionSong(song: ModSong, sel: PatternSelection): ModSong {
   const sourcePat = song.patterns[song.orders[sel.order] ?? 0];
   const out: Pattern = emptyPattern();
   if (!sourcePat) return { ...emptySong(), samples: song.samples };
@@ -131,7 +131,7 @@ export interface BounceOptions {
  * `workbenchFromWavData` and lands it in the next free sample slot.
  */
 export function bounceSelection(
-  song: Song,
+  song: ModSong,
   sel: PatternSelection,
   opts: BounceOptions = {},
 ): BounceResult | null {

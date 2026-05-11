@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import type { Song } from "../core/mod/types";
+import type { ModSong } from "../core/mod/types";
 import {
   workbenches as workbenchesSig,
   setWorkbenchesRaw,
@@ -12,10 +12,15 @@ import {
 
 /**
  * Loaded song. Held as a signal so the UI reactively re-renders on swap;
- * the Song itself is not deeply reactive — pattern editing will go through
+ * the ModSong itself is not deeply reactive — pattern editing will go through
  * a dedicated store later when we wire up editing.
+ *
+ * Phase 1: this signal is intentionally narrow to PT2 (`ModSong`). FT2 mode
+ * is plumbed through the loader and picker, but selecting it currently
+ * surfaces an error — no XmSong reaches the editor runtime yet. The signal
+ * widens to `Song` (the union) in Phase 2 when the XM parser lands.
  */
-export const [song, setSong] = createSignal<Song | null>(null);
+export const [song, setSong] = createSignal<ModSong | null>(null);
 
 export type Transport = "idle" | "ready" | "playing";
 export const [transport, setTransport] = createSignal<Transport>("idle");
@@ -52,7 +57,7 @@ export const [dirty, setDirty] = createSignal(false);
  *
  * Snapshot-based: each commit pushes a `{ song, workbenches }` tuple onto
  * the past stack and replaces both signals with the new ones. We bundle the
- * workbench map alongside the Song so undo/redo of a sample-pipeline edit
+ * workbench map alongside the ModSong so undo/redo of a sample-pipeline edit
  * reverts BOTH the chain (visible in the pipeline UI) and the int8 data
  * (visible in the waveform) atomically — without this, undoing an effect
  * would silently desync the editor: the chain stayed at its post-edit state
@@ -69,7 +74,7 @@ export const [dirty, setDirty] = createSignal(false);
 export const HISTORY_LIMIT = 200;
 
 interface EditState {
-  song: Song;
+  song: ModSong;
   workbenches: WorkbenchMap;
   /**
    * Pattern names (project-only state) bundled into the snapshot so an op
@@ -201,7 +206,7 @@ function applyCommit(next: EditState): void {
  * No-op if no song is loaded, the transform returns the same reference, or
  * the transport is currently playing.
  */
-export function commitEdit(transform: (song: Song) => Song): void {
+export function commitEdit(transform: (song: ModSong) => ModSong): void {
   if (transport() === "playing") return;
   const current = song();
   if (!current) return;

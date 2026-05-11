@@ -1,5 +1,5 @@
 /**
- * Browser-side I/O helpers — exporting a Song to a downloadable .mod file.
+ * Browser-side I/O helpers — exporting a ModSong to a downloadable .mod file.
  *
  * `deriveExportFilename` is pure (unit-testable). The actual DOM dance lives
  * on the `io` object so tests can stub it cheaply (`io.download = vi.fn()`).
