@@ -37,10 +37,10 @@ import {
   enterXmEffectChar,
   enterXmHexDigit,
   enterXmKeyOff,
-  enterXmNote,
   extendXmSelection,
   insertEmptyXmCell,
   insertEmptyXmRow,
+  onXmPianoKey,
   pasteXmAtCursor,
   repeatLastXmEffectFromAbove,
   selectAllXmStep,
@@ -229,8 +229,9 @@ export function registerXmAppKeybinds(): Array<() => void> {
   );
 
   // ─── Note entry ──────────────────────────────────────────────────────
-  // Piano-row only fires on the note field (so the same physical keys
-  // can route to hex digits / effect letters elsewhere in the cell).
+  // Piano-row fires in two places: the pattern grid (cursor on the note
+  // field → commit + audible preview) and the instrument view (any
+  // cursor field → preview only). `onXmPianoKey` is the dispatcher.
   for (const [k, offset] of Object.entries(PIANO_KEYS)) {
     cleanups.push(
       registerShortcut({
@@ -240,9 +241,8 @@ export function registerXmAppKeybinds(): Array<() => void> {
         when: () =>
           isFt2Mode() &&
           transport() !== "playing" &&
-          view() !== "sample" &&
-          xmCursor().field === "note",
-        run: () => enterXmNote(offset),
+          (view() === "sample" || xmCursor().field === "note"),
+        run: () => onXmPianoKey(offset),
         runUp: () => {
           stopEnginePreview();
           preview.stopPreview();

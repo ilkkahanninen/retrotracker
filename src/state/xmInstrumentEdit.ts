@@ -9,6 +9,7 @@ import type { XmEnvelope, XmEnvelopePoint, XmSample } from "../core/xm/types";
 import {
   addXmEnvelopePoint as addXmEnvelopePointMutation,
   addXmInstrumentSample as addXmInstrumentSampleMutation,
+  clearXmInstrument as clearXmInstrumentMutation,
   patchXmInstrumentAutoVibrato as patchXmInstrumentAutoVibratoMutation,
   patchXmInstrumentEnvelope as patchXmInstrumentEnvelopeMutation,
   patchXmInstrumentSample as patchXmInstrumentSampleMutation,
@@ -20,7 +21,11 @@ import {
   setXmInstrumentKeyMap as setXmInstrumentKeyMapMutation,
   setXmInstrumentSample as setXmInstrumentSampleMutation,
 } from "../core/xm/mutations";
-import { commitEditXm } from "./song";
+import { setCurrentXmSampleIndex } from "./xmEdit";
+import { commitEditXm, xm2Song } from "./song";
+
+const XM_SAMPLE_NAME_MAX = 22;
+const XM_MAX_SAMPLES_PER_INSTRUMENT = 16;
 
 export type XmEnvelopeKind = "volume" | "panning";
 
@@ -122,4 +127,76 @@ export function removeXmSample(slot1Based: number, sampleIndex: number): void {
 /** Replace the instrument's 96-byte note → sample-index map. */
 export function setXmKeyMap(slot1Based: number, keyMap: Uint8Array): void {
   commitEditXm((s) => setXmInstrumentKeyMapMutation(s, slot1Based, keyMap));
+}
+
+/**
+ * Duplicate the sample at `sampleIndex` into the next free slot on the
+ * same instrument (capped at 16). Appends " copy" to the name (trimmed
+ * to the 22-char XM limit) and switches the active sample to the new
+ * one. No-op when the cap is reached.
+ */
+export function duplicateXmSample(
+  slot1Based: number,
+  sampleIndex: number,
+): void {
+  const s = xm2Song();
+  if (!s) return;
+  const inst = s.instruments[slot1Based - 1];
+  if (!inst) return;
+  if (inst.samples.length >= XM_MAX_SAMPLES_PER_INSTRUMENT) return;
+  const src = inst.samples[sampleIndex];
+  if (!src) return;
+  const copyName =
+    src.name.length > 0
+      ? `${src.name} copy`.slice(0, XM_SAMPLE_NAME_MAX)
+      : "copy";
+  const copyData: Int8Array | Int16Array =
+    src.bits === 8
+      ? new Int8Array(src.data as Int8Array)
+      : new Int16Array(src.data as Int16Array);
+  const dup: XmSample = { ...src, name: copyName, data: copyData };
+  const newIndex = inst.samples.length;
+  commitEditXm((song) =>
+    setXmInstrumentSampleMutation(song, slot1Based, dup, newIndex),
+  );
+  setCurrentXmSampleIndex(newIndex);
+}
+
+/**
+ * Wipe the entire instrument at the given slot — samples, envelopes,
+ * autovibrato, keymap, name. The slot reads as empty afterwards. Used
+ * by the "Clear instrument" header action.
+ */
+export function clearXmInstrument(slot1Based: number): void {
+  commitEditXm((s) => clearXmInstrumentMutation(s, slot1Based));
+}
+
+/**
+ * Reset the sample's data to an empty buffer of the same bit depth and
+ * drop loop fields. Keeps the rest of the metadata (volume, panning,
+ * relative note, finetune, name) so the user can repopulate the slot
+ * without re-setting their tuning.
+ */
+export function clearXmSampleData(
+  slot1Based: number,
+  sampleIndex: number,
+): void {
+  const s = xm2Song();
+  if (!s) return;
+  const inst = s.instruments[slot1Based - 1];
+  if (!inst) return;
+  const src = inst.samples[sampleIndex];
+  if (!src) return;
+  const emptyData: Int8Array | Int16Array =
+    src.bits === 8 ? new Int8Array(0) : new Int16Array(0);
+  const cleared: XmSample = {
+    ...src,
+    data: emptyData,
+    loopStart: 0,
+    loopLength: 0,
+    loopType: "none",
+  };
+  commitEditXm((song) =>
+    setXmInstrumentSampleMutation(song, slot1Based, cleared, sampleIndex),
+  );
 }

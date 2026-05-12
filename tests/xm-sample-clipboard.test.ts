@@ -138,7 +138,7 @@ describe("XM sample selection + range edits", () => {
     ]);
   });
 
-  it("crop shifts loop start by `start` and clamps loop end into the new buffer", () => {
+  it("crop clamps loop fields into the new (shorter) buffer", () => {
     const s = xm2Song()!;
     s.instruments[0]!.samples[0]!.loopStart = 1;
     s.instruments[0]!.samples[0]!.loopLength = 6;
@@ -146,9 +146,13 @@ describe("XM sample selection + range edits", () => {
     setSong({ ...s });
     cropXmCurrentSampleToSelection(2, 6); // keeps frames 2..5 → 4 frames
     const sample = xm2Song()!.instruments[0]!.samples[0]!;
-    // Loop was [1, 7); after crop by start=2 it shifts to [-1, 5) → clamped to [0, 4).
-    expect(sample.loopStart).toBe(0);
-    expect(sample.loopLength).toBe(4);
+    // Crop is non-destructive (it's an effect node on the chain), so
+    // loop fields stay in the sample's original tick-space and just
+    // clamp to the new shorter buffer. loopStart=1 stays at 1; the
+    // remaining buffer after loopStart is 3 frames, so loopLength
+    // clamps from 6 down to 3.
+    expect(sample.loopStart).toBe(1);
+    expect(sample.loopLength).toBe(3);
     expect(sample.loopType).toBe("forward");
   });
 
@@ -158,8 +162,11 @@ describe("XM sample selection + range edits", () => {
     s.instruments[0]!.samples[0]!.loopLength = 2;
     s.instruments[0]!.samples[0]!.loopType = "forward";
     setSong({ ...s });
-    cropXmCurrentSampleToSelection(0, 4); // drops frames 4..7 entirely
+    cropXmCurrentSampleToSelection(0, 4); // chain output now 4 frames
     const sample = xm2Song()!.instruments[0]!.samples[0]!;
+    // loopStart=6 clamps into the 4-frame buffer → 3; loopLength=2
+    // collapses to 0 because there are only `data.length - loopStart`
+    // = 1 frame past the (clamped) start. loopType flips to "none".
     expect(sample.loopLength).toBe(0);
     expect(sample.loopType).toBe("none");
   });
@@ -170,5 +177,16 @@ describe("XM sample selection + range edits", () => {
     // After crop the buffer is 4 frames; the selection is cleared.
     // We assert via effectiveXmSampleRange falling back to whole-sample.
     expect(effectiveXmSampleRange()).toEqual({ start: 0, end: 4 });
+  });
+
+  it("crop is non-destructive — removing the chain effect restores the original data", async () => {
+    cropXmCurrentSampleToSelection(2, 6);
+    expect(xm2Song()!.instruments[0]!.samples[0]!.data.length).toBe(4);
+    // The chain now carries the crop effect; remove it to undo.
+    const { removeXmEffect } = await import("../src/state/xmSampleEdit");
+    removeXmEffect(0);
+    expect(Array.from(xm2Song()!.instruments[0]!.samples[0]!.data)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8,
+    ]);
   });
 });

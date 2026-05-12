@@ -13,3 +13,12 @@ export type View = "pattern" | "sample" | "info" | "settings";
 export const VIEWS: readonly View[] = ["pattern", "sample", "info", "settings"];
 
 export const [view, setView] = createSignal<View>("pattern");
+
+/**
+ * Collapsed state of the FT2 InstrumentView's right-hand panel
+ * (key map + envelopes + autovibrato). Session-only, defaults to
+ * expanded. Lives at the view layer so the toggle persists across
+ * re-mounts when the user flips view modes.
+ */
+export const [xmRightPanelCollapsed, setXmRightPanelCollapsed] =
+  createSignal(false);

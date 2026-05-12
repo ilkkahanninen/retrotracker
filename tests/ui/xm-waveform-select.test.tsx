@@ -73,7 +73,7 @@ describe("XM waveform selection + clipboard buttons", () => {
     setXmSampleSelection({ start: 2, end: 6 });
     const cropBtn = Array.from(
       view.container.querySelectorAll<HTMLButtonElement>(
-        ".instrument-view__selection-actions button",
+        ".sampleview__selection button",
       ),
     ).find((b) => b.textContent?.includes("Crop"));
     expect(cropBtn).toBeDefined();

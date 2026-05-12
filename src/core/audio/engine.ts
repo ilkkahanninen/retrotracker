@@ -291,11 +291,78 @@ export class AudioEngine {
     node.port.postMessage(msg);
   }
 
+  /**
+   * Active XM preview source. AudioBufferSourceNode is one-shot and
+   * doesn't survive a hot-swap, so each `previewXmBuffer` call mints a
+   * fresh node, tracks it here, and stops the previous one — same
+   * "rapid key presses don't pile up voices" guarantee the PT preview
+   * worklet enforces via gapless data-swap.
+   */
+  private xmPreviewSource: AudioBufferSourceNode | null = null;
+
+  /**
+   * XM-flavoured preview: play a pre-rendered stereo buffer (typically
+   * produced on the main thread by running XmReplayer with a synthetic
+   * one-channel song that triggers the note). Routes through the same
+   * `masterGainNode` as the song + PT preview, so perceived loudness
+   * stays consistent across all audition paths.
+   *
+   * Pre-rendered (vs. running XmReplayer in a worklet) so we get the
+   * full XM voice model — envelopes, autovibrato, fadeout, ping-pong —
+   * without bundling the replayer source into a worklet. Trade-off:
+   * the audio is fixed at trigger time, so live parameter edits
+   * during a held key won't morph the voice (acceptable for an
+   * audition).
+   */
+  async playXmPreviewBuffer(
+    left: Float32Array,
+    right: Float32Array,
+    bufferSampleRate: number,
+  ): Promise<void> {
+    if (left.length === 0) return;
+    if (this.ctx.state === "suspended") await this.ctx.resume();
+    // Stop any in-flight XM preview before starting a new one.
+    if (this.xmPreviewSource) {
+      try {
+        this.xmPreviewSource.stop();
+      } catch {
+        // already ended
+      }
+      this.xmPreviewSource.disconnect();
+      this.xmPreviewSource = null;
+    }
+    const buf = this.ctx.createBuffer(2, left.length, bufferSampleRate);
+    // The buffer's getChannelData returns Float32Array<ArrayBuffer>
+    // (strict, not SharedArrayBuffer-aware), so go through it directly
+    // rather than wrestling copyToChannel's typing.
+    buf.getChannelData(0).set(left);
+    buf.getChannelData(1).set(right);
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(this.masterGainNode);
+    src.onended = () => {
+      if (this.xmPreviewSource === src) this.xmPreviewSource = null;
+      src.disconnect();
+    };
+    src.start();
+    this.xmPreviewSource = src;
+  }
+
   /** Stop any active preview note. */
   stopPreview(): void {
-    if (!this.previewNode) return;
-    const msg: PreviewMsg = { type: "stop" };
-    this.previewNode.port.postMessage(msg);
+    if (this.previewNode) {
+      const msg: PreviewMsg = { type: "stop" };
+      this.previewNode.port.postMessage(msg);
+    }
+    if (this.xmPreviewSource) {
+      try {
+        this.xmPreviewSource.stop();
+      } catch {
+        // already ended
+      }
+      this.xmPreviewSource.disconnect();
+      this.xmPreviewSource = null;
+    }
   }
 
   async dispose(): Promise<void> {

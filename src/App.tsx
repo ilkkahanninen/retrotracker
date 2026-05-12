@@ -80,6 +80,7 @@ import {
   stepPrevPattern,
 } from "./state/orderEdit";
 import {
+  dropWavsToXmPatternView,
   loadWavsIntoFreeSlots,
   loadWavsIntoSlot,
   loadWavsIntoXmSlot,
@@ -332,11 +333,16 @@ export const App: Component = () => {
     const files = e.dataTransfer?.files;
     if (!files || files.length === 0) return;
     // A single .mod / .xm / .retro replaces the current project — anything
-    // else is treated as a batch of WAV imports and fanned out across free
-    // slots.
+    // else is treated as a batch of WAV imports. PT2 fans WAVs across
+    // free sample slots; FT2 bundles them into a fresh multi-sample
+    // instrument in the first empty slot.
     const first = files[0]!;
     if (files.length === 1 && /\.(mod|xm|retro)$/i.test(first.name)) {
       void loadFile(first);
+      return;
+    }
+    if (xm2Song()) {
+      void dropWavsToXmPatternView(Array.from(files));
       return;
     }
     void loadWavsIntoFreeSlots(Array.from(files));
@@ -941,9 +947,17 @@ export const App: Component = () => {
                 const arr: SlotDisplay[] = new Array(XM_MAX_INSTRUMENTS);
                 for (let i = 0; i < XM_MAX_INSTRUMENTS; i++) {
                   const inst = insts[i];
+                  // An instrument reads as "empty" when there's no
+                  // entry at all, no samples, or every sample has
+                  // zero data bytes — matches firstEmptyXmSlot so a
+                  // freshly-cleared slot is greyed-out in the list.
+                  const isEmpty =
+                    !inst ||
+                    inst.samples.length === 0 ||
+                    inst.samples.every((sm) => sm.data.length === 0);
                   arr[i] = {
                     name: inst?.name ?? "",
-                    isEmpty: !inst || inst.samples.length === 0,
+                    isEmpty,
                   };
                 }
                 return arr;
@@ -1270,7 +1284,14 @@ export const App: Component = () => {
         <aside class="app__order">
           <h2>Order</h2>
           <Show when={xm2Song()}>{(xm) => <XmOrderList song={xm()} />}</Show>
-          <Show when={pt2Song()} fallback={<p class="placeholder">—</p>}>
+          <Show
+            when={pt2Song()}
+            fallback={
+              <Show when={!xm2Song()}>
+                <p class="placeholder">—</p>
+              </Show>
+            }
+          >
             {(s) => {
               // Disable a button when the corresponding action would no-op
               // so the UI doesn't lie about what's possible. Order edits

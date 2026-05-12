@@ -47,6 +47,28 @@ export function emptyXmEnvelope(): XmEnvelope {
   };
 }
 
+/**
+ * Envelope seeded with two horizontal points so the editor has
+ * something to drag the moment the user enables it. `defaultValue`
+ * picks the steady-state line — 64 for volume (full), 32 for panning
+ * (center). The envelope stays `enabled: false` so the synth's
+ * audible behaviour doesn't change until the user opts in.
+ */
+export function defaultXmEnvelope(defaultValue: number): XmEnvelope {
+  return {
+    enabled: false,
+    sustainEnabled: false,
+    loopEnabled: false,
+    sustainPoint: 0,
+    loopStart: 0,
+    loopEnd: 0,
+    points: [
+      { tick: 0, value: defaultValue },
+      { tick: 100, value: defaultValue },
+    ],
+  };
+}
+
 export function emptyXmSample(): XmSample {
   return {
     name: "",
@@ -67,8 +89,8 @@ export function emptyXmInstrument(): XmInstrument {
     name: "",
     samples: [emptyXmSample()],
     keyMap: new Uint8Array(96),
-    volumeEnvelope: emptyXmEnvelope(),
-    panningEnvelope: emptyXmEnvelope(),
+    volumeEnvelope: defaultXmEnvelope(64),
+    panningEnvelope: defaultXmEnvelope(32),
     vibratoType: "sine",
     vibratoSweep: 0,
     vibratoDepth: 0,

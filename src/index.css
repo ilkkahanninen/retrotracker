@@ -1367,6 +1367,19 @@ h2 {
   cursor: grabbing;
   fill: color-mix(in srgb, var(--envelope-color) 60%, white);
 }
+.envelope__tooltip-bg {
+  fill: var(--panel);
+  stroke: var(--grid-line);
+  stroke-width: 1;
+}
+.envelope__tooltip-text {
+  fill: var(--fg);
+  font:
+    11px / 1.2 ui-monospace,
+    "SFMono-Regular",
+    monospace;
+  dominant-baseline: alphabetic;
+}
 
 /* FT2 envelope editor — self-contained widget (no waveform underlay).
    Mounted in the instrument view's vol / pan envelope panels. */
@@ -1482,14 +1495,85 @@ h2 {
   opacity: 0.4;
 }
 
-/* FT2 instrument editor — wraps the two envelope editors plus the
-   autovibrato / fadeout / sample-meta panels. Sits inside SampleView's
-   FT2 branch. */
+/* FT2 instrument editor. The .instrument-view wrapper sits inside the
+   sampleview-wrapper grid cell; .instrument-view__layout splits it into
+   a sample editor on the left (mirrors PT2's SampleView) and a
+   collapsible right column hosting the FT2-only instrument-scoped
+   automation (key map + envelopes + autovibrato + fadeout). */
 .instrument-view {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 8px 0;
+  height: 100%;
+  min-height: 0;
+}
+.instrument-view--drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -8px;
+}
+.instrument-view__layout {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0;
+  min-height: 0;
+  flex: 1;
+}
+.instrument-view__main {
+  /* Reuses .sampleview's container-type + padding via the cascaded
+     class on the element — see .sampleview for the styling. The grid
+     cell here just establishes the flex column. */
+  min-width: 0;
+  min-height: 0;
+}
+/* Collapsible right column. Body shows envelopes / autovibrato /
+   key map; the toggle header lets the user reclaim space for the
+   waveform/pipeline workflow when they're not editing instrument
+   automation. */
+.instrument-view__rightcol {
+  display: flex;
+  flex-direction: column;
+  width: 360px;
+  max-width: 40vw;
+  border-left: 1px solid var(--grid-line);
+  background: var(--panel);
+  overflow: hidden;
+}
+.instrument-view__rightcol--collapsed {
+  width: 36px;
+}
+.instrument-view__rightcol-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: none;
+  border-bottom: 1px solid var(--grid-line);
+  font: inherit;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  text-align: left;
+}
+.instrument-view__rightcol-toggle:hover {
+  background: var(--panel);
+}
+.instrument-view__rightcol-toggle-icon {
+  width: 12px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.instrument-view__rightcol--collapsed .instrument-view__rightcol-toggle-label {
+  display: none;
+}
+.instrument-view__rightcol-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 12px 16px;
+  overflow: auto;
+  min-height: 0;
 }
 .instrument-view__section {
   display: flex;
@@ -1546,21 +1630,6 @@ h2 {
   font-style: italic;
   padding: 16px 0;
 }
-/* Two-up envelope grid: vol + pan sit side-by-side when the pane is
-   wide enough (~720px+ accounting for gap), otherwise stack. The
-   minmax floor keeps a single envelope from squashing below usable
-   size on narrow viewports. Each cell also caps its width so a
-   single column on a very wide pane doesn't stretch the canvas back
-   into a flat stripe. */
-.instrument-view__envelopes {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-  gap: 12px;
-}
-.instrument-view__envelopes > .instrument-view__section {
-  max-width: 640px;
-  min-width: 0;
-}
 /* Inline slider variant for the fadeout knob, which sits in the
    autovibrato row alongside the autovib number fields. */
 .instrument-view__inline-slider {
@@ -1568,12 +1637,41 @@ h2 {
   min-width: 200px;
   gap: 8px;
 }
+/* Autovibrato Sweep/Depth/Rate/Fadeout sliders stack vertically, each
+   taking the full container width. The label flips inline-left of the
+   slider track so the row reads `LABEL ===slider=== value`. */
+.instrument-view__autovibrato {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.instrument-view__autovibrato > .slider {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.instrument-view__autovibrato > .slider .slider__label {
+  flex: 0 0 64px;
+  text-align: left;
+}
+.instrument-view__autovibrato > .slider .slider__row {
+  flex: 1;
+}
 .xm-waveform-wrap {
-  /* Hosts the canvas + click-drag handlers. The canvas itself is
-     pointer-events: none on its own but inherits via the wrapper so
-     mouse coordinates resolve against the wrapper's bounding rect. */
+  /* Hosts the canvas + click-drag handlers, plus the absolute-positioned
+     envelope overlay. The `position: relative` anchors `.waveform__envelope`
+     (an SVG that pins inset:0 inside its relative ancestor) to this box. */
+  position: relative;
   cursor: crosshair;
   user-select: none;
+}
+.xm-waveform-wrap--grab {
+  cursor: ew-resize;
+}
+.xm-waveform-wrap--grabbing {
+  cursor: grabbing;
 }
 .xm-waveform {
   display: block;
@@ -1581,26 +1679,12 @@ h2 {
   border: 1px solid var(--grid-line);
   border-radius: 3px;
 }
-
-.instrument-view__selection-actions {
-  gap: 6px;
-}
-.instrument-view__selection-actions button {
+.xm-autovibrato-preview {
+  display: block;
   background: var(--panel-2);
-  color: var(--fg);
   border: 1px solid var(--grid-line);
   border-radius: 3px;
-  padding: 3px 10px;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.instrument-view__selection-actions button:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-.instrument-view__selection-actions button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+  margin-top: 6px;
 }
 
 /* Multi-sample picker — one chip per sample, plus +/− buttons on the
@@ -1643,6 +1727,20 @@ h2 {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.instrument-view__sample-chip--editing {
+  cursor: text;
+}
+.instrument-view__sample-chip-input {
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font: inherit;
+  font-size: 12px;
+  width: 12ch;
+  outline: none;
+}
 .instrument-view__sample-actions {
   display: inline-flex;
   gap: 4px;
@@ -1679,8 +1777,13 @@ h2 {
 }
 
 /* 96-cell note → sample-index keymap painter. 8 octave rows × 12 pitch
-   classes; each cell shows the hex index of the routed sample. Touch /
-   drag paints with the currently-selected sample index. */
+   classes; each cell shows the hex index of the routed sample. Click
+   or drag paints with the currently-selected sample index. */
+.xm-keymap-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 .xm-keymap {
   display: flex;
   flex-direction: column;
@@ -1688,16 +1791,42 @@ h2 {
   touch-action: none;
   user-select: none;
 }
+.xm-keymap__header {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+.xm-keymap__col-label {
+  width: 22px;
+  text-align: center;
+  font-size: 10px;
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+}
+.xm-keymap__col-label--sharp {
+  color: color-mix(in srgb, var(--muted) 60%, transparent);
+}
 .xm-keymap__row {
   display: flex;
   gap: 2px;
   align-items: center;
 }
 .xm-keymap__row-label {
+  display: inline-block;
   width: 44px;
   font-size: 10px;
   color: var(--muted);
   font-family: ui-monospace, "SFMono-Regular", monospace;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  text-align: left;
+}
+.xm-keymap__row-label--clickable {
+  cursor: pointer;
+}
+.xm-keymap__row-label--clickable:hover {
+  color: var(--accent);
 }
 .xm-keymap__cell {
   width: 22px;
@@ -1716,6 +1845,12 @@ h2 {
 }
 .xm-keymap__cell:hover {
   border-color: var(--accent);
+}
+.xm-keymap__help {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
 }
 
 .sampleview__selection {
@@ -1791,7 +1926,8 @@ h2 {
   white-space: nowrap;
 }
 .samplemeta input[type="text"],
-.samplemeta input[type="number"] {
+.samplemeta input[type="number"],
+.samplemeta select {
   background: var(--panel);
   color: var(--fg);
   border: 1px solid var(--grid-line);
@@ -1809,11 +1945,16 @@ h2 {
 .samplemeta input[type="number"] {
   width: 80px;
 }
-.samplemeta input:focus {
+.samplemeta select {
+  min-width: 110px;
+}
+.samplemeta input:focus,
+.samplemeta select:focus {
   outline: none;
   border-color: var(--accent);
 }
-.samplemeta input:disabled {
+.samplemeta input:disabled,
+.samplemeta select:disabled {
   color: var(--muted);
   cursor: not-allowed;
   opacity: 0.5;
@@ -1822,6 +1963,14 @@ h2 {
   flex-basis: 100%;
   color: var(--muted);
   font-size: 11px;
+  margin: 0;
+}
+/* Zero-height flex-break: forces subsequent items onto a new row inside
+   the flex-wrap container. Used to pin Volume/Panning sliders to the
+   second row of the FT2 sample-meta row. */
+.samplemeta__break {
+  flex-basis: 100%;
+  height: 0;
   margin: 0;
 }
 

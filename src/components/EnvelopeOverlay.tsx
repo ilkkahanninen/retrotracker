@@ -1,4 +1,10 @@
-import { For, createEffect, createSignal, type Component } from "solid-js";
+import {
+  For,
+  Show,
+  createEffect,
+  createSignal,
+  type Component,
+} from "solid-js";
 import { useWindowListener } from "./hooks";
 import {
   ENVELOPE_MIN_POINTS,
@@ -277,6 +283,59 @@ export const EnvelopeOverlay: Component<EnvelopeOverlayProps> = (props) => {
           />
         )}
       </For>
+
+      {/* Tooltip: shows the dragged point's (frame, value) so the user
+          can dial in a precise position. Anchored to the point itself
+          with a small offset, flipped to the left/up when too close to
+          the canvas edge so the readout stays on-screen. Value is
+          formatted via the param's axis (volume = 0..2 ratio rendered
+          with 2 decimals, cutoff = Hz, etc.). */}
+      <Show
+        when={(() => {
+          const d = drag();
+          if (d?.kind !== "point") return null;
+          const p = sortedPoints()[d.index];
+          if (!p) return null;
+          return { point: p };
+        })()}
+      >
+        {(info) => {
+          const pt = () => info().point;
+          const cx = () => props.xForFrame(pt().frame);
+          const cy = () => yForValue(pt().value, props.axis, props.height);
+          const flipLeft = () => cx() > props.width - 90;
+          const flipUp = () => cy() < 28;
+          const tx = () => (flipLeft() ? cx() - 10 : cx() + 10);
+          const ty = () => (flipUp() ? cy() + 20 : cy() - 10);
+          const valueFmt = () => {
+            const axis = props.axis;
+            const v = pt().value;
+            if (axis.logarithmic) return `${Math.round(v)}`;
+            if (axis.max - axis.min <= 4) return v.toFixed(2);
+            return `${Math.round(v)}`;
+          };
+          return (
+            <g class="envelope__tooltip" style={{ "pointer-events": "none" }}>
+              <rect
+                class="envelope__tooltip-bg"
+                x={tx() - (flipLeft() ? 78 : 0)}
+                y={ty() - 12}
+                width={78}
+                height={16}
+                rx={3}
+              />
+              <text
+                class="envelope__tooltip-text"
+                x={flipLeft() ? tx() - 4 : tx() + 4}
+                y={ty()}
+                text-anchor={flipLeft() ? "end" : "start"}
+              >
+                f {pt().frame} · v {valueFmt()}
+              </text>
+            </g>
+          );
+        }}
+      </Show>
     </svg>
   );
 };

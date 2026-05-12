@@ -10,7 +10,13 @@
  */
 
 import { makeOrderOps } from "../orderOps";
-import { emptyXmNote, emptyXmPattern, emptyXmSample } from "./format";
+import {
+  defaultXmEnvelope,
+  emptyXmInstrument,
+  emptyXmNote,
+  emptyXmPattern,
+  emptyXmSample,
+} from "./format";
 import {
   XM_INSTRUMENT_NAME_MAX,
   XM_KEYOFF_NOTE,
@@ -434,7 +440,7 @@ export function renameXmInstrument(
         samples: [],
         keyMap: new Uint8Array(96),
         volumeEnvelope: emptyEnvelopeStub(),
-        panningEnvelope: emptyEnvelopeStub(),
+        panningEnvelope: emptyPanningEnvelopeStub(),
         vibratoType: "sine",
         vibratoSweep: 0,
         vibratoDepth: 0,
@@ -445,6 +451,19 @@ export function renameXmInstrument(
 }
 
 /** Replace the instrument at a 0-based slot. Grows the array as needed. */
+/**
+ * Wipe an instrument slot. Replaces the contents with a fresh-empty
+ * `emptyXmInstrument()` (zero-data sample, default envelopes, no
+ * autovibrato), giving the user a slate-clean slot back. Used by the
+ * "Clear instrument" header action.
+ */
+export function clearXmInstrument(song: XmSong, slot1Based: number): XmSong {
+  const slot = slot1Based - 1;
+  if (slot < 0 || slot >= XM_MAX_INSTRUMENTS) return song;
+  if (!song.instruments[slot]) return song;
+  return setXmInstrument(song, slot, emptyXmInstrument());
+}
+
 export function setXmInstrument(
   song: XmSong,
   slot: number,
@@ -460,7 +479,7 @@ export function setXmInstrument(
       samples: [],
       keyMap: new Uint8Array(96),
       volumeEnvelope: emptyEnvelopeStub(),
-      panningEnvelope: emptyEnvelopeStub(),
+      panningEnvelope: emptyPanningEnvelopeStub(),
       vibratoType: "sine",
       vibratoSweep: 0,
       vibratoDepth: 0,
@@ -472,16 +491,13 @@ export function setXmInstrument(
   return { ...song, instruments: newInstruments };
 }
 
+/** Volume envelope stub for newly-instantiated instruments. Mirrors
+ *  `defaultXmEnvelope(64)` — two flat points at full volume. */
 function emptyEnvelopeStub(): XmInstrument["volumeEnvelope"] {
-  return {
-    enabled: false,
-    sustainEnabled: false,
-    loopEnabled: false,
-    sustainPoint: 0,
-    loopStart: 0,
-    loopEnd: 0,
-    points: [],
-  };
+  return defaultXmEnvelope(64);
+}
+function emptyPanningEnvelopeStub(): XmInstrument["panningEnvelope"] {
+  return defaultXmEnvelope(32);
 }
 
 // ─── Instrument-level mutations (Phase 4) ──────────────────────────────────
@@ -507,7 +523,7 @@ function withInstrumentAt(
       samples: [],
       keyMap: new Uint8Array(96),
       volumeEnvelope: emptyEnvelopeStub(),
-      panningEnvelope: emptyEnvelopeStub(),
+      panningEnvelope: emptyPanningEnvelopeStub(),
       vibratoType: "sine",
       vibratoSweep: 0,
       vibratoDepth: 0,
@@ -530,6 +546,32 @@ export function patchXmInstrumentEnvelope(
     const key = kind === "volume" ? "volumeEnvelope" : "panningEnvelope";
     const current = inst[key];
     const merged: XmEnvelope = { ...current, ...patch };
+    // Loop invariant: start ≤ end. Honour the caller's intent — when
+    // patching loopStart, clamp it to the current loopEnd; when
+    // patching loopEnd, clamp it up to loopStart. When both are in the
+    // patch, reject the change entirely if invalid (callers can resend
+    // a consistent pair).
+    if (
+      patch.loopStart !== undefined &&
+      patch.loopEnd === undefined &&
+      merged.loopStart > merged.loopEnd
+    ) {
+      return inst;
+    }
+    if (
+      patch.loopEnd !== undefined &&
+      patch.loopStart === undefined &&
+      merged.loopEnd < merged.loopStart
+    ) {
+      return inst;
+    }
+    if (
+      patch.loopStart !== undefined &&
+      patch.loopEnd !== undefined &&
+      merged.loopStart > merged.loopEnd
+    ) {
+      return inst;
+    }
     if (
       merged.enabled === current.enabled &&
       merged.sustainEnabled === current.sustainEnabled &&
@@ -580,10 +622,12 @@ export function setXmEnvelopePoint(
 }
 
 /**
- * Append a point at `(tick, value)`. No-op if the envelope is already at
- * `XM_MAX_ENVELOPE_POINTS` capacity or the proposed tick is not strictly
- * greater than the last point's tick (preserves the monotonic invariant
- * the on-disk format relies on).
+ * Insert a point at `(tick, value)` while keeping the envelope sorted
+ * by tick. No-op when the envelope is at `XM_MAX_ENVELOPE_POINTS`
+ * capacity or the proposed tick exactly matches an existing point
+ * (duplicates would break the monotonic invariant). Sustain / loop
+ * indices that sit at or past the insertion index shift up so they
+ * keep pointing at the same logical point.
  */
 export function addXmEnvelopePoint(
   song: XmSong,
@@ -595,11 +639,32 @@ export function addXmEnvelopePoint(
     const env = kind === "volume" ? inst.volumeEnvelope : inst.panningEnvelope;
     if (env.points.length >= XM_MAX_ENVELOPE_POINTS) return inst;
     const clamped = clampEnvelopePoint(point);
-    const last = env.points[env.points.length - 1];
-    if (last && clamped.tick <= last.tick) return inst;
-    const points = [...env.points, clamped];
+    // Find insertion index: smallest i such that points[i].tick > clamped.tick.
+    let insertAt = env.points.length;
+    for (let i = 0; i < env.points.length; i++) {
+      if (env.points[i]!.tick === clamped.tick) return inst;
+      if (env.points[i]!.tick > clamped.tick) {
+        insertAt = i;
+        break;
+      }
+    }
+    const points = [
+      ...env.points.slice(0, insertAt),
+      clamped,
+      ...env.points.slice(insertAt),
+    ];
     const key = kind === "volume" ? "volumeEnvelope" : "panningEnvelope";
-    return { ...inst, [key]: { ...env, points } };
+    const shift = (idx: number) => (idx >= insertAt ? idx + 1 : idx);
+    return {
+      ...inst,
+      [key]: {
+        ...env,
+        points,
+        sustainPoint: shift(env.sustainPoint),
+        loopStart: shift(env.loopStart),
+        loopEnd: shift(env.loopEnd),
+      },
+    };
   });
 }
 

@@ -1,0 +1,92 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { cleanup, render, fireEvent } from "@solidjs/testing-library";
+
+import { InstrumentView } from "../../src/components/InstrumentView";
+import { emptyXmInstrument, emptyXmSong } from "../../src/core/xm/format";
+import {
+  clearHistory,
+  setSong,
+  setTransport,
+  xm2Song,
+} from "../../src/state/song";
+import {
+  setCurrentXmInstrument,
+  setCurrentXmSampleIndex,
+} from "../../src/state/xmEdit";
+import { getXmWorkbench } from "../../src/state/xmSampleWorkbench";
+import { clearAllXmWorkbenches } from "../../src/state/xmSampleWorkbench";
+
+function seed(): void {
+  const s = emptyXmSong();
+  const inst = emptyXmInstrument();
+  inst.name = "ins-a";
+  inst.samples[0]!.data = new Int8Array([1, 2, 3, 4]);
+  inst.samples[0]!.bits = 8;
+  inst.samples[0]!.name = "sa";
+  s.instruments = [inst];
+  setSong(s);
+  setCurrentXmInstrument(1);
+  setCurrentXmSampleIndex(0);
+  setTransport("idle");
+  clearAllXmWorkbenches();
+  clearHistory();
+}
+
+beforeEach(seed);
+afterEach(() => {
+  cleanup();
+  setSong(null);
+  clearHistory();
+});
+
+function mountView() {
+  const song = () => xm2Song()!;
+  return render(() => <InstrumentView song={song()} />);
+}
+
+describe("InstrumentView source-kind tabs", () => {
+  it("renders Sampler and Chiptune as tab buttons in the header", () => {
+    const view = mountView();
+    const tablist = view.container.querySelector(
+      ".sampleview__header .source-picker",
+    );
+    expect(tablist).not.toBeNull();
+    const tabs = Array.from(
+      tablist!.querySelectorAll<HTMLButtonElement>('button[role="tab"]'),
+    );
+    expect(tabs.length).toBe(2);
+    expect(tabs.map((t) => t.textContent)).toEqual(["Sampler", "Chiptune"]);
+  });
+
+  it("Sampler tab is active by default for a sample with bytes", () => {
+    const view = mountView();
+    const samplerTab = view.container.querySelector<HTMLButtonElement>(
+      '.source-picker button[role="tab"][aria-selected="true"]',
+    );
+    expect(samplerTab?.textContent).toBe("Sampler");
+  });
+
+  it("clicking Chiptune flips the active workbench to chiptune mode", () => {
+    const view = mountView();
+    const tabs = Array.from(
+      view.container.querySelectorAll<HTMLButtonElement>(
+        '.source-picker button[role="tab"]',
+      ),
+    );
+    const chiptuneTab = tabs.find((t) => t.textContent === "Chiptune");
+    expect(chiptuneTab).toBeDefined();
+    fireEvent.click(chiptuneTab!);
+    const wb = getXmWorkbench(1, 0);
+    expect(wb?.source.kind).toBe("chiptune");
+    // The aria-selected reflects the flip on the next render.
+    const stillActiveTabs = Array.from(
+      view.container.querySelectorAll<HTMLButtonElement>(
+        '.source-picker button[role="tab"]',
+      ),
+    );
+    const active = stillActiveTabs.find(
+      (t) => t.getAttribute("aria-selected") === "true",
+    );
+    expect(active?.textContent).toBe("Chiptune");
+  });
+});

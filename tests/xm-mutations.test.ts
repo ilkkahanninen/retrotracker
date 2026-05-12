@@ -29,6 +29,26 @@ function fresh(overrides: Partial<XmSong> = {}): XmSong {
   return { ...emptyXmSong(), ...overrides };
 }
 
+/** Strip the default-seeded envelope points out of slot 1's instrument
+ *  so unit tests can exercise envelope add/remove semantics against a
+ *  zero-point baseline. Lazy-created instruments ship with a flat
+ *  two-point envelope (set by emptyXmInstrument), which is the right
+ *  default for the editor but inconvenient for these targeted tests. */
+function clearSlot1Envelopes(song: XmSong): XmSong {
+  return {
+    ...song,
+    instruments: song.instruments.map((inst, i) =>
+      i === 0 && inst
+        ? {
+            ...inst,
+            volumeEnvelope: { ...inst.volumeEnvelope, points: [] },
+            panningEnvelope: { ...inst.panningEnvelope, points: [] },
+          }
+        : inst,
+    ),
+  };
+}
+
 describe("setXmCell", () => {
   it("writes a cell at (order, row, channel)", () => {
     const next = setXmCell(fresh(), 0, 5, 2, {
@@ -275,8 +295,42 @@ describe("instrument envelope ops", () => {
     expect(env.sustainPoint).toBe(2);
   });
 
+  it("patchXmInstrumentEnvelope rejects loopStart > loopEnd", () => {
+    let song = clearSlot1Envelopes(renameXmInstrument(fresh(), 1, "lead"));
+    song = addXmEnvelopePoint(song, 1, "volume", { tick: 0, value: 64 });
+    song = addXmEnvelopePoint(song, 1, "volume", { tick: 10, value: 32 });
+    song = addXmEnvelopePoint(song, 1, "volume", { tick: 20, value: 0 });
+    song = patchXmInstrumentEnvelope(song, 1, "volume", {
+      loopStart: 0,
+      loopEnd: 1,
+    });
+    const before = song;
+    // Moving loopStart past loopEnd should be rejected.
+    const afterStart = patchXmInstrumentEnvelope(song, 1, "volume", {
+      loopStart: 2,
+    });
+    expect(afterStart).toBe(before);
+    // Moving loopEnd before loopStart in a single patch should also be
+    // rejected.
+    song = patchXmInstrumentEnvelope(song, 1, "volume", {
+      loopStart: 1,
+      loopEnd: 2,
+    });
+    const before2 = song;
+    const afterEnd = patchXmInstrumentEnvelope(song, 1, "volume", {
+      loopEnd: 0,
+    });
+    expect(afterEnd).toBe(before2);
+    // Patching both with an inverted pair is rejected in one step.
+    const afterPair = patchXmInstrumentEnvelope(song, 1, "volume", {
+      loopStart: 2,
+      loopEnd: 0,
+    });
+    expect(afterPair).toBe(before2);
+  });
+
   it("addXmEnvelopePoint appends in tick order", () => {
-    let song = renameXmInstrument(fresh(), 1, "lead");
+    let song = clearSlot1Envelopes(renameXmInstrument(fresh(), 1, "lead"));
     song = addXmEnvelopePoint(song, 1, "volume", { tick: 0, value: 64 });
     song = addXmEnvelopePoint(song, 1, "volume", { tick: 10, value: 32 });
     const env = song.instruments[0]!.volumeEnvelope;
@@ -286,19 +340,50 @@ describe("instrument envelope ops", () => {
     ]);
   });
 
-  it("addXmEnvelopePoint rejects non-monotonic ticks", () => {
-    let song = renameXmInstrument(fresh(), 1, "lead");
+  it("addXmEnvelopePoint inserts in tick order even when added out of order", () => {
+    let song = clearSlot1Envelopes(renameXmInstrument(fresh(), 1, "lead"));
+    song = addXmEnvelopePoint(song, 1, "volume", { tick: 10, value: 64 });
+    // Adding an earlier tick should INSERT before the existing point,
+    // not be rejected (the on-canvas envelope editor relies on this).
+    song = addXmEnvelopePoint(song, 1, "volume", { tick: 5, value: 32 });
+    expect(song.instruments[0]!.volumeEnvelope.points).toEqual([
+      { tick: 5, value: 32 },
+      { tick: 10, value: 64 },
+    ]);
+  });
+
+  it("addXmEnvelopePoint rejects exact duplicate ticks", () => {
+    let song = clearSlot1Envelopes(renameXmInstrument(fresh(), 1, "lead"));
     song = addXmEnvelopePoint(song, 1, "volume", { tick: 10, value: 64 });
     const before = song;
     const after = addXmEnvelopePoint(song, 1, "volume", {
-      tick: 5,
+      tick: 10,
       value: 32,
     });
     expect(after).toBe(before);
   });
 
+  it("addXmEnvelopePoint shifts sustain / loop indices past the insertion", () => {
+    let song = clearSlot1Envelopes(renameXmInstrument(fresh(), 1, "lead"));
+    song = addXmEnvelopePoint(song, 1, "volume", { tick: 0, value: 64 });
+    song = addXmEnvelopePoint(song, 1, "volume", { tick: 20, value: 0 });
+    song = patchXmInstrumentEnvelope(song, 1, "volume", {
+      sustainPoint: 1,
+      loopStart: 0,
+      loopEnd: 1,
+    });
+    // Insert a point between the two existing ones → indices 0 stays,
+    // sustainPoint(1) shifts to 2, loopEnd(1) shifts to 2.
+    song = addXmEnvelopePoint(song, 1, "volume", { tick: 10, value: 32 });
+    const env = song.instruments[0]!.volumeEnvelope;
+    expect(env.points.map((p) => p.tick)).toEqual([0, 10, 20]);
+    expect(env.sustainPoint).toBe(2);
+    expect(env.loopStart).toBe(0);
+    expect(env.loopEnd).toBe(2);
+  });
+
   it("addXmEnvelopePoint caps at XM_MAX_ENVELOPE_POINTS", () => {
-    let song = renameXmInstrument(fresh(), 1, "lead");
+    let song = clearSlot1Envelopes(renameXmInstrument(fresh(), 1, "lead"));
     for (let i = 0; i < 12; i++) {
       song = addXmEnvelopePoint(song, 1, "volume", { tick: i, value: 64 });
     }
@@ -312,7 +397,7 @@ describe("instrument envelope ops", () => {
   });
 
   it("setXmEnvelopePoint clamps value to 0..64 and tick to 0..0xFFFF", () => {
-    let song = renameXmInstrument(fresh(), 1, "lead");
+    let song = clearSlot1Envelopes(renameXmInstrument(fresh(), 1, "lead"));
     song = addXmEnvelopePoint(song, 1, "volume", { tick: 0, value: 64 });
     song = setXmEnvelopePoint(song, 1, "volume", 0, {
       tick: -5,
@@ -325,7 +410,7 @@ describe("instrument envelope ops", () => {
   });
 
   it("removeXmEnvelopePoint shifts sustain / loop indices down", () => {
-    let song = renameXmInstrument(fresh(), 1, "lead");
+    let song = clearSlot1Envelopes(renameXmInstrument(fresh(), 1, "lead"));
     song = addXmEnvelopePoint(song, 1, "volume", { tick: 0, value: 64 });
     song = addXmEnvelopePoint(song, 1, "volume", { tick: 4, value: 48 });
     song = addXmEnvelopePoint(song, 1, "volume", { tick: 12, value: 0 });

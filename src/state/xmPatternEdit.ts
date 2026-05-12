@@ -42,6 +42,8 @@ import { xmClipboardSlice, setXmClipboardSlice } from "./clipboard";
 import { editStep } from "./edit";
 import { commitEditXm, transport, xm2Song as song } from "./song";
 import { setPlayPos } from "./song";
+import { view } from "./view";
+import { previewXmNote } from "./xmPreview";
 import {
   clearXmFieldPatch,
   currentXmInstrument,
@@ -159,6 +161,21 @@ export function enterXmNote(semitoneOffset: number): void {
     setXmCell(s, c.order, c.row, c.channel, { note, instrument: inst }),
   );
   advanceByEditStep();
+  // Audibly preview the note the user just typed — mirrors PT2's
+  // enterNote, which also triggers a preview after the commit. The
+  // preview adapter handles the XM-sample → PT-preview-worklet
+  // conversion (see xmPreview.ts).
+  previewXmNote(semitoneOffset);
+}
+
+/**
+ * Piano-key dispatcher: in the pattern view this commits a note to the
+ * cursor's cell (and previews); in the instrument view it only
+ * previews. Mirrors PT2's `onPianoKey`.
+ */
+export function onXmPianoKey(semitoneOffset: number): void {
+  if (view() === "sample") previewXmNote(semitoneOffset);
+  else enterXmNote(semitoneOffset);
 }
 
 /**

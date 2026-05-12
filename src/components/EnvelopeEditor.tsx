@@ -142,11 +142,11 @@ export const EnvelopeEditor: Component<EnvelopeEditorProps> = (props) => {
     const tick = tickForX(x);
     const value = valueForY(y);
     if (points().length >= XM_MAX_ENVELOPE_POINTS) return;
-    const last = points()[points().length - 1];
-    // addXmEnvelopePoint rejects non-monotonic ticks; mirror the check
-    // here so the user gets a no-op rather than the request silently
-    // failing one mutation layer down.
-    if (last && tick <= last.tick) return;
+    // addXmEnvelopePoint inserts in the right place by tick; reject
+    // only when the tick exactly matches an existing point (duplicate
+    // ticks would break the monotonic invariant). Mid-envelope clicks
+    // are fine.
+    if (points().some((p) => p.tick === tick)) return;
     props.onAddPoint({ tick, value });
   };
 

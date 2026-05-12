@@ -16,6 +16,7 @@ import { createSignal } from "solid-js";
 
 import {
   defaultEffect,
+  ENVELOPE_MIN_POINTS,
   materializeSource,
   runChain,
   runXmPipeline,
@@ -23,6 +24,7 @@ import {
   type EffectKind,
   type EffectNode,
   type EnvelopeParamKey,
+  type EnvelopePoint,
   type MonoMix,
   type SampleSource,
   type XmSampleWorkbench,
@@ -32,6 +34,13 @@ import {
   xmWorkbenchToAlt,
   type SourceKind,
 } from "../core/audio/sampleWorkbench";
+import {
+  clampValueForParam,
+  clampFrame,
+  extractEnvelopeFromNode,
+  nodeWithEnvelope,
+  normaliseEnvelope,
+} from "../core/audio/envelopeOps";
 import {
   defaultChiptuneParams,
   type ChiptuneParams,
@@ -55,7 +64,20 @@ import {
   setCurrentXmSampleIndex,
 } from "./xmEdit";
 import { xmSelection } from "./selection";
-import { getXmWorkbench, setXmWorkbench } from "./xmSampleWorkbench";
+import {
+  clearXmWorkbench,
+  getXmWorkbench,
+  setXmWorkbench,
+  xmWorkbenches,
+  setXmWorkbenchesRaw,
+  xmWorkbenchKey,
+} from "./xmSampleWorkbench";
+import {
+  clearXmInstrument as clearXmInstrumentMutation,
+  clearXmSampleData as clearXmSampleDataMutation,
+  duplicateXmSample as duplicateXmSampleMutation,
+} from "./xmInstrumentEdit";
+import { importWavXmSample } from "../core/xm/sampleImport";
 import {
   patchXmInstrumentSample,
   setXmInstrument,
@@ -142,17 +164,22 @@ function updateCurrentXmWorkbench(next: XmSampleWorkbench): void {
   const { inst1Based, sampleIdx, sample } = ctx;
   setXmWorkbench(inst1Based, sampleIdx, next);
   const { data, bits } = runXmPipeline(next);
+  // Truncate the loop into the new buffer without shifting it: keep
+  // the overlap between the original loop range and the new range.
+  // When the original loop is entirely past the new buffer, the
+  // overlap is zero — flip loopType to "none" so the worklet doesn't
+  // try to loop a degenerate range.
+  const origLoopEnd = sample.loopStart + sample.loopLength;
+  const loopStart = Math.max(0, Math.min(sample.loopStart, data.length));
+  const loopEnd = Math.max(loopStart, Math.min(origLoopEnd, data.length));
+  const loopLength = loopEnd - loopStart;
   const updatedSample: XmSample = {
     ...sample,
     data,
     bits,
-    // Loop fields are byte-indices into `data`. After a re-run the buffer
-    // length may have changed; clamp the loop to the new bounds.
-    loopStart: Math.min(sample.loopStart, Math.max(0, data.length - 1)),
-    loopLength: Math.min(
-      sample.loopLength,
-      Math.max(0, data.length - sample.loopStart),
-    ),
+    loopStart,
+    loopLength,
+    loopType: loopLength > 0 ? sample.loopType : "none",
   };
   commitEditXm((s) =>
     setXmInstrumentSample(s, inst1Based, updatedSample, sampleIdx),
@@ -206,6 +233,103 @@ export function patchXmEffect(index: number, next: EffectNode): void {
   if (index < 0 || index >= wb.chain.length) return;
   const chain = wb.chain.map((n, i) => (i === index ? next : n));
   updateCurrentXmWorkbench({ ...wb, chain });
+}
+
+// ─── Envelope-point edits (Wave C visual-parity additions) ───────────────
+//
+// Mirror PT2's addEnvelopePoint / removeEnvelopePoint / patchEnvelopePoint
+// / nudgeEnvelopeSegment in sampleEdit.ts. The on-canvas envelope overlay
+// on XmWaveform drives all four, with the same shape as PT2's overlay.
+
+function xmEnvelopeAt(
+  index: number,
+  param: EnvelopeParamKey,
+): EnvelopePoint[] | null {
+  const ctx = getOrInitCurrentXmWorkbench();
+  if (!ctx) return null;
+  const node = ctx.wb.chain[index];
+  if (!node) return null;
+  return extractEnvelopeFromNode(node, param);
+}
+
+function commitXmEnvelope(
+  index: number,
+  param: EnvelopeParamKey,
+  points: EnvelopePoint[],
+): void {
+  if (points.length < ENVELOPE_MIN_POINTS) return;
+  const ctx = getOrInitCurrentXmWorkbench();
+  if (!ctx) return;
+  const node = ctx.wb.chain[index];
+  if (!node) return;
+  const next = nodeWithEnvelope(node, param, points);
+  if (!next) return;
+  patchXmEffect(index, next);
+}
+
+export function addXmChainEnvelopePoint(
+  index: number,
+  param: EnvelopeParamKey,
+  point: EnvelopePoint,
+): void {
+  const points = xmEnvelopeAt(index, param);
+  if (!points) return;
+  commitXmEnvelope(index, param, normaliseEnvelope([...points, point], param));
+}
+
+export function removeXmChainEnvelopePoint(
+  index: number,
+  param: EnvelopeParamKey,
+  pointIndex: number,
+): void {
+  const points = xmEnvelopeAt(index, param);
+  if (!points) return;
+  if (points.length <= ENVELOPE_MIN_POINTS) return;
+  if (pointIndex < 0 || pointIndex >= points.length) return;
+  const next = points.filter((_, i) => i !== pointIndex);
+  commitXmEnvelope(index, param, normaliseEnvelope(next, param));
+}
+
+export function patchXmChainEnvelopePoint(
+  index: number,
+  param: EnvelopeParamKey,
+  pointIndex: number,
+  next: Partial<EnvelopePoint>,
+): void {
+  const points = xmEnvelopeAt(index, param);
+  if (!points) return;
+  if (pointIndex < 0 || pointIndex >= points.length) return;
+  const cur = points[pointIndex]!;
+  points[pointIndex] = {
+    frame: next.frame !== undefined ? clampFrame(next.frame) : cur.frame,
+    value:
+      next.value !== undefined
+        ? clampValueForParam(next.value, param)
+        : cur.value,
+  };
+  commitXmEnvelope(index, param, normaliseEnvelope(points, param));
+}
+
+export function nudgeXmChainEnvelopeSegment(
+  index: number,
+  param: EnvelopeParamKey,
+  leftPointIndex: number,
+  deltaValue: number,
+): void {
+  const points = xmEnvelopeAt(index, param);
+  if (!points) return;
+  if (leftPointIndex < 0 || leftPointIndex >= points.length - 1) return;
+  const a = points[leftPointIndex]!;
+  const b = points[leftPointIndex + 1]!;
+  points[leftPointIndex] = {
+    frame: a.frame,
+    value: clampValueForParam(a.value + deltaValue, param),
+  };
+  points[leftPointIndex + 1] = {
+    frame: b.frame,
+    value: clampValueForParam(b.value + deltaValue, param),
+  };
+  commitXmEnvelope(index, param, normaliseEnvelope(points, param));
 }
 
 export function setXmEffectBypass(index: number, bypassed: boolean): void {
@@ -486,41 +610,81 @@ export function copyXmSampleRange(start: number, end: number): void {
   });
 }
 
-/** Drop the selected frames from the sample (and pull the rest in to
- *  close the gap). Re-runs the workbench's pipeline through the new
- *  source so chain effects keep working. */
-export function cutXmCurrentSampleSelection(start: number, end: number): void {
-  if (transport() === "playing") return;
-  const s = xm2Song();
-  if (!s) return;
-  const inst = s.instruments[currentXmInstrument() - 1];
-  if (!inst) return;
-  const sample = inst.samples[currentXmSampleIndex()];
-  if (!sample || sample.data.length === 0) return;
-  const lo = Math.max(0, Math.min(sample.data.length, start));
-  const hi = Math.max(lo, Math.min(sample.data.length, end));
-  if (hi - lo < 1) return;
-  const next = spliceSampleFrames(sample, lo, hi);
-  commitSampleData(next);
+/**
+ * Map a sample-frame selection into the frame-range the next chain
+ * effect would receive. The new effect runs at the END of the chain,
+ * so the input length equals the current chain output. The sample's
+ * visible data length matches that chain output (no resampling at the
+ * XM transformer), so the mapping is identity-by-frame — modulo the
+ * clamp to chain length when an upstream effect has already changed
+ * the buffer size.
+ */
+function selectionToXmChainFrames(
+  wb: XmSampleWorkbench,
+  startFrame: number,
+  endFrame: number,
+  sampleLen: number,
+): { startFrame: number; endFrame: number } | null {
+  const chainOut = runChain(materializeSource(wb.source), wb.chain);
+  const chainLen = chainOut.channels[0]?.length ?? 0;
+  if (chainLen === 0 || sampleLen === 0) return null;
+  const startF = Math.max(
+    0,
+    Math.min(chainLen, Math.round((startFrame * chainLen) / sampleLen)),
+  );
+  const endF = Math.max(
+    startF,
+    Math.min(chainLen, Math.round((endFrame * chainLen) / sampleLen)),
+  );
+  if (endF - startF < 1) return null;
+  return { startFrame: startF, endFrame: endF };
 }
 
-/** Trim the sample down to the selected region. */
+/**
+ * Append a Crop / Cut effect to the chain. Non-destructive — removing
+ * the effect from the chain restores the original buffer. Mirrors
+ * PT2's `applySelectionEdit` (which also goes through the chain when a
+ * workbench is available).
+ */
+function applyXmSelectionEdit(
+  kind: "crop" | "cut",
+  startFrame: number,
+  endFrame: number,
+): void {
+  if (transport() === "playing") return;
+  const ctx = getOrInitCurrentXmWorkbench();
+  if (!ctx) return;
+  const { wb, sample } = ctx;
+  if (sample.data.length === 0) return;
+  const frames = selectionToXmChainFrames(
+    wb,
+    startFrame,
+    endFrame,
+    sample.data.length,
+  );
+  if (!frames) return;
+  const effect: EffectNode = { kind, params: frames };
+  updateCurrentXmWorkbench({ ...wb, chain: [...wb.chain, effect] });
+  // The selection is over the pre-edit buffer; with a chain effect in
+  // the way, the same frame indices now address different audio. Drop
+  // the selection so the overlay doesn't paint a stale rectangle.
+  setXmSampleSelection(null);
+}
+
+/** Append a Cut effect (drop the selected frames from the chain
+ *  output). Non-destructive — undo by removing the effect from the
+ *  pipeline. */
+export function cutXmCurrentSampleSelection(start: number, end: number): void {
+  applyXmSelectionEdit("cut", start, end);
+}
+
+/** Append a Crop effect (trim the chain output to the selected
+ *  region). Non-destructive — undo by removing the effect. */
 export function cropXmCurrentSampleToSelection(
   start: number,
   end: number,
 ): void {
-  if (transport() === "playing") return;
-  const s = xm2Song();
-  if (!s) return;
-  const inst = s.instruments[currentXmInstrument() - 1];
-  if (!inst) return;
-  const sample = inst.samples[currentXmSampleIndex()];
-  if (!sample || sample.data.length === 0) return;
-  const lo = Math.max(0, Math.min(sample.data.length, start));
-  const hi = Math.max(lo, Math.min(sample.data.length, end));
-  if (hi - lo < 1) return;
-  const next = cropSampleFrames(sample, lo, hi);
-  commitSampleData(next);
+  applyXmSelectionEdit("crop", start, end);
 }
 
 /** Copy + cut combined — same shape as PT's `cutSampleRange`. */
@@ -579,84 +743,6 @@ export function pasteXmSampleBytes(): void {
   );
 }
 
-/** Drop frames [start, end) from a sample, pulling subsequent frames
- *  forward. Loop fields shift / clamp into the new shorter buffer. */
-function spliceSampleFrames(
-  sample: XmSample,
-  start: number,
-  end: number,
-): XmSample {
-  const removed = end - start;
-  const remaining = sample.data.length - removed;
-  const next: Int8Array | Int16Array =
-    sample.bits === 8 ? new Int8Array(remaining) : new Int16Array(remaining);
-  // Frames before the cut.
-  for (let i = 0; i < start; i++) next[i] = sample.data[i]!;
-  // Frames after the cut, pulled forward.
-  for (let i = end; i < sample.data.length; i++) {
-    next[i - removed] = sample.data[i]!;
-  }
-  // Loop fields: drop into [0, remaining] window. If the loop straddled
-  // the cut, the simplest correct policy is to clamp endpoints.
-  const loopStart = Math.min(sample.loopStart, remaining);
-  const loopEnd = Math.min(sample.loopStart + sample.loopLength, remaining);
-  const loopLength = Math.max(0, loopEnd - loopStart);
-  return {
-    ...sample,
-    data: next,
-    loopStart,
-    loopLength,
-    loopType: loopLength > 0 ? sample.loopType : "none",
-  };
-}
-
-/** Keep only frames [start, end) — the rest is discarded. */
-function cropSampleFrames(
-  sample: XmSample,
-  start: number,
-  end: number,
-): XmSample {
-  const len = end - start;
-  const next: Int8Array | Int16Array =
-    sample.bits === 8 ? new Int8Array(len) : new Int16Array(len);
-  for (let i = 0; i < len; i++) next[i] = sample.data[start + i]!;
-  // Loop fields: shift by `start`, clamp into [0, len].
-  const loopStart = Math.max(0, Math.min(len, sample.loopStart - start));
-  const loopEnd = Math.max(
-    loopStart,
-    Math.min(len, sample.loopStart + sample.loopLength - start),
-  );
-  const loopLength = loopEnd - loopStart;
-  return {
-    ...sample,
-    data: next,
-    loopStart,
-    loopLength,
-    loopType: loopLength > 0 ? sample.loopType : "none",
-  };
-}
-
-/** Commit a fresh sample buffer into the current (instrument, sample)
- *  slot and rebuild the workbench around it so chain edits keep working. */
-function commitSampleData(next: XmSample): void {
-  commitEditXm((song) =>
-    setXmInstrumentSample(
-      song,
-      currentXmInstrument(),
-      next,
-      currentXmSampleIndex(),
-    ),
-  );
-  setXmWorkbench(
-    currentXmInstrument(),
-    currentXmSampleIndex(),
-    xmWorkbenchFromWav(sampleBytesToWav(next.data, next.bits), next.name),
-  );
-  // The selection is now over a different buffer — clear it so the
-  // overlay doesn't paint a stale rectangle.
-  setXmSampleSelection(null);
-}
-
 function sampleBytesToWav(
   data: Int8Array | Int16Array,
   bits: 8 | 16,
@@ -671,4 +757,98 @@ function sampleBytesToWav(
     for (let i = 0; i < src.length; i++) ch[i] = src[i]! / 32767;
   }
   return { sampleRate, channels: [ch] };
+}
+
+// ─── Header actions (Load WAV / Duplicate / Clear) ───────────────────────
+
+/**
+ * Parse a WAV file's bytes and drop them into the active XM sample
+ * slot. Mirrors PT2's `loadWavIntoCurrentSample`. Resets the workbench
+ * so subsequent chain edits start from the freshly-loaded source.
+ */
+export function loadXmWavIntoCurrentSample(
+  bytes: Uint8Array,
+  filename: string,
+): void {
+  const s = xm2Song();
+  if (!s) return;
+  let imported: ReturnType<typeof importWavXmSample>;
+  try {
+    imported = importWavXmSample(bytes, filename);
+  } catch (e) {
+    setError(e instanceof Error ? e.message : String(e));
+    return;
+  }
+  setError(null);
+  const slot1Based = currentXmInstrument();
+  const sampleIdx = currentXmSampleIndex();
+  const inst = s.instruments[slot1Based - 1];
+  const current = inst?.samples[sampleIdx];
+  // Lazy-create the instrument + sample when the user drops a WAV onto
+  // an empty slot. Preserve any user-set fields on the destination
+  // sample (volume/panning/finetune/relativeNote) so reloading a WAV
+  // doesn't erase tuning.
+  const next: XmSample = current
+    ? {
+        ...current,
+        name: imported.sample.name,
+        data: imported.sample.data,
+        bits: imported.sample.bits,
+        loopStart: 0,
+        loopLength: 0,
+        loopType: "none",
+      }
+    : imported.sample;
+  commitEditXm((song) =>
+    setXmInstrumentSample(song, slot1Based, next, sampleIdx),
+  );
+  setXmWorkbench(
+    slot1Based,
+    sampleIdx,
+    xmWorkbenchFromWav(sampleBytesToWav(next.data, next.bits), next.name),
+  );
+  setXmSampleSelection(null);
+}
+
+/** Duplicate the active sample into the next slot on the same
+ *  instrument. Thin wrapper over the mutation; lives here so the
+ *  InstrumentView only imports from xmSampleEdit. */
+export function duplicateCurrentXmSample(): void {
+  duplicateXmSampleMutation(currentXmInstrument(), currentXmSampleIndex());
+}
+
+/** Wipe the active sample's data + loop fields and drop its workbench
+ *  so the next chain edit starts from a clean slate. */
+export function clearCurrentXmSample(): void {
+  const instSlot = currentXmInstrument();
+  const sampleIdx = currentXmSampleIndex();
+  clearXmSampleDataMutation(instSlot, sampleIdx);
+  clearXmWorkbench(instSlot, sampleIdx);
+  setXmSampleSelection(null);
+}
+
+/**
+ * Wipe the entire active instrument — samples, envelopes, autovibrato,
+ * keymap, name — and drop every workbench keyed on that instrument so
+ * the slot is genuinely reset. The active sample index resets to 0.
+ */
+export function clearCurrentXmInstrument(): void {
+  const instSlot = currentXmInstrument();
+  clearXmInstrumentMutation(instSlot);
+  // Drop every workbench whose key starts with `${instSlot}:` so a
+  // future Load WAV on the same slot doesn't inherit a stale chain.
+  const wbs = xmWorkbenches();
+  const prefix = `${instSlot}:`;
+  let mutated = false;
+  const next = new Map(wbs);
+  for (const key of wbs.keys()) {
+    if (key.startsWith(prefix)) {
+      next.delete(key);
+      mutated = true;
+    }
+  }
+  if (mutated) setXmWorkbenchesRaw(next);
+  void xmWorkbenchKey;
+  setXmSampleSelection(null);
+  setCurrentXmSampleIndex(0);
 }

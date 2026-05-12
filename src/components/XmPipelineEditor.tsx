@@ -1,13 +1,6 @@
-import {
-  Index,
-  Show,
-  createMemo,
-  createSignal,
-  type Component,
-} from "solid-js";
+import { Index, Show, createMemo, type Component } from "solid-js";
 
 import {
-  EFFECT_KINDS,
   EFFECT_LABELS,
   materializeSource,
   sourceDisplayName,
@@ -21,7 +14,6 @@ import { EffectParams } from "./PipelineEditor";
 
 export interface XmPipelineEditorProps {
   wb: XmSampleWorkbench;
-  onAddEffect: (kind: EffectKind) => void;
   onRemoveEffect: (index: number) => void;
   onMoveEffect: (index: number, delta: -1 | 1) => void;
   onPatchEffect: (index: number, next: EffectNode) => void;
@@ -48,7 +40,6 @@ export const XmPipelineEditor: Component<XmPipelineEditorProps> = (props) => {
   const materialised = createMemo(() => materializeSource(props.wb.source));
   const channels = () => materialised().channels.length;
   const sourceFrames = () => materialised().channels[0]?.length ?? 0;
-  const [pickerOpen, setPickerOpen] = createSignal(false);
 
   return (
     <section class="pipeline">
@@ -62,31 +53,6 @@ export const XmPipelineEditor: Component<XmPipelineEditorProps> = (props) => {
               ? "stereo"
               : `${channels()} ch`}{" "}
           · {sourceFrames()} frames
-        </span>
-        <span class="pipeline__add-effect">
-          <button
-            type="button"
-            onClick={() => setPickerOpen((o) => !o)}
-            aria-expanded={pickerOpen()}
-            title="Add effect"
-          >
-            + Add effect
-          </button>
-          <Show when={pickerOpen()}>
-            <div class="pipeline__add-menu">
-              {EFFECT_KINDS.map((kind) => (
-                <button
-                  type="button"
-                  onClick={() => {
-                    props.onAddEffect(kind);
-                    setPickerOpen(false);
-                  }}
-                >
-                  {EFFECT_LABELS[kind]}
-                </button>
-              ))}
-            </div>
-          </Show>
         </span>
       </header>
       <ol class="pipeline__chain">
