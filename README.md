@@ -1,18 +1,18 @@
 # RetroTracker
 
-A web-based ProTracker module editor.
+A web-based tracker — edit ProTracker `.mod` (4-channel "M.K.") and FastTracker 2 `.xm` (up to 32 channels, 128 instruments) modules from the same editor.
 
 ## Features
 
 - **Faithful Paula emulation.** The Amiga sound chip is reproduced sample-for-sample against the reference replayer, including BLEP synthesis, the analog RC filters, and the LED tone filter.
-- **True ProTracker compatibility.** Songs save as strict 4-channel `.mod` files.
-- **Native project format.** A `.retro` project file preserves everything the `.mod` can't: high-fidelity source samples, the editing pipeline you built around them, chiptune-synth parameters. Open it later and pick up exactly where you stopped.
+- **ProTracker and FastTracker 2 support.** Open a `.mod` or `.xm`, edit it, save it back. PT mode keeps the strict 4-channel "M.K." constraint; FT2 mode unlocks variable channel count (up to 32), per-pattern row count, 128 instruments with nested samples, the volume column, and the extended Gxx..Xxx effect set.
+- **Native project format.** A `.retro` project file preserves everything the underlying `.mod` / `.xm` can't: high-fidelity source samples, the editing pipeline you built around them, chiptune-synth parameters. Open it later and pick up exactly where you stopped.
 - **Non-destructive sampler.** Loaded WAVs (8 / 16 / 24-bit integer, float32, mono or stereo) are kept at full quality. Each slot owns a chain of effects — gain, normalise, reverse, crop, fade in / out — that you can reorder, disable, or remove at any time. Only the final 8-bit signed result is what playback hears; the source and the chain stay editable.
 - **Chiptune synth.** Build cycles inside the editor itself: two oscillators with shape, phase-split and ratio controls, two LFOs, several combine modes (morph, ring, FM, and friends), and an optional waveshaper. Output is rendered into a sample slot so it plays back like any other instrument.
 
 ## Getting started
 
-The latest build is always live at **<https://retrotracker.partyboi.app/>** — open it in any modern browser, drop a `.mod` or `.retro` onto the page (or use **File → Open**), and start editing.
+The latest build is always live at **<https://retrotracker.partyboi.app/>** — open it in any modern browser, drop a `.mod`, `.xm`, or `.retro` onto the page (or use **File → Open**), and start editing.
 
 To run locally:
 

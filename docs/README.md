@@ -1,14 +1,14 @@
 # RetroTracker — Technical Documentation
 
-A web-based ProTracker `.mod` editor: Solid + Vite + TypeScript, scoped strictly to 4-channel "M.K." modules. The replayer is the centerpiece — a pure state machine that drives both an `AudioWorkletProcessor` for live playback and an offline renderer for the accuracy test bed.
+A web-based tracker (Solid + Vite + TypeScript) that edits both ProTracker `.mod` (strict 4-channel "M.K.") and FastTracker 2 `.xm` (variable channel count, up to 128 instruments). The Paula replayer drives PT playback as a pure state machine over both an `AudioWorkletProcessor` (live) and an offline renderer (test bed); XM runs through a parallel mixer.
 
-These documents cover the engineering picture: how the audio path is structured, what data the editor manipulates, where state lives, and how the test bed validates that the replayer matches pt2-clone.
+These documents cover the engineering picture: how the audio path is structured, what data the editor manipulates, where state lives, and how the test bed validates that the PT replayer matches pt2-clone.
 
 ## Contents
 
 - [01. Architecture overview](architecture.md) — module boundaries, data flow, top-level invariants.
 - [02. Audio engine & replayer](audio-engine.md) — Replayer, Paula, mixers, worklets, offline render, `AudioEngine`.
-- [03. MOD format & data model](mod-format.md) — `Song` / `Pattern` / `Note` / `Sample`, parser, writer, mutations, period table, effect codes.
+- [03. MOD format & data model](mod-format.md) — `Song` / `Pattern` / `Note` / `Sample`, parser, writer, mutations, period table, effect codes. (XM equivalents live under [src/core/xm/](../src/core/xm/) with the same shape.)
 - [04. State management](state.md) — Solid signals, history, persistence, transport.
 - [05. UI components](components.md) — `App.tsx` layout, views, pattern grid, sample editor, chiptune editor.
 - [06. Sample pipeline & chiptune synth](sample-pipeline.md) — `SampleWorkbench`, effect nodes, PT transformer, chiptune oscillators.

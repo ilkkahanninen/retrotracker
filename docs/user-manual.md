@@ -1,6 +1,6 @@
 # User manual
 
-RetroTracker is a web-based ProTracker module editor: a four-channel pattern grid, a sample editor with a non-destructive effect chain, a chiptune synth, and a faithful Amiga Paula emulation that drives playback. This manual covers what each part does and how to drive it. For implementation details, see the [technical docs](README.md).
+RetroTracker is a web-based tracker that opens both ProTracker `.mod` (4-channel "M.K.") and FastTracker 2 `.xm` (variable channel count, up to 128 instruments) modules. PT and XM each get their own pattern grid, but share the sample editor, the non-destructive effect chain, the chiptune synth, and project save/load. PT playback runs through a faithful Amiga Paula emulation; XM goes through a parallel mixer. This manual covers what each part does and how to drive it. For implementation details, see the [technical docs](README.md).
 
 ## Contents
 
@@ -25,33 +25,34 @@ npm install
 npm run dev
 ```
 
-Open the URL Vite prints. Either way, the app boots with a blank "M.K." song so you can start editing immediately. Drop a `.mod` or `.retro` file onto the page (or use **File → Open**) to load existing work.
+Open the URL Vite prints. Either way, the app boots with a blank "M.K." song so you can start editing immediately. Drop a `.mod`, `.xm`, or `.retro` file onto the page (or use **File → Open**) to load existing work — the format is detected by file extension, and the editor switches into the matching mode automatically.
 
 Your work autosaves to your browser's localStorage between every edit. Closing and re-opening the tab restores cursor position, view, sample workbenches, channel mute/solo, and everything else you can change in the editor. To save off-machine, use **File → Save…** which downloads a `.retro` project file.
 
 ## Files and projects
 
-RetroTracker reads and writes three formats:
+RetroTracker reads and writes four formats:
 
-| Format     | What it stores                                                                    | When to use                                                           |
-| ---------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| **.mod**   | Strict 4-channel "M.K." ProTracker module — playable in any tracker.              | Final delivery to anything outside RetroTracker.                      |
-| **.retro** | The full editor session: song bytes + workbenches + channel mute/solo + UI state. | Saving work in progress so you can resume exactly where you left off. |
-| **.wav**   | Rendered audio.                                                                   | Sharing the song as audio, or feeding it into a DAW.                  |
+| Format     | What it stores                                                                                        | When to use                                                           |
+| ---------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| **.mod**   | Strict 4-channel "M.K." ProTracker module — playable in any tracker.                                  | Final delivery to anything outside RetroTracker on the PT side.       |
+| **.xm**    | FastTracker 2 module — variable channel count, 128 instruments with nested samples, extended effects. | Final delivery on the FT2 side.                                       |
+| **.retro** | The full editor session: song bytes + workbenches + channel mute/solo + UI state.                     | Saving work in progress so you can resume exactly where you left off. |
+| **.wav**   | Rendered audio.                                                                                       | Sharing the song as audio, or feeding it into a DAW.                  |
 
 The **File** menu drives all of them:
 
-- **New** — blank "M.K." song. Prompts before discarding unsaved changes.
-- **Open…** (⌘O) — load a `.mod` or `.retro`. The app sniffs by extension.
+- **New** — blank "M.K." song (PT mode). Prompts before discarding unsaved changes.
+- **Open…** (⌘O) — load a `.mod`, `.xm`, or `.retro`. The app sniffs by extension and switches mode.
 - **Save…** (⌘S) — download a `.retro` project. Round-trips losslessly back into the editor.
-- **Export .mod…** — strict 4-channel `.mod`. Other trackers can play it.
+- **Export .mod… / .xm…** — write the song back to its native format. Other trackers can play it.
 - **Export .wav…** — render the song to 16-bit stereo WAV at the current sample rate.
 
 You can also drop a file directly onto the page; this is the fastest way to load.
 
-### Why both `.mod` and `.retro`?
+### Why both the tracker format and `.retro`?
 
-The `.mod` format only stores the 8-bit signed sample bytes that play back. It can't represent the **source** WAV you imported, the chain of effects you built around it, or the chiptune synth parameters. Save as `.retro` to keep all of those — open it later and the pipeline UI restores exactly as you left it. Export to `.mod` when you're done.
+Neither `.mod` nor `.xm` can represent the **source** WAV you imported, the chain of effects you built around it, or the chiptune synth parameters — they only store the final quantised sample bytes that play back. Save as `.retro` to keep all of those — open it later and the pipeline UI restores exactly as you left it. Export back to `.mod` / `.xm` when you're done.
 
 ## The four views
 
