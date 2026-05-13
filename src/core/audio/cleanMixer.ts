@@ -1,5 +1,5 @@
 /**
- * High-quality offline-render mixer. Implements `Mixer` so the Replayer can
+ * High-quality offline-render mixer. Implements `Mixer` so the Pt2Replayer can
  * use it transparently in place of Paula — same DMA / period / volume API,
  * but without BLEP synthesis, RC/LED filters, or 2× oversampling.
  *
@@ -8,7 +8,7 @@
  * resulting int8. The CleanMixer reads the same sample registers and walks
  * each channel with a smooth fractional cursor (linear interpolation), then
  * sums per Paula's hard-pan convention. Output is bit-clean Float64 — the
- * Replayer's existing mid/side + 0.5 scaling step still applies.
+ * Pt2Replayer's existing mid/side + 0.5 scaling step still applies.
  *
  * Trade-off vs. Paula: no BLEP means the absolute pitch of an aliased high
  * note can read 1-2 cents off in pathological cases (~22 kHz source content

@@ -14,7 +14,7 @@ import {
   setSong,
   setTransport,
   setPlayPos,
-  song,
+  pt2Song as song,
 } from "../../src/state/song";
 import { setCurrentSample, setCurrentOctave } from "../../src/state/edit";
 import { setView } from "../../src/state/view";

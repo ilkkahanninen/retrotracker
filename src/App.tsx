@@ -8,22 +8,37 @@ import {
   type Component,
 } from "solid-js";
 import { AboutModal } from "./components/AboutModal";
+import { ModePicker } from "./components/ModePicker";
+import { ModeBadge } from "./components/ModeBadge";
 import { InfoView } from "./components/InfoView";
 import { Menu, type MenuItem } from "./components/Menu";
-import { PatternGrid } from "./components/PatternGrid";
+import { PatternGridCanvas as PatternGrid } from "./components/PatternGridCanvas";
+import { PatternGridXmCanvas as PatternGridXm } from "./components/PatternGridXmCanvas";
+import { XmOrderList } from "./components/XmOrderList";
 import { PatternHelp } from "./components/PatternHelp";
-import { SampleList } from "./components/SampleList";
+import { XmPatternHelp } from "./components/XmPatternHelp";
+import {
+  copyXmSampleRange,
+  cutXmSampleRange,
+  effectiveXmSampleRange,
+  pasteXmSampleBytes,
+} from "./state/xmSampleEdit";
+import { InstrumentView } from "./components/InstrumentView";
 import { SampleView } from "./components/SampleView";
+import { SlotList, type SlotDisplay } from "./components/SlotList";
 import { SettingsView } from "./components/SettingsView";
 import { bounceSelection } from "./core/audio/bounce";
 import type { ChiptuneParams } from "./core/audio/chiptune";
 import {
   workbenchFromChiptune,
   workbenchFromWavData,
+  xmWorkbenchFromChiptune,
+  xmWorkbenchFromWav,
 } from "./core/audio/sampleWorkbench";
 import { emptySong } from "./core/mod/format";
 import { writeModule } from "./core/mod/writer";
 import { registerAppKeybinds } from "./state/appKeybinds";
+import { registerXmAppKeybinds } from "./state/appKeybindsXm";
 import { installEngineSync } from "./state/sync";
 import {
   applyCursor,
@@ -66,7 +81,12 @@ import {
   stepNextPattern,
   stepPrevPattern,
 } from "./state/orderEdit";
-import { loadWavsIntoFreeSlots, loadWavsIntoSlot } from "./state/dropImport";
+import {
+  dropWavsToXmPatternView,
+  loadWavsIntoFreeSlots,
+  loadWavsIntoSlot,
+  loadWavsIntoXmSlot,
+} from "./state/dropImport";
 import {
   addEffect,
   applyChainToSource,
@@ -104,8 +124,10 @@ import {
 } from "./state/sampleEdit";
 import {
   chiptuneSourcesSnapshot,
+  xmChiptuneSourcesSnapshot,
+  xmSamplerSourcesSnapshot,
   error,
-  exportMod,
+  exportSong,
   exportWav,
   filename,
   loadFile,
@@ -135,6 +157,29 @@ import {
   setCurrentSample,
   setEditStep,
 } from "./state/edit";
+import {
+  currentXmInstrument,
+  currentXmSampleIndex,
+  selectXmInstrument,
+} from "./state/xmEdit";
+import { setXmSampleSelection } from "./state/xmSampleSelection";
+import { renameXmInstrument } from "./state/xmInstrumentEdit";
+import { xmCursor } from "./state/cursorXm";
+import {
+  copyXmSelection,
+  cutXmSelection,
+  pasteXmAtCursor,
+  setXmChannelCountAction,
+  setXmRowCountAtCursor,
+} from "./state/xmPatternEdit";
+import {
+  XM_INSTRUMENT_NAME_MAX,
+  XM_MAX_CHANNELS,
+  XM_MAX_INSTRUMENTS,
+  XM_MAX_PATTERN_ROWS,
+  XM_MIN_PATTERN_ROWS,
+} from "./core/xm/types";
+import { SAMPLE_NAME_MAX } from "./core/mod/sampleImport";
 import { infoText, setInfoText } from "./state/info";
 import {
   PATTERN_NAME_MAX,
@@ -155,6 +200,7 @@ import {
   withWorkbench,
   workbenches,
 } from "./state/sampleWorkbench";
+import { setXmWorkbench, xmWorkbenches } from "./state/xmSampleWorkbench";
 import { selection } from "./state/selection";
 import { settings, toggleShowPatternHelp } from "./state/settings";
 import { installShortcuts } from "./state/shortcuts";
@@ -165,6 +211,7 @@ import {
   commitEditWithWorkbenches,
   playMode,
   playPos,
+  pt2Song,
   redo,
   setPlayPos,
   setSong,
@@ -172,6 +219,7 @@ import {
   song,
   transport,
   undo,
+  xm2Song,
 } from "./state/song";
 import { applyColorScheme, applyUiScale } from "./state/theme";
 import { setView, view } from "./state/view";
@@ -192,6 +240,7 @@ export const App: Component = () => {
   const [dragOver, setDragOver] = createSignal(false);
   const [editingTitle, setEditingTitle] = createSignal(false);
   const [aboutOpen, setAboutOpen] = createSignal(false);
+  const [modePickerOpen, setModePickerOpen] = createSignal(false);
 
   const USER_MANUAL_URL =
     "https://github.com/ilkkahanninen/retrotracker/blob/main/docs/user-manual.md";
@@ -222,25 +271,39 @@ export const App: Component = () => {
   // are allowed mid-playback elsewhere in the app.
   const copyClipboardForActiveView = () => {
     if (view() === "sample") {
-      const r = effectiveSampleRange();
-      if (r) copySampleRange(r.start, r.end);
+      if (xm2Song()) {
+        const r = effectiveXmSampleRange();
+        if (r) copyXmSampleRange(r.start, r.end);
+      } else {
+        const r = effectiveSampleRange();
+        if (r) copySampleRange(r.start, r.end);
+      }
     } else if (view() === "pattern" && transport() !== "playing") {
-      copyPatternSelection();
+      if (xm2Song()) copyXmSelection();
+      else copyPatternSelection();
     }
   };
   const cutClipboardForActiveView = () => {
     if (view() === "sample") {
-      const r = effectiveSampleRange();
-      if (r) cutSampleRange(r.start, r.end);
+      if (xm2Song()) {
+        const r = effectiveXmSampleRange();
+        if (r) cutXmSampleRange(r.start, r.end);
+      } else {
+        const r = effectiveSampleRange();
+        if (r) cutSampleRange(r.start, r.end);
+      }
     } else if (view() === "pattern" && transport() !== "playing") {
-      cutPatternSelection();
+      if (xm2Song()) cutXmSelection();
+      else cutPatternSelection();
     }
   };
   const pasteClipboardForActiveView = () => {
     if (view() === "sample") {
-      pasteSampleFromClipboard();
+      if (xm2Song()) pasteXmSampleBytes();
+      else pasteSampleFromClipboard();
     } else if (view() === "pattern" && transport() !== "playing") {
-      pastePatternAtCursor();
+      if (xm2Song()) pasteXmAtCursor();
+      else pastePatternAtCursor();
     }
   };
 
@@ -274,11 +337,17 @@ export const App: Component = () => {
     setDragOver(false);
     const files = e.dataTransfer?.files;
     if (!files || files.length === 0) return;
-    // A single .mod / .retro replaces the current project — anything else is
-    // treated as a batch of WAV imports and fanned out across free slots.
+    // A single .mod / .xm / .retro replaces the current project — anything
+    // else is treated as a batch of WAV imports. PT2 fans WAVs across
+    // free sample slots; FT2 bundles them into a fresh multi-sample
+    // instrument in the first empty slot.
     const first = files[0]!;
-    if (files.length === 1 && /\.(mod|retro)$/i.test(first.name)) {
+    if (files.length === 1 && /\.(mod|xm|retro)$/i.test(first.name)) {
       void loadFile(first);
+      return;
+    }
+    if (xm2Song()) {
+      void dropWavsToXmPatternView(Array.from(files));
       return;
     }
     void loadWavsIntoFreeSlots(Array.from(files));
@@ -301,6 +370,17 @@ export const App: Component = () => {
         ? state
         : { ...state, song: { ...state.song, title } },
     );
+  };
+
+  /** Parse `"inst:sampleIdx"` (the in-memory XM workbench key shape)
+   *  into a tuple, returning `[null, 0]` when the key is malformed. */
+  const parseXmKey = (k: string): [number | null, number] => {
+    const parts = k.split(":");
+    if (parts.length !== 2) return [null, 0];
+    const inst = parseInt(parts[0]!, 10);
+    const idx = parseInt(parts[1]!, 10);
+    if (!Number.isFinite(inst) || !Number.isFinite(idx)) return [null, 0];
+    return [inst, idx];
   };
 
   const cleanups: Array<() => void> = [];
@@ -335,6 +415,27 @@ export const App: Component = () => {
             ...workbenchFromWavData(src.wav, src.sourceName),
             chain: src.chain,
             pt: src.pt,
+          });
+        }
+        // XM workbenches keyed by "inst1Based:sampleIdx". Restored so a
+        // refresh / autosave-reload keeps each instrument's source kind
+        // (Sampler vs. Chiptune), chain, and transformer params.
+        for (const [key, src] of Object.entries(restored.xmChiptuneSources)) {
+          const [inst, idx] = parseXmKey(key);
+          if (inst === null) continue;
+          setXmWorkbench(inst, idx, {
+            ...xmWorkbenchFromChiptune(src.params),
+            chain: src.chain,
+            xm: src.xm,
+          });
+        }
+        for (const [key, src] of Object.entries(restored.xmSamplerSources)) {
+          const [inst, idx] = parseXmKey(key);
+          if (inst === null) continue;
+          setXmWorkbench(inst, idx, {
+            ...xmWorkbenchFromWav(src.wav, src.sourceName),
+            chain: src.chain,
+            xm: src.xm,
           });
         }
         loadPatternNames(restored.patternNames);
@@ -372,6 +473,11 @@ export const App: Component = () => {
       workbenches();
       const names = patternNames();
       if (!s) return;
+      const isPt2 = s.format === "PT2";
+      const isXm = s.format === "FT2";
+      // Track the XM workbench map so source-kind toggles flush through
+      // autosave without waiting for an unrelated signal to change.
+      xmWorkbenches();
       if (saveTimer !== null) window.clearTimeout(saveTimer);
       const muted = mutedChannels();
       const soloed = soloedChannels();
@@ -385,11 +491,13 @@ export const App: Component = () => {
           currentSample: samp,
           currentOctave: oct,
           editStep: step,
-          chiptuneSources: chiptuneSourcesSnapshot(),
-          samplerSources: samplerSourcesSnapshot(),
-          patternNames: names,
+          chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
+          samplerSources: isPt2 ? samplerSourcesSnapshot() : undefined,
+          patternNames: isPt2 ? names : undefined,
           mutedChannels: muted,
           soloedChannels: soloed,
+          xmChiptuneSources: isXm ? xmChiptuneSourcesSnapshot() : undefined,
+          xmSamplerSources: isXm ? xmSamplerSourcesSnapshot() : undefined,
         });
       }, 250);
     });
@@ -397,11 +505,24 @@ export const App: Component = () => {
       if (saveTimer !== null) window.clearTimeout(saveTimer);
     });
 
+    const selectAllSampleForActiveSong = () => {
+      const s = song();
+      if (!s) return;
+      if (s.format === "FT2") {
+        const inst = s.instruments[currentXmInstrument() - 1];
+        const sample = inst?.samples[currentXmSampleIndex()];
+        if (!sample || sample.data.length < 2) return;
+        setXmSampleSelection({ start: 0, end: sample.data.length });
+        return;
+      }
+      selectAllSample();
+    };
+
     for (const c of registerAppKeybinds({
       openFilePicker,
       saveProject,
       selectAllStep,
-      selectAllSample,
+      selectAllSample: selectAllSampleForActiveSong,
       copySelection: copyClipboardForActiveView,
       cutSelection: cutClipboardForActiveView,
       pasteAtCursor: pasteClipboardForActiveView,
@@ -438,6 +559,11 @@ export const App: Component = () => {
       toggleChannelSolo,
     }))
       cleanups.push(c);
+    // FT2 keybinds — registered alongside the PT2 set, each gated on the
+    // active song format. The format is locked for a project's lifetime
+    // (modal picker on new, sniff on load), so a single registration covers
+    // the whole session.
+    for (const c of registerXmAppKeybinds()) cleanups.push(c);
   });
   onCleanup(() => {
     for (const c of cleanups) c();
@@ -448,12 +574,20 @@ export const App: Component = () => {
   // Functions, not arrays — disabled flags need to re-evaluate every
   // time the Menu reads `props.items`.
   const fileMenuItems = (): MenuItem[] => [
-    { label: "New", onClick: newProject },
+    { label: "New", onClick: () => setModePickerOpen(true) },
     { label: "Open…", hint: "⌘O", onClick: openFilePicker },
     { separator: true, label: "" },
     { label: "Save…", hint: "⌘S", onClick: saveProject, disabled: !song() },
-    { label: "Export .mod…", onClick: exportMod, disabled: !song() },
-    { label: "Export .wav…", onClick: exportWav, disabled: !song() },
+    {
+      label: song()?.format === "FT2" ? "Export .xm…" : "Export .mod…",
+      onClick: exportSong,
+      disabled: !song(),
+    },
+    {
+      label: "Export .wav…",
+      onClick: exportWav,
+      disabled: !song(),
+    },
     { separator: true, label: "" },
     {
       label: "Song info",
@@ -522,7 +656,7 @@ export const App: Component = () => {
           view() === "sample" ||
           !song() ||
           !selection() ||
-          nextFreeSlot(song(), -1) === null,
+          nextFreeSlot(pt2Song(), -1) === null,
       },
       { separator: true, label: "" },
       { label: "Settings", hint: "F5", onClick: () => setView("settings") },
@@ -530,7 +664,7 @@ export const App: Component = () => {
   };
 
   const samplesMenuItems = (): MenuItem[] => {
-    const s = song();
+    const s = pt2Song();
     const playing = transport() === "playing";
     const hasSong = !!s;
     return [
@@ -635,6 +769,9 @@ export const App: Component = () => {
   const sampleCount = createMemo(() => {
     const s = song();
     if (!s) return 0;
+    if (s.format === "FT2") {
+      return s.instruments.filter((inst) => inst.samples.length > 0).length;
+    }
     return s.samples.filter((x) => x.lengthWords > 0).length;
   });
 
@@ -644,7 +781,7 @@ export const App: Component = () => {
    *  populated slot to be meaningful. */
   const currentSampleHasData = createMemo(() => {
     const s = song();
-    if (!s) return false;
+    if (!s || s.format !== "PT2") return false;
     return (s.samples[currentSample() - 1]?.data.byteLength ?? 0) > 0;
   });
 
@@ -655,14 +792,14 @@ export const App: Component = () => {
   // honor it.
   const cursorSpeedTempo = createMemo(() => {
     const s = song();
-    if (!s) return { speed: 6, tempo: 125 };
+    if (!s || s.format !== "PT2") return { speed: 6, tempo: 125 };
     const c = cursor();
     return speedTempoAt(s, c.order, c.row, true);
   });
 
   const modByteSize = createMemo(() => {
     const s = song();
-    if (!s) return 0;
+    if (!s || s.format !== "PT2") return 0;
     return writeModule(s).length;
   });
 
@@ -673,6 +810,8 @@ export const App: Component = () => {
   const projectByteSize = createMemo(() => {
     const s = song();
     if (!s) return 0;
+    const isPt2 = s.format === "PT2";
+    const isXm = s.format === "FT2";
     return projectToBytes({
       song: s,
       filename: filename(),
@@ -682,11 +821,13 @@ export const App: Component = () => {
       currentSample: 1,
       currentOctave: 1,
       editStep: 1,
-      chiptuneSources: chiptuneSourcesSnapshot(),
-      samplerSources: samplerSourcesSnapshot(),
-      patternNames: patternNames(),
+      chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
+      samplerSources: isPt2 ? samplerSourcesSnapshot() : undefined,
+      patternNames: isPt2 ? patternNames() : undefined,
       mutedChannels: mutedChannels(),
       soloedChannels: soloedChannels(),
+      xmChiptuneSources: isXm ? xmChiptuneSourcesSnapshot() : undefined,
+      xmSamplerSources: isXm ? xmSamplerSourcesSnapshot() : undefined,
     }).length;
   });
 
@@ -710,7 +851,7 @@ export const App: Component = () => {
           {/* Hidden — clicked by File→Open and Cmd+O. */}
           <input
             type="file"
-            accept=".retro,.mod"
+            accept=".retro,.mod,.xm"
             onChange={onPickFile}
             hidden
             ref={fileInput}
@@ -819,30 +960,167 @@ export const App: Component = () => {
       </header>
 
       <aside class="app__samples">
-        <h2>Samples</h2>
-        <SampleList
-          song={song()}
-          onSelect={selectSample}
-          onRename={renameSample}
-          onDropFiles={(slot1Based, files) => {
-            void loadWavsIntoSlot(slot1Based - 1, files);
-          }}
-        />
+        <h2>{xm2Song() ? "Instruments" : "Samples"}</h2>
+        <Show
+          when={xm2Song()}
+          fallback={
+            <SlotList
+              slots={() => {
+                const s = pt2Song();
+                if (!s) return null;
+                return s.samples.map((sample) => ({
+                  name: sample.name,
+                  isEmpty: sample.lengthWords === 0,
+                }));
+              }}
+              currentSlot={currentSample}
+              onSelect={selectSample}
+              onRename={renameSample}
+              onDropFiles={(slot1Based, files) => {
+                void loadWavsIntoSlot(slot1Based - 1, files);
+              }}
+              nameMaxLength={SAMPLE_NAME_MAX}
+              itemLabel="sample"
+            />
+          }
+        >
+          {(xm) => (
+            <SlotList
+              slots={() => {
+                const insts = xm().instruments;
+                const arr: SlotDisplay[] = new Array(XM_MAX_INSTRUMENTS);
+                for (let i = 0; i < XM_MAX_INSTRUMENTS; i++) {
+                  const inst = insts[i];
+                  // An instrument reads as "empty" when there's no
+                  // entry at all, no samples, or every sample has
+                  // zero data bytes — matches firstEmptyXmSlot so a
+                  // freshly-cleared slot is greyed-out in the list.
+                  const isEmpty =
+                    !inst ||
+                    inst.samples.length === 0 ||
+                    inst.samples.every((sm) => sm.data.length === 0);
+                  arr[i] = {
+                    name: inst?.name ?? "",
+                    isEmpty,
+                  };
+                }
+                return arr;
+              }}
+              currentSlot={currentXmInstrument}
+              onSelect={selectXmInstrument}
+              onRename={renameXmInstrument}
+              onDropFiles={(slot1Based, files) => {
+                void loadWavsIntoXmSlot(slot1Based, files);
+              }}
+              nameMaxLength={XM_INSTRUMENT_NAME_MAX}
+              itemLabel="instrument"
+            />
+          )}
+        </Show>
       </aside>
 
       <main class="app__main">
+        <Show when={xm2Song()}>
+          {(xm) => (
+            <>
+              <div
+                class="patternpane"
+                classList={{ "view-hidden": view() !== "pattern" }}
+              >
+                <div class="patternpane__meta">
+                  <span class="patternpane__title">
+                    {xm().title || <em>(untitled)</em>}
+                  </span>
+                  <ModeBadge format="FT2" />
+                  <span class="patternpane__sep">·</span>
+                  <span>{filename()}</span>
+                  <span class="patternpane__sep">·</span>
+                  <label class="patternpane__rows">
+                    Channels
+                    <input
+                      type="number"
+                      min={2}
+                      max={XM_MAX_CHANNELS}
+                      step={1}
+                      aria-label="Channel count"
+                      title={`Song-wide channel count (range 2..${XM_MAX_CHANNELS})`}
+                      disabled={transport() === "playing"}
+                      value={xm().channelCount}
+                      onChange={(e) => {
+                        const n = Math.floor(Number(e.currentTarget.value));
+                        if (!Number.isFinite(n)) return;
+                        const clamped = Math.max(
+                          2,
+                          Math.min(XM_MAX_CHANNELS, n),
+                        );
+                        setXmChannelCountAction(clamped);
+                      }}
+                    />
+                  </label>
+                  <span class="patternpane__sep">·</span>
+                  <span>{xm().instruments.length} instruments</span>
+                  <span class="patternpane__sep">·</span>
+                  <label class="patternpane__rows">
+                    Rows
+                    <input
+                      type="number"
+                      min={XM_MIN_PATTERN_ROWS}
+                      max={XM_MAX_PATTERN_ROWS}
+                      step={1}
+                      aria-label="Pattern row count"
+                      title={`Row count of pattern at order ${xmCursor().order} (range ${XM_MIN_PATTERN_ROWS}..${XM_MAX_PATTERN_ROWS})`}
+                      disabled={transport() === "playing"}
+                      value={(() => {
+                        const s = xm();
+                        const idx = s.orders[xmCursor().order];
+                        return idx !== undefined
+                          ? (s.patterns[idx]?.rowCount ?? 0)
+                          : 0;
+                      })()}
+                      onChange={(e) => {
+                        const n = Math.floor(Number(e.currentTarget.value));
+                        if (!Number.isFinite(n)) return;
+                        const clamped = Math.max(
+                          XM_MIN_PATTERN_ROWS,
+                          Math.min(XM_MAX_PATTERN_ROWS, n),
+                        );
+                        setXmRowCountAtCursor(clamped);
+                      }}
+                    />
+                  </label>
+                </div>
+                <PatternGridXm
+                  song={xm()}
+                  pos={playPos()}
+                  active={transport() === "playing"}
+                />
+                <Show when={settings().showPatternHelp}>
+                  <XmPatternHelp song={xm()} cursor={xmCursor()} />
+                </Show>
+              </div>
+              <div
+                class="sampleview-wrapper"
+                classList={{ "view-hidden": view() !== "sample" }}
+              >
+                <InstrumentView song={xm()} />
+              </div>
+            </>
+          )}
+        </Show>
         <Show
-          when={song()}
+          when={pt2Song()}
           fallback={
-            <div class="dropzone">
-              <p>
-                Drop a <code>.mod</code> file anywhere, or use{" "}
-                <em>Load .mod…</em>
-              </p>
-              <Show when={error()}>
-                <p class="error">{error()}</p>
-              </Show>
-            </div>
+            <Show when={!song()}>
+              <div class="dropzone">
+                <p>
+                  Drop a <code>.mod</code> or <code>.xm</code> file anywhere, or
+                  use <em>Load .mod…</em>
+                </p>
+                <Show when={error()}>
+                  <p class="error">{error()}</p>
+                </Show>
+              </div>
+            </Show>
           }
         >
           {(s) => (
@@ -895,6 +1173,7 @@ export const App: Component = () => {
                       }}
                     />
                   </Show>
+                  <ModeBadge format={s().format} />
                   <span class="patternpane__sep">·</span>
                   <span>{filename()}</span>
                   <span class="patternpane__sep">·</span>
@@ -1048,7 +1327,15 @@ export const App: Component = () => {
       <Show when={view() === "pattern"}>
         <aside class="app__order">
           <h2>Order</h2>
-          <Show when={song()} fallback={<p class="placeholder">—</p>}>
+          <Show when={xm2Song()}>{(xm) => <XmOrderList song={xm()} />}</Show>
+          <Show
+            when={pt2Song()}
+            fallback={
+              <Show when={!xm2Song()}>
+                <p class="placeholder">—</p>
+              </Show>
+            }
+          >
             {(s) => {
               // Disable a button when the corresponding action would no-op
               // so the UI doesn't lie about what's possible. Order edits
@@ -1198,6 +1485,15 @@ export const App: Component = () => {
       </Show>
       <Show when={aboutOpen()}>
         <AboutModal onClose={() => setAboutOpen(false)} />
+      </Show>
+      <Show when={modePickerOpen()}>
+        <ModePicker
+          onPick={(format) => {
+            setModePickerOpen(false);
+            newProject(format);
+          }}
+          onCancel={() => setModePickerOpen(false)}
+        />
       </Show>
     </div>
   );

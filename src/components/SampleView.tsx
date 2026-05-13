@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createMemo, type Component } from "solid-js";
-import type { Sample, Song } from "../core/mod/types";
+import type { Sample, ModSong } from "../core/mod/types";
 import { currentSample } from "../state/edit";
 import { workbenches } from "../state/sampleWorkbench";
 import { getStashedLoop, stashLoop } from "../state/loopStash";
@@ -38,41 +38,12 @@ import {
 import { PipelineEditor } from "./PipelineEditor";
 import { ChiptuneEditor } from "./ChiptuneEditor";
 import { Slider } from "./Slider";
+import {
+  EFFECT_BUTTON_KINDS,
+  titleForEffectButton,
+} from "./sampleEditorShared";
 
 export type { SampleSelection };
-
-/**
- * Effect kinds that ride the Crop/Cut row as their own buttons. Order
- * matches the on-screen layout: range-aware first (Crop / Cut / Reverse
- * lead since those are only meaningful with a selection), then
- * range-unaware. `volume` is a piecewise-linear amplitude envelope that
- * subsumed the old gain / fadeIn / fadeOut buttons.
- */
-const EFFECT_BUTTON_KINDS: readonly EffectKind[] = [
-  "reverse",
-  "volume",
-  "pitch",
-  "normalize",
-  "filter",
-  "shaper",
-  "crossfade",
-] as const;
-
-/** Hover hint that hints at selection-aware vs always-whole behaviour. */
-function titleForEffectButton(kind: EffectKind, hasSelection: boolean): string {
-  const isRangeAware = kind === "reverse";
-  const label = EFFECT_LABELS[kind];
-  if (kind === "volume") {
-    return "Append a Volume envelope (double-click on the waveform to add points)";
-  }
-  if (kind === "pitch") {
-    return "Append a Pitch / playback-speed envelope — values >1 speed up (and shorten) the sample, <1 slow down (and stretch)";
-  }
-  if (!isRangeAware) return `Append ${label} to the effect chain`;
-  return hasSelection
-    ? `Append ${label} over the current selection`
-    : `Append ${label} (whole sample — no selection)`;
-}
 
 const PT_FINETUNE_MIN = -8;
 const PT_FINETUNE_MAX = 7;
@@ -92,7 +63,7 @@ function encodeFinetune(signed: number): number {
 }
 
 interface Props {
-  song: Song;
+  song: ModSong;
   /** Append a point to the envelope addressed by `(chainIndex, param)`. */
   onAddEnvelopePoint: (
     chainIndex: number,

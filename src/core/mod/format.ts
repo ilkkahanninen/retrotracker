@@ -1,4 +1,4 @@
-import type { Note, Pattern, Sample, Song } from "./types";
+import type { ModSong, Note, Pattern, Sample } from "./types";
 import { CHANNELS, MAX_ORDERS, NUM_SAMPLES, ROWS_PER_PATTERN } from "./types";
 
 /** Paula CPU clocks. Used to compute output sample rate from period.
@@ -182,8 +182,9 @@ export function emptySample(): Sample {
   };
 }
 
-export function emptySong(): Song {
+export function emptySong(): ModSong {
   return {
+    format: "PT2",
     title: "",
     samples: Array.from({ length: NUM_SAMPLES }, emptySample),
     songLength: 1,

@@ -1,27 +1,27 @@
 import { describe, it, expect } from "vitest";
-import { Replayer } from "../src/core/audio/replayer";
+import { Pt2Replayer } from "../src/core/audio/replayer";
 import { emptySong, emptyPattern } from "../src/core/mod/format";
-import type { Song } from "../src/core/mod/types";
+import type { ModSong } from "../src/core/mod/types";
 
 /**
  * `replaceSong` is the worklet's hot-swap path for order-list edits.
- * The Replayer reads `song.orders[orderIndex]` and `song.patterns[p]`
+ * The Pt2Replayer reads `song.orders[orderIndex]` and `song.patterns[p]`
  * fresh on every row, so a pointer swap is enough to make a stepped
  * slot's new pattern audible on the next row processed.
  */
-describe("Replayer.replaceSong", () => {
+describe("Pt2Replayer.replaceSong", () => {
   it("clamps orderIndex when the new song is shorter", () => {
     const s1 = emptySong();
     s1.songLength = 4;
     for (let i = 0; i < 4; i++) s1.orders[i] = 0;
-    const r = new Replayer(s1, {
+    const r = new Pt2Replayer(s1, {
       sampleRate: 44100,
       loop: true,
       initialOrder: 3,
     });
     expect(r.getOrderIndex()).toBe(3);
 
-    const s2: Song = { ...s1, songLength: 2, orders: [...s1.orders] };
+    const s2: ModSong = { ...s1, songLength: 2, orders: [...s1.orders] };
     r.replaceSong(s2);
     expect(r.getOrderIndex()).toBe(1);
   });
@@ -30,14 +30,14 @@ describe("Replayer.replaceSong", () => {
     const s1 = emptySong();
     s1.songLength = 4;
     for (let i = 0; i < 4; i++) s1.orders[i] = 0;
-    const r = new Replayer(s1, {
+    const r = new Pt2Replayer(s1, {
       sampleRate: 44100,
       loop: true,
       initialOrder: 2,
     });
     expect(r.getOrderIndex()).toBe(2);
 
-    const s2: Song = { ...s1, orders: [...s1.orders] };
+    const s2: ModSong = { ...s1, orders: [...s1.orders] };
     s2.orders[2] = 1; // user stepped slot 2 to a different pattern
     r.replaceSong(s2);
     expect(r.getOrderIndex()).toBe(2);
@@ -74,7 +74,7 @@ describe("Replayer.replaceSong", () => {
     song1.samples[0]!.lengthWords = 1;
     song1.samples[0]!.data = new Int8Array([1, 0]);
 
-    const r = new Replayer(song1, {
+    const r = new Pt2Replayer(song1, {
       sampleRate: 44100,
       loop: true,
     });
@@ -83,7 +83,7 @@ describe("Replayer.replaceSong", () => {
     // Process enough to land past row 0 but before the song wraps.
     r.process(L, R, 4096);
 
-    const song2: Song = { ...song1, orders: [...song1.orders] };
+    const song2: ModSong = { ...song1, orders: [...song1.orders] };
     song2.orders[0] = 1;
     r.replaceSong(song2);
 
@@ -116,11 +116,11 @@ describe("Replayer.replaceSong", () => {
     s1.songLength = 1;
     s1.patterns = [emptyPattern()];
     s1.orders[0] = 0;
-    const r = new Replayer(s1, { sampleRate: 44100, loop: false });
+    const r = new Pt2Replayer(s1, { sampleRate: 44100, loop: false });
     const L = new Float32Array(44100 * 4);
     const R = new Float32Array(44100 * 4);
     r.process(L, R, L.length);
-    const s2: Song = { ...s1, orders: [...s1.orders] };
+    const s2: ModSong = { ...s1, orders: [...s1.orders] };
     expect(() => r.replaceSong(s2)).not.toThrow();
   });
 });

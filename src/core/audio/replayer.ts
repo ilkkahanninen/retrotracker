@@ -1,4 +1,4 @@
-import type { Note, Sample, Song } from "../mod/types";
+import type { Note, Sample, ModSong } from "../mod/types";
 import { CHANNELS, ROWS_PER_PATTERN } from "../mod/types";
 import { Effect, ExtendedEffect, PERIOD_TABLE } from "../mod/format";
 import type { ReplayerOptions } from "./types";
@@ -26,7 +26,7 @@ import type { Mixer } from "./mixer";
  *     matching pt2-clone — re-parse the module for clean playback.
  *   - Hard-panned LRRL with mid/side stereo separation (default 20% per pt2-clone)
  *   - Pattern break / position jump / pattern loop (E6x) / pattern delay (EEx)
- *   - Song-end detection via (order, row) revisit set
+ *   - ModSong-end detection via (order, row) revisit set
  *   - CIA-timer-based tick scheduling with fractional accumulation
  *
  * Not implemented:
@@ -167,13 +167,13 @@ const FUNK_TABLE: readonly number[] = [
   0, 5, 6, 7, 8, 10, 11, 13, 16, 19, 22, 26, 32, 43, 64, 128,
 ];
 
-export class Replayer {
+export class Pt2Replayer {
   // Mutable so the worklet can hot-swap a re-shaped song (order list
   // edits, new/deleted patterns) while the replayer keeps its current
   // orderIndex/row position. The replayer reads `song.orders[i]` and
   // `song.patterns[p]` lazily on every row, so a pointer swap is
   // enough — the next row processed reads from the new song.
-  private song: Song;
+  private song: ModSong;
   private readonly sampleRate: number;
   private readonly channels: ChannelState[] = [];
   private readonly state: SongState;
@@ -200,7 +200,7 @@ export class Replayer {
   /** Output samples remaining until the next tick boundary. */
   private samplesUntilTick = 0;
 
-  constructor(song: Song, opts: ReplayerOptions) {
+  constructor(song: ModSong, opts: ReplayerOptions) {
     this.song = song;
     this.sampleRate = opts.sampleRate;
     this.loop = opts.loop ?? false;
@@ -313,7 +313,7 @@ export class Replayer {
 
   private samplesPerTick(): number {
     const ciaPeriod = Math.floor(1773447 / this.state.tempo);
-    const tickHz = Replayer.CIA_PAL_CLK / (ciaPeriod + 1);
+    const tickHz = Pt2Replayer.CIA_PAL_CLK / (ciaPeriod + 1);
     const exact = this.sampleRate / tickHz;
     let n = Math.floor(exact);
     this.tickFracAccum += exact - n;
@@ -435,7 +435,7 @@ export class Replayer {
   }
 
   /**
-   * Hot-swap the entire Song reference mid-playback. Used when the user
+   * Hot-swap the entire ModSong reference mid-playback. Used when the user
    * edits the order list (slot stepping, insert/delete, new/duplicate
    * pattern) while the song is playing — the replayer reads
    * `song.orders[orderIndex]` and `song.patterns[p]` fresh on every row,
@@ -454,7 +454,7 @@ export class Replayer {
    * re-converges; for offline render the consumer typically reloads
    * before re-using the replayer.
    */
-  replaceSong(song: Song): void {
+  replaceSong(song: ModSong): void {
     this.song = song;
     if (this.state.orderIndex >= song.songLength) {
       this.state.orderIndex = Math.max(0, song.songLength - 1);
@@ -464,7 +464,7 @@ export class Replayer {
 
   /**
    * Hot-swap the sample data at `slot` mid-playback. Mutates the cached
-   * Song so subsequent note triggers and offset/funk reads use the new
+   * ModSong so subsequent note triggers and offset/funk reads use the new
    * buffer, and re-latches Paula's per-voice DMA registers for any voice
    * currently playing this slot. The voice keeps its cursor — the new
    * loop bounds take effect on the next DMA wrap, so a chiptune morph

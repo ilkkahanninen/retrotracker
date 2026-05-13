@@ -18,7 +18,7 @@
 
 import { vi } from "vitest";
 import { AudioEngine } from "../../src/core/audio/engine";
-import type { Sample, Song } from "../../src/core/mod/types";
+import type { Sample, ModSong } from "../../src/core/mod/types";
 import type { AmigaModel } from "../../src/core/audio/paula";
 
 export interface EngineCall {
@@ -43,13 +43,13 @@ export class RecordingEngine {
     this.calls.push({ method, args });
   }
 
-  load(song: Song): void {
+  load(song: ModSong): void {
     this.rec("load", [song]);
   }
   setSampleData(slot: number, sample: Sample): void {
     this.rec("setSampleData", [slot, sample]);
   }
-  replaceSong(song: Song): void {
+  replaceSong(song: ModSong): void {
     this.rec("replaceSong", [song]);
   }
   async play(): Promise<void> {
@@ -80,8 +80,43 @@ export class RecordingEngine {
   async previewNote(sample: Sample, period: number): Promise<void> {
     this.rec("previewNote", [sample, period]);
   }
+  async playXmPreviewBuffer(
+    left: Float32Array,
+    right: Float32Array,
+    sampleRate: number,
+    onEnded?: () => void,
+    restart: boolean = true,
+  ): Promise<void> {
+    this.rec("playXmPreviewBuffer", [
+      left,
+      right,
+      sampleRate,
+      onEnded,
+      restart,
+    ]);
+    this.xmPreviewActive = true;
+    this.xmPreviewEnded = () => {
+      this.xmPreviewActive = false;
+      onEnded?.();
+    };
+  }
+  /** Test-only: simulate the worklet's natural-end signal. */
+  fireXmPreviewEnded(): void {
+    const cb = this.xmPreviewEnded;
+    this.xmPreviewEnded = null;
+    cb?.();
+  }
+  private xmPreviewActive = false;
+  private xmPreviewEnded: (() => void) | null = null;
+  isXmPreviewActive(): boolean {
+    return this.xmPreviewActive;
+  }
   stopPreview(): void {
     this.rec("stopPreview", []);
+    // Mirror the real engine: stopping cancels the natural-end
+    // callback, so `isXmPreviewActive` flips false immediately.
+    this.xmPreviewActive = false;
+    this.xmPreviewEnded = null;
   }
   async dispose(): Promise<void> {
     this.rec("dispose", []);

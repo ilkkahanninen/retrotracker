@@ -13,12 +13,12 @@ import {
 import { CHANNELS } from "../src/core/mod/types";
 import { Effect, emptyPattern, emptySong } from "../src/core/mod/format";
 import { visibleRowRangeForOrder } from "../src/core/mod/flatten";
-import type { Song } from "../src/core/mod/types";
+import type { ModSong } from "../src/core/mod/types";
 
 const C0: Cursor = { order: 0, row: 0, channel: 0, field: "note" };
 
 /** Build a song with N patterns (each empty) and orders [0,1,...,N-1]. */
-function songWith(numPatterns: number): Song {
+function songWith(numPatterns: number): ModSong {
   const s = emptySong();
   s.patterns = Array.from({ length: numPatterns }, emptyPattern);
   s.songLength = numPatterns;
@@ -28,7 +28,7 @@ function songWith(numPatterns: number): Song {
 
 /** Set a Dxx (Pattern Break) on (orderIndex, row) jumping to nextRow on the next pattern. */
 function setDxx(
-  s: Song,
+  s: ModSong,
   orderIndex: number,
   row: number,
   nextRow: number,

@@ -1,4 +1,5 @@
-import type { Note, Song } from "./types";
+import { walkOrders } from "../flatten";
+import type { Note, ModSong } from "./types";
 import { Effect } from "./format";
 
 /** MOD defaults the replayer falls back to before any Fxx is hit. */
@@ -78,37 +79,16 @@ function getFlatRow(
  * If multiple Dxx commands appear on the same row, the last one (highest
  * channel index) wins for the resume row, matching pt2-clone.
  */
-export function flattenSong(song: Song): FlatRow[] {
+export function flattenSong(song: ModSong): FlatRow[] {
   const out: FlatRow[] = [];
-  let nextStartRow = 0;
-  for (let o = 0; o < song.songLength; o++) {
-    const pat = song.patterns[song.orders[o] ?? 0];
-    if (!pat) continue;
-    const startRow = Math.min(nextStartRow, pat.rows.length - 1);
-    nextStartRow = 0;
-    let ignoreDxx = false;
-    for (let r = startRow; r < pat.rows.length; r++) {
-      const cells = pat.rows[r]!;
-      out.push(getFlatRow(cells, o, r, r === startRow && o > 0));
-      let dxx = -1;
-      let hasBxx = false;
-      for (const c of cells) {
-        if (c.effect === Effect.PatternBreak) dxx = c.effectParam;
-        else if (c.effect === Effect.PositionJump) hasBxx = true;
-      }
-      if (dxx >= 0) {
-        if (hasBxx) {
-          ignoreDxx = true;
-        } else if (!ignoreDxx) {
-          nextStartRow = Math.min(
-            (dxx >> 4) * 10 + (dxx & 0x0f),
-            pat.rows.length - 1,
-          );
-          break;
-        }
-      }
-    }
-  }
+  walkOrders(
+    song,
+    (pat) => pat.rows,
+    (pat) => pat.rows.length,
+    (cells, order, rowIndex, boundaryAbove) => {
+      out.push(getFlatRow(cells, order, rowIndex, boundaryAbove));
+    },
+  );
   return out;
 }
 
@@ -124,7 +104,7 @@ export function flattenSong(song: Song): FlatRow[] {
  * see and never edits.
  */
 export function visibleRowRangeForOrder(
-  song: Song,
+  song: ModSong,
   order: number,
 ): { first: number; last: number } | null {
   const flat = flattenSong(song);
@@ -156,7 +136,7 @@ export function visibleRowRangeForOrder(
  * Fxx of each kind wins, matching the replayer.
  */
 export function speedTempoAt(
-  song: Song,
+  song: ModSong,
   order: number,
   row: number,
   inclusive = false,

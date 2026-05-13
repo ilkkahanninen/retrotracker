@@ -1,15 +1,19 @@
 /// <reference path="./audioworklet.d.ts" />
 /**
- * AudioWorkletProcessor that streams audio from a Replayer.
+ * AudioWorkletProcessor that streams audio from a Pt2Replayer.
  *
  * Loaded by `engine.ts` via `audioContext.audioWorklet.addModule(...)`.
- * Vite bundles imports together, so we can pull in the full Replayer here.
+ * Vite bundles imports together, so we can pull in the full Pt2Replayer here.
  */
 
-import type { Sample, Song } from "../mod/types";
+import type { Sample } from "../mod/types";
 import { CHANNELS } from "../mod/types";
 import { speedTempoAt } from "../mod/flatten";
-import { Replayer } from "./replayer";
+import { speedTempoAtXm } from "../xm/flatten";
+import type { Song } from "../song";
+import { channelCount as channelCountOf } from "../song";
+import { makeReplayer, type Replayer } from "./replayerCommon";
+import type { Pt2Replayer } from "./replayer";
 import type { AmigaModel } from "./paula";
 
 export type WorkletMessage =
@@ -41,19 +45,17 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
   /**
    * Cached mute gate. Mirrors the main thread's effective audibility per
    * channel so the worklet can re-apply it whenever it builds a fresh
-   * Replayer (load, end-of-song wrap, playFrom). Without this the gate
-   * would silently reset on every replayer swap.
+   * replayer (load, end-of-song wrap, playFrom). Sized to the active
+   * song's channel count (PT = 4, FT2 = 2..32) by `applyChannelCount`.
    */
-  private readonly channelMuted: boolean[] = new Array(CHANNELS).fill(false);
+  private channelMuted: boolean[] = new Array(CHANNELS).fill(false);
   /**
-   * Cached Paula filter model. Mirrors the user's Settings preference so
-   * the worklet can re-apply it whenever it builds a fresh Replayer
-   * (load, end-of-song wrap, playFrom). Without this the model would
-   * silently revert to the Replayer default on every recreate.
+   * Cached Paula filter model. PT-only — XmReplayer ignores the setter
+   * (it's optional on the Replayer interface), but we cache it so the
+   * preview path and a future PT load still pick up the user's choice.
    */
   private amigaModel: AmigaModel = "A1200";
-  /** Cached stereo separation for the same reason as `amigaModel` —
-   *  carries across replayer recreates. 20% is the pt2-clone default. */
+  /** Cached stereo separation (PT-only — XmReplayer ignores). */
   private stereoSeparation = 20;
   /**
    * VU-level throttle state. We accumulate frames since the last `level`
@@ -63,36 +65,59 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
    */
   private framesSinceLevels = 0;
   private readonly levelInterval = sampleRate / LEVEL_UPDATE_HZ;
-  private readonly peakBuf = new Float32Array(CHANNELS);
+  /**
+   * Per-channel peak buffer. Dynamic-length so FT2 songs with more than
+   * 4 channels report all of them; resized on load.
+   */
+  private peakBuf = new Float32Array(CHANNELS);
 
   private applyAmigaModel(): void {
-    this.replayer?.setAmigaModel(this.amigaModel);
+    this.replayer?.setAmigaModel?.(this.amigaModel);
   }
 
   private applyStereoSeparation(): void {
-    this.replayer?.setStereoSeparation(this.stereoSeparation);
+    this.replayer?.setStereoSeparation?.(this.stereoSeparation);
   }
 
   /**
-   * One place to construct a fresh Replayer with every cached preference
+   * Resize per-channel buffers (mute gates, VU peaks) to match a freshly
+   * loaded song's channel count. PT projects always size to 4; FT2 ranges
+   * from 2..32. Idempotent.
+   */
+  private applyChannelCount(n: number): void {
+    if (this.channelMuted.length !== n) {
+      const next = new Array(n).fill(false) as boolean[];
+      for (let i = 0; i < Math.min(n, this.channelMuted.length); i++) {
+        next[i] = this.channelMuted[i] ?? false;
+      }
+      this.channelMuted = next;
+    }
+    if (this.peakBuf.length !== n) {
+      this.peakBuf = new Float32Array(n);
+    }
+  }
+
+  /**
+   * One place to construct a fresh Pt2Replayer with every cached preference
    * carried in. Without this, each call site (load, play-after-finished,
    * playFrom, end-of-song wrap) had to remember to pass `amigaModel`,
    * `stereoSeparation`, and call `applyChannelMuted` — and at least
    * `stereoSeparation` was being silently dropped on every recreate but
    * `load`. Funnel through here so the worklet's cached state always
-   * reaches the new Replayer.
+   * reaches the new Pt2Replayer.
    *
    * Mutes are passed via the constructor (not a post-construction
-   * setChannelMuted loop) so they're in effect before the Replayer's
+   * setChannelMuted loop) so they're in effect before the Pt2Replayer's
    * first internal `syncPaula` — otherwise a muted channel's row-0 note
    * triggers DMA at its full volume and only quiets at the next tick
    * (~20 ms of leak at default tempo).
    */
-  private makeReplayer(
-    extra: Partial<ConstructorParameters<typeof Replayer>[1]> = {},
+  private buildReplayer(
+    extra: Partial<ConstructorParameters<typeof Pt2Replayer>[1]> = {},
   ): Replayer {
-    if (!this.song) throw new Error("makeReplayer called with no song");
-    const r = new Replayer(this.song, {
+    if (!this.song) throw new Error("buildReplayer called with no song");
+    this.applyChannelCount(channelCountOf(this.song));
+    const r = makeReplayer(this.song, {
       sampleRate,
       loop: true,
       amigaModel: this.amigaModel,
@@ -112,23 +137,23 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
       switch (msg.type) {
         case "load":
           this.song = msg.song;
-          this.replayer = this.makeReplayer();
+          this.replayer = this.buildReplayer();
           break;
         case "play":
-          // Replayer is one-shot — recreate it from the stored Song if the
-          // previous run finished. This is what makes Play→end→Play work.
+          // Why: replayer is one-shot — recreate on finish to enable Play→end→Play.
           if (this.song && (!this.replayer || this.replayer.isFinished())) {
-            this.replayer = this.makeReplayer();
+            this.replayer = this.buildReplayer();
           }
           this.playing = true;
           break;
         case "stop":
           this.playing = false;
-          // Force VU meters to silence on stop — `process()` short-circuits
-          // out of the level-posting branch while paused, so without this
-          // the UI would show frozen bars from the last playing quantum.
+          // Why: force VU meters to silence; process() skips level-posting while paused.
           this.framesSinceLevels = 0;
-          this.port.postMessage({ type: "level", peaks: [0, 0, 0, 0] });
+          this.port.postMessage({
+            type: "level",
+            peaks: new Array(this.peakBuf.length).fill(0) as number[],
+          });
           break;
         case "reset":
           this.playing = false;
@@ -137,27 +162,24 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           break;
         case "playFrom":
           if (this.song) {
-            // Seed the new Replayer with the speed/tempo that would be in
-            // effect if the song had played from the start to the cursor —
-            // otherwise mid-song playback always starts at the defaults
-            // (6 / 125), even if the song set its tempo earlier.
-            const { speed, tempo } = speedTempoAt(
-              this.song,
-              msg.order,
-              msg.row,
-            );
-            this.replayer = this.makeReplayer({
+            // Why: seed with speed/tempo as-of cursor; otherwise mid-song
+            // playback starts at defaults even if the song set tempo earlier.
+            const seeded =
+              this.song.format === "PT2"
+                ? speedTempoAt(this.song, msg.order, msg.row)
+                : speedTempoAtXm(this.song, msg.order, msg.row);
+            this.replayer = this.buildReplayer({
               initialOrder: msg.order,
               initialRow: msg.row,
-              initialSpeed: speed,
-              initialTempo: tempo,
+              initialSpeed: seeded.speed,
+              initialTempo: seeded.tempo,
               loopPattern: msg.loopPattern,
             });
             this.playing = true;
           }
           break;
         case "setChannelMuted":
-          if (msg.channel >= 0 && msg.channel < CHANNELS) {
+          if (msg.channel >= 0 && msg.channel < this.channelMuted.length) {
             this.channelMuted[msg.channel] = msg.muted;
             this.replayer?.setChannelMuted(msg.channel, msg.muted);
           }
@@ -171,18 +193,17 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           this.applyStereoSeparation();
           break;
         case "setSampleData":
-          // Hot-swap a single sample slot during playback. Both the cached
-          // Song (used to recreate the Replayer on song-end wrap) and the
-          // live Replayer share the same Song reference, so the
-          // Replayer's `replaceSampleSlot` mutation is enough — no extra
-          // bookkeeping here. No-op when no song is loaded yet.
+          // Hot-swap a single sample slot during playback (PT-only; the
+          // FT2 path uses instruments and lands in a later slice). The
+          // optional chain on the Replayer interface makes this a no-op
+          // when the active replayer is XmReplayer.
           if (this.song && this.replayer) {
-            this.replayer.replaceSampleSlot(msg.slot, msg.sample);
+            this.replayer.replaceSampleSlot?.(msg.slot, msg.sample);
           }
           break;
         case "replaceSong":
           // Hot-swap the whole song reference (order list / pattern array
-          // changes). Update both the cached Song and the live Replayer
+          // changes). Update both the cached ModSong and the live Pt2Replayer
           // so the next song-end-wrap recreate also picks up the new
           // shape. Sample data was already hot-swapped per-slot via
           // `setSampleData`, but `msg.song` is authoritative — pushing
@@ -213,7 +234,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
       // zeros after `ended` is set) — a sub-render-quantum gap on the order
       // of a few ms.
       if (this.replayer.isFinished() && this.song) {
-        this.replayer = this.makeReplayer();
+        this.replayer = this.buildReplayer();
       }
 
       const o = this.replayer.getOrderIndex();
@@ -229,15 +250,13 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
       if (this.framesSinceLevels >= this.levelInterval) {
         this.framesSinceLevels = 0;
         this.replayer.peakSnapshotAndReset(this.peakBuf);
-        const evt: WorkletEvent = {
-          type: "level",
-          peaks: [
-            this.peakBuf[0]!,
-            this.peakBuf[1]!,
-            this.peakBuf[2]!,
-            this.peakBuf[3]!,
-          ],
-        };
+        // Why: postMessage would clone Float32Array to Array; engine's
+        // onLevels expects number[] directly.
+        const peaks = new Array<number>(this.peakBuf.length);
+        for (let i = 0; i < this.peakBuf.length; i++) {
+          peaks[i] = this.peakBuf[i]!;
+        }
+        const evt: WorkletEvent = { type: "level", peaks };
         this.port.postMessage(evt);
       }
     } else {

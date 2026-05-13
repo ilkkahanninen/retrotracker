@@ -1,9 +1,12 @@
 import workletUrl from "./worklet?worker&url";
 import previewWorkletUrl from "./preview-worklet?worker&url";
-import type { Sample, Song } from "../mod/types";
+import xmPreviewWorkletUrl from "./xm-preview-worklet?worker&url";
+import type { Sample } from "../mod/types";
+import type { Song } from "../song";
 import { songForPlayback, truncateSampleAtLoopEnd } from "./loopTruncate";
 import type { WorkletEvent, WorkletMessage } from "./worklet";
 import type { PreviewMsg } from "./preview-worklet-types";
+import type { XmPreviewMsg, XmPreviewOutMsg } from "./xm-preview-worklet-types";
 import type { AmigaModel } from "./paula";
 
 /**
@@ -74,10 +77,8 @@ export class AudioEngine {
       numberOfOutputs: 1,
       outputChannelCount: [2],
     });
-    // Worklet → masterGain → destination. Initial gain matches the
-    // engine's cached default (140% / 1.4) so the very first frame sounds
-    // the same as later ones; the App's reactive sync re-pushes the
-    // user's persisted value on mount.
+    // Why: initial gain matches engine cached default (1.4); reactive sync
+    // re-pushes user's persisted value on mount.
     const masterGainNode = ctx.createGain();
     masterGainNode.gain.value = 1.4;
     node.connect(masterGainNode);
@@ -129,19 +130,16 @@ export class AudioEngine {
   }
 
   load(song: Song): void {
-    // Snapshot the song with trailing-after-loop bytes dropped for any
-    // looped samples — see loopTruncate.ts. Keeps the editor's stored data
-    // intact (the waveform still shows the full post-pipeline int8) while
-    // the worklet plays a version where loopEnd == sampleEnd, which
-    // sidesteps the PT loopStart=0 quirk so loops sound the way the
-    // editor's preview suggests.
-    const msg: WorkletMessage = { type: "load", song: songForPlayback(song) };
+    // Why: PT snapshot drops trailing-after-loop bytes (see loopTruncate.ts) —
+    // sidesteps the loopStart=0 quirk. FT2 has its own loop semantics.
+    const playSong: Song = song.format === "PT2" ? songForPlayback(song) : song;
+    const msg: WorkletMessage = { type: "load", song: playSong };
     this.node.port.postMessage(msg);
   }
 
   /**
    * Push a single sample slot's bytes + meta to the worklet without
-   * restarting playback. The Replayer mutates its cached Song so future
+   * restarting playback. The Pt2Replayer mutates its cached ModSong so future
    * note triggers use the new data, and re-latches Paula's voice
    * registers for any voice currently playing this slot — so a chiptune
    * morph audibly snaps into the new waveform within one loop period.
@@ -162,15 +160,16 @@ export class AudioEngine {
   /**
    * Push the whole song to the worklet without restarting playback.
    * Used for order-list edits (slot stepping, insert/delete, new /
-   * duplicate pattern) — the Replayer keeps its mid-stream state
+   * duplicate pattern) — the Pt2Replayer keeps its mid-stream state
    * (orderIndex, row, channel voices) and the next row processed reads
    * from the new song. Trailing-after-loop bytes are dropped per sample
    * (same `songForPlayback` transform as `load`).
    */
   replaceSong(song: Song): void {
+    const playSong: Song = song.format === "PT2" ? songForPlayback(song) : song;
     const msg: WorkletMessage = {
       type: "replaceSong",
-      song: songForPlayback(song),
+      song: playSong,
     };
     this.node.port.postMessage(msg);
   }
@@ -289,11 +288,99 @@ export class AudioEngine {
     node.port.postMessage(msg);
   }
 
+  /**
+   * Lazily-created XM preview worklet. Holds the stereo Float32 buffer
+   * the host pre-rendered and advances a read pointer per render
+   * quantum. Slider drags push fresh buffers without restarting the
+   * read pointer (same gapless swap policy as PT2's preview worklet).
+   */
+  private xmPreviewNode: AudioWorkletNode | null = null;
+  private xmPreviewModuleAdded = false;
+  /** Current preview's onEnded callback, fired when the worklet posts
+   *  back that the read pointer reached the buffer end. Doubles as
+   *  the "is a preview currently audible on this engine?" gate read
+   *  by `isXmPreviewActive`. */
+  private xmPreviewOnEnded: (() => void) | null = null;
+
+  /**
+   * True while an XM preview buffer is loaded into the worklet AND
+   * its natural-end callback hasn't fired yet. `xmLivePreviewSwap`
+   * gates its re-render on this so a slider drag after a key-up
+   * (which clears the callback) can't morph a no-longer-audible
+   * voice into a fresh-sounding playback.
+   */
+  isXmPreviewActive(): boolean {
+    return this.xmPreviewOnEnded !== null;
+  }
+
+  private async ensureXmPreviewNode(): Promise<AudioWorkletNode> {
+    if (this.xmPreviewNode) return this.xmPreviewNode;
+    if (!this.xmPreviewModuleAdded) {
+      await this.ctx.audioWorklet.addModule(xmPreviewWorkletUrl);
+      this.xmPreviewModuleAdded = true;
+    }
+    const node = new AudioWorkletNode(this.ctx, "retrotracker-xm-preview", {
+      numberOfInputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+    });
+    node.connect(this.masterGainNode);
+    node.port.onmessage = (e: MessageEvent<XmPreviewOutMsg>) => {
+      if (e.data.type === "ended") {
+        const cb = this.xmPreviewOnEnded;
+        this.xmPreviewOnEnded = null;
+        cb?.();
+      }
+    };
+    this.xmPreviewNode = node;
+    return node;
+  }
+
+  /**
+   * XM-flavoured preview: play a pre-rendered stereo buffer through
+   * the XM preview worklet. The buffer is produced on the main thread
+   * by running `XmReplayer` with a synthetic one-channel song — so
+   * envelopes / autovibrato / fadeout / ping-pong all sound correct —
+   * and the worklet holds it in regular memory and reads per render
+   * quantum.
+   *
+   * `restart === true` resets the worklet's read pointer to frame 0
+   * (fresh note trigger). `restart === false` keeps the read pointer
+   * where it is, so a slider-drag-driven re-render morphs the audible
+   * voice gaplessly (mirrors PT2's `paula.setSample` swap policy).
+   */
+  async playXmPreviewBuffer(
+    left: Float32Array,
+    right: Float32Array,
+    _bufferSampleRate: number,
+    onEnded?: () => void,
+    restart: boolean = true,
+  ): Promise<void> {
+    void _bufferSampleRate;
+    if (left.length === 0) return;
+    if (this.ctx.state === "suspended") await this.ctx.resume();
+    const node = await this.ensureXmPreviewNode();
+    // Latest onEnded supersedes any prior one — the worklet only
+    // signals once per natural end, and a swap is conceptually the
+    // same trigger continuing under new audio.
+    this.xmPreviewOnEnded = onEnded ?? null;
+    const msg: XmPreviewMsg = { type: "set", left, right, restart };
+    node.port.postMessage(msg);
+  }
+
   /** Stop any active preview note. */
   stopPreview(): void {
-    if (!this.previewNode) return;
-    const msg: PreviewMsg = { type: "stop" };
-    this.previewNode.port.postMessage(msg);
+    if (this.previewNode) {
+      const msg: PreviewMsg = { type: "stop" };
+      this.previewNode.port.postMessage(msg);
+    }
+    if (this.xmPreviewNode) {
+      const msg: XmPreviewMsg = { type: "stop" };
+      this.xmPreviewNode.port.postMessage(msg);
+      // Suppress the natural-end onEnded callback for the buffer we
+      // just cancelled — the caller didn't ask for it to fire.
+      this.xmPreviewOnEnded = null;
+    }
   }
 
   async dispose(): Promise<void> {

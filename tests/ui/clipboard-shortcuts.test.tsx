@@ -7,7 +7,7 @@ import {
   setTransport,
   setPlayPos,
   clearHistory,
-  song,
+  pt2Song as song,
 } from "../../src/state/song";
 import {
   setCurrentSample,
@@ -27,7 +27,7 @@ import {
   emptySong,
   PERIOD_TABLE,
 } from "../../src/core/mod/format";
-import type { Song, Note } from "../../src/core/mod/types";
+import type { ModSong, Note } from "../../src/core/mod/types";
 
 const C2 = PERIOD_TABLE[0]![12]!;
 const D2 = PERIOD_TABLE[0]![14]!;
@@ -35,7 +35,7 @@ const E2 = PERIOD_TABLE[0]![16]!;
 
 function songWith(
   stamps: Array<{ row: number; ch: number; note: Partial<Note> }>,
-): Song {
+): ModSong {
   const s = emptySong();
   s.patterns = [emptyPattern()];
   s.songLength = 1;

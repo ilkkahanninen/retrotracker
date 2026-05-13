@@ -46,7 +46,7 @@ describe("persistence: chiptune source round-trip", () => {
     const bytes = projectToBytes(baseInputs());
     const text = new TextDecoder().decode(bytes);
     const parsed = JSON.parse(text);
-    expect(parsed.v).toBe(1);
+    expect(parsed.v).toBe(9);
     expect(parsed.chiptuneSources).toBeUndefined();
   });
 
@@ -68,7 +68,7 @@ describe("persistence: chiptune source round-trip", () => {
       mutedChannels: [false, false, true, false],
     });
     const parsed = JSON.parse(new TextDecoder().decode(bytes));
-    expect(parsed.v).toBe(5);
+    expect(parsed.v).toBe(9);
     expect(parsed.mutedChannels).toEqual([false, false, true, false]);
     // Soloed array still emitted (as all-false) so the loader sees both.
     expect(parsed.soloedChannels).toEqual([false, false, false, false]);
@@ -81,7 +81,7 @@ describe("persistence: chiptune source round-trip", () => {
       soloedChannels: [false, false, false, false],
     });
     const parsed = JSON.parse(new TextDecoder().decode(bytes));
-    expect(parsed.v).toBe(1);
+    expect(parsed.v).toBe(9);
     expect(parsed.mutedChannels).toBeUndefined();
     expect(parsed.soloedChannels).toBeUndefined();
   });
@@ -101,7 +101,7 @@ describe("persistence: chiptune source round-trip", () => {
     });
     const text = new TextDecoder().decode(bytes);
     const parsed = JSON.parse(text);
-    expect(parsed.v).toBe(2);
+    expect(parsed.v).toBe(9);
   });
 
   it("drops slot entries with corrupt params instead of failing the whole load", () => {

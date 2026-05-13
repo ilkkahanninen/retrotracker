@@ -1,6 +1,6 @@
 /**
  * "Bounce a pattern selection to a sample" — render the user's selected
- * rows × channels through a Replayer that uses CleanMixer instead of Paula,
+ * rows × channels through a Pt2Replayer that uses CleanMixer instead of Paula,
  * trim to exactly the selection's audible length, and return mono PCM that
  * `workbenchFromWavData` can wrap as a Sampler workbench.
  *
@@ -10,16 +10,16 @@
  * while leaving room for our sinc resampler to do its work.
  */
 
-import type { Song } from "../mod/types";
+import type { ModSong } from "../mod/types";
 import type { PatternSelection } from "../../state/selection";
 import { CHANNELS, ROWS_PER_PATTERN, type Pattern } from "../mod/types";
 import { Effect, emptyNote, emptyPattern, emptySong } from "../mod/format";
 import { speedTempoAt } from "../mod/flatten";
-import { Replayer } from "./replayer";
+import { Pt2Replayer } from "./replayer";
 import { CleanMixer } from "./cleanMixer";
 import type { WavData } from "./wav";
 
-/** CIA timer period for `tempo` BPM, mirroring `Replayer.samplesPerTick`. */
+/** CIA timer period for `tempo` BPM, mirroring `Pt2Replayer.samplesPerTick`. */
 const CIA_PAL_CLK = 709379.0;
 function samplesPerTickAt(tempo: number, sampleRate: number): number {
   const ciaPeriod = Math.floor(1773447 / tempo);
@@ -38,7 +38,7 @@ function samplesPerTickAt(tempo: number, sampleRate: number): number {
  * channels process left-to-right and the last Fxx of each kind wins.
  */
 function selectionFrameCount(
-  song: Song,
+  song: ModSong,
   sel: PatternSelection,
   sampleRate: number,
 ): number {
@@ -73,7 +73,7 @@ function selectionFrameCount(
  * Sample slots are deep-shared with the source song: the audio data is
  * read-only at playback time, so referential sharing is safe.
  */
-function buildSelectionSong(song: Song, sel: PatternSelection): Song {
+function buildSelectionSong(song: ModSong, sel: PatternSelection): ModSong {
   const sourcePat = song.patterns[song.orders[sel.order] ?? 0];
   const out: Pattern = emptyPattern();
   if (!sourcePat) return { ...emptySong(), samples: song.samples };
@@ -113,7 +113,7 @@ export interface BounceResult {
 }
 
 export interface BounceOptions {
-  /** Output sample rate — passed through to the Replayer + CleanMixer. */
+  /** Output sample rate — passed through to the Pt2Replayer + CleanMixer. */
   sampleRate?: number;
   /**
    * Number of trailing frames to keep after the selection's last row, so
@@ -131,7 +131,7 @@ export interface BounceOptions {
  * `workbenchFromWavData` and lands it in the next free sample slot.
  */
 export function bounceSelection(
-  song: Song,
+  song: ModSong,
   sel: PatternSelection,
   opts: BounceOptions = {},
 ): BounceResult | null {
@@ -147,7 +147,7 @@ export function bounceSelection(
   if (exactFrames <= 0) return null;
   const renderFrames = exactFrames + tailFrames;
 
-  const replayer = new Replayer(tempSong, {
+  const replayer = new Pt2Replayer(tempSong, {
     sampleRate,
     initialOrder: 0,
     // Start at row 0 of the temp song — buildSelectionSong placed the

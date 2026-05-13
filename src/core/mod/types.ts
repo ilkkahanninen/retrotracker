@@ -41,7 +41,9 @@ export interface Pattern {
   rows: Note[][];
 }
 
-export interface Song {
+export interface ModSong {
+  /** Discriminator for the cross-format Song union. */
+  format: "PT2";
   /** 20-byte ASCII title. */
   title: string;
   /** Always 31 entries (samples 1..31). Index 0 represents sample #1. */

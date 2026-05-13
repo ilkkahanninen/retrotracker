@@ -8,7 +8,7 @@ import {
   setTransport,
   setPlayPos,
   clearHistory,
-  song,
+  pt2Song as song,
 } from "../../src/state/song";
 import {
   currentOctave,
@@ -48,7 +48,7 @@ describe("piano keys in sample view: preview only", () => {
     const before = song();
     const user = userEvent.setup();
     await user.keyboard("a");
-    // Reference equality: commitEdit creates a new Song; if it didn't run,
+    // Reference equality: commitEdit creates a new ModSong; if it didn't run,
     // we still hold the same reference.
     expect(song()).toBe(before);
   });
@@ -164,7 +164,7 @@ describe("typing in inputs no longer fires bare-letter shortcuts", () => {
     )!;
     input.focus();
     await userEvent.setup().keyboard("a");
-    // Song mutates only via `onInput` on the focused input (name='a'); no
+    // ModSong mutates only via `onInput` on the focused input (name='a'); no
     // separate piano-shortcut path fires. We don't assert reference equality
     // because the input itself triggers a setSample commit; instead, prove
     // the cell remained empty (piano shortcut would write a period there).

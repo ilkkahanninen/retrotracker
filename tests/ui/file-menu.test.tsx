@@ -97,6 +97,25 @@ function clickItem(
   throw new Error(`No ${menu}-menu item labelled "${label}"`);
 }
 
+/**
+ * Click File → New, then pick "ProTracker" in the mode-picker modal that
+ * opens. Phase 1 wires File → New to the modal instead of jumping straight
+ * to a fresh song.
+ */
+function clickNewPt2(container: HTMLElement): void {
+  clickItem(container, "File", "New");
+  const choices = container.querySelectorAll<HTMLButtonElement>(
+    ".mode-picker__choice",
+  );
+  for (const btn of choices) {
+    if (btn.textContent?.includes("ProTracker")) {
+      fireEvent.click(btn);
+      return;
+    }
+  }
+  throw new Error("ModePicker did not render the ProTracker choice");
+}
+
 describe("FileMenu: dropdown behaviour", () => {
   it("opens on click and closes when an item fires", () => {
     const { container } = render(() => <App />);
@@ -136,7 +155,7 @@ describe("File menu: New", () => {
     setSong(s);
     setDirty(false);
     const { container } = render(() => <App />);
-    clickItem(container, "File", "New");
+    clickNewPt2(container);
     expect(song()!.title).toBe("");
     expect(dirty()).toBe(false);
   });
@@ -148,7 +167,7 @@ describe("File menu: New", () => {
     commitEdit((s) => ({ ...s, title: "edited" }));
     expect(dirty()).toBe(true);
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
-    clickItem(container, "File", "New");
+    clickNewPt2(container);
     expect(confirmSpy).toHaveBeenCalled();
     // User said no → song stays.
     expect(song()!.title).toBe("edited");
@@ -159,7 +178,7 @@ describe("File menu: New", () => {
     const { container } = render(() => <App />);
     commitEdit((s) => ({ ...s, title: "edited" }));
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    clickItem(container, "File", "New");
+    clickNewPt2(container);
     expect(song()!.title).toBe("");
     expect(dirty()).toBe(false);
   });
@@ -184,7 +203,7 @@ describe("File menu: Save… (.retro)", () => {
     // Validate the JSON shape.
     const text = new TextDecoder("utf-8").decode(bytes as Uint8Array);
     const parsed = JSON.parse(text);
-    expect(parsed.v).toBe(1);
+    expect(parsed.v).toBe(9);
     expect(parsed.cursor).toEqual({
       order: 0,
       row: 5,

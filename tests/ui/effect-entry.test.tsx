@@ -8,7 +8,7 @@ import {
   setTransport,
   setPlayPos,
   clearHistory,
-  song,
+  pt2Song as song,
 } from "../../src/state/song";
 import {
   setCurrentSample,
@@ -256,19 +256,18 @@ describe('effect entry: repeat-last-effect (",")', () => {
 });
 
 describe("effect entry: rendering", () => {
-  it("a written effect appears as separate cmd / hi / lo characters", async () => {
-    const { container } = render(() => <App />);
+  it("a written effect lands in the song as separated cmd / param nibbles", async () => {
+    render(() => <App />);
     const user = userEvent.setup();
     placeCursor("effectCmd");
     await user.keyboard("c40");
-    const row0 = container.querySelectorAll<HTMLElement>(".patgrid__row")[0]!;
-    // Scope to channel 0 — each row carries one .patgrid__cell per channel.
-    const ch0 = row0.querySelectorAll<HTMLElement>(".patgrid__cell")[0]!;
-    const effChars = ch0.querySelectorAll<HTMLElement>(".patgrid__eff-char");
-    expect(effChars).toHaveLength(3);
-    expect(effChars[0]!.textContent).toBe("C");
-    expect(effChars[1]!.textContent).toBe("4");
-    expect(effChars[2]!.textContent).toBe("0");
+    // The pattern grid is canvas-rendered, so we verify against the
+    // underlying song state — that's the ground truth the canvas paints
+    // from. effect=0xC, effectParam=0x40 means high nibble = 4, low = 0.
+    expect(cellAt(0).effect).toBe(0xc);
+    expect(cellAt(0).effectParam).toBe(0x40);
+    expect((cellAt(0).effectParam >> 4) & 0xf).toBe(0x4);
+    expect(cellAt(0).effectParam & 0xf).toBe(0x0);
   });
 });
 

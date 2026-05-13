@@ -1,5 +1,5 @@
 import { CHANNELS, MAX_ORDERS, NUM_SAMPLES, ROWS_PER_PATTERN } from "./types";
-import type { Note, Pattern, Sample, Song } from "./types";
+import type { ModSong, Note, Pattern, Sample } from "./types";
 
 const HEADER_SIZE = 1084;
 
@@ -8,7 +8,7 @@ const HEADER_SIZE = 1084;
  * Throws if the signature doesn't match. Other variants (xCHN, FLT4, etc.)
  * are out of scope by design.
  */
-export function parseModule(buffer: ArrayBufferLike | Uint8Array): Song {
+export function parseModule(buffer: ArrayBufferLike | Uint8Array): ModSong {
   const u8 = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
   if (u8.byteLength < HEADER_SIZE) {
     throw new Error(
@@ -90,6 +90,7 @@ export function parseModule(buffer: ArrayBufferLike | Uint8Array): Song {
   }
 
   return {
+    format: "PT2",
     title,
     samples,
     songLength,

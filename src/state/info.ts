@@ -9,7 +9,7 @@ import { createSignal } from "solid-js";
  * shows up wherever the file is opened.
  *
  * Held as a session-level signal alongside `filename`, persisted in
- * `.retro` projects but not part of the Song's data model — round-tripping
+ * `.retro` projects but not part of the ModSong's data model — round-tripping
  * a `.mod` doesn't carry it (it'd be indistinguishable from real sample
  * names on disk). Lines beyond 31 and characters past column 22 are
  * silently dropped at export time; the editor doesn't enforce either

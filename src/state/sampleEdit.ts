@@ -1,4 +1,4 @@
-import type { Sample, Song } from "../core/mod/types";
+import type { Sample, ModSong } from "../core/mod/types";
 import {
   clearSample,
   replaceSampleData,
@@ -8,8 +8,6 @@ import { cropSample, cutSample } from "../core/mod/sampleSelection";
 import { bounceSelection } from "../core/audio/bounce";
 import type { ChiptuneParams } from "../core/audio/chiptune";
 import {
-  ENVELOPE_MIN_POINTS,
-  PARAM_AXES,
   defaultEffect,
   emptySamplerWorkbench,
   materializeSource,
@@ -33,7 +31,12 @@ import {
   type SourceKind,
 } from "../core/audio/sampleWorkbench";
 import type { SampleSelection } from "../components/SampleView";
-import { commitEdit, commitEditWithWorkbenches, song, transport } from "./song";
+import {
+  commitEdit,
+  commitEditWithWorkbenches,
+  pt2Song as song,
+  transport,
+} from "./song";
 import { currentSample, selectSample } from "./edit";
 import {
   getWorkbench,
@@ -58,6 +61,7 @@ import { selection } from "./selection";
 import { activePreview } from "./preview";
 import { livePreviewSwap } from "./playback";
 import { setError } from "./session";
+import { makePipelineActions } from "./samplePipeline";
 
 /**
  * Sample-pipeline editing. Entry points key off `currentSample()` (the
@@ -71,7 +75,7 @@ import { setError } from "./session";
 export const NO_LOOP = { loopStartWords: 0, loopLengthWords: 1 };
 
 /** Lowest empty slot (`lengthWords === 0`) strictly after `from`. */
-export function nextFreeSlot(s: Song | null, from: number): number | null {
+export function nextFreeSlot(s: ModSong | null, from: number): number | null {
   if (!s) return null;
   for (let i = from + 1; i < s.samples.length; i++) {
     if (s.samples[i]!.lengthWords === 0) return i;
@@ -95,11 +99,11 @@ export function nextFreeSlot(s: Song | null, from: number): number | null {
  * beats both the chiptune full-loop rule and the preserve-old fallback.
  */
 export function writeWorkbenchToSongPure(
-  s: Song,
+  s: ModSong,
   slot: number,
   wb: SampleWorkbench,
   loopOverride?: { loopStartWords: number; loopLengthWords: number },
-): Song {
+): ModSong {
   const old = s.samples[slot];
   // Loop-aware effects (currently just crossfade) re-scale these into
   // their own input frame space, so a `crop → crossfade` chain places
@@ -528,6 +532,14 @@ export function loadWavIntoCurrentSample(
  * if any, mapped from int8 bytes to the chain's current output frame
  * space. volume / normalize / filter / shaper / crossfade ignore selection.
  */
+const pipeline = makePipelineActions<SampleWorkbench>({
+  getWorkbench: () => getWorkbench(currentSample() - 1) ?? null,
+  setWorkbench: (next) => updateCurrentWorkbench(next),
+  setSelectedIndex: setSelectedEffectIndex,
+  setSelectedParam: setSelectedEffectParam,
+  defaultParamForKind,
+});
+
 export function addEffect(
   kind: EffectKind,
   selection: SampleSelection | null,
@@ -557,251 +569,18 @@ export function addEffect(
   } else {
     node = defaultEffect(kind, chainOut);
   }
-  const newIndex = wb.chain.length;
-  updateCurrentWorkbench({ ...wb, chain: [...wb.chain, node] });
-  // Auto-select the freshly-appended entry so its visual editor (the
-  // envelope overlay) is immediately active without an extra click.
-  // Filter defaults to the cutoff envelope; shaper to amount; volume
-  // to its only envelope. Other kinds (normalize / range-aware /
-  // crossfade) clear the param to null.
-  setSelectedEffectIndex(newIndex);
-  setSelectedEffectParam(defaultParamForKind(kind));
+  pipeline.appendEffect(node);
 }
 
-export function removeEffect(index: number): void {
-  const wb = getWorkbench(currentSample() - 1);
-  if (!wb) return;
-  if (index < 0 || index >= wb.chain.length) return;
-  // Indices shift after a removal — clearing is the simplest correct
-  // policy. The user re-clicks if they were editing something downstream.
-  setSelectedEffectIndex(null);
-  setSelectedEffectParam(null);
-  updateCurrentWorkbench({
-    ...wb,
-    chain: wb.chain.filter((_, i) => i !== index),
-  });
-}
+export const removeEffect = pipeline.removeEffect;
+export const moveEffect = pipeline.moveEffect;
+export const patchEffect = pipeline.patchEffect;
+export const setEffectBypass = pipeline.setEffectBypass;
 
-export function moveEffect(index: number, delta: -1 | 1): void {
-  const wb = getWorkbench(currentSample() - 1);
-  if (!wb) return;
-  const target = index + delta;
-  if (target < 0 || target >= wb.chain.length) return;
-  const chain = [...wb.chain];
-  [chain[index], chain[target]] = [chain[target]!, chain[index]!];
-  // Reorder breaks the selection invariant — the index now points at a
-  // different node than the user clicked. Clear and let the user re-pick.
-  setSelectedEffectIndex(null);
-  setSelectedEffectParam(null);
-  updateCurrentWorkbench({ ...wb, chain });
-}
-
-/** Replace one node's params (or whole node, for variants without params). */
-export function patchEffect(index: number, next: EffectNode): void {
-  const wb = getWorkbench(currentSample() - 1);
-  if (!wb) return;
-  if (index < 0 || index >= wb.chain.length) return;
-  const chain = wb.chain.map((n, i) => (i === index ? next : n));
-  updateCurrentWorkbench({ ...wb, chain });
-}
-
-/**
- * Toggle the bypass flag on chain[index]. A bypassed effect short-
- * circuits to a pass-through inside `applyEffect` (params are kept, so
- * un-bypassing restores the previous behaviour without re-entry).
- */
-export function setEffectBypass(index: number, bypassed: boolean): void {
-  const wb = getWorkbench(currentSample() - 1);
-  if (!wb) return;
-  const node = wb.chain[index];
-  if (!node) return;
-  // Drop the field entirely when re-enabling, so a reset effect serialises
-  // bit-identical to its pre-bypass form (no `bypassed: false` cruft).
-  const next: EffectNode = bypassed
-    ? { ...node, bypassed: true }
-    : (() => {
-        const { bypassed: _drop, ...rest } = node;
-        void _drop;
-        return rest as EffectNode;
-      })();
-  patchEffect(index, next);
-}
-
-// ─── Envelope point editing ──────────────────────────────────────────────
-
-/** Pull the envelope addressed by `(chainIndex, param)`, or null when
- *  the combination doesn't refer to a real envelope (wrong kind, wrong
- *  param for kind, missing chain entry). Returns a fresh array —
- *  callers mutate it freely. */
-function envelopeAt(
-  index: number,
-  param: EnvelopeParamKey,
-): EnvelopePoint[] | null {
-  const wb = getWorkbench(currentSample() - 1);
-  if (!wb) return null;
-  const node = wb.chain[index];
-  if (!node) return null;
-  if (param === "volume" && node.kind === "volume") {
-    return [...node.params.points];
-  }
-  if (param === "cutoff" && node.kind === "filter") {
-    return [...node.params.cutoff];
-  }
-  if (param === "q" && node.kind === "filter") {
-    return [...node.params.q];
-  }
-  if (param === "amount" && node.kind === "shaper") {
-    return [...node.params.amount];
-  }
-  if (param === "pitch" && node.kind === "pitch") {
-    return [...node.params.envelope];
-  }
-  return null;
-}
-
-function clampValueForParam(v: number, param: EnvelopeParamKey): number {
-  const axis = PARAM_AXES[param];
-  return Math.max(axis.min, Math.min(axis.max, v));
-}
-
-function clampFrame(f: number): number {
-  return Math.max(0, Math.floor(f));
-}
-
-/** Sort by frame, snap to integers, clamp value to the param's axis,
- *  dedupe identical-frame points (keeping the LAST one written — matches
- *  editor intent: drag finishing on top of an existing point overwrites
- *  it). */
-function normaliseEnvelope(
-  points: ReadonlyArray<EnvelopePoint>,
-  param: EnvelopeParamKey,
-): EnvelopePoint[] {
-  const cleaned = points.map((p) => ({
-    frame: clampFrame(p.frame),
-    value: clampValueForParam(p.value, param),
-  }));
-  cleaned.sort((a, b) => a.frame - b.frame);
-  const out: EnvelopePoint[] = [];
-  for (const p of cleaned) {
-    const prev = out[out.length - 1];
-    if (prev && prev.frame === p.frame) {
-      out[out.length - 1] = p;
-      continue;
-    }
-    out.push(p);
-  }
-  return out;
-}
-
-/** Build the new node for `chain[index]` with `param`'s envelope
- *  replaced. Returns null when the (kind, param) combination is invalid. */
-function nodeWithUpdatedEnvelope(
-  index: number,
-  param: EnvelopeParamKey,
-  points: EnvelopePoint[],
-): EffectNode | null {
-  const wb = getWorkbench(currentSample() - 1);
-  if (!wb) return null;
-  const node = wb.chain[index];
-  if (!node) return null;
-  if (param === "volume" && node.kind === "volume") {
-    return { kind: "volume", params: { points } };
-  }
-  if (param === "cutoff" && node.kind === "filter") {
-    return { kind: "filter", params: { ...node.params, cutoff: points } };
-  }
-  if (param === "q" && node.kind === "filter") {
-    return { kind: "filter", params: { ...node.params, q: points } };
-  }
-  if (param === "amount" && node.kind === "shaper") {
-    return { kind: "shaper", params: { ...node.params, amount: points } };
-  }
-  if (param === "pitch" && node.kind === "pitch") {
-    return { kind: "pitch", params: { envelope: points } };
-  }
-  return null;
-}
-
-function commitEnvelope(
-  index: number,
-  param: EnvelopeParamKey,
-  points: EnvelopePoint[],
-): void {
-  if (points.length < ENVELOPE_MIN_POINTS) return;
-  const next = nodeWithUpdatedEnvelope(index, param, points);
-  if (!next) return;
-  patchEffect(index, next);
-}
-
-export function addEnvelopePoint(
-  index: number,
-  param: EnvelopeParamKey,
-  point: EnvelopePoint,
-): void {
-  const points = envelopeAt(index, param);
-  if (!points) return;
-  commitEnvelope(index, param, normaliseEnvelope([...points, point], param));
-}
-
-export function removeEnvelopePoint(
-  index: number,
-  param: EnvelopeParamKey,
-  pointIndex: number,
-): void {
-  const points = envelopeAt(index, param);
-  if (!points) return;
-  if (points.length <= ENVELOPE_MIN_POINTS) return;
-  if (pointIndex < 0 || pointIndex >= points.length) return;
-  const next = points.filter((_, i) => i !== pointIndex);
-  commitEnvelope(index, param, normaliseEnvelope(next, param));
-}
-
-export function patchEnvelopePoint(
-  index: number,
-  param: EnvelopeParamKey,
-  pointIndex: number,
-  next: Partial<EnvelopePoint>,
-): void {
-  const points = envelopeAt(index, param);
-  if (!points) return;
-  if (pointIndex < 0 || pointIndex >= points.length) return;
-  const cur = points[pointIndex]!;
-  points[pointIndex] = {
-    frame: next.frame !== undefined ? clampFrame(next.frame) : cur.frame,
-    value:
-      next.value !== undefined
-        ? clampValueForParam(next.value, param)
-        : cur.value,
-  };
-  commitEnvelope(index, param, normaliseEnvelope(points, param));
-}
-
-/**
- * Drag a segment between two adjacent points: shift both endpoints'
- * value by the same `deltaValue`. Frames stay put. Useful for raising
- * / lowering a flat region without nudging the slope at its edges.
- */
-export function nudgeEnvelopeSegment(
-  index: number,
-  param: EnvelopeParamKey,
-  leftPointIndex: number,
-  deltaValue: number,
-): void {
-  const points = envelopeAt(index, param);
-  if (!points) return;
-  if (leftPointIndex < 0 || leftPointIndex >= points.length - 1) return;
-  const a = points[leftPointIndex]!;
-  const b = points[leftPointIndex + 1]!;
-  points[leftPointIndex] = {
-    frame: a.frame,
-    value: clampValueForParam(a.value + deltaValue, param),
-  };
-  points[leftPointIndex + 1] = {
-    frame: b.frame,
-    value: clampValueForParam(b.value + deltaValue, param),
-  };
-  commitEnvelope(index, param, normaliseEnvelope(points, param));
-}
+export const addEnvelopePoint = pipeline.addEnvelopePoint;
+export const removeEnvelopePoint = pipeline.removeEnvelopePoint;
+export const patchEnvelopePoint = pipeline.patchEnvelopePoint;
+export const nudgeEnvelopeSegment = pipeline.nudgeEnvelopeSegment;
 
 /**
  * Burn the chain into the sampler source so the source no longer holds

@@ -5,7 +5,7 @@ import { createSignal } from "solid-js";
  * `.retro` projects (alongside the song bytes) but are NEVER serialised
  * into the exported `.mod` since the M.K. format has no place for them.
  *
- * Keyed by 0-based pattern index (matches `Song.patterns[i]`), NOT by
+ * Keyed by 0-based pattern index (matches `ModSong.patterns[i]`), NOT by
  * order-list position — so naming pattern $03 makes that name show up
  * everywhere $03 appears in the order list.
  */

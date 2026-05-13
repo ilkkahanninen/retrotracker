@@ -10,7 +10,7 @@ import {
   PERIOD_TABLE,
   emptyNote,
 } from "../src/core/mod/format";
-import type { Note, Song } from "../src/core/mod/types";
+import type { Note, ModSong } from "../src/core/mod/types";
 
 /**
  * Build a minimal song with a single pattern at order 0. Cells can be
@@ -18,7 +18,7 @@ import type { Note, Song } from "../src/core/mod/types";
  */
 function songWithCells(
   stamps: Array<{ row: number; ch: number; note: Partial<Note> }>,
-): Song {
+): ModSong {
   const s = emptySong();
   s.patterns = [emptyPattern()];
   s.songLength = 1;
@@ -140,7 +140,7 @@ describe("clearRange", () => {
     expect(next.patterns[0]!.rows[5]![0]!.period).toBe(C2);
   });
 
-  it("returns the same Song reference on a no-op (unmapped order)", () => {
+  it("returns the same ModSong reference on a no-op (unmapped order)", () => {
     const s = emptySong();
     const next = clearRange(s, {
       order: 99,
@@ -152,7 +152,7 @@ describe("clearRange", () => {
     expect(next).toBe(s);
   });
 
-  it("does not mutate the input Song", () => {
+  it("does not mutate the input ModSong", () => {
     const s = songWithCells([{ row: 0, ch: 0, note: { period: C2 } }]);
     const before = s.patterns[0]!.rows[0]![0]!.period;
     clearRange(s, {
@@ -214,7 +214,7 @@ describe("pasteSlice", () => {
     // No channel 4 — the third cell is clipped.
   });
 
-  it("returns the same Song reference for an empty slice", () => {
+  it("returns the same ModSong reference for an empty slice", () => {
     const s = songWithCells([]);
     expect(pasteSlice(s, [], 0, 0, 0)).toBe(s);
   });

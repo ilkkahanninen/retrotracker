@@ -1,9 +1,9 @@
 # Architecture overview
 
-RetroTracker is a single-page Solid app built around an Amiga-Paula emulator and a strict ProTracker M.K. data model. The codebase splits cleanly along three axes:
+RetroTracker is a single-page Solid app that edits both ProTracker `.mod` (strict 4-channel "M.K.") and FastTracker 2 `.xm` (variable channel count, up to 128 instruments). The codebase splits cleanly along three axes:
 
-1. **Domain core** ([src/core/](../src/core/)) — pure TypeScript, no DOM, no `AudioContext`. Contains the replayer, mixers, MOD parser/writer, mutations, and the sample pipeline. Everything is testable on Node.
-2. **State** ([src/state/](../src/state/)) — Solid signals and the orchestration glue (transport, history, persistence, settings). Reactive surface that the UI binds to.
+1. **Domain core** ([src/core/](../src/core/)) — pure TypeScript, no DOM, no `AudioContext`. Contains the replayer, mixers, two parallel format modules ([src/core/mod/](../src/core/mod/) and [src/core/xm/](../src/core/xm/)) with their own parsers/writers/mutations, and the sample pipeline. Everything is testable on Node.
+2. **State** ([src/state/](../src/state/)) — Solid signals and the orchestration glue (transport, history, persistence, settings). Reactive surface that the UI binds to. PT and XM share factored-out core helpers (cursor primitives, order-edit factory, pattern-edit factory, sample-pipeline factory, workbench store) so most editing logic lives once — see the [state docs](state.md) for the breakdown.
 3. **UI** ([src/App.tsx](../src/App.tsx) + [src/components/](../src/components/)) — Solid components rendering the pattern grid, sample editor, chiptune editor, etc.
 
 ```

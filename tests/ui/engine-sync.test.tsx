@@ -3,14 +3,14 @@ import { cleanup, render, waitFor } from "@solidjs/testing-library";
 import { App } from "../../src/App";
 import { emptySong } from "../../src/core/mod/format";
 import { CHANNELS } from "../../src/core/mod/types";
-import type { Sample, Song } from "../../src/core/mod/types";
+import type { Sample, ModSong } from "../../src/core/mod/types";
 import {
   setSong,
   setTransport,
   setPlayMode,
   setPlayPos,
   clearHistory,
-  song,
+  pt2Song as song,
   transport,
 } from "../../src/state/song";
 import {
@@ -144,7 +144,7 @@ describe("engine creation: cached preferences forwarded reactively", () => {
 
 describe("live-edit forwarder", () => {
   /** Build a song shaped enough for the forwarder to diff against. */
-  function withSampleEdit(s: Song, slot: number, patch: Partial<Sample>): Song {
+  function withSampleEdit(s: ModSong, slot: number, patch: Partial<Sample>): ModSong {
     const samples = s.samples.slice();
     samples[slot] = { ...samples[slot]!, ...patch };
     return { ...s, samples };

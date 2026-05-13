@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { parseModule } from "../src/core/mod/parser";
-import { Replayer } from "../src/core/audio/replayer";
+import { Pt2Replayer } from "../src/core/audio/replayer";
 
 /**
  * Mid-playback `replaceSampleSlot` should change what the worklet emits
@@ -14,7 +14,7 @@ import { Replayer } from "../src/core/audio/replayer";
  *      swap-mid-playback render — proving the new sample bytes reached
  *      Paula's voice latches and the next loop wrap picked them up.
  */
-describe("Replayer.replaceSampleSlot", () => {
+describe("Pt2Replayer.replaceSampleSlot", () => {
   it("hot-swapping a sample slot changes audible output without resetting playback", () => {
     const bytes = readFileSync(
       new URL("./fixtures/00-baseline.mod", import.meta.url),
@@ -29,7 +29,7 @@ describe("Replayer.replaceSampleSlot", () => {
 
     // Baseline: render the whole song untouched.
     const baseline = (() => {
-      const r = new Replayer(song, { sampleRate: SR, loop: false });
+      const r = new Pt2Replayer(song, { sampleRate: SR, loop: false });
       const L = new Float32Array(TOTAL);
       const R = new Float32Array(TOTAL);
       r.process(L, R, TOTAL);
@@ -40,7 +40,7 @@ describe("Replayer.replaceSampleSlot", () => {
     // with a silent copy (data zeroed). Voices should converge to
     // silence as their next loop wrap pulls the silent buffer in.
     const swapped = (() => {
-      const r = new Replayer(song, { sampleRate: SR, loop: false });
+      const r = new Pt2Replayer(song, { sampleRate: SR, loop: false });
       const L = new Float32Array(TOTAL);
       const R = new Float32Array(TOTAL);
       r.process(L, R, SWAP_AT);

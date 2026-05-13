@@ -4,7 +4,7 @@ import { App } from "../../src/App";
 import { setCursor, INITIAL_CURSOR } from "../../src/state/cursor";
 import {
   setSong,
-  song,
+  pt2Song as song,
   setTransport,
   setPlayMode,
   setPlayPos,

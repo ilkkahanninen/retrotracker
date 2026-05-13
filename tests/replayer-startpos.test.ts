@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { Replayer } from "../src/core/audio/replayer";
+import { Pt2Replayer } from "../src/core/audio/replayer";
 import { emptyPattern, emptySong } from "../src/core/mod/format";
-import type { Song } from "../src/core/mod/types";
+import type { ModSong } from "../src/core/mod/types";
 
 const SR = 44100;
 
 /** Build a song with N empty patterns, orders [0..N-1]. */
-function songWith(numPatterns: number): Song {
+function songWith(numPatterns: number): ModSong {
   const s = emptySong();
   s.patterns = Array.from({ length: numPatterns }, emptyPattern);
   s.songLength = numPatterns;
@@ -15,17 +15,17 @@ function songWith(numPatterns: number): Song {
 }
 
 /** Render `seconds` of audio through the replayer to walk it forward. */
-function advance(r: Replayer, seconds: number): void {
+function advance(r: Pt2Replayer, seconds: number): void {
   const frames = Math.ceil(seconds * SR);
   const left = new Float32Array(frames);
   const right = new Float32Array(frames);
   r.process(left, right, frames);
 }
 
-describe("Replayer start-position options", () => {
+describe("Pt2Replayer start-position options", () => {
   it("initialOrder/initialRow place the playhead at construction", () => {
     const song = songWith(3);
-    const r = new Replayer(song, {
+    const r = new Pt2Replayer(song, {
       sampleRate: SR,
       initialOrder: 2,
       initialRow: 17,
@@ -36,7 +36,7 @@ describe("Replayer start-position options", () => {
 
   it("clamps an out-of-range initialOrder", () => {
     const song = songWith(2);
-    const r = new Replayer(song, {
+    const r = new Pt2Replayer(song, {
       sampleRate: SR,
       initialOrder: 99,
       initialRow: 0,
@@ -46,7 +46,7 @@ describe("Replayer start-position options", () => {
 
   it("clamps an out-of-range initialRow", () => {
     const song = songWith(1);
-    const r = new Replayer(song, {
+    const r = new Pt2Replayer(song, {
       sampleRate: SR,
       initialOrder: 0,
       initialRow: 999,
@@ -55,14 +55,14 @@ describe("Replayer start-position options", () => {
   });
 });
 
-describe("Replayer loopPattern", () => {
+describe("Pt2Replayer loopPattern", () => {
   // One empty pattern at 125 BPM × speed 6 = ~7.7s. Advance ~8.5s so we'd be
   // somewhere into the *next* pattern under normal advancement.
   const PAST_ONE_PATTERN_SEC = 8.5;
 
   it("keeps playback locked to the starting order", () => {
     const song = songWith(3);
-    const r = new Replayer(song, {
+    const r = new Pt2Replayer(song, {
       sampleRate: SR,
       loop: true,
       loopPattern: true,
@@ -75,7 +75,7 @@ describe("Replayer loopPattern", () => {
 
   it("without loopPattern, advances to the next order after one pattern", () => {
     const song = songWith(3);
-    const r = new Replayer(song, {
+    const r = new Pt2Replayer(song, {
       sampleRate: SR,
       loop: true,
       initialOrder: 1,

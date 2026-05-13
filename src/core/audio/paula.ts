@@ -19,10 +19,7 @@ import { PAULA_CLOCK_PAL } from "../mod/format";
 
 export const PAULA_VOICES = 4;
 
-// --- BLEP --------------------------------------------------------------------
-// aciddose's minimum-phase BLEP table from pt2_blep.c. ZC=16 OS=16 SP=16,
-// so NS=16 and the buffer size is RNS+1=32. The 257th entry is a sentinel
-// zero used by linear interpolation at the table tail.
+// aciddose's minimum-phase BLEP table from pt2_blep.c.
 
 const BLEP_NS = 16;
 const BLEP_RNS = 31;
@@ -420,10 +417,7 @@ class TwoPoleFilter {
   }
 }
 
-// --- 2× polyphase half-band downsampler -------------------------------------
-// Coefficients from pt2_downsample2x.c (Remez, 59 taps, halfband). State is
-// 29 doubles per channel, matching the C tap-line (t01..t29). Each call
-// consumes 2 oversampled inputs and emits 1 output sample.
+// Coefficients from pt2_downsample2x.c (Remez, 59 taps, halfband).
 
 const C00 = 0.5000000000000017763568394;
 const C01 = 0.316796099629279681586524475;

@@ -9,14 +9,14 @@ import {
   emptySong,
   PERIOD_TABLE,
 } from "../../src/core/mod/format";
-import type { Song } from "../../src/core/mod/types";
+import type { ModSong } from "../../src/core/mod/types";
 
 const STORAGE_KEY = "retrotracker:session:v1";
 
 beforeEach(() => clearSession());
 afterEach(() => clearSession());
 
-function songWithStamps(): Song {
+function songWithStamps(): ModSong {
   const s = emptySong();
   s.title = "persisted";
   s.patterns = [emptyPattern()];
@@ -36,7 +36,7 @@ function songWithStamps(): Song {
   return s;
 }
 
-const baseInputs = (song: Song) => ({
+const baseInputs = (song: ModSong) => ({
   song,
   filename: "demo.mod",
   view: "pattern" as const,
@@ -52,14 +52,14 @@ describe("saveSession / loadSession round-trip", () => {
     saveSession(baseInputs(song));
     const loaded = loadSession();
     expect(loaded).not.toBeNull();
-    expect(loaded!.song.title).toBe("persisted");
-    expect(loaded!.song.patterns[0]!.rows[5]![0]!.period).toBe(
-      PERIOD_TABLE[0]![12]!,
-    );
-    expect(loaded!.song.patterns[0]!.rows[5]![0]!.effectParam).toBe(0x40);
-    expect(loaded!.song.samples[0]!.name).toBe("kick");
-    expect(loaded!.song.samples[0]!.lengthWords).toBe(4);
-    expect(Array.from(loaded!.song.samples[0]!.data)).toEqual([
+    const s = loaded!.song;
+    if (s.format !== "PT2") throw new Error("expected PT2 song");
+    expect(s.title).toBe("persisted");
+    expect(s.patterns[0]!.rows[5]![0]!.period).toBe(PERIOD_TABLE[0]![12]!);
+    expect(s.patterns[0]!.rows[5]![0]!.effectParam).toBe(0x40);
+    expect(s.samples[0]!.name).toBe("kick");
+    expect(s.samples[0]!.lengthWords).toBe(4);
+    expect(Array.from(s.samples[0]!.data)).toEqual([
       1, -1, 64, -64, 32, -32, 0, 127,
     ]);
   });
@@ -225,6 +225,50 @@ describe("clearSession", () => {
     clearSession();
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
     expect(loadSession()).toBeNull();
+  });
+});
+
+describe("App boot: XM workbenches restored from localStorage on mount", () => {
+  it("a stashed XM chiptune workbench survives the App's onMount bootstrap", async () => {
+    const { render, cleanup } = await import("@solidjs/testing-library");
+    const { App } = await import("../../src/App");
+    const { setSong, setTransport, setPlayPos, clearHistory } =
+      await import("../../src/state/song");
+    const { emptyXmSong } = await import("../../src/core/xm/format");
+    const { clearAllXmWorkbenches, getXmWorkbench } =
+      await import("../../src/state/xmSampleWorkbench");
+    const { defaultChiptuneParams } =
+      await import("../../src/core/audio/chiptune");
+
+    // Fresh boot: no song, no workbenches.
+    setSong(null);
+    setPlayPos({ order: 0, row: 0 });
+    setTransport("idle");
+    clearHistory();
+    clearAllXmWorkbenches();
+
+    saveSession({
+      song: emptyXmSong(),
+      filename: "ft2.xm",
+      view: "sample",
+      cursor: { order: 0, row: 0, channel: 0, field: "note" },
+      currentSample: 1,
+      currentOctave: 2,
+      editStep: 1,
+      xmChiptuneSources: {
+        "1:0": {
+          params: defaultChiptuneParams(),
+          chain: [],
+          xm: { monoMix: "average", bitDepth: 8 },
+        },
+      },
+    });
+
+    render(() => <App />);
+    // onMount runs synchronously after render — the chiptune workbench
+    // should already be back on instrument 1 / sample 0.
+    expect(getXmWorkbench(1, 0)?.source.kind).toBe("chiptune");
+    cleanup();
   });
 });
 

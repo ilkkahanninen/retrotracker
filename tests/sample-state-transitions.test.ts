@@ -35,7 +35,7 @@ import {
   clearHistory,
   setSong,
   setTransport,
-  song,
+  pt2Song as song,
   undo,
 } from "../src/state/song";
 import { setCurrentSample } from "../src/state/edit";
@@ -56,7 +56,7 @@ import {
   type EffectNode,
 } from "../src/core/audio/sampleWorkbench";
 import { replaceSampleData } from "../src/core/mod/mutations";
-import type { Song } from "../src/core/mod/types";
+import type { ModSong } from "../src/core/mod/types";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -136,7 +136,7 @@ function seedImportedSlot(
     loopLengthWords?: number;
     name?: string;
   } = {},
-): Song {
+): ModSong {
   const data = opts.data ?? new Int8Array(200).map((_, i) => (i % 32) - 16);
   const next = replaceSampleData(song()!, 0, data, {
     name: opts.name ?? "imported",

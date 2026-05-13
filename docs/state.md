@@ -25,6 +25,25 @@ The design rule: the UI should never reach into core. It always goes through sta
 | `patternNames`                               | [patternNames.ts](../src/state/patternNames.ts)       | `Record<patternIndex, string>`                            |
 | `currentEngine`                              | [playback.ts](../src/state/playback.ts)               | `AudioEngine \| null` (reactive — sync effects subscribe) |
 
+The table lists the PT-mode signals. XM mode has parallel signals (`xmCursor`, `xmSelection`, `xmClipboardSlice`, `currentXmInstrument`, `currentXmOctave`, `currentXmSampleIndex`, `xmWorkbenches`, `xmSampleSelection`) — same shapes, different cell types. Format is locked per project (`song.format` discriminates), so only one half is ever live; keeping them separate avoids stale state across project swaps.
+
+## PT/XM shared factories
+
+The editing logic itself is mostly factored out. The PT and XM state files instantiate generic factories with format-specific adapters:
+
+| Factory                                                                                            | Used by                                                                                                                              |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `createWorkbenchStore<K, V>()` ([workbenchStore.ts](../src/state/workbenchStore.ts))               | [sampleWorkbench.ts](../src/state/sampleWorkbench.ts), [xmSampleWorkbench.ts](../src/state/xmSampleWorkbench.ts)                     |
+| `createSampleSelectionSignal()` ([sampleSelectionStore.ts](../src/state/sampleSelectionStore.ts))  | [sampleSelection.ts](../src/state/sampleSelection.ts), [xmSampleSelection.ts](../src/state/xmSampleSelection.ts)                     |
+| `createRangedSignal()` ([editPrimitives.ts](../src/state/editPrimitives.ts))                       | [edit.ts](../src/state/edit.ts), [xmEdit.ts](../src/state/xmEdit.ts)                                                                 |
+| `moveAlongFields`, `cycleChannel` ([cursorPrimitives.ts](../src/state/cursorPrimitives.ts))        | [cursor.ts](../src/state/cursor.ts), [cursorXm.ts](../src/state/cursorXm.ts) (field/tab wrap only — row movement is format-specific) |
+| `createOrderEdit<S>(adapter)` ([orderEditCore.ts](../src/state/orderEditCore.ts))                  | [orderEdit.ts](../src/state/orderEdit.ts), [xmOrderEdit.ts](../src/state/xmOrderEdit.ts)                                             |
+| `createPatternEdit<S, C, Cell>(adapter)` ([patternEditCore.ts](../src/state/patternEditCore.ts))   | [patternEdit.ts](../src/state/patternEdit.ts), [xmPatternEdit.ts](../src/state/xmPatternEdit.ts)                                     |
+| `makePipelineActions<W>(host)` ([samplePipeline.ts](../src/state/samplePipeline.ts))               | [sampleEdit.ts](../src/state/sampleEdit.ts), [xmSampleEdit.ts](../src/state/xmSampleEdit.ts)                                         |
+| `PIANO_KEYS`, `HEX_KEYS`, `DIGIT_QUICK_PICK` ([keybindHelpers.ts](../src/state/keybindHelpers.ts)) | [appKeybinds.ts](../src/state/appKeybinds.ts), [appKeybindsXm.ts](../src/state/appKeybindsXm.ts)                                     |
+
+When extending behavior: most operations belong in the core factories; only format-specific quirks (PT period clamp, XM volume column nibbles, XM extended effect codes G..X, PT's Dxx-aware row navigation, XM's per-pattern row count) go in the per-format file.
+
 ## Edit history
 
 [song.ts](../src/state/song.ts) owns undo/redo. Each commit pushes a snapshot tuple onto the past stack and replaces the live signals.

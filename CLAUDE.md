@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-RetroTracker is a web-based ProTracker `.mod` editor (Solid + Vite + TypeScript). Strict scope: 4-channel "M.K." modules only (no xCHN/FLT4/etc.). The replayer is the centerpiece; UI is currently a load/play shell.
+RetroTracker is a web-based tracker (Solid + Vite + TypeScript) that edits both ProTracker `.mod` (strict 4-channel "M.K.", no xCHN/FLT4/etc.) and FastTracker 2 `.xm` (variable channel count, up to 128 instruments with nested samples, volume column, Gxx..Xxx extended effects). The Paula replayer is the centerpiece on the PT side; the XM path runs through a parallel mixer.
 
 ## Commands
 
@@ -48,13 +48,13 @@ When changing replayer behavior, both paths get it for free. Don't fork mixing l
 
 Effect implementation reference is **8bitbubsy/pt2-clone**, not OpenMPT or any other tracker. PT-specific quirks are intentional and bug-for-bug: PatternBreak's decimal-encoded param, period clamp 113..856, sine table sign bit, song-end via `(order, row)` revisit set, vibrato waveform 3 = square, ramp-tremolo's vibratoPos half-check, E5y applied before period lookup, EC0 cuts at tick 0 (via setPeriod → checkMoreEffects path), Fxx tempo deferred 1 tick (CIA reload quirk). See the comment block at the top of [replayer.ts](src/core/audio/replayer.ts) for the current implementation list — only 8xy panning is intentionally a no-op (PT 2.3D ignores it).
 
-### MOD format module
+### Format modules
 
-[src/core/mod/](src/core/mod/) is independent of the replayer.
+[src/core/mod/](src/core/mod/) and [src/core/xm/](src/core/xm/) are independent of the replayer. Each holds its own data model, parser/writer, mutations, and clipboard ops.
 
-- [types.ts](src/core/mod/types.ts): `Song`/`Pattern`/`Note`/`Sample` data model. `Note.period` is a Paula period (0 = no note); `sample` is 1-indexed (0 = no sample change).
-- [format.ts](src/core/mod/format.ts): `PERIOD_TABLE[finetune][noteIndex]` (16×36 — finetune rows, finetune 8..15 stored as -8..-1), `Effect`/`ExtendedEffect` enums, `PAULA_CLOCK_PAL/NTSC`, `emptySong()`/`emptyPattern()`/`emptyNote()`/`emptySample()` factories.
-- [parser.ts](src/core/mod/parser.ts) / [writer.ts](src/core/mod/writer.ts): strict M.K. parse/write. Parser throws on any other signature.
+- PT: [types.ts](src/core/mod/types.ts) defines `ModSong`/`Pattern`/`Note`/`Sample`. `Note.period` is a Paula period (0 = no note); `sample` is 1-indexed (0 = no sample change). [format.ts](src/core/mod/format.ts) holds `PERIOD_TABLE[finetune][noteIndex]` (16×36 — finetune rows, finetune 8..15 stored as -8..-1), `Effect`/`ExtendedEffect` enums, `PAULA_CLOCK_PAL/NTSC`, and the `empty*()` factories. [parser.ts](src/core/mod/parser.ts) / [writer.ts](src/core/mod/writer.ts) handle strict M.K. parse/write — the parser throws on any other signature.
+- XM: [src/core/xm/types.ts](src/core/xm/types.ts) defines `XmSong`/`XmPattern`/`XmNote`/`XmInstrument`/`XmSample`. `XmNote.note` is the 1-based MIDI-style note number (1..96 = C-0..B-7, 97 = key-off, 0 = no note). Variable channel count and per-pattern row count. Instruments hold a list of samples plus a 96-note keyMap.
+- [src/state/song.ts](src/state/song.ts) exposes `song` (union `ModSong | XmSong | null`) plus narrowed `pt2Song` / `xm2Song` memos for type-specific call sites. The commit path is split too — `commitEdit` / `commitEditWithWorkbenches` for PT, `commitEditXm` / `commitEditXmWithWorkbenches` for XM.
 
 ### Accuracy test bed
 
@@ -64,9 +64,22 @@ The "ground truth" tool is [vendor/bin/pt2-render](vendor/headless/), a headless
 
 Each fixture targets exactly one behavior (resampler, filter, vibrato waveform, etc.) — see [tests/fixtures/README.md](tests/fixtures/README.md). Don't pile features into one fixture; add a new one.
 
-### State
+### State + shared factories
 
-[src/state/song.ts](src/state/song.ts) holds the loaded `Song` as a Solid signal. The `Song` itself is not deeply reactive — pattern editing will get its own store when that work starts.
+[src/state/song.ts](src/state/song.ts) holds the loaded `Song` as a Solid signal. The `Song` itself is not deeply reactive — every commit replaces the whole signal value.
+
+The PT and XM tracks share factored-out helpers so most of the editing logic lives once:
+
+- [workbenchStore.ts](src/state/workbenchStore.ts) — `createWorkbenchStore<K, V>()` powers both `sampleWorkbench.ts` (PT, slot keyed by number) and `xmSampleWorkbench.ts` (XM, keyed by `${inst}:${sampleIdx}`).
+- [sampleSelectionStore.ts](src/state/sampleSelectionStore.ts) — half-open `{start, end}` signal shared by PT and XM waveform selections (XM indexes by frame, not byte).
+- [editPrimitives.ts](src/state/editPrimitives.ts) — `createRangedSignal` factory used by [edit.ts](src/state/edit.ts) (octave / sample / editStep) and [xmEdit.ts](src/state/xmEdit.ts) (octave / instrument / sample-index).
+- [cursorPrimitives.ts](src/state/cursorPrimitives.ts) — `moveAlongFields` + `cycleChannel`, shared by both cursors' left/right/tab primitives. Row movement stays format-specific (PT walks `flattenSong` for Dxx-aware cross-order traversal; XM walks per-pattern row counts).
+- [orderEditCore.ts](src/state/orderEditCore.ts) — `createOrderEdit<S>(adapter)` factory for jump/insert/delete/step ops. Both [orderEdit.ts](src/state/orderEdit.ts) and [xmOrderEdit.ts](src/state/xmOrderEdit.ts) instantiate it. PT's `cleanupOrderList` (patternNames remap) stays format-specific.
+- [patternEditCore.ts](src/state/patternEditCore.ts) — `createPatternEdit<S, C, Cell>(adapter)` covers applyCursor / extendSelection / step helpers / selectAllStep / clipboard ops (copy/cut/paste/transpose) / backspace / insertEmpty / clearAtCursor / repeatLastEffect. Format-specific note entry, hex entry, XM-only effect-letter / key-off / row-count / channel-count handlers stay in [patternEdit.ts](src/state/patternEdit.ts) / [xmPatternEdit.ts](src/state/xmPatternEdit.ts).
+- [samplePipeline.ts](src/state/samplePipeline.ts) — `makePipelineActions<W>(host)` handles addEffect / removeEffect / moveEffect / patchEffect / setEffectBypass plus the four envelope-point handlers. Format-specific persistence (slot addressing, source-kind toggles, applyChainToSource loop-pin) stays in [sampleEdit.ts](src/state/sampleEdit.ts) / [xmSampleEdit.ts](src/state/xmSampleEdit.ts).
+- [keybindHelpers.ts](src/state/keybindHelpers.ts) — `PIANO_KEYS`, `HEX_KEYS`, `DIGIT_QUICK_PICK` tables shared by both registration files. The registration files themselves stay separate (PT defaults; XM gates on `isFt2Mode`).
+
+When extending behavior: most operations belong in the core factories; only format-specific quirks (PT period clamp, XM volume column nibbles, XM extended effect codes G..X, etc.) go in the per-format file.
 
 ### Views
 
@@ -76,7 +89,9 @@ Sample editing has its own mutations (`setSample`, `clearSample`, `replaceSample
 
 ### Sample pipeline
 
-The sample editor wraps each loaded WAV in a [SampleWorkbench](src/core/audio/sampleWorkbench.ts): the source `WavData` plus an editable list of pure `WavData → WavData` effect nodes (gain, normalize, reverse, crop, fade in/out) terminated by a PT transformer (mono mix + int8 quantise). Workbenches are held in [src/state/sampleWorkbench.ts](src/state/sampleWorkbench.ts) — a Map keyed by sample slot, **session-only** (cleared on `.mod` load, never serialised). Whenever the workbench changes, [state/sampleEdit.ts](src/state/sampleEdit.ts)'s `writeWorkbenchToSongPure` re-runs `runPipeline` and pushes the resulting `Int8Array` into the slot via `replaceSampleData`. Playback never sees the workbench — it reads the int8 result like any other sample. Sampler sources (the input WAV bytes) and chiptune params persist via `.retro` so a project round-trips with its full pipeline; the chain itself does too.
+The sample editor wraps each loaded WAV in a [SampleWorkbench](src/core/audio/sampleWorkbench.ts) (PT) or [XmSampleWorkbench](src/core/audio/sampleWorkbench.ts) (XM): a source `WavData` plus an editable list of pure `WavData → WavData` effect nodes (gain, normalize, reverse, crop, fade in/out) terminated by a format-specific transformer (PT: mono mix + int8 quantise; XM: mono mix + 8/16-bit quantise). Workbenches are **session-only** (cleared on `.mod` / `.xm` load, never serialised back into those formats). Whenever a workbench changes, the format-specific update path re-runs the pipeline and pushes the resulting sample bytes into the slot. Playback never sees the workbench — it reads the int8 / int16 result like any other sample. Sampler sources (the input WAV bytes) and chiptune params persist via `.retro` so a project round-trips with its full pipeline; the chain itself does too.
+
+Chain + envelope mutations go through the shared `makePipelineActions<W>` factory (see _State + shared factories_ above); only format-specific persistence (source-kind toggles, loop policy, slot addressing) lives in the per-format file.
 
 ## Conventions
 

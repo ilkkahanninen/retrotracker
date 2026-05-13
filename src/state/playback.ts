@@ -10,8 +10,25 @@ import {
   playMode,
 } from "./song";
 import { cursor } from "./cursor";
+import { xmCursor } from "./cursorXm";
+import { xm2Song } from "./song";
 import { setChannelLevels } from "./channelLevel";
 import * as preview from "./preview";
+
+/**
+ * Active edit cursor for the loaded song. PT2 mode reads `cursor()`,
+ * FT2 reads `xmCursor()` — playback start points have to come from the
+ * cursor that's actually moving. Returns only the `(order, row)`
+ * subset the playback code needs.
+ */
+function activeCursor(): { order: number; row: number } {
+  if (xm2Song()) {
+    const c = xmCursor();
+    return { order: c.order, row: c.row };
+  }
+  const c = cursor();
+  return { order: c.order, row: c.row };
+}
 
 /**
  * Audio playback orchestration. Owns the lazily-created AudioEngine and
@@ -84,7 +101,7 @@ export async function ensureEngine(): Promise<AudioEngine | null> {
 }
 
 /**
- * Ensure the engine exists and push the current Song into it before play.
+ * Ensure the engine exists and push the current ModSong into it before play.
  * The worklet keeps its own copy of the song, so without this every edit
  * would only show up in the UI — the user would press Play and hear the
  * pre-edit version. Returns null if no song is loaded or the engine
@@ -148,10 +165,10 @@ export function stopPlayback(): void {
   currentEngine()?.stop();
   setTransport("ready");
   setPlayMode(null);
-  // Snap the playhead to the cursor so the row tint jumps back to where
-  // the user is editing, instead of freezing wherever the song happened
-  // to be when stop fired.
-  const c = cursor();
+  // Snap the playhead to the active (format-aware) cursor so the row
+  // tint jumps back to where the user is editing, instead of freezing
+  // wherever the song happened to be when stop fired.
+  const c = activeCursor();
   setPlayPos({ order: c.order, row: c.row });
 }
 
@@ -164,7 +181,7 @@ export async function playFromStart(): Promise<void> {
 }
 
 export async function playFromCursor(): Promise<void> {
-  const c = cursor();
+  const c = activeCursor();
   const eng = await prepareEngine();
   if (!eng) return;
   await eng.playFrom(c.order, c.row);
@@ -173,7 +190,7 @@ export async function playFromCursor(): Promise<void> {
 }
 
 export async function playPatternFromStart(): Promise<void> {
-  const c = cursor();
+  const c = activeCursor();
   const eng = await prepareEngine();
   if (!eng) return;
   await eng.playFrom(c.order, 0, { loopPattern: true });
@@ -182,7 +199,7 @@ export async function playPatternFromStart(): Promise<void> {
 }
 
 export async function playPatternFromCursor(): Promise<void> {
-  const c = cursor();
+  const c = activeCursor();
   const eng = await prepareEngine();
   if (!eng) return;
   await eng.playFrom(c.order, c.row, { loopPattern: true });

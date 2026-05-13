@@ -381,6 +381,72 @@ body {
 .modal__thanks li:last-child {
   margin-bottom: 0;
 }
+
+.mode-picker__choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 16px;
+}
+.mode-picker__choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 14px 16px;
+  background: var(--surface-2, #1d1f23);
+  border: 1px solid var(--border, #2c2f36);
+  border-radius: 6px;
+  color: var(--text, #e6e6e6);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition:
+    background 0.1s,
+    border-color 0.1s;
+}
+.mode-picker__choice:hover {
+  background: var(--surface-3, #262930);
+  border-color: var(--accent, #4a90e2);
+}
+.mode-picker__choice:focus-visible {
+  outline: 2px solid var(--accent, #4a90e2);
+  outline-offset: 2px;
+}
+.mode-picker__name {
+  font-weight: 600;
+  font-size: 1.05em;
+}
+.mode-picker__ext {
+  font-family: var(--mono, monospace);
+  color: var(--accent, #4a90e2);
+  margin-top: 2px;
+}
+.mode-picker__hint {
+  margin-top: 6px;
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+
+.mode-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  margin-left: 8px;
+  border-radius: 3px;
+  font-size: 0.75em;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  vertical-align: middle;
+  user-select: none;
+}
+.mode-badge--pt2 {
+  background: #2a4a6a;
+  color: #b8d4f0;
+}
+.mode-badge--ft2 {
+  background: #6a4a2a;
+  color: #f0d4b8;
+}
+
 .play-length-calc__fields {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -808,6 +874,28 @@ h2 {
 .patternpane__sep {
   opacity: 0.5;
 }
+/* Pattern row-count input in the FT2 meta strip — fixed-width so the
+ * meta strip doesn't reflow when the user types and the digits stay
+ * tabular for quick scan. */
+.patternpane__rows {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.patternpane__rows input {
+  font: inherit;
+  width: 5ch;
+  padding: 0 2px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 2px;
+  text-align: right;
+}
+.patternpane__rows input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
 .patternpane__editstep {
   display: inline-flex;
   align-items: center;
@@ -836,6 +924,50 @@ h2 {
   min-width: 1.5ch;
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+
+/* FT2 pattern grid reuses the PT `.patgrid*` skeleton (defined further down
+ * in this file) for visual chrome. The body of the grid is rendered into
+ * a <canvas> by PatternGridXmCanvas via a glyph atlas; only the header
+ * stays in DOM for keyboard / accessibility coverage. */
+.patgrid--xm {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.patgrid--canvas {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.patgrid--canvas .patgrid__header {
+  overflow: hidden;
+  /* Header doesn't scroll on its own — it follows the rows container
+   * via -scrollLeft via JS isn't wired yet; instead the header's grid
+   * template is set inline to the full grid width, and we let the
+   * header clip behind the right edge until horizontal-following is
+   * implemented. */
+}
+.patgrid--canvas .patgrid__rows {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  /* Hint to the compositor that the canvas inside will animate via
+   * transform — promotes the scrolling layer to its own GPU layer
+   * on most browsers, eliminating scroll repaints. */
+  will-change: scroll-position;
+}
+/* .patgrid--canvas .patgrid__rows-spacer is intentionally style-free
+ * — it's an empty placeholder providing scrollbar geometry. Width and
+ * height are set inline. */
+.patgrid__canvas {
+  display: block;
+  background: var(--bg);
+  /* Avoid the browser's default focusable-element outline since the
+   * canvas captures all click handling via JS. */
+  outline: none;
 }
 
 /* Inline help strip below the pattern grid — describes the cell under
@@ -990,7 +1122,10 @@ h2 {
 .patgrid__header {
   display: grid;
   grid-template-columns: 36px repeat(4, 1fr);
-  padding: 6px 16px;
+  /* No horizontal padding — the row-label column must start at x=0 so
+   * it aligns with the canvas body's row-label area. Vertical padding
+   * stays for the chrome breathing room. */
+  padding: 6px 0;
   background: var(--panel);
   color: var(--muted);
   font-size: 10px;
@@ -999,66 +1134,29 @@ h2 {
   border-bottom: 1px solid var(--grid-line);
   flex-shrink: 0;
 }
+/* Canvas grids: the header clips against the scroll container and an
+ * inner row translates with the body's scrollLeft so header columns
+ * follow the body's horizontal scroll while the host stays at viewport.
+ * `will-change: transform` hints the GPU compositor. */
+.patgrid--canvas .patgrid__header {
+  overflow: hidden;
+  padding: 6px 0;
+}
+.patgrid__header-inner {
+  display: grid;
+  align-items: stretch;
+  will-change: transform;
+}
+/* The grid body is canvas-rendered, so most cell-level styling lives
+ * in `gridGeometry.readGridPalette` (which reads these CSS vars) and
+ * the drawGrid* functions. CSS keeps only:
+ *   - The scroll container that hosts the canvas + spacer.
+ *   - Header / row-label / channel-header / VU / M/S styles. */
 .patgrid__rows {
   flex: 1;
-  overflow-y: auto;
+  overflow: auto;
   scroll-behavior: auto;
-  /* Make scroller the offsetParent so the virtualizer's translated rows
-     position against `scrollTop` correctly. */
   position: relative;
-}
-/* Inner placeholder gives the scrollbar the full virtual height (= total
- * flat-row count × ROW_HEIGHT). Visible rows are absolutely positioned
- * inside it by the virtualizer at top: index × ROW_HEIGHT. */
-.patgrid__rows-spacer {
-  position: relative;
-  width: 100%;
-}
-.patgrid__row {
-  display: grid;
-  grid-template-columns: 36px repeat(4, 1fr);
-  padding: 0 16px;
-  border-radius: 2px;
-  /* Locked height so the virtualizer can compute scroll positions without
-   * measuring each row. Matches font-size 13 × line-height 1.4 ≈ 19px. */
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: var(--pat-row-height);
-  line-height: var(--pat-row-height);
-  box-sizing: border-box;
-}
-.patgrid__row--beat {
-  background: rgba(255, 255, 255, 0.025);
-}
-.patgrid__row--bar {
-  background: rgba(94, 200, 255, 0.07);
-  box-shadow: inset 2px 0 0 var(--accent);
-}
-/* Note: the boundary marker used to be a top border + margin; with rows
- * absolutely positioned we render a separate ::before line within the
- * row's own box so it stays aligned without growing the row height. */
-.patgrid__row--boundary {
-  border-top: 2px dashed var(--muted);
-}
-.patgrid__part--empty {
-  opacity: 0.3;
-}
-.patgrid__row--cursor {
-  background: var(--accent-dim);
-}
-.patgrid__row--active {
-  background: var(--accent);
-  color: var(--text-on-accent);
-}
-.patgrid__row--active .patgrid__num,
-.patgrid__row--active .patgrid__note,
-.patgrid__row--active .patgrid__samp,
-.patgrid__row--active .patgrid__eff {
-  color: var(--text-on-accent);
-}
-.patgrid__row--active .patgrid__part--empty {
-  opacity: 0.5;
 }
 
 .patgrid__num {
@@ -1072,55 +1170,10 @@ h2 {
   padding: 0 6px;
   border-left: 1px solid var(--grid-line);
 }
-.patgrid__note {
-  min-width: 3ch;
-  color: var(--fg);
-}
-.patgrid__samp {
-  min-width: 2ch;
-  color: var(--accent);
-  display: inline-flex;
-}
-.patgrid__samp-char {
-  display: inline-block;
-  min-width: 1ch;
-}
-.patgrid__eff {
-  min-width: 3ch;
-  color: var(--muted);
-  display: inline-flex;
-}
-.patgrid__eff-char {
-  display: inline-block;
-  min-width: 1ch;
-}
 
-.patgrid__field--cursor {
-  background: var(--accent);
-  color: var(--text-on-accent);
-  opacity: 1;
-  box-shadow: 0 0 0 1px var(--accent);
-  border-radius: 2px;
-}
-
-/*
- * Range-selection highlight. Painted on the cell wrapper so it sits BENEATH
- * the field-cursor pill (which has its own opaque background) — the cursor
- * stays legible inside an active selection. cursor:cell makes the drag
- * intent obvious to the user.
- */
-.patgrid__cell--selected {
-  background: rgba(94, 200, 255, 0.18);
-  /* box-shadow: inset 0 0 0 1px rgba(94, 200, 255, 0.45); */
-}
-.patgrid__cell {
-  cursor: cell;
-  user-select: none;
-}
-
-/* Channel-header layout: name + compact M/S toggles. Header cells inherit
- * `cursor: cell` from .patgrid__cell so we restore the default cursor on
- * the buttons below. */
+/* Channel-header layout: name + compact M/S toggles. Header cells use
+ * the default cursor since they're not clickable cells in the canvas
+ * grid (the M / S buttons take their own clicks). */
 .patgrid__chhead {
   align-items: center;
   cursor: default;
@@ -1314,6 +1367,499 @@ h2 {
   cursor: grabbing;
   fill: color-mix(in srgb, var(--envelope-color) 60%, white);
 }
+.envelope__tooltip-bg {
+  fill: var(--panel);
+  stroke: var(--grid-line);
+  stroke-width: 1;
+}
+.envelope__tooltip-text {
+  fill: var(--fg);
+  font:
+    11px / 1.2 ui-monospace,
+    "SFMono-Regular",
+    monospace;
+  dominant-baseline: alphabetic;
+}
+
+/* FT2 envelope editor — self-contained widget (no waveform underlay).
+   Mounted in the instrument view's vol / pan envelope panels. */
+.envelope-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+.envelope-editor--disabled .envelope-editor__canvas {
+  opacity: 0.45;
+}
+.envelope-editor__toolbar {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.envelope-editor__flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  user-select: none;
+  cursor: pointer;
+}
+.envelope-editor__canvas {
+  display: block;
+  /* aspect-ratio matches the SVG's 360×120 viewBox so the
+     `preserveAspectRatio="none"` stretch lands on identical proportions
+     and the points stay circular. The grid container around the two
+     envelopes caps each cell's width; here we just fill the cell and
+     let the cell decide how wide we get. */
+  width: 100%;
+  aspect-ratio: 3 / 1;
+  background: var(--panel-2);
+  border-radius: 3px;
+  --envelope-color: #ffa64d;
+}
+.envelope-editor[data-kind="panning"] .envelope-editor__canvas {
+  --envelope-color: #5ec9ff;
+}
+.envelope-editor__bg {
+  fill: transparent;
+}
+.envelope-editor__grid {
+  stroke: var(--grid-line);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+.envelope-editor__grid--center {
+  stroke: color-mix(in srgb, var(--envelope-color) 50%, transparent);
+  stroke-dasharray: 4 4;
+}
+.envelope-editor__line {
+  fill: none;
+  stroke: var(--envelope-color);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.envelope-editor__sustain {
+  stroke: #d8d878;
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.envelope-editor__loop-bound {
+  stroke: #b07cff;
+  stroke-width: 1;
+  stroke-dasharray: 6 3;
+}
+.envelope-editor__point-hit {
+  fill: transparent;
+  cursor: grab;
+}
+.envelope-editor__point-hit:active {
+  cursor: grabbing;
+}
+.envelope-editor__point {
+  fill: var(--envelope-color);
+  stroke: #1c1e26;
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+.envelope-editor__point--sustain {
+  fill: #d8d878;
+}
+.envelope-editor__point--loop {
+  fill: #b07cff;
+}
+.envelope-editor__indices {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.envelope-editor__indices label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.envelope-editor__indices select {
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  padding: 2px 4px;
+  font: inherit;
+}
+.envelope-editor__indices select:disabled {
+  opacity: 0.4;
+}
+
+/* FT2 instrument editor. The .instrument-view wrapper sits inside the
+   sampleview-wrapper grid cell; .instrument-view__layout splits it into
+   a sample editor on the left (mirrors PT2's SampleView) and a
+   collapsible right column hosting the FT2-only instrument-scoped
+   automation (key map + envelopes + autovibrato + fadeout). */
+.instrument-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.instrument-view--drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -8px;
+}
+.instrument-view__layout {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0;
+  min-height: 0;
+  flex: 1;
+}
+.instrument-view__main {
+  /* Reuses .sampleview's container-type + padding via the cascaded
+     class on the element — see .sampleview for the styling. The grid
+     cell here just establishes the flex column. */
+  min-width: 0;
+  min-height: 0;
+}
+/* Collapsible right column. Body shows envelopes / autovibrato /
+   key map; the toggle header lets the user reclaim space for the
+   waveform/pipeline workflow when they're not editing instrument
+   automation. */
+.instrument-view__rightcol {
+  display: flex;
+  flex-direction: column;
+  width: 360px;
+  max-width: 40vw;
+  border-left: 1px solid var(--grid-line);
+  background: var(--panel);
+  overflow: hidden;
+}
+.instrument-view__rightcol--collapsed {
+  width: 36px;
+}
+.instrument-view__rightcol-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: none;
+  border-bottom: 1px solid var(--grid-line);
+  font: inherit;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  text-align: left;
+}
+.instrument-view__rightcol-toggle:hover {
+  background: var(--panel);
+}
+.instrument-view__rightcol-toggle-icon {
+  width: 12px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.instrument-view__rightcol--collapsed .instrument-view__rightcol-toggle-label {
+  display: none;
+}
+.instrument-view__rightcol-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 12px 16px;
+  overflow: auto;
+  min-height: 0;
+}
+.instrument-view__section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.instrument-view__heading {
+  margin: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.instrument-view__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+}
+.instrument-view__row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+}
+.instrument-view__row input[type="number"] {
+  width: 70px;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  padding: 3px 5px;
+  font: inherit;
+}
+.instrument-view__row input[type="range"] {
+  flex: 1;
+  min-width: 160px;
+}
+.instrument-view__row select {
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  padding: 3px 6px;
+  font: inherit;
+}
+.instrument-view__readout {
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  color: var(--fg);
+}
+.instrument-view__placeholder {
+  color: var(--muted);
+  font-style: italic;
+  padding: 16px 0;
+}
+/* Inline slider variant for the fadeout knob, which sits in the
+   autovibrato row alongside the autovib number fields. */
+.instrument-view__inline-slider {
+  flex: 1;
+  min-width: 200px;
+  gap: 8px;
+}
+/* Autovibrato Sweep/Depth/Rate/Fadeout sliders stack vertically, each
+   taking the full container width. The label flips inline-left of the
+   slider track so the row reads `LABEL ===slider=== value`. */
+.instrument-view__autovibrato {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.instrument-view__autovibrato > .slider {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.instrument-view__autovibrato > .slider .slider__label {
+  flex: 0 0 64px;
+  text-align: left;
+}
+.instrument-view__autovibrato > .slider .slider__row {
+  flex: 1;
+}
+.xm-waveform-wrap {
+  /* Hosts the canvas + click-drag handlers, plus the absolute-positioned
+     envelope overlay. The `position: relative` anchors `.waveform__envelope`
+     (an SVG that pins inset:0 inside its relative ancestor) to this box. */
+  position: relative;
+  cursor: crosshair;
+  user-select: none;
+}
+.xm-waveform-wrap--grab {
+  cursor: ew-resize;
+}
+.xm-waveform-wrap--grabbing {
+  cursor: grabbing;
+}
+.xm-waveform {
+  display: block;
+  background: var(--panel-2);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+}
+.xm-waveform__playhead {
+  /* Why: stack on top of .xm-waveform so the playhead cursor doesn't
+     require a waveform repaint — same layering trick as PT's Waveform. */
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  pointer-events: none;
+}
+.xm-autovibrato-preview {
+  display: block;
+  background: var(--panel-2);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  margin-top: 6px;
+}
+
+/* Multi-sample picker — one chip per sample, plus +/− buttons on the
+   right. Chips wrap as the pane narrows; active chip glows via the
+   accent ring. */
+.instrument-view__sample-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.instrument-view__sample-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.instrument-view__sample-chip:hover {
+  border-color: var(--accent);
+}
+.instrument-view__sample-chip--active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.instrument-view__sample-chip-idx {
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  color: var(--muted);
+  font-size: 10px;
+}
+.instrument-view__sample-chip-name {
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.instrument-view__sample-chip--editing {
+  cursor: text;
+}
+.instrument-view__sample-chip-input {
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font: inherit;
+  font-size: 12px;
+  width: 12ch;
+  outline: none;
+}
+.instrument-view__sample-actions {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.instrument-view__sample-actions button {
+  width: 28px;
+  height: 24px;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.instrument-view__sample-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.instrument-view__sample-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.instrument-view__sample-name input {
+  flex: 1;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  padding: 3px 5px;
+  font: inherit;
+}
+
+/* 96-cell note → sample-index keymap painter. 8 octave rows × 12 pitch
+   classes; each cell shows the hex index of the routed sample. Click
+   or drag paints with the currently-selected sample index. */
+.xm-keymap-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.xm-keymap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  touch-action: none;
+  user-select: none;
+}
+.xm-keymap__header {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+.xm-keymap__col-label {
+  width: 22px;
+  text-align: center;
+  font-size: 10px;
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+}
+.xm-keymap__col-label--sharp {
+  color: color-mix(in srgb, var(--muted) 60%, transparent);
+}
+.xm-keymap__row {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+.xm-keymap__row-label {
+  display: inline-block;
+  width: 44px;
+  font-size: 10px;
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  text-align: left;
+}
+.xm-keymap__row-label--clickable {
+  cursor: pointer;
+}
+.xm-keymap__row-label--clickable:hover {
+  color: var(--accent);
+}
+.xm-keymap__cell {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 2px;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+}
+.xm-keymap__cell:hover {
+  border-color: var(--accent);
+}
+.xm-keymap__help {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
 
 .sampleview__selection {
   display: flex;
@@ -1388,7 +1934,8 @@ h2 {
   white-space: nowrap;
 }
 .samplemeta input[type="text"],
-.samplemeta input[type="number"] {
+.samplemeta input[type="number"],
+.samplemeta select {
   background: var(--panel);
   color: var(--fg);
   border: 1px solid var(--grid-line);
@@ -1406,11 +1953,16 @@ h2 {
 .samplemeta input[type="number"] {
   width: 80px;
 }
-.samplemeta input:focus {
+.samplemeta select {
+  min-width: 110px;
+}
+.samplemeta input:focus,
+.samplemeta select:focus {
   outline: none;
   border-color: var(--accent);
 }
-.samplemeta input:disabled {
+.samplemeta input:disabled,
+.samplemeta select:disabled {
   color: var(--muted);
   cursor: not-allowed;
   opacity: 0.5;
@@ -1419,6 +1971,14 @@ h2 {
   flex-basis: 100%;
   color: var(--muted);
   font-size: 11px;
+  margin: 0;
+}
+/* Zero-height flex-break: forces subsequent items onto a new row inside
+   the flex-wrap container. Used to pin Volume/Panning sliders to the
+   second row of the FT2 sample-meta row. */
+.samplemeta__break {
+  flex-basis: 100%;
+  height: 0;
   margin: 0;
 }
 
@@ -1605,6 +2165,53 @@ h2 {
   display: flex;
   justify-content: flex-start;
   padding: 4px 8px 0;
+}
+
+/* Add-effect picker on the FT2 pipeline header. The button toggles a
+   floating menu of every effect kind; clicking an entry adds it. */
+.pipeline__add-effect {
+  position: relative;
+  margin-left: auto;
+}
+.pipeline__add-effect > button {
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.pipeline__add-effect > button:hover {
+  border-color: var(--accent);
+}
+.pipeline__add-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 2px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--grid-line);
+  border-radius: 3px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  z-index: 10;
+  min-width: 130px;
+}
+.pipeline__add-menu button {
+  background: transparent;
+  color: var(--fg);
+  border: 0;
+  text-align: left;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.pipeline__add-menu button:hover {
+  background: var(--panel-2);
 }
 
 .pipeline__transformer {

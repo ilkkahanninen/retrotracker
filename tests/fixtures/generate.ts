@@ -17,7 +17,7 @@ import {
   emptySong,
   PERIOD_TABLE,
 } from "../../src/core/mod/format";
-import type { Note, Pattern, Sample, Song } from "../../src/core/mod/types";
+import type { Note, Pattern, Sample, ModSong } from "../../src/core/mod/types";
 
 // ─── Sample synthesis ──────────────────────────────────────────────────────
 
@@ -119,7 +119,7 @@ function makeSong(opts: {
   samples: SampleSpec[];
   patterns: Pattern[];
   orders?: number[];
-}): Song {
+}): ModSong {
   const song = emptySong();
   song.title = opts.title;
   for (const s of opts.samples) {
@@ -182,7 +182,7 @@ const sinLooped: SampleSpec = {
  * if this differs significantly from pt2-clone, the resampler / period
  * handling is fundamentally off, not just a missing effect.
  */
-function fixtureBaseline(): Song {
+function fixtureBaseline(): ModSong {
   const rows: RowSpec[] = [];
   const notes = ["C-2", "E-2", "G-2", "C-3"];
   for (let i = 0; i < 64; i++) {
@@ -201,7 +201,7 @@ function fixtureBaseline(): Song {
  * different output-sample step ratio, exposing aliasing differences
  * between linear interpolation and BLEP resampling.
  */
-function fixtureResampling(): Song {
+function fixtureResampling(): ModSong {
   const scale: string[] = [];
   for (let oct = 1; oct <= 3; oct++) {
     for (const n of ["C-", "D-", "E-", "F-", "G-", "A-", "B-"]) {
@@ -229,7 +229,7 @@ function fixtureResampling(): Song {
  * sustained square-wave note. The Amiga LED filter is a low-pass around
  * 3.3 kHz; toggling should audibly soften and re-brighten the harmonics.
  */
-function fixtureAmigaFilter(): Song {
+function fixtureAmigaFilter(): ModSong {
   const rows: RowSpec[] = [];
   // Trigger a sustained note on row 0
   rows.push([{ note: "C-3", sample: 2 }]);
@@ -255,7 +255,7 @@ function fixtureAmigaFilter(): Song {
  * 03-vibrato-waveforms — vibrato at 4xy with E4y waveform changes mid-note.
  * E40 = sine (default), E41 = ramp down, E42 = square, E43 = random.
  */
-function fixtureVibratoWaveforms(): Song {
+function fixtureVibratoWaveforms(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-3", sample: 1, effect: 0xe, param: 0x40 }]; // sine
   for (let i = 1; i < 16; i++) rows[i] = [{ effect: 0x4, param: 0x44 }];
@@ -275,7 +275,7 @@ function fixtureVibratoWaveforms(): Song {
 /**
  * 04-tremolo-waveforms — same shape as 03 but with 7xy and E7y.
  */
-function fixtureTremoloWaveforms(): Song {
+function fixtureTremoloWaveforms(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-3", sample: 1, effect: 0xe, param: 0x70 }]; // sine
   for (let i = 1; i < 16; i++) rows[i] = [{ effect: 0x7, param: 0x44 }];
@@ -298,7 +298,7 @@ function fixtureTremoloWaveforms(): Song {
  * identical to a player that ignores E3y and noticeably different to one
  * that honors it.
  */
-function fixtureGlissando(): Song {
+function fixtureGlissando(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   // Half 1: smooth tone porta (E30 = off)
   rows[0] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0x30 }];
@@ -320,7 +320,7 @@ function fixtureGlissando(): Song {
  * (center), C0, FF (right). PT 2.3D ignores 8xy; the test pins down that
  * we likewise ignore it. Sound mono if both ends honor "ignore".
  */
-function fixturePanning(): Song {
+function fixturePanning(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [
     { note: "C-3", sample: 1, effect: 0x8, param: 0x00 },
@@ -346,7 +346,7 @@ function fixturePanning(): Song {
  * speeds. Off (EF0), slow (EF4), fast (EFF). Audible only if the player
  * implements byte-flipping on the active loop region.
  */
-function fixtureInvertLoop(): Song {
+function fixtureInvertLoop(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-3", sample: 1 }];
   rows[8] = [{ effect: 0xe, param: 0xf1 }];
@@ -361,7 +361,7 @@ function fixtureInvertLoop(): Song {
 }
 
 /** 08-arpeggio — sustained note with major/minor/octave arpeggios at 0xy. */
-function fixtureArpeggio(): Song {
+function fixtureArpeggio(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-2", sample: 1 }];
   // Major triad: +4, +7
@@ -380,7 +380,7 @@ function fixtureArpeggio(): Song {
 }
 
 /** 09-slide-up — sustained note with slide-up (1xx) at varying speeds. */
-function fixtureSlideUp(): Song {
+function fixtureSlideUp(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-2", sample: 1 }];
   for (let i = 4; i < 12; i++) rows[i] = [{ effect: 0x1, param: 0x02 }];
@@ -395,7 +395,7 @@ function fixtureSlideUp(): Song {
 }
 
 /** 10-slide-down — sustained note with slide-down (2xx) at varying speeds. */
-function fixtureSlideDown(): Song {
+function fixtureSlideDown(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-3", sample: 1 }];
   for (let i = 4; i < 12; i++) rows[i] = [{ effect: 0x2, param: 0x02 }];
@@ -410,7 +410,7 @@ function fixtureSlideDown(): Song {
 }
 
 /** 11-tone-porta-vol-slide — 3xx target then 5xy continues with vol slide. */
-function fixtureTonePortaVolSlide(): Song {
+function fixtureTonePortaVolSlide(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-2", sample: 1 }];
   rows[4] = [{ note: "G-2", effect: 0x3, param: 0x08 }];
@@ -428,7 +428,7 @@ function fixtureTonePortaVolSlide(): Song {
 }
 
 /** 12-vibrato-vol-slide — 4xy vibrato then 6xy continues with vol slide. */
-function fixtureVibratoVolSlide(): Song {
+function fixtureVibratoVolSlide(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-3", sample: 1, effect: 0x4, param: 0x46 }];
   for (let i = 1; i < 8; i++) rows[i] = [{ effect: 0x4, param: 0x00 }];
@@ -448,7 +448,7 @@ function fixtureVibratoVolSlide(): Song {
  * offsets. Each retrigger starts at a different phase and the wave loops
  * through the full sample.
  */
-function fixtureSampleOffset(): Song {
+function fixtureSampleOffset(): ModSong {
   const triLong: SampleSpec = {
     slot: 1,
     name: "tri-long",
@@ -471,7 +471,7 @@ function fixtureSampleOffset(): Song {
 }
 
 /** 14-volume-slide — sustained note with Axx slides up and down. */
-function fixtureVolumeSlide(): Song {
+function fixtureVolumeSlide(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-2", sample: 1 }];
   for (let i = 4; i < 12; i++) rows[i] = [{ effect: 0xa, param: 0x04 }]; // down 4
@@ -491,7 +491,7 @@ function fixtureVolumeSlide(): Song {
  * pat 1 jumps back to order 0; song-end detection fires on the second
  * revisit of (order 1, row 0).
  */
-function fixturePositionJump(): Song {
+function fixturePositionJump(): ModSong {
   const pat0: RowSpec[] = new Array(64).fill(0).map(() => []);
   pat0[0] = [{ note: "C-2", sample: 1 }];
   pat0[8] = [{ note: "E-2", sample: 1 }];
@@ -509,7 +509,7 @@ function fixturePositionJump(): Song {
 }
 
 /** 16-set-volume — sustained note with various Cxx volume sets. */
-function fixtureSetVolume(): Song {
+function fixtureSetVolume(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-2", sample: 1 }];
   rows[8] = [{ effect: 0xc, param: 0x20 }]; // 32
@@ -530,7 +530,7 @@ function fixtureSetVolume(): Song {
  * 17-pattern-break — Dxx mid-pattern; orders=[0,0] so the second pass
  * starts at the break target and runs to song end.
  */
-function fixturePatternBreak(): Song {
+function fixturePatternBreak(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-2", sample: 1 }];
   rows[8] = [{ note: "E-2", sample: 1 }];
@@ -547,7 +547,7 @@ function fixturePatternBreak(): Song {
 }
 
 /** 18-set-speed — Fxx speed and tempo changes. */
-function fixtureSetSpeed(): Song {
+function fixtureSetSpeed(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-2", sample: 1 }];
   rows[8] = [{ effect: 0xf, param: 0x03 }]; // speed 3
@@ -565,7 +565,7 @@ function fixtureSetSpeed(): Song {
 }
 
 /** 19-fine-slide-up — E1y at varying y. */
-function fixtureFineSlideUp(): Song {
+function fixtureFineSlideUp(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-2", sample: 1 }];
   rows[4] = [{ effect: 0xe, param: 0x11 }];
@@ -583,7 +583,7 @@ function fixtureFineSlideUp(): Song {
 }
 
 /** 20-fine-slide-down — E2y at varying y. */
-function fixtureFineSlideDown(): Song {
+function fixtureFineSlideDown(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-3", sample: 1 }];
   rows[4] = [{ effect: 0xe, param: 0x21 }];
@@ -605,7 +605,7 @@ function fixtureFineSlideDown(): Song {
  * subtly each row; correctness requires E5y to be applied BEFORE the period
  * lookup (pt2-clone playVoice ordering).
  */
-function fixtureSetFinetune(): Song {
+function fixtureSetFinetune(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0x50 }];
   rows[8] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0x51 }];
@@ -627,7 +627,7 @@ function fixtureSetFinetune(): Song {
  * plays 3×). Tests both loopRow capture and the visited-set clear that
  * keeps song-end from tripping.
  */
-function fixturePatternLoop(): Song {
+function fixturePatternLoop(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-2", sample: 1 }];
   rows[8] = [{ effect: 0xe, param: 0x60 }];
@@ -643,7 +643,7 @@ function fixturePatternLoop(): Song {
 }
 
 /** 23-retrigger — sustained note with E9y at varying intervals. */
-function fixtureRetrigger(): Song {
+function fixtureRetrigger(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-2", sample: 1 }];
   for (let i = 4; i < 12; i++) rows[i] = [{ effect: 0xe, param: 0x94 }]; // every 4 ticks
@@ -659,7 +659,7 @@ function fixtureRetrigger(): Song {
 }
 
 /** 24-fine-vol-up — EAy fine volume up after starting low (Cxx). */
-function fixtureFineVolUp(): Song {
+function fixtureFineVolUp(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-2", sample: 1, effect: 0xc, param: 0x10 }]; // start at 16
   rows[4] = [{ effect: 0xe, param: 0xa2 }];
@@ -676,7 +676,7 @@ function fixtureFineVolUp(): Song {
 }
 
 /** 25-fine-vol-down — EBy fine volume down from full. */
-function fixtureFineVolDown(): Song {
+function fixtureFineVolDown(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-2", sample: 1 }];
   rows[4] = [{ effect: 0xe, param: 0xb2 }];
@@ -696,7 +696,7 @@ function fixtureFineVolDown(): Song {
  * 26-note-cut — ECy cuts the note y ticks into the row by zeroing volume.
  * Each row triggers the same note with a different cut position.
  */
-function fixtureNoteCut(): Song {
+function fixtureNoteCut(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0xc2 }];
   rows[8] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0xc4 }];
@@ -715,7 +715,7 @@ function fixtureNoteCut(): Song {
  * 27-note-delay — EDy delays the trigger by y ticks. Each row triggers a
  * different note with a different delay.
  */
-function fixtureNoteDelay(): Song {
+function fixtureNoteDelay(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-2", sample: 1, effect: 0xe, param: 0xd0 }]; // no delay
   rows[8] = [{ note: "E-2", sample: 1, effect: 0xe, param: 0xd2 }];
@@ -734,7 +734,7 @@ function fixtureNoteDelay(): Song {
  * 28-pattern-delay — EEy repeats the row's tick stream y times. Causes
  * sustained notes to extend by that many row-durations.
  */
-function fixturePatternDelay(): Song {
+function fixturePatternDelay(): ModSong {
   const rows: RowSpec[] = new Array(64).fill(0).map(() => []);
   rows[0] = [{ note: "C-2", sample: 1 }];
   rows[4] = [{ note: "E-2", sample: 1, effect: 0xe, param: 0xe3 }];
@@ -751,7 +751,7 @@ function fixturePatternDelay(): Song {
 
 // ─── Wire-up ───────────────────────────────────────────────────────────────
 
-const FIXTURES: Record<string, () => Song> = {
+const FIXTURES: Record<string, () => ModSong> = {
   "00-baseline": fixtureBaseline,
   "01-resampling": fixtureResampling,
   "02-amiga-filter": fixtureAmigaFilter,

@@ -21,11 +21,11 @@
 import { Paula } from "./paula";
 import type { PreviewMsg } from "./preview-worklet-types";
 
-/** Replayer's NORM_FACTOR (2) / PAULA_VOICES (4). Single-voice headroom. */
+/** Pt2Replayer's NORM_FACTOR (2) / PAULA_VOICES (4). Single-voice headroom. */
 const NORM_SCALE = 0.5;
 
 /**
- * Mid/side stereo separation factor — matches the Replayer's default
+ * Mid/side stereo separation factor — matches the Pt2Replayer's default
  * `stereoSeparation: 20` (sideFactor = sep/100 * 0.5 = 0.1). Applied to
  * Paula's voice-0-on-L output so a previewed sample lands at the same
  * per-channel amplitude that song playback would produce. Without this,
@@ -42,7 +42,7 @@ const DEFAULT_SIDE_FACTOR = 0.1;
 /**
  * Voice channel used for preview. Voice 0 in Paula's LRRL panning is a
  * left channel; the right channel stays silent at Paula's stereo bus.
- * We then run the Replayer's mid/side formula across both channels so
+ * We then run the Pt2Replayer's mid/side formula across both channels so
  * the preview's loudness curve matches a pattern-triggered note exactly.
  */
 const PREVIEW_CH = 0;
@@ -149,7 +149,7 @@ class PreviewProcessor extends AudioWorkletProcessor {
     const sR = this.scratchR;
     this.paula.generate(sL, sR, frames, 0);
 
-    // Same mid/side + NORM scaling the Replayer's mixChunk applies. Voice 0
+    // Same mid/side + NORM scaling the Pt2Replayer's mixChunk applies. Voice 0
     // is on L (sR is silent), so at the default 20% separation this
     // collapses to L = paula·0.3, R = paula·0.2 — matching what a
     // pattern-triggered voice-0 note produces in song playback. The
