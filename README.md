@@ -1,5 +1,7 @@
 # RetroTracker
 
+[![CI](https://github.com/ilkkahanninen/retrotracker/actions/workflows/ci.yml/badge.svg)](https://github.com/ilkkahanninen/retrotracker/actions/workflows/ci.yml)
+
 A web-based tracker — edit ProTracker `.mod` (4-channel "M.K.") and FastTracker 2 `.xm` (up to 32 channels, 128 instruments) modules from the same editor.
 
 ## Features
