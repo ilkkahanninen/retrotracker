@@ -6,6 +6,7 @@ import {
   createSignal,
   onCleanup,
   onMount,
+  untrack,
   type Component,
 } from "solid-js";
 
@@ -278,11 +279,13 @@ export const PatternGridCanvas: Component<PatternGridProps> = (props) => {
     if (idx < 0 || !scroller) return;
     centerRowInView(scroller, idx);
   });
+  let prevCursorFlat = -1;
   createEffect(() => {
     if (props.active) return;
     const idx = cursorFlatIndex();
     if (idx < 0 || !scroller) return;
-    keepRowInView(scroller, idx);
+    keepRowInView(scroller, idx, prevCursorFlat);
+    prevCursorFlat = idx;
   });
   // Horizontal cursor follow — PT2 has 4 channels so this rarely
   // matters in practice, but matching XM avoids surprises if someone
@@ -296,6 +299,11 @@ export const PatternGridCanvas: Component<PatternGridProps> = (props) => {
   // Jump-snap (order-list click, Insert slot): pin the destination row
   // to the viewport top so the user sees the bulk of the next pattern
   // below it. Skips the very first tick (would scroll on mount).
+  //
+  // Everything except `jumpRequest` is read inside `untrack` — otherwise
+  // Solid would register `cursorFlatIndex` as a dependency on the first
+  // non-skipped run, and from then on every cursor move (click, arrow)
+  // would re-fire this effect and snap the cursor back to the top.
   let firstJump = true;
   createEffect(() => {
     jumpRequest();
@@ -303,10 +311,12 @@ export const PatternGridCanvas: Component<PatternGridProps> = (props) => {
       firstJump = false;
       return;
     }
-    if (props.active || !scroller) return;
-    const idx = cursorFlatIndex();
-    if (idx < 0) return;
-    snapRowToTop(scroller, idx);
+    untrack(() => {
+      if (props.active || !scroller) return;
+      const idx = cursorFlatIndex();
+      if (idx < 0) return;
+      snapRowToTop(scroller, idx);
+    });
   });
 
   // ── Pointer handling ──────────────────────────────────────────────────

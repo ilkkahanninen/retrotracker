@@ -22,25 +22,51 @@ export function flatIndexOf<T>(
 }
 
 /**
- * Nudge the scroller so the row at `rowIndex` sits within
- * `marginRows × rowHeight` of the viewport edges. Used to keep the
- * edit cursor visible as it moves with the arrow keys.
+ * Keep the cursor row visible with minimal viewport disturbance.
+ *
+ *   1. Cursor on-screen + arrow movement toward the near edge —
+ *      one-row nudge to keep `marginRows` past the cursor. Movement
+ *      away from an edge, even when sitting in the margin band, is
+ *      ignored.
+ *   2. Cursor off-screen because the user *kept* moving the same
+ *      direction (small delta) — same one-row nudge, snapping the
+ *      cursor `marginRows` from the edge it crossed.
+ *   3. Cursor off-screen because of a big jump (click, Page move,
+ *      order-list nav) — centre it. Landing margin-rows from the
+ *      edge would make the very next arrow keystroke scroll, which
+ *      is the cascading-jerk we're trying to avoid.
  */
 export function keepRowInView(
   scroller: HTMLElement,
   rowIndex: number,
+  prevRowIndex: number,
   rowHeight: number = PATTERN_ROW_HEIGHT,
   marginRows: number = 2,
 ): void {
   const margin = rowHeight * marginRows;
-  const top = rowIndex * rowHeight;
-  const bottom = top + rowHeight;
+  const rowTop = rowIndex * rowHeight;
+  const rowBottom = rowTop + rowHeight;
+  const viewHeight = scroller.clientHeight;
   const viewTop = scroller.scrollTop;
-  const viewBottom = viewTop + scroller.clientHeight;
-  if (top - margin < viewTop) {
-    scroller.scrollTop = Math.max(0, top - margin);
-  } else if (bottom + margin > viewBottom) {
-    scroller.scrollTop = bottom + margin - scroller.clientHeight;
+  const viewBottom = viewTop + viewHeight;
+  const delta = rowIndex - prevRowIndex;
+  const isJump = Math.abs(delta) > marginRows;
+
+  if (rowTop < viewTop || rowBottom > viewBottom) {
+    if (isJump) {
+      scroller.scrollTop = Math.max(0, rowTop - (viewHeight - rowHeight) / 2);
+    } else if (rowTop < viewTop) {
+      scroller.scrollTop = Math.max(0, rowTop - margin);
+    } else {
+      scroller.scrollTop = rowBottom + margin - viewHeight;
+    }
+    return;
+  }
+
+  if (delta < 0 && rowTop - margin < viewTop) {
+    scroller.scrollTop = Math.max(0, rowTop - margin);
+  } else if (delta > 0 && rowBottom + margin > viewBottom) {
+    scroller.scrollTop = rowBottom + margin - viewHeight;
   }
 }
 

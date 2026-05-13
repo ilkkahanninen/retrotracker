@@ -290,11 +290,13 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
     if (idx < 0 || !scroller) return;
     centerRowInView(scroller, idx);
   });
+  let prevCursorFlat = -1;
   createEffect(() => {
     if (props.active) return;
     const idx = cursorFlatIndex();
     if (idx < 0 || !scroller) return;
-    keepRowInView(scroller, idx);
+    keepRowInView(scroller, idx, prevCursorFlat);
+    prevCursorFlat = idx;
   });
   // Keyboard moves can carry the cursor past the visible channel range
   // on many-channel XMs. Skipped during playback for the same reason
