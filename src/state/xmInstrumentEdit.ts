@@ -22,7 +22,10 @@ import {
   setXmInstrumentSample as setXmInstrumentSampleMutation,
 } from "../core/xm/mutations";
 import { setCurrentXmSampleIndex } from "./xmEdit";
-import { commitEditXm, xm2Song } from "./song";
+import { commitEditXm, commitEditXmWithWorkbenches, xm2Song } from "./song";
+import { runXmPipeline } from "../core/audio/sampleWorkbench";
+import { getXmWorkbench } from "./xmSampleWorkbench";
+import { runContextForXmSample } from "./xmSampleEdit";
 
 const XM_SAMPLE_NAME_MAX = 22;
 const XM_MAX_SAMPLES_PER_INSTRUMENT = 16;
@@ -91,9 +94,46 @@ export function patchXmSample(
   patch: Parameters<typeof patchXmInstrumentSampleMutation>[2],
   sampleIndex = 0,
 ): void {
-  commitEditXm((s) =>
-    patchXmInstrumentSampleMutation(s, slot1Based, patch, sampleIndex),
-  );
+  // Why: crossfade reads the loop bounds via RunContext at pipeline time —
+  // a bare loop-field patch leaves the slot's audio glued to the old fade.
+  // Re-run the chain through the new loop in the same commit so undo
+  // reverts both halves atomically. Mirrors PT2's patchCurrentSample.
+  const touchesLoop =
+    "loopStart" in patch || "loopLength" in patch || "loopType" in patch;
+  const wb = touchesLoop ? getXmWorkbench(slot1Based, sampleIndex) : undefined;
+  const needsRerun = !!wb && wb.chain.some((e) => e.kind === "crossfade");
+  if (!needsRerun || !wb) {
+    commitEditXm((s) =>
+      patchXmInstrumentSampleMutation(s, slot1Based, patch, sampleIndex),
+    );
+    return;
+  }
+  commitEditXmWithWorkbenches((state) => {
+    const patched = patchXmInstrumentSampleMutation(
+      state.song,
+      slot1Based,
+      patch,
+      sampleIndex,
+    );
+    if (patched === state.song) return state;
+    const patchedSample =
+      patched.instruments[slot1Based - 1]?.samples[sampleIndex];
+    if (!patchedSample) return { ...state, song: patched };
+    const ctx = runContextForXmSample(patchedSample);
+    // No loop after the patch → crossfade is a pass-through, nothing to re-run.
+    if (!ctx) return { ...state, song: patched };
+    const { data, bits } = runXmPipeline(wb, ctx);
+    const updated: XmSample = { ...patchedSample, data, bits };
+    return {
+      ...state,
+      song: setXmInstrumentSampleMutation(
+        patched,
+        slot1Based,
+        updated,
+        sampleIndex,
+      ),
+    };
+  });
 }
 
 /**

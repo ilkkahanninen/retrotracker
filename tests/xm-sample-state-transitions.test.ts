@@ -984,6 +984,58 @@ describe("Loop drag past sample end clamps gracefully", () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
+// Crossfade reacts to loop-handle drag
+// ──────────────────────────────────────────────────────────────────────
+
+describe("Crossfade re-runs when loop fields change", () => {
+  it("dragging the loop end after adding crossfade updates the slot data", () => {
+    loadXmWavIntoCurrentSample(makeWavBytes(800), "src.wav");
+    const len = curSample()!.data.length;
+    // Why: applyCrossfade needs loopStart > 0 (pre-loop frames to fade in).
+    // Pick a loop that leaves room before and inside the loop.
+    const ls = 200;
+    patchXmSample(
+      1,
+      { loopStart: ls, loopLength: len - ls, loopType: "forward" },
+      0,
+    );
+    addXmEffect("crossfade");
+    const dataAtLongLoop = Array.from(curSample()!.data);
+    // Shrink the loop length — the fade now lands at a different loopEnd.
+    patchXmSample(
+      1,
+      { loopStart: ls, loopLength: (len - ls) >> 1, loopType: "forward" },
+      0,
+    );
+    const dataAtShortLoop = Array.from(curSample()!.data);
+    // The two loop ends differ → the faded frames are at different positions.
+    let differs = false;
+    for (let i = 0; i < dataAtLongLoop.length; i++) {
+      if (dataAtLongLoop[i] !== dataAtShortLoop[i]) {
+        differs = true;
+        break;
+      }
+    }
+    expect(differs).toBe(true);
+  });
+
+  it("loop edit on a chain without crossfade does NOT re-render", () => {
+    loadXmWavIntoCurrentSample(makeWavBytes(400), "src.wav");
+    const len = curSample()!.data.length;
+    patchXmSample(1, { loopStart: 0, loopLength: len, loopType: "forward" }, 0);
+    addXmEffect("normalize");
+    const before = curSample()!.data;
+    patchXmSample(
+      1,
+      { loopStart: 4, loopLength: len - 8, loopType: "forward" },
+      0,
+    );
+    // Same data reference: no pipeline re-run for non-loop-aware chains.
+    expect(curSample()!.data).toBe(before);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
 // loadXmWavIntoCurrentSample interactions
 // ──────────────────────────────────────────────────────────────────────
 

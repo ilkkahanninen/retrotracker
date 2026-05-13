@@ -127,7 +127,7 @@ function getOrInitCurrentXmWorkbench(): {
 // effects (crossfade). The PT field names are byte-coordinate-flavoured;
 // for XM, treat them as frame coordinates — applyCrossfade rescales by
 // (inputLen / int8Length), which is dimensionless either way.
-function runContextForXmSample(
+export function runContextForXmSample(
   sample: XmSample,
   loopOverride?: {
     loopStart: number;
