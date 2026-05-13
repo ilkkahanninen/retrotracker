@@ -62,6 +62,7 @@ import {
   transport,
   xm2Song,
 } from "./song";
+import { stopXmPreview, xmLivePreviewSwap } from "./xmPreview";
 import { setError } from "./session";
 import {
   currentXmInstrument,
@@ -235,6 +236,10 @@ function updateCurrentXmWorkbench(
       next,
     ),
   }));
+  // Mirror PT2's updateCurrentWorkbench: re-render any in-flight
+  // preview so a slider drag on the chiptune / chain params is
+  // audible while a piano key's preview is still playing.
+  xmLivePreviewSwap();
 }
 
 // ─── Chain ops ───────────────────────────────────────────────────────────
@@ -489,6 +494,13 @@ export function setXmSourceKind(kind: SourceKind): void {
   if (!ctx) return;
   const { wb, sample } = ctx;
   if (wb.source.kind === kind) return;
+  // A source-kind flip replaces the slot's audible content wholesale.
+  // Stop any in-flight preview before the workbench commit so the
+  // auto-swap in `updateCurrentXmWorkbench` doesn't fire a fresh-
+  // sounding buffer the user didn't ask for. (Slider drags within
+  // one kind still morph gaplessly — they go through `updateXm…`
+  // without this gate.)
+  stopXmPreview();
   // Snapshot the slot's current sample loop into the stash so flipping
   // back later restores it — chiptune's full-cycle loop would otherwise
   // overwrite the sampler's loop bounds.
@@ -541,6 +553,10 @@ export function convertXmChiptuneToSampler(): void {
   if (!ctx) return;
   const { wb } = ctx;
   if (wb.source.kind !== "chiptune") return;
+  // Same affordance as `setXmSourceKind`: stop the preview so the
+  // mid-flight buffer doesn't keep playing against the new sampler
+  // half (or, worse, restart from frame 0).
+  stopXmPreview();
   const realised = materializeSource(wb.source);
   const newSource: SampleSource = {
     kind: "sampler",

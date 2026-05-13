@@ -80,6 +80,21 @@ export class RecordingEngine {
   async previewNote(sample: Sample, period: number): Promise<void> {
     this.rec("previewNote", [sample, period]);
   }
+  async playXmPreviewBuffer(
+    left: Float32Array,
+    right: Float32Array,
+    sampleRate: number,
+    onEnded?: () => void,
+    restart: boolean = true,
+  ): Promise<void> {
+    this.rec("playXmPreviewBuffer", [
+      left,
+      right,
+      sampleRate,
+      onEnded,
+      restart,
+    ]);
+  }
   stopPreview(): void {
     this.rec("stopPreview", []);
   }
