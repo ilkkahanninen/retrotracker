@@ -3,6 +3,7 @@ import {
   createEffect,
   createSignal,
   onCleanup,
+  onMount,
   type Component,
 } from "solid-js";
 
@@ -71,6 +72,11 @@ export const XmWaveform: Component<Props> = (props) => {
 
   const [drag, setDrag] = createSignal<DragState | null>(null);
   const [hover, setHover] = createSignal<"start" | "end" | null>(null);
+  // Why: bump on every observed resize. The draw effects bail when
+  // canvas.clientWidth is 0 (display:none ancestor — pattern view hides
+  // the sample editor), and re-running them on later visibility changes
+  // is what makes "load WAV → switch view → refresh → switch back" paint.
+  const [layoutTick, setLayoutTick] = createSignal(0);
 
   const dataLen = () => props.sample.data.length;
   const loopActive = () =>
@@ -212,6 +218,7 @@ export const XmWaveform: Component<Props> = (props) => {
     props.sample.loopLength;
     props.sample.loopType;
     props.selection;
+    layoutTick();
     requestAnimationFrame(draw);
   });
 
@@ -222,6 +229,7 @@ export const XmWaveform: Component<Props> = (props) => {
     if (!c) return;
     const ctx = c.getContext("2d");
     if (!ctx) return;
+    layoutTick();
     const dpr = window.devicePixelRatio || 1;
     const cssWidth = c.clientWidth;
     const cssHeight = c.clientHeight || H;
@@ -324,6 +332,17 @@ export const XmWaveform: Component<Props> = (props) => {
   const onResize = () => requestAnimationFrame(draw);
   window.addEventListener("resize", onResize);
   onCleanup(() => window.removeEventListener("resize", onResize));
+
+  // Why: window's resize event doesn't fire when an ancestor flips
+  // display:none → block (the view-tab switch). ResizeObserver does —
+  // bumping layoutTick re-runs both draw effects against the now-known
+  // canvas dimensions.
+  onMount(() => {
+    if (typeof ResizeObserver !== "function" || !container) return;
+    const ro = new ResizeObserver(() => setLayoutTick((n) => n + 1));
+    ro.observe(container);
+    onCleanup(() => ro.disconnect());
+  });
 
   return (
     <div
