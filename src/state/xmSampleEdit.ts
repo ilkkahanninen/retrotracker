@@ -2,7 +2,6 @@ import { createSignal } from "solid-js";
 
 import {
   defaultEffect,
-  ENVELOPE_MIN_POINTS,
   materializeSource,
   runChain,
   runXmPipeline,
@@ -11,7 +10,6 @@ import {
   type EffectKind,
   type EffectNode,
   type EnvelopeParamKey,
-  type EnvelopePoint,
   type MonoMix,
   type SampleSource,
   type XmSampleWorkbench,
@@ -21,13 +19,7 @@ import {
   xmWorkbenchToAlt,
   type SourceKind,
 } from "../core/audio/sampleWorkbench";
-import {
-  clampValueForParam,
-  clampFrame,
-  extractEnvelopeFromNode,
-  nodeWithEnvelope,
-  normaliseEnvelope,
-} from "../core/audio/envelopeOps";
+import { makePipelineActions } from "./samplePipeline";
 import {
   defaultChiptuneParams,
   type ChiptuneParams,
@@ -195,165 +187,29 @@ function updateCurrentXmWorkbench(
   xmLivePreviewSwap();
 }
 
+const pipeline = makePipelineActions<XmSampleWorkbench>({
+  getWorkbench: () => getOrInitCurrentXmWorkbench()?.wb ?? null,
+  setWorkbench: (next) => updateCurrentXmWorkbench(next),
+  setSelectedIndex: setXmSelectedEffectIndex,
+  setSelectedParam: setXmSelectedEffectParam,
+  defaultParamForKind,
+});
+
 export function addXmEffect(kind: EffectKind): void {
   const ctx = getOrInitCurrentXmWorkbench();
   if (!ctx) return;
-  const { wb } = ctx;
-  const chainOut = runChain(materializeSource(wb.source), wb.chain);
-  const node = defaultEffect(kind, chainOut);
-  const newIndex = wb.chain.length;
-  updateCurrentXmWorkbench({ ...wb, chain: [...wb.chain, node] });
-  setXmSelectedEffectIndex(newIndex);
-  setXmSelectedEffectParam(defaultParamForKind(kind));
+  const chainOut = runChain(materializeSource(ctx.wb.source), ctx.wb.chain);
+  pipeline.appendEffect(defaultEffect(kind, chainOut));
 }
 
-export function removeXmEffect(index: number): void {
-  const ctx = getOrInitCurrentXmWorkbench();
-  if (!ctx) return;
-  const { wb } = ctx;
-  if (index < 0 || index >= wb.chain.length) return;
-  setXmSelectedEffectIndex(null);
-  setXmSelectedEffectParam(null);
-  updateCurrentXmWorkbench({
-    ...wb,
-    chain: wb.chain.filter((_, i) => i !== index),
-  });
-}
-
-export function moveXmEffect(index: number, delta: -1 | 1): void {
-  const ctx = getOrInitCurrentXmWorkbench();
-  if (!ctx) return;
-  const { wb } = ctx;
-  const target = index + delta;
-  if (target < 0 || target >= wb.chain.length) return;
-  const chain = [...wb.chain];
-  [chain[index], chain[target]] = [chain[target]!, chain[index]!];
-  setXmSelectedEffectIndex(null);
-  setXmSelectedEffectParam(null);
-  updateCurrentXmWorkbench({ ...wb, chain });
-}
-
-export function patchXmEffect(index: number, next: EffectNode): void {
-  const ctx = getOrInitCurrentXmWorkbench();
-  if (!ctx) return;
-  const { wb } = ctx;
-  if (index < 0 || index >= wb.chain.length) return;
-  const chain = wb.chain.map((n, i) => (i === index ? next : n));
-  updateCurrentXmWorkbench({ ...wb, chain });
-}
-
-// ─── Envelope-point edits (Wave C visual-parity additions) ───────────────
-//
-// Mirror PT2's addEnvelopePoint / removeEnvelopePoint / patchEnvelopePoint
-// / nudgeEnvelopeSegment in sampleEdit.ts. The on-canvas envelope overlay
-// on XmWaveform drives all four, with the same shape as PT2's overlay.
-
-function xmEnvelopeAt(
-  index: number,
-  param: EnvelopeParamKey,
-): EnvelopePoint[] | null {
-  const ctx = getOrInitCurrentXmWorkbench();
-  if (!ctx) return null;
-  const node = ctx.wb.chain[index];
-  if (!node) return null;
-  return extractEnvelopeFromNode(node, param);
-}
-
-function commitXmEnvelope(
-  index: number,
-  param: EnvelopeParamKey,
-  points: EnvelopePoint[],
-): void {
-  if (points.length < ENVELOPE_MIN_POINTS) return;
-  const ctx = getOrInitCurrentXmWorkbench();
-  if (!ctx) return;
-  const node = ctx.wb.chain[index];
-  if (!node) return;
-  const next = nodeWithEnvelope(node, param, points);
-  if (!next) return;
-  patchXmEffect(index, next);
-}
-
-export function addXmChainEnvelopePoint(
-  index: number,
-  param: EnvelopeParamKey,
-  point: EnvelopePoint,
-): void {
-  const points = xmEnvelopeAt(index, param);
-  if (!points) return;
-  commitXmEnvelope(index, param, normaliseEnvelope([...points, point], param));
-}
-
-export function removeXmChainEnvelopePoint(
-  index: number,
-  param: EnvelopeParamKey,
-  pointIndex: number,
-): void {
-  const points = xmEnvelopeAt(index, param);
-  if (!points) return;
-  if (points.length <= ENVELOPE_MIN_POINTS) return;
-  if (pointIndex < 0 || pointIndex >= points.length) return;
-  const next = points.filter((_, i) => i !== pointIndex);
-  commitXmEnvelope(index, param, normaliseEnvelope(next, param));
-}
-
-export function patchXmChainEnvelopePoint(
-  index: number,
-  param: EnvelopeParamKey,
-  pointIndex: number,
-  next: Partial<EnvelopePoint>,
-): void {
-  const points = xmEnvelopeAt(index, param);
-  if (!points) return;
-  if (pointIndex < 0 || pointIndex >= points.length) return;
-  const cur = points[pointIndex]!;
-  points[pointIndex] = {
-    frame: next.frame !== undefined ? clampFrame(next.frame) : cur.frame,
-    value:
-      next.value !== undefined
-        ? clampValueForParam(next.value, param)
-        : cur.value,
-  };
-  commitXmEnvelope(index, param, normaliseEnvelope(points, param));
-}
-
-export function nudgeXmChainEnvelopeSegment(
-  index: number,
-  param: EnvelopeParamKey,
-  leftPointIndex: number,
-  deltaValue: number,
-): void {
-  const points = xmEnvelopeAt(index, param);
-  if (!points) return;
-  if (leftPointIndex < 0 || leftPointIndex >= points.length - 1) return;
-  const a = points[leftPointIndex]!;
-  const b = points[leftPointIndex + 1]!;
-  points[leftPointIndex] = {
-    frame: a.frame,
-    value: clampValueForParam(a.value + deltaValue, param),
-  };
-  points[leftPointIndex + 1] = {
-    frame: b.frame,
-    value: clampValueForParam(b.value + deltaValue, param),
-  };
-  commitXmEnvelope(index, param, normaliseEnvelope(points, param));
-}
-
-export function setXmEffectBypass(index: number, bypassed: boolean): void {
-  const ctx = getOrInitCurrentXmWorkbench();
-  if (!ctx) return;
-  const { wb } = ctx;
-  const node = wb.chain[index];
-  if (!node) return;
-  const next: EffectNode = bypassed
-    ? { ...node, bypassed: true }
-    : (() => {
-        const { bypassed: _drop, ...rest } = node;
-        void _drop;
-        return rest as EffectNode;
-      })();
-  patchXmEffect(index, next);
-}
+export const removeXmEffect = pipeline.removeEffect;
+export const moveXmEffect = pipeline.moveEffect;
+export const patchXmEffect = pipeline.patchEffect;
+export const setXmEffectBypass = pipeline.setEffectBypass;
+export const addXmChainEnvelopePoint = pipeline.addEnvelopePoint;
+export const removeXmChainEnvelopePoint = pipeline.removeEnvelopePoint;
+export const patchXmChainEnvelopePoint = pipeline.patchEnvelopePoint;
+export const nudgeXmChainEnvelopeSegment = pipeline.nudgeEnvelopeSegment;
 
 /** Burn the current chain into the source, replacing it with the chain
  *  output. The source becomes the post-chain audio so subsequent chain
