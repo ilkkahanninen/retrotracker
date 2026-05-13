@@ -11,6 +11,7 @@ import {
   type EffectNode,
   type EnvelopeParamKey,
   type MonoMix,
+  type RunContext,
   type SampleSource,
   type XmSampleWorkbench,
   workbenchToAlt,
@@ -122,6 +123,29 @@ function getOrInitCurrentXmWorkbench(): {
   return { wb, inst1Based, sampleIdx, sample };
 }
 
+// Why: RunContext threads the slot's loop bounds into loop-aware chain
+// effects (crossfade). The PT field names are byte-coordinate-flavoured;
+// for XM, treat them as frame coordinates — applyCrossfade rescales by
+// (inputLen / int8Length), which is dimensionless either way.
+function runContextForXmSample(
+  sample: XmSample,
+  loopOverride?: {
+    loopStart: number;
+    loopLength: number;
+    loopType: XmSample["loopType"];
+  },
+): RunContext | null {
+  const slotFrames = sample.data.length;
+  if (slotFrames <= 0) return null;
+  const loop = loopOverride ?? sample;
+  if (loop.loopType === "none" || loop.loopLength <= 0) return null;
+  return {
+    loopStartByte: loop.loopStart,
+    loopEndByte: loop.loopStart + loop.loopLength,
+    int8Length: slotFrames,
+  };
+}
+
 // Why: commitEditXmWithWorkbenches bundles workbench swap + sample-bytes update
 // into one history entry. Without it, undo would roll back sample data while
 // leaving the new chain/source on the workbench, desyncing the editor.
@@ -137,7 +161,10 @@ function updateCurrentXmWorkbench(
   const ctx = getOrInitCurrentXmWorkbench();
   if (!ctx) return;
   const { inst1Based, sampleIdx, sample } = ctx;
-  const { data, bits } = runXmPipeline(next);
+  const { data, bits } = runXmPipeline(
+    next,
+    runContextForXmSample(sample, loopOverride),
+  );
   // Why: loop policy priority — loopOverride (source-kind flip restore) >
   // chiptune full-cycle > sampler inherit-and-clamp.
   const isChiptune = sourceWantsFullLoop(next.source);
@@ -220,7 +247,11 @@ export function applyXmChainToSource(): void {
   if (!ctx) return;
   const { wb, sample } = ctx;
   if (wb.chain.length === 0) return;
-  const realised = runChain(materializeSource(wb.source), wb.chain);
+  const realised = runChain(
+    materializeSource(wb.source),
+    wb.chain,
+    runContextForXmSample(sample),
+  );
   // Replace the source with the realised WavData, clear the chain.
   const newSource: SampleSource = {
     kind: "sampler",
