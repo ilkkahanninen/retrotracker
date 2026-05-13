@@ -77,10 +77,8 @@ export class AudioEngine {
       numberOfOutputs: 1,
       outputChannelCount: [2],
     });
-    // Worklet → masterGain → destination. Initial gain matches the
-    // engine's cached default (140% / 1.4) so the very first frame sounds
-    // the same as later ones; the App's reactive sync re-pushes the
-    // user's persisted value on mount.
+    // Why: initial gain matches engine cached default (1.4); reactive sync
+    // re-pushes user's persisted value on mount.
     const masterGainNode = ctx.createGain();
     masterGainNode.gain.value = 1.4;
     node.connect(masterGainNode);
@@ -132,11 +130,8 @@ export class AudioEngine {
   }
 
   load(song: Song): void {
-    // PT: snapshot with trailing-after-loop bytes dropped for any looped
-    // samples (see loopTruncate.ts) — sidesteps the PT loopStart=0 quirk
-    // so loops sound the way the editor's preview suggests. FT2 has its
-    // own loop semantics (forward / ping-pong) and doesn't need this
-    // dance — pass the song through unchanged.
+    // Why: PT snapshot drops trailing-after-loop bytes (see loopTruncate.ts) —
+    // sidesteps the loopStart=0 quirk. FT2 has its own loop semantics.
     const playSong: Song = song.format === "PT2" ? songForPlayback(song) : song;
     const msg: WorkletMessage = { type: "load", song: playSong };
     this.node.port.postMessage(msg);

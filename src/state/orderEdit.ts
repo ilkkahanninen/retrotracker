@@ -12,27 +12,12 @@ import { cursor, requestJumpToTop } from "./cursor";
 import { jumpPlaybackToOrder } from "./playback";
 import { applyCursor } from "./patternEdit";
 
-/**
- * Order-list editing. Allowed mid-playback (next play / restart picks
- * up the change). Routed through `commitEditWithWorkbenches` so the
- * commit doesn't gate on transport and carries workbenches +
- * patternNames through unchanged.
- */
-
-/**
- * Order-list commands target the playhead's order while playing, the
- * cursor's order when stopped — otherwise pressing `]` mid-playback
- * would bump whichever slot the user last navigated to before play.
- */
+// Why: order-list commands target the playhead while playing (so `]` reroutes
+// the live mix), the cursor when stopped.
 function activeOrder(): number {
   return transport() === "playing" ? playPos().order : cursor().order;
 }
 
-/**
- * Mid-playback this re-routes the engine instead of the cursor — the
- * replayer restarts at (order, 0) keeping the current playMode, so
- * clicking an order-list slot reroutes the song without stopping.
- */
 export function jumpToOrder(order: number): void {
   const s = song();
   if (!s) return;
@@ -85,9 +70,6 @@ export function insertOrderSlot(): void {
   });
   const after = song();
   if (!after) return;
-  // No-op when `insertOrder` was capped at MAX_ORDERS. Otherwise the
-  // duplicate sits at o+1, where the cursor follows so the user can
-  // step it to a different pattern via `<` / `>` immediately.
   if (after.songLength === before.songLength) return;
   applyCursor({ ...cursor(), order: o + 1, row: 0 });
   requestJumpToTop();
@@ -121,12 +103,9 @@ export function duplicateCurrentPattern(): void {
   });
 }
 
-/**
- * Renumber patterns by first appearance and drop unused ones. The song
- * change and pattern-name re-keying share one commit; without the
- * bundle, undo would leave names mapped to the cleaned-up indices while
- * the song reverts to the pre-cleanup pattern numbering.
- */
+// Why: song change and pattern-name re-keying must share one commit;
+// without the bundle, undo leaves names mapped to cleaned-up indices while
+// the song reverts to pre-cleanup numbering.
 export function cleanupOrderList(): void {
   if (transport() === "playing") return;
   commitEditWithWorkbenches((state) => {

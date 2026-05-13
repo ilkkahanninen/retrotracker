@@ -1,16 +1,7 @@
 import { createSignal } from "solid-js";
 import type { XmSampleWorkbench } from "../core/audio/sampleWorkbench";
 
-/**
- * Per-(instrument, sample-within-instrument) map of session-only XM sample
- * workbenches. Mirrors the PT2-side `WorkbenchMap` but the key is a
- * composite "instSlot1Based:sampleIdx" string because XM addresses samples
- * nested inside instruments.
- *
- * Lifetime is identical to the PT side: cleared on `.xm` load, never
- * serialised into the `.xm` file. The `.retro` snapshot layer carries
- * them along, scoped to FT2 projects.
- */
+// Why: composite key because XM samples live nested inside instruments.
 export type XmWorkbenchKey = `${number}:${number}`;
 export type XmWorkbenchMap = Map<XmWorkbenchKey, XmSampleWorkbench>;
 

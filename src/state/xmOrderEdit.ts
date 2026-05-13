@@ -1,14 +1,3 @@
-/**
- * FT2-mode order-list editing — sibling to `state/orderEdit.ts` (PT2).
- * Operates on the XmSong via `commitEditXm` and seeds the FT2 cursor
- * after structural ops so the user lands on the new / surviving slot.
- *
- * Mid-playback semantics: same as PT — the order-list shortcuts target
- * the playhead's order while playing (so `]` reroutes the live mix),
- * the cursor's order otherwise. Phase 5 will plumb the FT2 playhead;
- * until then `playPos().order` is just where the user last left it.
- */
-
 import {
   deleteXmOrder,
   duplicateXmPatternAtOrder,
@@ -26,11 +15,6 @@ function activeOrder(): number {
   return transport() === "playing" ? playPos().order : xmCursor().order;
 }
 
-/**
- * Move the cursor to (`order`, row 0). Clamped to `[0, songLength-1]`.
- * Mid-playback this would reroute the engine — Phase 5 plumbs that;
- * for now we only update the cursor.
- */
 export function jumpXmToOrder(order: number): void {
   const s = song();
   if (!s) return;
@@ -70,9 +54,6 @@ export function insertXmOrderSlot(): void {
   commitEditXm((s) => insertXmOrderAtCursor(s, o));
   const after = song();
   if (!after) return;
-  // No-op if `insertXmOrderAtCursor` capped at MAX_ORDERS; otherwise the
-  // duplicate sits at o+1 and we follow it so `[`/`]` stepping picks up
-  // from the fresh slot.
   if (after.songLength === before.songLength) return;
   applyXmCursor({ ...xmCursor(), order: o + 1, row: 0 });
 }

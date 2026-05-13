@@ -1,17 +1,3 @@
-/**
- * FT2-mode pattern editing — sibling to `state/patternEdit.ts` (PT2).
- * Cursor movement primitives live in `state/cursorXm.ts`; this module
- * commits content edits (note entry, hex/letter entry, clear, backspace)
- * through `commitEditXm`.
- *
- * The editing model differs from PT in three places:
- *   - 8 sub-fields per cell (note, instHi/Lo, volHi/Lo, effectCmd/Hi/Lo)
- *   - effectCmd accepts 0..F **and** letters G..X (XM extends past 0x10)
- *   - volume column is one byte where the high nibble selects a kind
- *     (set-volume, slide, vibrato, panning, …) and the low nibble is its
- *     magnitude. Both nibbles are independently editable.
- */
-
 import {
   clearXmRange,
   pasteXmSlice,
@@ -58,13 +44,6 @@ import {
   xmSelectionAnchor,
 } from "./selection";
 
-/**
- * Commit a cursor move. Drops range selection AND its anchor — once
- * the user starts navigating with arrows / clicks, the highlighted
- * rectangle is stale. Shift-arrow / drag go through `extendXmSelection`
- * instead. Updates `playPos` so the visible playhead tracks the user's
- * edit position, mirroring PT2's `applyCursor`.
- */
 export function applyXmCursor(next: XmCursor): void {
   if (transport() === "playing") return;
   setXmCursor(next);
@@ -72,12 +51,6 @@ export function applyXmCursor(next: XmCursor): void {
   clearXmSelection();
 }
 
-/**
- * Shift+arrow / shift+drag entry: re-anchor at the cursor's PRE-MOVE
- * position on the first call after a plain navigation, then update the
- * selection rectangle. Cross-order moves drop the rectangle and
- * re-anchor at the new order — selection is single-pattern, same as PT.
- */
 export function extendXmSelection(next: XmCursor): void {
   if (transport() === "playing") return;
   const before = xmCursor();

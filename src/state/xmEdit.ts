@@ -1,11 +1,3 @@
-/**
- * FT2-mode edit state — parallel to `state/edit.ts` (PT2). XM has eight
- * octaves (C-0..B-7) and 128 instrument slots, so the per-format ranges
- * differ from PT's three octaves and 31 samples. We keep two separate
- * signals (rather than reusing PT's) so the user's last-active position
- * in either mode survives a project swap.
- */
-
 import { createSignal } from "solid-js";
 
 import type { XmField } from "./cursorXm";
@@ -16,27 +8,11 @@ export const XM_MAX_OCTAVE = 7;
 export const XM_MIN_INSTRUMENT = 1;
 export const XM_MAX_INSTRUMENT = 128;
 
-/**
- * Octave used by piano-key entry in FT2 mode. XM note numbers are
- * 1-based 1..96 covering C-0..B-7; this signal selects the octave the
- * piano row maps to. Defaults to 4 — a middle register that works for
- * most material without an immediate octave hop.
- */
 export const [currentXmOctave, setCurrentXmOctave] = createSignal<number>(4);
 
-/**
- * Active instrument written into a cell on note entry. Defaults to 1.
- */
 export const [currentXmInstrument, setCurrentXmInstrument] =
   createSignal<number>(1);
 
-/**
- * Active sample slot WITHIN the current instrument. XM instruments
- * hold a variable list of samples plus a 96-note keyMap; this signal
- * picks which sample the InstrumentView's waveform / properties /
- * pipeline editor target. 0-based; reset to 0 whenever the user
- * switches instruments (handled in App.tsx via a `createEffect`).
- */
 export const [currentXmSampleIndex, setCurrentXmSampleIndex] =
   createSignal<number>(0);
 
@@ -62,17 +38,9 @@ export function prevXmInstrument(): void {
   setCurrentXmInstrument((s) => Math.max(XM_MIN_INSTRUMENT, s - 1));
 }
 
-/**
- * Patch that clears the cursor's current field on an XM cell. Mirrors
- * PT's `clearFieldPatch` policy:
- *   - clearing the note also wipes the instrument (an instrument with no
- *     note is a leftover from a deleted note);
- *   - clearing any volume nibble wipes both — half a volume code is
- *     meaningless;
- *   - clearing any effect nibble wipes the whole effect (cmd + param) —
- *     same reason as PT.
- * Instrument hi/lo clears keep the other nibble so partial entry survives.
- */
+// Why: clearing note also wipes instrument; clearing any volume/effect nibble
+// wipes both nibbles (half-typed codes are meaningless). Inst hi/lo preserves
+// the other nibble so partial entry survives.
 export function clearXmFieldPatch(
   note: XmNote,
   field: XmField,

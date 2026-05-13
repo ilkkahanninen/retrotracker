@@ -109,10 +109,6 @@ export function moveRight(c: Cursor): Cursor {
   return { ...c, channel: nextCh, field: FIELDS[0]! };
 }
 
-// Hidden (Dxx-truncated) rows snap to the closest visible flat index at or
-// before the cursor's (order, row) before applying `delta` — that way the
-// user "uncovers" themselves onto a real row instead of teleporting to the
-// song's start, which is what `idx < 0 ? 0 : idx` did before.
 function moveByRows(c: Cursor, song: ModSong, delta: number): Cursor {
   const idx = flatIndexOf(c, song);
   if (idx >= 0) return atFlatIndex(c, song, idx + delta);

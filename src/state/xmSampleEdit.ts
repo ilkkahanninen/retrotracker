@@ -1,17 +1,3 @@
-/**
- * FT2 sample-DSP actions — sibling to `state/sampleEdit.ts` (PT2). The
- * pipeline here uses the SAME source + chain primitives as PT2's
- * SampleWorkbench, but the terminal stage (XM transformer) writes the
- * resulting Int8 or Int16 payload into the active sample inside the
- * current instrument (instead of into a flat PT sample slot).
- *
- * Chain edits don't flow through the song-history machinery; they live
- * on the session-only XM workbench signal. The final sample-bytes commit
- * (after each chain run) goes through commitEditXm so undo eventually
- * walks back through the resulting XmSong states — coarser-grained than
- * PT2's elaborate workbench snapshots, but sufficient for v1.
- */
-
 import { createSignal } from "solid-js";
 
 import {
@@ -99,14 +85,6 @@ import { setXmSampleSelection, xmSampleSelection } from "./xmSampleSelection";
 void XM_DEFAULT_PATTERN_ROWS;
 void workbenchToAlt;
 
-// ─── Per-effect selection (envelope overlay focus) ───────────────────────
-//
-// The PT pipeline uses two signals: `selectedEffectIndex` to pin which
-// chain entry the waveform overlay edits, and `selectedEffectParam` to
-// pick *which* envelope of that entry (cutoff vs q, drive, etc.). We
-// keep parallel signals for FT2; the XM waveform overlay editor lives
-// in Wave C5.
-
 export const [xmSelectedEffectIndex, setXmSelectedEffectIndex] = createSignal<
   number | null
 >(null);
@@ -114,7 +92,6 @@ export const [xmSelectedEffectIndex, setXmSelectedEffectIndex] = createSignal<
 export const [xmSelectedEffectParam, setXmSelectedEffectParam] =
   createSignal<EnvelopeParamKey | null>(null);
 
-/** Default envelope param for a freshly-added effect, when applicable. */
 function defaultParamForKind(kind: EffectKind): EnvelopeParamKey | null {
   switch (kind) {
     case "volume":
@@ -130,14 +107,6 @@ function defaultParamForKind(kind: EffectKind): EnvelopeParamKey | null {
   }
 }
 
-// ─── Workbench resolution ────────────────────────────────────────────────
-
-/**
- * Resolve the workbench for the currently selected (instrument, sample).
- * Lazy-creates one from the live sample bytes when none exists — so the
- * user can edit any sample even if it's never been touched in this
- * session. Returns null when no instrument / sample exists.
- */
 function getOrInitCurrentXmWorkbench(): {
   wb: XmSampleWorkbench;
   inst1Based: number;
@@ -160,16 +129,9 @@ function getOrInitCurrentXmWorkbench(): {
   return { wb, inst1Based, sampleIdx, sample };
 }
 
-/**
- * Replace the current workbench AND re-run the pipeline into the
- * instrument's sample. The XM sample's loop / volume / finetune / etc.
- * meta stay put — only data + bits + length are touched.
- *
- * Routed through `commitEditXmWithWorkbenches` so the workbench swap
- * AND the resulting sample-bytes update land in the same history
- * entry. Without that, `undo` would roll back the sample data but
- * leave the new chain / source on the workbench, desyncing the editor.
- */
+// Why: commitEditXmWithWorkbenches bundles workbench swap + sample-bytes update
+// into one history entry. Without it, undo would roll back sample data while
+// leaving the new chain/source on the workbench, desyncing the editor.
 function updateCurrentXmWorkbench(
   next: XmSampleWorkbench,
   loopOverride?: {
@@ -183,14 +145,8 @@ function updateCurrentXmWorkbench(
   if (!ctx) return;
   const { inst1Based, sampleIdx, sample } = ctx;
   const { data, bits } = runXmPipeline(next);
-  // Loop policy, highest priority first:
-  //   1. `loopOverride` — the source-kind toggle uses this to restore a
-  //      sampler's loop when flipping back from chiptune. Without it,
-  //      chiptune's full-cycle loop would persist on the slot.
-  //   2. Chiptune source → full forward loop covering the cycle.
-  //   3. Sampler source → inherit the slot's existing loop, clamped
-  //      into the new buffer. If the original loop is entirely past
-  //      the new buffer, `loopType` flips to "none".
+  // Why: loop policy priority — loopOverride (source-kind flip restore) >
+  // chiptune full-cycle > sampler inherit-and-clamp.
   const isChiptune = sourceWantsFullLoop(next.source);
   let loopStart: number;
   let loopLength: number;
@@ -236,13 +192,8 @@ function updateCurrentXmWorkbench(
       next,
     ),
   }));
-  // Mirror PT2's updateCurrentWorkbench: re-render any in-flight
-  // preview so a slider drag on the chiptune / chain params is
-  // audible while a piano key's preview is still playing.
   xmLivePreviewSwap();
 }
-
-// ─── Chain ops ───────────────────────────────────────────────────────────
 
 export function addXmEffect(kind: EffectKind): void {
   const ctx = getOrInitCurrentXmWorkbench();
@@ -484,26 +435,18 @@ function ensureCurrentXmSampleExists(): void {
 }
 
 export function setXmSourceKind(kind: SourceKind): void {
-  // Lazy-create the slot first so the empty-instrument case (typical
-  // for a fresh XM song) flips into chiptune instead of silently
-  // no-opping. `getOrInitCurrentXmWorkbench` then builds the sampler
-  // workbench from the empty sample, which becomes the `alt` stash
-  // when we switch over.
+  // Why: lazy-create so empty instruments flip into chiptune instead of
+  // silently no-opping; sampler workbench built here becomes the alt stash.
   ensureCurrentXmSampleExists();
   const ctx = getOrInitCurrentXmWorkbench();
   if (!ctx) return;
   const { wb, sample } = ctx;
   if (wb.source.kind === kind) return;
-  // A source-kind flip replaces the slot's audible content wholesale.
-  // Stop any in-flight preview before the workbench commit so the
-  // auto-swap in `updateCurrentXmWorkbench` doesn't fire a fresh-
-  // sounding buffer the user didn't ask for. (Slider drags within
-  // one kind still morph gaplessly — they go through `updateXm…`
-  // without this gate.)
+  // Why: stop preview before commit so the auto-swap in updateCurrentXmWorkbench
+  // doesn't fire a fresh-sounding buffer on a source-kind flip.
   stopXmPreview();
-  // Snapshot the slot's current sample loop into the stash so flipping
-  // back later restores it — chiptune's full-cycle loop would otherwise
-  // overwrite the sampler's loop bounds.
+  // Why: snapshot loop into the alt stash so flipping back restores it —
+  // chiptune's full-cycle loop would otherwise overwrite sampler bounds.
   const currentLoop = {
     loopStart: sample.loopStart,
     loopLength: sample.loopLength,
@@ -511,9 +454,6 @@ export function setXmSourceKind(kind: SourceKind): void {
   };
   const stash = xmWorkbenchToAlt(wb, currentLoop);
   if (wb.alt && wb.alt.source.kind === kind) {
-    // Restore the alt half AND its captured loop (when present). Chiptune
-    // never needs an override — its loop is always the full cycle, so we
-    // omit `wb.alt.loop` on the chiptune branch.
     const restoreLoop =
       kind === "chiptune" ? undefined : (wb.alt.loop ?? undefined);
     updateCurrentXmWorkbench(

@@ -140,8 +140,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           this.replayer = this.buildReplayer();
           break;
         case "play":
-          // Pt2Replayer is one-shot — recreate it from the stored ModSong if the
-          // previous run finished. This is what makes Play→end→Play work.
+          // Why: replayer is one-shot — recreate on finish to enable Play→end→Play.
           if (this.song && (!this.replayer || this.replayer.isFinished())) {
             this.replayer = this.buildReplayer();
           }
@@ -149,9 +148,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           break;
         case "stop":
           this.playing = false;
-          // Force VU meters to silence on stop — `process()` short-circuits
-          // out of the level-posting branch while paused, so without this
-          // the UI would show frozen bars from the last playing quantum.
+          // Why: force VU meters to silence; process() skips level-posting while paused.
           this.framesSinceLevels = 0;
           this.port.postMessage({
             type: "level",
@@ -165,11 +162,8 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           break;
         case "playFrom":
           if (this.song) {
-            // Seed the new replayer with the speed/tempo that would be in
-            // effect if the song had played from the start to the cursor —
-            // otherwise mid-song playback always starts at the defaults
-            // (6 / 125 for PT, defaultTempo / defaultBpm for FT2), even if
-            // the song set its tempo earlier.
+            // Why: seed with speed/tempo as-of cursor; otherwise mid-song
+            // playback starts at defaults even if the song set tempo earlier.
             const seeded =
               this.song.format === "PT2"
                 ? speedTempoAt(this.song, msg.order, msg.row)
@@ -256,10 +250,8 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
       if (this.framesSinceLevels >= this.levelInterval) {
         this.framesSinceLevels = 0;
         this.replayer.peakSnapshotAndReset(this.peakBuf);
-        // Copy the typed array into a plain Array so the postMessage clone
-        // sends an actual JS array (Float32Array round-trips fine but the
-        // engine's `onLevels` callback expects `number[]`). Length matches
-        // the loaded song's channel count.
+        // Why: postMessage would clone Float32Array to Array; engine's
+        // onLevels expects number[] directly.
         const peaks = new Array<number>(this.peakBuf.length);
         for (let i = 0; i < this.peakBuf.length; i++) {
           peaks[i] = this.peakBuf[i]!;
