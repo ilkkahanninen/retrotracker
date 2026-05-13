@@ -127,8 +127,13 @@ export const XmWaveform: Component<Props> = (props) => {
     return Math.round((sampleFrame * env.sourceFrames) / env.sampleFrames);
   };
 
-  /** Which loop boundary is the pointer near, or null. */
+  /** Which loop boundary is the pointer near, or null. The host passes
+   *  `onPatch` only when loop editing should be enabled (chiptune mode
+   *  omits it because the synth re-applies a full-cycle loop on every
+   *  render) — without `onPatch` we skip hit-testing so the cursor never
+   *  hints at a grabbable handle. */
   const handleAt = (x: number): "start" | "end" | null => {
+    if (!props.onPatch) return null;
     if (!loopActive() || dataLen() === 0) return null;
     const s = props.sample;
     const xs = xForFrame(s.loopStart);

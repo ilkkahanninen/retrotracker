@@ -222,6 +222,59 @@ describe("setXmSourceKind: Sampler ↔ Chiptune (alt stash)", () => {
   });
 });
 
+describe("Chiptune samples always loop the full cycle", () => {
+  it("setXmSourceKind('chiptune') on an empty instrument writes a full-sample forward loop", () => {
+    seedEmptyInstrument();
+    setXmSourceKind("chiptune");
+    const sample = curSample()!;
+    expect(sample.data.length).toBeGreaterThan(0);
+    expect(sample.loopType).toBe("forward");
+    expect(sample.loopStart).toBe(0);
+    expect(sample.loopLength).toBe(sample.data.length);
+  });
+
+  it("flipping a non-looping sampler sample to chiptune installs the full loop", () => {
+    // Start with a loaded WAV that has loopType "none" (the WAV-load
+    // path doesn't define a loop).
+    loadXmWavIntoCurrentSample(makeWavBytes(800), "tone.wav");
+    expect(curSample()!.loopType).toBe("none");
+
+    setXmSourceKind("chiptune");
+    const sample = curSample()!;
+    expect(sample.loopType).toBe("forward");
+    expect(sample.loopStart).toBe(0);
+    expect(sample.loopLength).toBe(sample.data.length);
+  });
+
+  it("changing chiptune params re-renders with the loop still covering the new length", () => {
+    setCurrentXmSampleIndex(0);
+    setXmSourceKind("chiptune");
+    const len1 = curSample()!.data.length;
+    expect(curSample()!.loopLength).toBe(len1);
+
+    updateXmChiptune({ cycleFrames: 128 });
+    const sample = curSample()!;
+    expect(sample.data.length).not.toBe(len1);
+    expect(sample.loopType).toBe("forward");
+    expect(sample.loopLength).toBe(sample.data.length);
+  });
+
+  it("flipping back to sampler restores the sampler half's original loop (no chiptune full-loop bleed)", () => {
+    loadXmWavIntoCurrentSample(makeWavBytes(400), "src.wav");
+    const len = curSample()!.data.length;
+    patchXmSample(1, { loopStart: 10, loopLength: 20, loopType: "forward" }, 0);
+
+    setXmSourceKind("chiptune");
+    expect(curSample()!.loopStart).toBe(0);
+    expect(curSample()!.loopLength).toBe(curSample()!.data.length);
+
+    setXmSourceKind("sampler");
+    expect(curSample()!.loopStart).toBe(10);
+    expect(curSample()!.loopLength).toBe(20);
+    expect(curSample()!.data.length).toBe(len);
+  });
+});
+
 describe("setXmSourceKind on empty / unallocated slots", () => {
   it("clicking Chiptune on an instrument with no samples lazy-creates instrument + chiptune workbench", () => {
     seedEmptyInstrument();

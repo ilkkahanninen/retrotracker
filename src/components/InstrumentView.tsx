@@ -458,21 +458,27 @@ export const InstrumentView: Component<Props> = (props) => {
                           }
                         />
                       </label>
-                      <label>
-                        <span class="samplemeta__label">Loop</span>
-                        <select
-                          value={sample().loopType}
-                          onChange={(e) =>
-                            setXmSampleLoopType(
-                              e.currentTarget.value as XmLoopType,
-                            )
-                          }
-                        >
-                          {LOOP_TYPES.map((t) => (
-                            <option value={t}>{t}</option>
-                          ))}
-                        </select>
-                      </label>
+                      {/* Loop is fixed to the full-cycle forward loop in
+                          chiptune mode (the synth output is one cycle that's
+                          only musically useful looped). Hide the dropdown so
+                          the user can't fight the engine. */}
+                      <Show when={sourceKind() !== "chiptune"}>
+                        <label>
+                          <span class="samplemeta__label">Loop</span>
+                          <select
+                            value={sample().loopType}
+                            onChange={(e) =>
+                              setXmSampleLoopType(
+                                e.currentTarget.value as XmLoopType,
+                              )
+                            }
+                          >
+                            {LOOP_TYPES.map((t) => (
+                              <option value={t}>{t}</option>
+                            ))}
+                          </select>
+                        </label>
+                      </Show>
                       {/* Force the wide sliders onto a second row so
                           Volume and Panning share the bottom line. */}
                       <div class="samplemeta__break" aria-hidden="true" />
@@ -627,8 +633,21 @@ export const InstrumentView: Component<Props> = (props) => {
                       selectable={
                         sample().data.length > 0 && sourceKind() !== "chiptune"
                       }
-                      onPatch={(patch) =>
-                        patchXmSample(slot1Based(), patch, activeSampleIndex())
+                      // Chiptune's loop covers the full cycle and is
+                      // re-applied on every render — exposing the loop
+                      // handles would let the user momentarily drag them
+                      // into an invalid state that the next pipeline run
+                      // would silently snap back. Omit `onPatch` so
+                      // XmWaveform falls through its no-edit branch.
+                      onPatch={
+                        sourceKind() === "chiptune"
+                          ? undefined
+                          : (patch) =>
+                              patchXmSample(
+                                slot1Based(),
+                                patch,
+                                activeSampleIndex(),
+                              )
                       }
                       envelope={envelopeOverlay()}
                     />

@@ -32,6 +32,7 @@ import {
   generateChiptuneCycle,
 } from "./chiptune";
 import { applyShaper, type ShaperMode } from "./shapers";
+import type { XmLoopType } from "../xm/types";
 
 /** PT note slot for "C-2" — the conventional default target for fresh imports. */
 export const DEFAULT_TARGET_NOTE = 12;
@@ -1440,6 +1441,15 @@ export interface XmWorkbenchAlt {
   source: SampleSource;
   chain: EffectNode[];
   xm: XmTransformerParams;
+  /**
+   * Snapshot of the slot's sample loop at the moment this half was
+   * stashed. Restored when the user toggles back so a sampler's loop
+   * survives a chiptune detour (chiptune's full-cycle loop would
+   * otherwise overwrite the loopStart / loopLength stored on the
+   * sample). Absent on alts built before the loop-snapshot landed —
+   * those simply inherit whatever loop is on the live sample.
+   */
+  loop?: { loopStart: number; loopLength: number; loopType: XmLoopType };
 }
 
 export interface XmSampleWorkbench {
@@ -1522,7 +1532,18 @@ export function xmWorkbenchFromChiptune(
 }
 
 /** Stash the active half of an XM workbench so the user can toggle
- *  sampler ↔ chiptune without losing the other side. */
-export function xmWorkbenchToAlt(wb: XmSampleWorkbench): XmWorkbenchAlt {
-  return { source: wb.source, chain: wb.chain, xm: wb.xm };
+ *  sampler ↔ chiptune without losing the other side. `currentLoop`
+ *  carries the slot's sample loop into the stash — restoring this
+ *  half later (the reverse toggle) re-applies it so chiptune's full-
+ *  cycle loop doesn't wipe the sampler's user-set loop bounds. */
+export function xmWorkbenchToAlt(
+  wb: XmSampleWorkbench,
+  currentLoop?: { loopStart: number; loopLength: number; loopType: XmLoopType },
+): XmWorkbenchAlt {
+  return {
+    source: wb.source,
+    chain: wb.chain,
+    xm: wb.xm,
+    ...(currentLoop ? { loop: currentLoop } : {}),
+  };
 }

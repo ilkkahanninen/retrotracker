@@ -148,4 +148,27 @@ describe("InstrumentView source-kind tabs", () => {
     expect(song?.instruments[0]).toBeDefined();
     expect(song?.instruments[0]?.samples[0]).toBeDefined();
   });
+
+  it("hides the Loop dropdown in chiptune mode", () => {
+    const view = mountView();
+    // Sampler mode: dropdown present.
+    const loopBefore = Array.from(
+      view.container.querySelectorAll<HTMLLabelElement>(".samplemeta label"),
+    ).find((l) => l.textContent?.startsWith("Loop"));
+    expect(loopBefore).toBeDefined();
+    expect(loopBefore!.querySelector("select")).not.toBeNull();
+
+    // Flip to chiptune.
+    const chiptuneTab = Array.from(
+      view.container.querySelectorAll<HTMLButtonElement>(
+        '.source-picker button[role="tab"]',
+      ),
+    ).find((t) => t.textContent === "Chiptune");
+    fireEvent.click(chiptuneTab!);
+
+    const loopAfter = Array.from(
+      view.container.querySelectorAll<HTMLLabelElement>(".samplemeta label"),
+    ).find((l) => l.textContent?.startsWith("Loop"));
+    expect(loopAfter).toBeUndefined();
+  });
 });

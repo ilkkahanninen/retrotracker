@@ -228,6 +228,50 @@ describe("clearSession", () => {
   });
 });
 
+describe("App boot: XM workbenches restored from localStorage on mount", () => {
+  it("a stashed XM chiptune workbench survives the App's onMount bootstrap", async () => {
+    const { render, cleanup } = await import("@solidjs/testing-library");
+    const { App } = await import("../../src/App");
+    const { setSong, setTransport, setPlayPos, clearHistory } =
+      await import("../../src/state/song");
+    const { emptyXmSong } = await import("../../src/core/xm/format");
+    const { clearAllXmWorkbenches, getXmWorkbench } =
+      await import("../../src/state/xmSampleWorkbench");
+    const { defaultChiptuneParams } =
+      await import("../../src/core/audio/chiptune");
+
+    // Fresh boot: no song, no workbenches.
+    setSong(null);
+    setPlayPos({ order: 0, row: 0 });
+    setTransport("idle");
+    clearHistory();
+    clearAllXmWorkbenches();
+
+    saveSession({
+      song: emptyXmSong(),
+      filename: "ft2.xm",
+      view: "sample",
+      cursor: { order: 0, row: 0, channel: 0, field: "note" },
+      currentSample: 1,
+      currentOctave: 2,
+      editStep: 1,
+      xmChiptuneSources: {
+        "1:0": {
+          params: defaultChiptuneParams(),
+          chain: [],
+          xm: { monoMix: "average", bitDepth: 8 },
+        },
+      },
+    });
+
+    render(() => <App />);
+    // onMount runs synchronously after render — the chiptune workbench
+    // should already be back on instrument 1 / sample 0.
+    expect(getXmWorkbench(1, 0)?.source.kind).toBe("chiptune");
+    cleanup();
+  });
+});
+
 describe("App boot: restores from localStorage on mount", () => {
   // Lazy-imported so the module-level signal resets in between top-level
   // describes don't leak across file-level state. The render() call mounts

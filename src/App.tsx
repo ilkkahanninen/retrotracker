@@ -32,6 +32,8 @@ import type { ChiptuneParams } from "./core/audio/chiptune";
 import {
   workbenchFromChiptune,
   workbenchFromWavData,
+  xmWorkbenchFromChiptune,
+  xmWorkbenchFromWav,
 } from "./core/audio/sampleWorkbench";
 import { emptySong } from "./core/mod/format";
 import { writeModule } from "./core/mod/writer";
@@ -198,7 +200,7 @@ import {
   withWorkbench,
   workbenches,
 } from "./state/sampleWorkbench";
-import { xmWorkbenches } from "./state/xmSampleWorkbench";
+import { setXmWorkbench, xmWorkbenches } from "./state/xmSampleWorkbench";
 import { selection } from "./state/selection";
 import { settings, toggleShowPatternHelp } from "./state/settings";
 import { installShortcuts } from "./state/shortcuts";
@@ -370,6 +372,17 @@ export const App: Component = () => {
     );
   };
 
+  /** Parse `"inst:sampleIdx"` (the in-memory XM workbench key shape)
+   *  into a tuple, returning `[null, 0]` when the key is malformed. */
+  const parseXmKey = (k: string): [number | null, number] => {
+    const parts = k.split(":");
+    if (parts.length !== 2) return [null, 0];
+    const inst = parseInt(parts[0]!, 10);
+    const idx = parseInt(parts[1]!, 10);
+    if (!Number.isFinite(inst) || !Number.isFinite(idx)) return [null, 0];
+    return [inst, idx];
+  };
+
   const cleanups: Array<() => void> = [];
   onMount(() => {
     // Sampler workbenches restore only when the previous session fit in
@@ -402,6 +415,27 @@ export const App: Component = () => {
             ...workbenchFromWavData(src.wav, src.sourceName),
             chain: src.chain,
             pt: src.pt,
+          });
+        }
+        // XM workbenches keyed by "inst1Based:sampleIdx". Restored so a
+        // refresh / autosave-reload keeps each instrument's source kind
+        // (Sampler vs. Chiptune), chain, and transformer params.
+        for (const [key, src] of Object.entries(restored.xmChiptuneSources)) {
+          const [inst, idx] = parseXmKey(key);
+          if (inst === null) continue;
+          setXmWorkbench(inst, idx, {
+            ...xmWorkbenchFromChiptune(src.params),
+            chain: src.chain,
+            xm: src.xm,
+          });
+        }
+        for (const [key, src] of Object.entries(restored.xmSamplerSources)) {
+          const [inst, idx] = parseXmKey(key);
+          if (inst === null) continue;
+          setXmWorkbench(inst, idx, {
+            ...xmWorkbenchFromWav(src.wav, src.sourceName),
+            chain: src.chain,
+            xm: src.xm,
           });
         }
         loadPatternNames(restored.patternNames);

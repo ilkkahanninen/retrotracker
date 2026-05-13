@@ -21,6 +21,7 @@ import {
   runChain,
   runXmPipeline,
   sourceDisplayName,
+  sourceWantsFullLoop,
   type EffectKind,
   type EffectNode,
   type EnvelopeParamKey,
@@ -168,28 +169,57 @@ function getOrInitCurrentXmWorkbench(): {
  * entry. Without that, `undo` would roll back the sample data but
  * leave the new chain / source on the workbench, desyncing the editor.
  */
-function updateCurrentXmWorkbench(next: XmSampleWorkbench): void {
+function updateCurrentXmWorkbench(
+  next: XmSampleWorkbench,
+  loopOverride?: {
+    loopStart: number;
+    loopLength: number;
+    loopType: XmSample["loopType"];
+  },
+): void {
   if (transport() === "playing") return;
   const ctx = getOrInitCurrentXmWorkbench();
   if (!ctx) return;
   const { inst1Based, sampleIdx, sample } = ctx;
   const { data, bits } = runXmPipeline(next);
-  // Truncate the loop into the new buffer without shifting it: keep
-  // the overlap between the original loop range and the new range.
-  // When the original loop is entirely past the new buffer, the
-  // overlap is zero — flip loopType to "none" so the worklet doesn't
-  // try to loop a degenerate range.
-  const origLoopEnd = sample.loopStart + sample.loopLength;
-  const loopStart = Math.max(0, Math.min(sample.loopStart, data.length));
-  const loopEnd = Math.max(loopStart, Math.min(origLoopEnd, data.length));
-  const loopLength = loopEnd - loopStart;
+  // Loop policy, highest priority first:
+  //   1. `loopOverride` — the source-kind toggle uses this to restore a
+  //      sampler's loop when flipping back from chiptune. Without it,
+  //      chiptune's full-cycle loop would persist on the slot.
+  //   2. Chiptune source → full forward loop covering the cycle.
+  //   3. Sampler source → inherit the slot's existing loop, clamped
+  //      into the new buffer. If the original loop is entirely past
+  //      the new buffer, `loopType` flips to "none".
+  const isChiptune = sourceWantsFullLoop(next.source);
+  let loopStart: number;
+  let loopLength: number;
+  let loopType: XmSample["loopType"];
+  if (loopOverride) {
+    loopStart = Math.max(0, Math.min(loopOverride.loopStart, data.length));
+    const end = Math.max(
+      loopStart,
+      Math.min(loopOverride.loopStart + loopOverride.loopLength, data.length),
+    );
+    loopLength = end - loopStart;
+    loopType = loopLength > 0 ? loopOverride.loopType : "none";
+  } else if (isChiptune && data.length > 0) {
+    loopStart = 0;
+    loopLength = data.length;
+    loopType = "forward";
+  } else {
+    const origLoopEnd = sample.loopStart + sample.loopLength;
+    loopStart = Math.max(0, Math.min(sample.loopStart, data.length));
+    const loopEnd = Math.max(loopStart, Math.min(origLoopEnd, data.length));
+    loopLength = loopEnd - loopStart;
+    loopType = loopLength > 0 ? sample.loopType : "none";
+  }
   const updatedSample: XmSample = {
     ...sample,
     data,
     bits,
     loopStart,
     loopLength,
-    loopType: loopLength > 0 ? sample.loopType : "none",
+    loopType,
   };
   commitEditXmWithWorkbenches((state) => ({
     song: setXmInstrumentSample(
@@ -457,18 +487,32 @@ export function setXmSourceKind(kind: SourceKind): void {
   ensureCurrentXmSampleExists();
   const ctx = getOrInitCurrentXmWorkbench();
   if (!ctx) return;
-  const { wb } = ctx;
+  const { wb, sample } = ctx;
   if (wb.source.kind === kind) return;
-  // Flip: stash the current half, restore from alt if it matches the
-  // target kind, otherwise build a fresh workbench of that kind.
-  const stash = xmWorkbenchToAlt(wb);
+  // Snapshot the slot's current sample loop into the stash so flipping
+  // back later restores it — chiptune's full-cycle loop would otherwise
+  // overwrite the sampler's loop bounds.
+  const currentLoop = {
+    loopStart: sample.loopStart,
+    loopLength: sample.loopLength,
+    loopType: sample.loopType,
+  };
+  const stash = xmWorkbenchToAlt(wb, currentLoop);
   if (wb.alt && wb.alt.source.kind === kind) {
-    updateCurrentXmWorkbench({
-      source: wb.alt.source,
-      chain: wb.alt.chain,
-      xm: wb.alt.xm,
-      alt: stash,
-    });
+    // Restore the alt half AND its captured loop (when present). Chiptune
+    // never needs an override — its loop is always the full cycle, so we
+    // omit `wb.alt.loop` on the chiptune branch.
+    const restoreLoop =
+      kind === "chiptune" ? undefined : (wb.alt.loop ?? undefined);
+    updateCurrentXmWorkbench(
+      {
+        source: wb.alt.source,
+        chain: wb.alt.chain,
+        xm: wb.alt.xm,
+        alt: stash,
+      },
+      restoreLoop,
+    );
     return;
   }
   const fresh =
