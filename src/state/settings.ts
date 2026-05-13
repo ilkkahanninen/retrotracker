@@ -88,21 +88,28 @@ function isColorSchemeId(v: unknown): v is ColorSchemeId {
   );
 }
 
-function clampUiScale(n: unknown): number {
-  if (typeof n !== "number" || !Number.isFinite(n)) return DEFAULTS.uiScale;
-  return Math.max(UI_SCALE_MIN, Math.min(UI_SCALE_MAX, Math.round(n)));
+function createClampValidator(min: number, max: number, fallback: number) {
+  return (v: unknown): number =>
+    typeof v === "number" && Number.isFinite(v)
+      ? Math.max(min, Math.min(max, Math.round(v)))
+      : fallback;
 }
 
-function clampStereoSep(n: unknown): number {
-  if (typeof n !== "number" || !Number.isFinite(n))
-    return DEFAULTS.stereoSeparation;
-  return Math.max(STEREO_SEP_MIN, Math.min(STEREO_SEP_MAX, Math.round(n)));
-}
-
-function clampMasterGain(n: unknown): number {
-  if (typeof n !== "number" || !Number.isFinite(n)) return DEFAULTS.masterGain;
-  return Math.max(MASTER_GAIN_MIN, Math.min(MASTER_GAIN_MAX, Math.round(n)));
-}
+const clampUiScale = createClampValidator(
+  UI_SCALE_MIN,
+  UI_SCALE_MAX,
+  DEFAULTS.uiScale,
+);
+const clampStereoSep = createClampValidator(
+  STEREO_SEP_MIN,
+  STEREO_SEP_MAX,
+  DEFAULTS.stereoSeparation,
+);
+const clampMasterGain = createClampValidator(
+  MASTER_GAIN_MIN,
+  MASTER_GAIN_MAX,
+  DEFAULTS.masterGain,
+);
 
 function load(): Settings {
   try {
