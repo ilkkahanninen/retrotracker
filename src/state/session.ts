@@ -15,6 +15,8 @@ import { isXmFile } from "../core/xm/sniff";
 import {
   workbenchFromChiptune,
   workbenchFromWavData,
+  xmWorkbenchFromChiptune,
+  xmWorkbenchFromWav,
 } from "../core/audio/sampleWorkbench";
 import type { ChiptuneParams } from "../core/audio/chiptune";
 import { renderToBuffer } from "../core/audio/offlineRender";
@@ -66,7 +68,12 @@ import {
   setWorkbench,
   clearAllWorkbenches,
 } from "./sampleWorkbench";
-import { clearAllXmWorkbenches } from "./xmSampleWorkbench";
+import {
+  clearAllXmWorkbenches,
+  setXmWorkbench,
+  xmWorkbenches,
+  xmWorkbenchKey,
+} from "./xmSampleWorkbench";
 import { clearAllStashedLoops } from "./loopStash";
 import { clearAllImportedStashes } from "./importedStash";
 import { stopEngine } from "./playback";
@@ -77,6 +84,8 @@ import {
   projectToBytes,
   deriveProjectFilename,
   type SamplerSourceInputs,
+  type XmSamplerSourceInputs,
+  type XmChiptuneSourceInputs,
 } from "./persistence";
 
 /** Last error from a file load. Cleared at the start of each load attempt. */
@@ -101,6 +110,9 @@ export interface LoadedSession {
   patternNames?: Record<number, string>;
   mutedChannels?: readonly boolean[];
   soloedChannels?: readonly boolean[];
+  /** XM workbenches keyed by `"inst1Based:sampleIdx"`. FT2 projects only. */
+  xmSamplerSources?: Record<string, XmSamplerSourceInputs>;
+  xmChiptuneSources?: Record<string, XmChiptuneSourceInputs>;
 }
 
 export function applyLoadedSession(loaded: LoadedSession): void {
@@ -175,7 +187,40 @@ export function applyLoadedSession(loaded: LoadedSession): void {
       });
     }
   }
+  if (loaded.xmSamplerSources) {
+    for (const [key, src] of Object.entries(loaded.xmSamplerSources)) {
+      const [inst, idx] = parseXmKey(key);
+      if (inst === null) continue;
+      setXmWorkbench(inst, idx, {
+        ...xmWorkbenchFromWav(src.wav, src.sourceName),
+        chain: src.chain,
+        xm: src.xm,
+      });
+    }
+  }
+  if (loaded.xmChiptuneSources) {
+    for (const [key, src] of Object.entries(loaded.xmChiptuneSources)) {
+      const [inst, idx] = parseXmKey(key);
+      if (inst === null) continue;
+      setXmWorkbench(inst, idx, {
+        ...xmWorkbenchFromChiptune(src.params),
+        chain: src.chain,
+        xm: src.xm,
+      });
+    }
+  }
   setDirty(false);
+}
+
+/** Parse `"inst:sampleIdx"` back to a tuple; returns `[null, 0]` on
+ *  malformed input. Mirrors persistence.ts's `isXmWorkbenchKey` guard. */
+function parseXmKey(k: string): [number | null, number] {
+  const parts = k.split(":");
+  if (parts.length !== 2) return [null, 0];
+  const inst = parseInt(parts[0]!, 10);
+  const idx = parseInt(parts[1]!, 10);
+  if (!Number.isFinite(inst) || !Number.isFinite(idx)) return [null, 0];
+  return [inst, idx];
 }
 
 /**
@@ -242,6 +287,49 @@ export function chiptuneSourcesSnapshot(): Record<number, ChiptuneParams> {
   }
   return out;
 }
+
+/**
+ * Capture each XM workbench currently in chiptune mode. Keys mirror the
+ * in-memory `xmWorkbenchKey` string so a save→load round-trip lands
+ * each workbench back on the same `(instrument, sampleIdx)` pair.
+ */
+export function xmChiptuneSourcesSnapshot(): Record<
+  string,
+  XmChiptuneSourceInputs
+> {
+  const out: Record<string, XmChiptuneSourceInputs> = {};
+  for (const [key, wb] of xmWorkbenches()) {
+    if (wb.source.kind !== "chiptune") continue;
+    out[key] = { params: wb.source.params, chain: wb.chain, xm: wb.xm };
+  }
+  return out;
+}
+
+/**
+ * Capture each XM workbench in sampler mode whose source carries audio
+ * (an empty-sampler placeholder is skipped — the reload path lazy-
+ * creates one from the sample bytes anyway).
+ */
+export function xmSamplerSourcesSnapshot(): Record<
+  string,
+  XmSamplerSourceInputs
+> {
+  const out: Record<string, XmSamplerSourceInputs> = {};
+  for (const [key, wb] of xmWorkbenches()) {
+    if (wb.source.kind !== "sampler") continue;
+    const hasAudio = wb.source.wav.channels.some((ch) => ch.length > 0);
+    if (!hasAudio) continue;
+    out[key] = {
+      sourceName: wb.source.sourceName,
+      wav: wb.source.wav,
+      chain: wb.chain,
+      xm: wb.xm,
+    };
+  }
+  return out;
+}
+
+void xmWorkbenchKey;
 
 /**
  * Empty workbenches (placeholder created by toggling Sampler → Chiptune
@@ -341,11 +429,12 @@ export function exportWav(): void {
 export function saveProject(): void {
   const s = song();
   if (!s) return;
-  // Workbenches / sampler sources / pattern names / chiptune are PT2-only
-  // for now (the FT2 sample workbench arrives in Phase 4). For an FT2 song
-  // we omit them — the payload still carries song bytes + filename + view
-  // / cursor / edit step so a project round-trips its editor state.
+  // PT2 carries `chiptuneSources` / `samplerSources` / `patternNames`;
+  // FT2 carries the per-(instrument, sampleIdx) XM workbench maps. The
+  // payload itself is format-agnostic — fields not relevant to the
+  // active format stay undefined.
   const isPt2 = s.format === "PT2";
+  const isXm = s.format === "FT2";
   const bytes = projectToBytes({
     song: s,
     filename: filename(),
@@ -360,6 +449,8 @@ export function saveProject(): void {
     patternNames: isPt2 ? patternNames() : undefined,
     mutedChannels: mutedChannels(),
     soloedChannels: soloedChannels(),
+    xmSamplerSources: isXm ? xmSamplerSourcesSnapshot() : undefined,
+    xmChiptuneSources: isXm ? xmChiptuneSourcesSnapshot() : undefined,
   });
   io.download(
     deriveProjectFilename(filename(), s.title),

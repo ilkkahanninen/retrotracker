@@ -90,6 +90,35 @@ describe("InstrumentView source-kind tabs", () => {
     expect(active?.textContent).toBe("Chiptune");
   });
 
+  it("switching instruments and back keeps Chiptune active on the first instrument", () => {
+    // Seed a second instrument so the user has somewhere to navigate.
+    const s = xm2Song()!;
+    const inst2 = emptyXmInstrument();
+    inst2.name = "ins-b";
+    inst2.samples[0]!.data = new Int8Array([5, 6, 7, 8]);
+    inst2.samples[0]!.bits = 8;
+    setSong({ ...s, instruments: [s.instruments[0]!, inst2] });
+
+    const view = mountView();
+    const chiptuneTab = Array.from(
+      view.container.querySelectorAll<HTMLButtonElement>(
+        '.source-picker button[role="tab"]',
+      ),
+    ).find((t) => t.textContent === "Chiptune");
+    fireEvent.click(chiptuneTab!);
+    expect(getXmWorkbench(1, 0)?.source.kind).toBe("chiptune");
+
+    // Navigate to instrument 2 then back to 1.
+    setCurrentXmInstrument(2);
+    setCurrentXmInstrument(1);
+
+    const activeAfter = view.container.querySelector<HTMLButtonElement>(
+      '.source-picker button[role="tab"][aria-selected="true"]',
+    );
+    expect(activeAfter?.textContent).toBe("Chiptune");
+    expect(getXmWorkbench(1, 0)?.source.kind).toBe("chiptune");
+  });
+
   it("clicking Chiptune on an empty instrument slot lazy-creates instrument + chiptune workbench", () => {
     // Reseed without any instruments — mirrors a freshly-created XM
     // song where the user hasn't loaded a WAV yet but lands on the

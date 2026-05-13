@@ -18,6 +18,7 @@ import type {
   MonoMix,
   PtTransformerParams,
   ResampleMode,
+  XmTransformerParams,
 } from "../core/audio/sampleWorkbench";
 import {
   DEFAULT_RESAMPLE_MODE,
@@ -96,6 +97,31 @@ interface PersistedSamplerSource {
   pt?: PtTransformerParams;
 }
 
+/**
+ * On-disk shape for one XM sampler workbench. Mirrors `PersistedSamplerSource`
+ * but with the XM transformer (`monoMix` + `bitDepth` + optional `dither`)
+ * instead of PT's. Stored under a composite key `"inst1Based:sampleIdx"`
+ * so multi-sample instruments round-trip per-sample. The `alt` stash is
+ * intentionally dropped — session-only state, same as PT2.
+ */
+interface PersistedXmSamplerSource {
+  sourceName: string;
+  wavBase64: string;
+  chain?: EffectNode[];
+  xm?: XmTransformerParams;
+}
+
+/**
+ * On-disk shape for one XM chiptune workbench. The chain + transformer
+ * params persist alongside the synth params so a chiptune slot with
+ * effects round-trips, not just the synth.
+ */
+interface PersistedXmChiptuneSource {
+  params: ChiptuneParams;
+  chain?: EffectNode[];
+  xm?: XmTransformerParams;
+}
+
 interface PersistedShape {
   v: SchemaVersion;
   /**
@@ -137,6 +163,16 @@ interface PersistedShape {
    */
   mutedChannels?: boolean[];
   soloedChannels?: boolean[];
+  /**
+   * Per-(instrument, sample) sampler workbenches for XM projects. Key
+   * format is the string `"inst1Based:sampleIdx"` (mirroring the in-
+   * memory `XmWorkbenchKey`). Absent on PT2 projects. Optional so older
+   * payloads still validate; readers without XM support ignore the
+   * field.
+   */
+  xmSamplerSources?: Record<string, PersistedXmSamplerSource>;
+  /** Per-(instrument, sample) chiptune workbenches for XM projects. */
+  xmChiptuneSources?: Record<string, PersistedXmChiptuneSource>;
 }
 
 /**
@@ -153,6 +189,24 @@ export interface SamplerSourceInputs {
   wav: WavData;
   chain: EffectNode[];
   pt: PtTransformerParams;
+}
+
+/**
+ * Caller-facing input for one XM sampler workbench. Same idea as
+ * `SamplerSourceInputs` but with the XM-side transformer params.
+ */
+export interface XmSamplerSourceInputs {
+  sourceName: string;
+  wav: WavData;
+  chain: EffectNode[];
+  xm: XmTransformerParams;
+}
+
+/** Caller-facing input for one XM chiptune workbench. */
+export interface XmChiptuneSourceInputs {
+  params: ChiptuneParams;
+  chain: EffectNode[];
+  xm: XmTransformerParams;
 }
 
 export interface SessionInputs {
@@ -184,6 +238,14 @@ export interface SessionInputs {
    */
   mutedChannels?: readonly boolean[];
   soloedChannels?: readonly boolean[];
+  /**
+   * XM workbenches keyed by `"inst1Based:sampleIdx"`. Split into sampler
+   * and chiptune halves to mirror PT2's `chiptuneSources` /
+   * `samplerSources` split — a single workbench appears in exactly one
+   * of the two maps based on its active source kind.
+   */
+  xmSamplerSources?: Record<string, XmSamplerSourceInputs>;
+  xmChiptuneSources?: Record<string, XmChiptuneSourceInputs>;
 }
 
 /** A session that has been read back: same shape as SessionInputs, but
@@ -197,6 +259,8 @@ export type LoadedSession = Omit<
   | "patternNames"
   | "mutedChannels"
   | "soloedChannels"
+  | "xmSamplerSources"
+  | "xmChiptuneSources"
 > & {
   infoText: string;
   /** Always materialised on load — empty record when none persisted. */
@@ -208,6 +272,9 @@ export type LoadedSession = Omit<
   /** Always materialised on load — 4-element all-false array when none persisted. */
   mutedChannels: boolean[];
   soloedChannels: boolean[];
+  /** Always materialised on load — empty record when none persisted. */
+  xmSamplerSources: Record<string, XmSamplerSourceInputs>;
+  xmChiptuneSources: Record<string, XmChiptuneSourceInputs>;
 };
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -298,6 +365,11 @@ function buildPayload(state: SessionInputs): PersistedShape {
     Object.values(state.samplerSources).some((s) =>
       s.chain.some((n) => n.kind === "pitch"),
     );
+  const hasXmSampler =
+    !!state.xmSamplerSources && Object.keys(state.xmSamplerSources).length > 0;
+  const hasXmChiptune =
+    !!state.xmChiptuneSources &&
+    Object.keys(state.xmChiptuneSources).length > 0;
   // Once XM landed (v=9), every new write stamps the current version: the
   // `format` discriminator was added unconditionally and older readers
   // shouldn't be guessing it. Older builds (pre-XM) will refuse to load
@@ -332,6 +404,12 @@ function buildPayload(state: SessionInputs): PersistedShape {
           soloedChannels: muteSnapshot(state.soloedChannels),
         }
       : {}),
+    ...(hasXmSampler
+      ? { xmSamplerSources: encodeXmSamplerSources(state.xmSamplerSources!) }
+      : {}),
+    ...(hasXmChiptune
+      ? { xmChiptuneSources: encodeXmChiptuneSources(state.xmChiptuneSources!) }
+      : {}),
   };
 }
 
@@ -355,6 +433,38 @@ function encodeSamplerSources(
       wavBase64: bytesToBase64(writeWav(v.wav, { bitsPerSample: 16 })),
       ...(v.chain.length > 0 ? { chain: v.chain } : {}),
       pt: v.pt,
+    };
+  }
+  return out;
+}
+
+/** XM counterpart of `encodeSamplerSources`. Keys are composite
+ *  `"inst1Based:sampleIdx"` strings so multi-sample instruments round-
+ *  trip per-sample. */
+function encodeXmSamplerSources(
+  src: Record<string, XmSamplerSourceInputs>,
+): Record<string, PersistedXmSamplerSource> {
+  const out: Record<string, PersistedXmSamplerSource> = {};
+  for (const [k, v] of Object.entries(src)) {
+    out[k] = {
+      sourceName: v.sourceName,
+      wavBase64: bytesToBase64(writeWav(v.wav, { bitsPerSample: 16 })),
+      ...(v.chain.length > 0 ? { chain: v.chain } : {}),
+      xm: v.xm,
+    };
+  }
+  return out;
+}
+
+function encodeXmChiptuneSources(
+  src: Record<string, XmChiptuneSourceInputs>,
+): Record<string, PersistedXmChiptuneSource> {
+  const out: Record<string, PersistedXmChiptuneSource> = {};
+  for (const [k, v] of Object.entries(src)) {
+    out[k] = {
+      params: v.params,
+      ...(v.chain.length > 0 ? { chain: v.chain } : {}),
+      xm: v.xm,
     };
   }
   return out;
@@ -403,6 +513,8 @@ function payloadToSession(parsed: unknown): LoadedSession | null {
     soloedChannels: muteSnapshot(
       parsed.soloedChannels as boolean[] | undefined,
     ),
+    xmSamplerSources: parseXmSamplerSources(parsed.xmSamplerSources),
+    xmChiptuneSources: parseXmChiptuneSources(parsed.xmChiptuneSources),
   };
 }
 
@@ -530,6 +642,85 @@ function parseSamplerSources(
     }
   }
   return out;
+}
+
+/** XM counterpart of `parseSamplerSources`. Keys are validated as
+ *  `"inst:sampleIdx"` composites with inst in [1, 128] and sampleIdx in
+ *  [0, 15]; malformed entries are dropped silently. */
+function parseXmSamplerSources(
+  raw: unknown,
+): Record<string, XmSamplerSourceInputs> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, XmSamplerSourceInputs> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!isXmWorkbenchKey(k)) continue;
+    if (!v || typeof v !== "object") continue;
+    const entry = v as Record<string, unknown>;
+    const sourceName =
+      typeof entry["sourceName"] === "string" ? entry["sourceName"] : "";
+    const wavBase64 =
+      typeof entry["wavBase64"] === "string" ? entry["wavBase64"] : null;
+    if (!wavBase64) continue;
+    try {
+      const wav = readWav(base64ToBytes(wavBase64));
+      const chain = parseEffectChain(entry["chain"]);
+      out[k] = {
+        sourceName,
+        wav,
+        chain: fixupSentinelFrames(chain, wav, sourceName),
+        xm: parseXmTransformer(entry["xm"]),
+      };
+    } catch {
+      // Corrupt WAV bytes — drop this slot and continue.
+    }
+  }
+  return out;
+}
+
+function parseXmChiptuneSources(
+  raw: unknown,
+): Record<string, XmChiptuneSourceInputs> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, XmChiptuneSourceInputs> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!isXmWorkbenchKey(k)) continue;
+    if (!v || typeof v !== "object") continue;
+    const entry = v as Record<string, unknown>;
+    const params = chiptuneFromJson(entry["params"]);
+    if (!params) continue;
+    out[k] = {
+      params,
+      chain: parseEffectChain(entry["chain"]),
+      xm: parseXmTransformer(entry["xm"]),
+    };
+  }
+  return out;
+}
+
+/** "inst:sampleIdx" where inst ∈ [1, 128], sampleIdx ∈ [0, 15]. */
+function isXmWorkbenchKey(k: string): boolean {
+  const parts = k.split(":");
+  if (parts.length !== 2) return false;
+  const inst = parseInt(parts[0]!, 10);
+  const idx = parseInt(parts[1]!, 10);
+  if (!Number.isFinite(inst) || inst < 1 || inst > 128) return false;
+  if (!Number.isFinite(idx) || idx < 0 || idx > 15) return false;
+  return true;
+}
+
+/** Validate XM transformer params. Falls back to defaults on anything
+ *  malformed so a corrupt `xm` block doesn't lose the whole workbench. */
+function parseXmTransformer(raw: unknown): XmTransformerParams {
+  const fallback: XmTransformerParams = { monoMix: "average", bitDepth: 8 };
+  if (!raw || typeof raw !== "object") return fallback;
+  const x = raw as Record<string, unknown>;
+  const mix = x["monoMix"];
+  const monoMix: MonoMix =
+    mix === "left" ? "left" : mix === "right" ? "right" : "average";
+  const bd = x["bitDepth"];
+  const bitDepth: 8 | 16 = bd === 16 ? 16 : 8;
+  const dither = x["dither"] === true;
+  return dither ? { monoMix, bitDepth, dither: true } : { monoMix, bitDepth };
 }
 
 /** Parse an `EffectNode[]` from an unknown JSON value. Drops bad entries

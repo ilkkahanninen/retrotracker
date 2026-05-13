@@ -957,6 +957,37 @@ describe("loadXmWavIntoCurrentSample interactions", () => {
 // Workbench map invariants
 // ──────────────────────────────────────────────────────────────────────
 
+describe("Persistence: chiptune source survives a save / reload cycle", () => {
+  it("save the project, clear workbenches, reload — chiptune comes back on the same slot", async () => {
+    // The user's reported bug path: open instrument view, flip to
+    // Chiptune, refresh. Without persistence the workbench map is
+    // session-only, so the source kind reverts to Sampler. Verify the
+    // round-trip restores it.
+    const { projectToBytes, projectFromBytes } =
+      await import("../src/state/persistence");
+    const { xmChiptuneSourcesSnapshot, xmSamplerSourcesSnapshot } =
+      await import("../src/state/session");
+    setXmSourceKind("chiptune");
+    expect(getXmWorkbench(1, 0)?.source.kind).toBe("chiptune");
+
+    const bytes = projectToBytes({
+      song: xm2Song()!,
+      filename: null,
+      view: "pattern",
+      cursor: { order: 0, row: 0, channel: 0, field: "note" },
+      currentSample: 1,
+      currentOctave: 2,
+      editStep: 1,
+      xmChiptuneSources: xmChiptuneSourcesSnapshot(),
+      xmSamplerSources: xmSamplerSourcesSnapshot(),
+    });
+    const loaded = projectFromBytes(bytes);
+    expect(loaded).not.toBeNull();
+    expect(Object.keys(loaded!.xmChiptuneSources)).toContain("1:0");
+    expect(loaded!.xmChiptuneSources["1:0"]).toBeDefined();
+  });
+});
+
 describe("Workbench map invariants", () => {
   it("each (inst, sampleIdx) key is unique", () => {
     const s = emptyXmSong();

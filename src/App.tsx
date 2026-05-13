@@ -122,6 +122,8 @@ import {
 } from "./state/sampleEdit";
 import {
   chiptuneSourcesSnapshot,
+  xmChiptuneSourcesSnapshot,
+  xmSamplerSourcesSnapshot,
   error,
   exportSong,
   exportWav,
@@ -196,6 +198,7 @@ import {
   withWorkbench,
   workbenches,
 } from "./state/sampleWorkbench";
+import { xmWorkbenches } from "./state/xmSampleWorkbench";
 import { selection } from "./state/selection";
 import { settings, toggleShowPatternHelp } from "./state/settings";
 import { installShortcuts } from "./state/shortcuts";
@@ -437,6 +440,10 @@ export const App: Component = () => {
       const names = patternNames();
       if (!s) return;
       const isPt2 = s.format === "PT2";
+      const isXm = s.format === "FT2";
+      // Track the XM workbench map so source-kind toggles flush through
+      // autosave without waiting for an unrelated signal to change.
+      xmWorkbenches();
       if (saveTimer !== null) window.clearTimeout(saveTimer);
       const muted = mutedChannels();
       const soloed = soloedChannels();
@@ -450,13 +457,13 @@ export const App: Component = () => {
           currentSample: samp,
           currentOctave: oct,
           editStep: step,
-          // Workbenches / sampler / chiptune / pattern-names are PT-only
-          // (Phase 4 adds an FT2 sample editor; until then nothing to save).
           chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
           samplerSources: isPt2 ? samplerSourcesSnapshot() : undefined,
           patternNames: isPt2 ? names : undefined,
           mutedChannels: muted,
           soloedChannels: soloed,
+          xmChiptuneSources: isXm ? xmChiptuneSourcesSnapshot() : undefined,
+          xmSamplerSources: isXm ? xmSamplerSourcesSnapshot() : undefined,
         });
       }, 250);
     });
@@ -770,6 +777,7 @@ export const App: Component = () => {
     const s = song();
     if (!s) return 0;
     const isPt2 = s.format === "PT2";
+    const isXm = s.format === "FT2";
     return projectToBytes({
       song: s,
       filename: filename(),
@@ -784,6 +792,8 @@ export const App: Component = () => {
       patternNames: isPt2 ? patternNames() : undefined,
       mutedChannels: mutedChannels(),
       soloedChannels: soloedChannels(),
+      xmChiptuneSources: isXm ? xmChiptuneSourcesSnapshot() : undefined,
+      xmSamplerSources: isXm ? xmSamplerSourcesSnapshot() : undefined,
     }).length;
   });
 
