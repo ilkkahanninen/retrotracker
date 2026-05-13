@@ -8,11 +8,12 @@ import {
 } from "solid-js";
 
 import { emptyXmInstrument } from "../core/xm/format";
-import type {
-  XmAutoVibratoType,
-  XmInstrument,
-  XmLoopType,
-  XmSong,
+import {
+  XM_MAX_INSTRUMENTS,
+  type XmAutoVibratoType,
+  type XmInstrument,
+  type XmLoopType,
+  type XmSong,
 } from "../core/xm/types";
 import {
   currentXmInstrument,
@@ -45,7 +46,7 @@ import {
   copyXmSampleRange,
   cropXmCurrentSampleToSelection,
   cutXmSampleRange,
-  duplicateCurrentXmSample,
+  duplicateCurrentXmInstrument,
   loadXmWavIntoCurrentSample,
   moveXmEffect,
   newXmChiptune,
@@ -221,6 +222,14 @@ export const InstrumentView: Component<Props> = (props) => {
   };
   const activeSample = () => inst().samples[activeSampleIndex()];
   const hasData = () => (activeSample()?.data.length ?? 0) > 0;
+  const hasFreeInstrumentSlot = () => {
+    const insts = props.song.instruments;
+    if (insts.length < XM_MAX_INSTRUMENTS) return true;
+    return insts.some(
+      (i) =>
+        i.samples.length === 0 || i.samples.every((sm) => sm.data.length === 0),
+    );
+  };
 
   return (() => {
     return (() => {
@@ -369,20 +378,17 @@ export const InstrumentView: Component<Props> = (props) => {
                   </Show>
                   <button
                     type="button"
-                    onClick={duplicateCurrentXmSample}
-                    disabled={
-                      !hasData() ||
-                      inst().samples.length >= XM_MAX_SAMPLES_PER_INSTRUMENT
-                    }
+                    onClick={duplicateCurrentXmInstrument}
+                    disabled={!hasData() || !hasFreeInstrumentSlot()}
                     title={
                       !hasData()
                         ? "Nothing to duplicate"
-                        : inst().samples.length >= XM_MAX_SAMPLES_PER_INSTRUMENT
-                          ? `Sample cap reached (${XM_MAX_SAMPLES_PER_INSTRUMENT})`
-                          : "Copy this sample into the next free slot on the instrument"
+                        : !hasFreeInstrumentSlot()
+                          ? `Instrument cap reached (${XM_MAX_INSTRUMENTS})`
+                          : "Copy this instrument into the next free song slot"
                     }
                   >
-                    Duplicate sample
+                    Duplicate instrument
                   </button>
                   <button
                     type="button"

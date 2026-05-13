@@ -464,6 +464,53 @@ export function clearXmInstrument(song: XmSong, slot1Based: number): XmSong {
   return setXmInstrument(song, slot, emptyXmInstrument());
 }
 
+function cloneXmSample(s: XmSample): XmSample {
+  const data: Int8Array | Int16Array =
+    s.bits === 8
+      ? new Int8Array(s.data as Int8Array)
+      : new Int16Array(s.data as Int16Array);
+  return { ...s, data };
+}
+
+function cloneXmEnvelope(e: XmEnvelope): XmEnvelope {
+  return { ...e, points: e.points.map((p) => ({ ...p })) };
+}
+
+function cloneXmInstrument(inst: XmInstrument, name: string): XmInstrument {
+  return {
+    ...inst,
+    name,
+    samples: inst.samples.map(cloneXmSample),
+    keyMap: new Uint8Array(inst.keyMap),
+    volumeEnvelope: cloneXmEnvelope(inst.volumeEnvelope),
+    panningEnvelope: cloneXmEnvelope(inst.panningEnvelope),
+  };
+}
+
+/**
+ * Deep-copy the instrument at `sourceSlot1Based` into
+ * `targetSlot1Based`. Appends " copy" to the source name (trimmed to
+ * the 22-char XM limit). No-op if the source slot is empty or either
+ * slot is out of range.
+ */
+export function duplicateXmInstrument(
+  song: XmSong,
+  sourceSlot1Based: number,
+  targetSlot1Based: number,
+): XmSong {
+  const sourceSlot = sourceSlot1Based - 1;
+  const targetSlot = targetSlot1Based - 1;
+  if (sourceSlot < 0 || sourceSlot >= XM_MAX_INSTRUMENTS) return song;
+  if (targetSlot < 0 || targetSlot >= XM_MAX_INSTRUMENTS) return song;
+  const src = song.instruments[sourceSlot];
+  if (!src) return song;
+  const copyName =
+    src.name.length > 0
+      ? `${src.name} copy`.slice(0, XM_INSTRUMENT_NAME_MAX)
+      : "copy";
+  return setXmInstrument(song, targetSlot, cloneXmInstrument(src, copyName));
+}
+
 export function setXmInstrument(
   song: XmSong,
   slot: number,

@@ -65,6 +65,7 @@ import {
 } from "./xmInstrumentEdit";
 import { importWavXmSample } from "../core/xm/sampleImport";
 import {
+  duplicateXmInstrument as duplicateXmInstrumentMutation,
   patchXmInstrumentSample,
   setXmInstrument,
   setXmInstrumentSample,
@@ -728,6 +729,30 @@ export function clearCurrentXmSample(): void {
   clearXmSampleDataMutation(instSlot, sampleIdx);
   clearXmWorkbench(instSlot, sampleIdx);
   setXmSampleSelection(null);
+}
+
+/**
+ * Deep-copy the active instrument into the next free slot and select it.
+ * No-op when there's no free slot or the source instrument is empty.
+ */
+export function duplicateCurrentXmInstrument(): void {
+  const s = xm2Song();
+  if (!s) return;
+  const sourceSlot = currentXmInstrument();
+  const src = s.instruments[sourceSlot - 1];
+  if (!src) return;
+  const hasData = src.samples.some((sm) => sm.data.length > 0);
+  if (!hasData) return;
+  const targetSlot0 = nextFreeXmInstrumentSlot();
+  if (targetSlot0 === null) {
+    setError("No free instrument slots — clear one and try again.");
+    return;
+  }
+  commitEditXm((song) =>
+    duplicateXmInstrumentMutation(song, sourceSlot, targetSlot0 + 1),
+  );
+  setCurrentXmInstrument(targetSlot0 + 1);
+  setCurrentXmSampleIndex(0);
 }
 
 /**

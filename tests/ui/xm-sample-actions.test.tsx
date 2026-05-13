@@ -10,6 +10,7 @@ import {
   xm2Song,
 } from "../../src/state/song";
 import {
+  currentXmInstrument,
   currentXmSampleIndex,
   setCurrentXmInstrument,
   setCurrentXmSampleIndex,
@@ -61,24 +62,33 @@ function findActionButton(
 }
 
 describe("InstrumentView header action buttons", () => {
-  it("Duplicate sample appends a copy with the same data and switches to it", () => {
+  it("Duplicate instrument deep-copies into the next free slot and switches to it", () => {
     const view = mountView();
-    const dup = findActionButton(view.container, "Duplicate sample");
+    const dup = findActionButton(view.container, "Duplicate instrument");
     expect(dup).toBeDefined();
     expect(dup!.disabled).toBe(false);
     fireEvent.click(dup!);
-    const samples = xm2Song()!.instruments[0]!.samples;
-    expect(samples.length).toBe(2);
-    expect(Array.from(samples[1]!.data)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
-    // The copy carries over per-sample metadata (volume, loop, …).
-    expect(samples[1]!.volume).toBe(50);
-    expect(samples[1]!.loopStart).toBe(2);
-    expect(samples[1]!.loopLength).toBe(4);
-    // Name is suffixed " copy" so the chip strip distinguishes them.
-    expect(samples[1]!.name).toBe("sa copy");
-    // The active sample switched to the new one so the user lands on
-    // the duplicate.
-    expect(currentXmSampleIndex()).toBe(1);
+    const instruments = xm2Song()!.instruments;
+    expect(instruments.length).toBeGreaterThanOrEqual(2);
+    const copy = instruments[1]!;
+    // Name is suffixed " copy" so the instrument list distinguishes them.
+    expect(copy.name).toBe("ins-a copy");
+    // Samples and their data are deep-copied.
+    expect(copy.samples.length).toBe(1);
+    expect(Array.from(copy.samples[0]!.data)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    // Per-sample metadata carries across.
+    expect(copy.samples[0]!.name).toBe("sa");
+    expect(copy.samples[0]!.volume).toBe(50);
+    expect(copy.samples[0]!.finetune).toBe(12);
+    expect(copy.samples[0]!.loopStart).toBe(2);
+    expect(copy.samples[0]!.loopLength).toBe(4);
+    expect(copy.samples[0]!.loopType).toBe("forward");
+    // Sample data is a fresh buffer — mutating the source must not reach
+    // the copy.
+    expect(copy.samples[0]!.data).not.toBe(instruments[0]!.samples[0]!.data);
+    // Selection follows the new instrument; sample index resets to 0.
+    expect(currentXmInstrument()).toBe(2);
+    expect(currentXmSampleIndex()).toBe(0);
   });
 
   it("Clear instrument wipes the entire instrument (samples, name, tuning)", () => {
