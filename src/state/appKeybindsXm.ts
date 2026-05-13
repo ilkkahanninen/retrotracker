@@ -74,71 +74,18 @@ import {
   stepXmPrevPattern,
 } from "./xmOrderEdit";
 import type { XmSong } from "../core/xm/types";
+import {
+  DIGIT_QUICK_PICK as INSTRUMENT_QUICK,
+  HEX_KEYS,
+  PIANO_KEYS,
+} from "./keybindHelpers";
 
 const isFt2Mode = () => song()?.format === "FT2";
 
-/** Same physical-key piano mapping as PT2 (see `appKeybinds.ts`). */
-const PIANO_KEYS: Readonly<Record<string, number>> = {
-  a: 0,
-  w: 1,
-  s: 2,
-  e: 3,
-  d: 4,
-  f: 5,
-  t: 6,
-  g: 7,
-  y: 8,
-  h: 9,
-  u: 10,
-  j: 11,
-  k: 12,
-  o: 13,
-  l: 14,
-  p: 15,
-  ";": 16,
-};
-
-const HEX_KEYS: Readonly<Record<string, number>> = {
-  "0": 0,
-  "1": 1,
-  "2": 2,
-  "3": 3,
-  "4": 4,
-  "5": 5,
-  "6": 6,
-  "7": 7,
-  "8": 8,
-  "9": 9,
-  a: 10,
-  b: 11,
-  c: 12,
-  d: 13,
-  e: 14,
-  f: 15,
-};
-
-/**
- * Letters that map to XM extended effect codes (0x10..0x21, skipping the
- * unimplemented slots). Typed when the cursor is on `effectCmd`. Lowercase
- * keys here; the registration matches the produced character regardless
- * of physical layout — a Nordic/Dvorak user pressing the letter G on
- * their keyboard will get the same G effect.
- */
+// Why: XM extended effect codes (0x10..0x21, skipping unimplemented slots).
+// Typed when the cursor is on effectCmd; the registration matches by
+// produced character so a Nordic/Dvorak user gets the same G effect.
 const EFFECT_LETTERS = ["g", "h", "k", "l", "p", "r", "t", "x"] as const;
-
-/** Quick-pick instrument 1..10 on the digit row. */
-const INSTRUMENT_QUICK: Readonly<Record<string, number>> = {
-  "1": 1,
-  "2": 2,
-  "3": 3,
-  "4": 4,
-  "5": 5,
-  "6": 6,
-  "7": 7,
-  "8": 8,
-  "9": 9,
-  "0": 10,
-};
 
 /** True when the cursor's field accepts a hex digit (anything but `note`). */
 function isXmHexField(): boolean {

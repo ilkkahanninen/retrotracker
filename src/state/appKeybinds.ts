@@ -37,61 +37,11 @@ import {
 import * as preview from "./preview";
 import type { ModSong } from "../core/mod/types";
 
-/**
- * Piano-row key mapping → semitone offset from the current octave's C.
- *   row 1 (white keys A S D F G H J K L ;)  + row 0 sharps (W E   T Y U   O P)
- */
-const PIANO_KEYS: Readonly<Record<string, number>> = {
-  a: 0, // C
-  w: 1, // C#
-  s: 2, // D
-  e: 3, // D#
-  d: 4, // E
-  f: 5, // F
-  t: 6, // F#
-  g: 7, // G
-  y: 8, // G#
-  h: 9, // A
-  u: 10, // A#
-  j: 11, // B
-  k: 12, // C +1 octave
-  o: 13, // C# +1
-  l: 14, // D +1
-  p: 15, // D# +1
-  ";": 16, // E +1
-};
-
-const HEX_KEYS: Readonly<Record<string, number>> = {
-  "0": 0,
-  "1": 1,
-  "2": 2,
-  "3": 3,
-  "4": 4,
-  "5": 5,
-  "6": 6,
-  "7": 7,
-  "8": 8,
-  "9": 9,
-  a: 10,
-  b: 11,
-  c: 12,
-  d: 13,
-  e: 14,
-  f: 15,
-};
-
-const SAMPLE_QUICK: Readonly<Record<string, number>> = {
-  "1": 1,
-  "2": 2,
-  "3": 3,
-  "4": 4,
-  "5": 5,
-  "6": 6,
-  "7": 7,
-  "8": 8,
-  "9": 9,
-  "0": 10,
-};
+import {
+  DIGIT_QUICK_PICK as SAMPLE_QUICK,
+  HEX_KEYS,
+  PIANO_KEYS,
+} from "./keybindHelpers";
 
 /**
  * Closures the App component owns — they read App-local signals (selection,
