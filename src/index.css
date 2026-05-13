@@ -1679,6 +1679,14 @@ h2 {
   border: 1px solid var(--grid-line);
   border-radius: 3px;
 }
+.xm-waveform__playhead {
+  /* Why: stack on top of .xm-waveform so the playhead cursor doesn't
+     require a waveform repaint — same layering trick as PT's Waveform. */
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  pointer-events: none;
+}
 .xm-autovibrato-preview {
   display: block;
   background: var(--panel-2);

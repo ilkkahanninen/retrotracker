@@ -26,7 +26,8 @@ import {
   emptyXmNote,
   emptyXmPattern,
 } from "../core/xm/format";
-import { XM_MAX_ORDERS, type XmSong } from "../core/xm/types";
+import { XM_MAX_ORDERS, type XmSample, type XmSong } from "../core/xm/types";
+import { hzForNote } from "../core/audio/xmFreqTable";
 import { currentEngine, ensureEngine } from "./playback";
 import { transport, xm2Song as song } from "./song";
 import { currentXmInstrument, currentXmOctave } from "./xmEdit";
@@ -73,6 +74,7 @@ export { activeXmPreview };
  *  the signal naturally. */
 export function clearActiveXmPreview(): void {
   setActiveXmPreview(null);
+  stopXmPreviewTracking();
 }
 
 /**
@@ -85,8 +87,131 @@ export function clearActiveXmPreview(): void {
  */
 export function stopXmPreview(): void {
   setActiveXmPreview(null);
+  stopXmPreviewTracking();
   const eng = currentEngine();
   eng?.stopPreview();
+}
+
+// ─── Playhead tracking ───────────────────────────────────────────────────
+//
+// Why: same shape as PT2's preview.ts — performance.now() + source rate
+// drives a RAF loop that updates `xmPreviewFrame`. Decoupled from the
+// engine on purpose: querying the worklet's read pointer would tie the
+// renderer to engine internals for what is, fundamentally, a UI cue.
+
+interface XmPreviewTracking {
+  instrument1Based: number;
+  sampleIdx: number;
+  startedAt: number;
+  /** Source-sample frames per second (note rate after relativeNote +
+   *  finetune). Constant for the lifetime of a single trigger. */
+  sourceHz: number;
+  dataLen: number;
+  loopStart: number;
+  loopLen: number;
+  loopType: XmSample["loopType"];
+  raf: number | null;
+}
+
+let tracking: XmPreviewTracking | null = null;
+
+const [xmPreviewFrame, setXmPreviewFrame] = createSignal<{
+  instrument1Based: number;
+  sampleIdx: number;
+  frame: number;
+} | null>(null);
+
+export { xmPreviewFrame };
+
+function computeFrame(t: XmPreviewTracking, playedFrames: number): number {
+  const len = t.dataLen;
+  if (len <= 0) return 0;
+  const hasLoop = t.loopType !== "none" && t.loopLen > 0;
+  if (!hasLoop) {
+    return Math.min(len - 1, Math.max(0, Math.floor(playedFrames)));
+  }
+  if (playedFrames < t.loopStart + t.loopLen) {
+    return Math.min(len - 1, Math.max(0, Math.floor(playedFrames)));
+  }
+  const beyond = playedFrames - t.loopStart;
+  if (t.loopType === "forward") {
+    const frame = t.loopStart + Math.floor(beyond % t.loopLen);
+    return Math.min(len - 1, Math.max(0, frame));
+  }
+  // ping-pong: 2 × loopLen period — forward half then backward half.
+  const period = 2 * t.loopLen;
+  const phase = beyond % period;
+  const frame =
+    phase < t.loopLen
+      ? t.loopStart + Math.floor(phase)
+      : t.loopStart + Math.floor(period - phase);
+  return Math.min(len - 1, Math.max(0, frame));
+}
+
+function startXmPreviewTracking(
+  instrument1Based: number,
+  sampleIdx: number,
+  sample: XmSample,
+  xmNote: number,
+  linearFreq: boolean,
+): void {
+  stopXmPreviewTracking();
+  if (sample.data.length === 0) return;
+  // Why: node-env tests (state tests outside tests/ui/**) don't define
+  // requestAnimationFrame — tracking is a pure UI cue, so no-op there.
+  if (typeof requestAnimationFrame !== "function") return;
+  const effectiveNote = Math.max(1, Math.min(96, xmNote + sample.relativeNote));
+  const sourceHz = hzForNote(effectiveNote, sample.finetune, linearFreq);
+  if (!isFinite(sourceHz) || sourceHz <= 0) return;
+  tracking = {
+    instrument1Based,
+    sampleIdx,
+    startedAt: performance.now(),
+    sourceHz,
+    dataLen: sample.data.length,
+    loopStart: sample.loopStart,
+    loopLen: sample.loopLength,
+    loopType: sample.loopType,
+    raf: null,
+  };
+  const tick = () => {
+    const t = tracking;
+    if (!t) return;
+    const elapsedSec = (performance.now() - t.startedAt) / 1000;
+    const playedFrames = elapsedSec * t.sourceHz;
+    const hasLoop = t.loopType !== "none" && t.loopLen > 0;
+    if (!hasLoop && playedFrames >= t.dataLen) {
+      stopXmPreviewTracking();
+      return;
+    }
+    setXmPreviewFrame({
+      instrument1Based: t.instrument1Based,
+      sampleIdx: t.sampleIdx,
+      frame: computeFrame(t, playedFrames),
+    });
+    t.raf = requestAnimationFrame(tick);
+  };
+  tracking.raf = requestAnimationFrame(tick);
+}
+
+function stopXmPreviewTracking(): void {
+  if (!tracking) return;
+  if (tracking.raf !== null && typeof cancelAnimationFrame === "function") {
+    cancelAnimationFrame(tracking.raf);
+  }
+  tracking = null;
+  setXmPreviewFrame(null);
+}
+
+// Why: live-swap path replaces the audible buffer without restarting —
+// keep startedAt put so the visual playhead stays continuous, but refresh
+// the data/loop fields in case the user's edit changed them.
+function updateXmPreviewTracking(sample: XmSample): void {
+  if (!tracking) return;
+  tracking.dataLen = sample.data.length;
+  tracking.loopStart = sample.loopStart;
+  tracking.loopLen = sample.loopLength;
+  tracking.loopType = sample.loopType;
 }
 
 /**
@@ -183,6 +308,13 @@ export function previewXmNote(semitoneOffset: number): void {
   const sample = inst.samples[mapIdx] ?? inst.samples[0];
   if (!sample || sample.data.length === 0) return;
   setActiveXmPreview({ instrument1Based: inst1Based, semitoneOffset });
+  startXmPreviewTracking(
+    inst1Based,
+    mapIdx,
+    sample,
+    xmNote,
+    s.flags.linearFreq,
+  );
   const onEnded = () => {
     const cur = activeXmPreview();
     if (
@@ -191,6 +323,7 @@ export function previewXmNote(semitoneOffset: number): void {
       cur.semitoneOffset === semitoneOffset
     ) {
       setActiveXmPreview(null);
+      stopXmPreviewTracking();
     }
   };
   // Render at the engine's sample rate so the worklet's per-frame
@@ -257,6 +390,9 @@ export function xmLivePreviewSwap(): void {
   const rate = eng.sampleRate || PREVIEW_SAMPLE_RATE;
   const previewSong = buildPreviewSong(s, inst1Based, xmNote);
   const { left, right } = renderPreviewBuffer(previewSong, rate);
+  // Refresh tracking against the (possibly mutated) sample so the playhead
+  // honours new loop bounds and length without restarting from zero.
+  updateXmPreviewTracking(sample);
   const semitoneOffset = active.semitoneOffset;
   const onEnded = () => {
     const cur = activeXmPreview();
@@ -266,6 +402,7 @@ export function xmLivePreviewSwap(): void {
       cur.semitoneOffset === semitoneOffset
     ) {
       setActiveXmPreview(null);
+      stopXmPreviewTracking();
     }
   };
   // `restart: false` keeps the worklet's read pointer where it is so

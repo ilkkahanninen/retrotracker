@@ -9,6 +9,8 @@ import {
 import type { XmSample } from "../core/xm/types";
 import type { XmSampleSelection } from "../state/xmSampleSelection";
 import type { EnvelopePoint, ParamAxis } from "../core/audio/sampleWorkbench";
+import { currentXmInstrument, currentXmSampleIndex } from "../state/xmEdit";
+import { xmPreviewFrame } from "../state/xmPreview";
 import { drawSampleWaveform } from "./waveformDraw";
 import { EnvelopeOverlay } from "./EnvelopeOverlay";
 
@@ -64,6 +66,7 @@ type DragState =
 
 export const XmWaveform: Component<Props> = (props) => {
   let canvasRef: HTMLCanvasElement | undefined;
+  let playheadCanvas: HTMLCanvasElement | undefined;
   let container: HTMLDivElement | undefined;
 
   const [drag, setDrag] = createSignal<DragState | null>(null);
@@ -212,6 +215,40 @@ export const XmWaveform: Component<Props> = (props) => {
     requestAnimationFrame(draw);
   });
 
+  // Why: playhead layer mirrors PT2's Waveform — separate canvas so the
+  // 60 Hz cursor repaint doesn't redraw the (heavier) waveform polyline.
+  createEffect(() => {
+    const c = playheadCanvas;
+    if (!c) return;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    const cssWidth = c.clientWidth;
+    const cssHeight = c.clientHeight || H;
+    if (cssWidth === 0) return;
+    if (c.width !== cssWidth * dpr || c.height !== cssHeight * dpr) {
+      c.width = cssWidth * dpr;
+      c.height = cssHeight * dpr;
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+    const pf = xmPreviewFrame();
+    if (!pf) return;
+    if (
+      pf.instrument1Based !== currentXmInstrument() ||
+      pf.sampleIdx !== currentXmSampleIndex()
+    ) {
+      return;
+    }
+    const len = dataLen();
+    if (len === 0) return;
+    if (pf.frame < 0 || pf.frame >= len) return;
+    const x = (pf.frame * cssWidth) / len;
+    ctx.fillStyle = "#ff7a59";
+    ctx.fillRect(Math.floor(x), 0, 1, cssHeight);
+  });
+
   const onMouseDown = (e: MouseEvent) => {
     const x = clientToCanvasX(e.clientX);
     const handle = handleAt(x);
@@ -308,6 +345,13 @@ export const XmWaveform: Component<Props> = (props) => {
         }}
         class="xm-waveform"
         style={{ width: "100%", height: `${H}px` }}
+      />
+      <canvas
+        ref={(el) => {
+          playheadCanvas = el;
+        }}
+        class="xm-waveform__playhead"
+        style={{ height: `${H}px` }}
       />
       <Show when={props.envelope}>
         {(env) => (
