@@ -1,5 +1,5 @@
-import { createSignal } from "solid-js";
 import type { XmSampleWorkbench } from "../core/audio/sampleWorkbench";
+import { createWorkbenchStore } from "./workbenchStore";
 
 // Why: composite key because XM samples live nested inside instruments.
 export type XmWorkbenchKey = `${number}:${number}`;
@@ -12,15 +12,16 @@ export function xmWorkbenchKey(
   return `${instSlot1Based}:${sampleIdx}`;
 }
 
-const [xmWorkbenches, setXmWorkbenchesRaw] = createSignal<XmWorkbenchMap>(
-  new Map(),
-);
+const store = createWorkbenchStore<XmWorkbenchKey, XmSampleWorkbench>();
+
+export const xmWorkbenches = store.signal;
+export const setXmWorkbenchesRaw = store.setRaw;
 
 export function getXmWorkbench(
   instSlot1Based: number,
   sampleIdx: number,
 ): XmSampleWorkbench | undefined {
-  return xmWorkbenches().get(xmWorkbenchKey(instSlot1Based, sampleIdx));
+  return store.get(xmWorkbenchKey(instSlot1Based, sampleIdx));
 }
 
 export function setXmWorkbench(
@@ -28,25 +29,18 @@ export function setXmWorkbench(
   sampleIdx: number,
   wb: XmSampleWorkbench,
 ): void {
-  const next = new Map(xmWorkbenches());
-  next.set(xmWorkbenchKey(instSlot1Based, sampleIdx), wb);
-  setXmWorkbenchesRaw(next);
+  store.set(xmWorkbenchKey(instSlot1Based, sampleIdx), wb);
 }
 
 export function clearXmWorkbench(
   instSlot1Based: number,
   sampleIdx: number,
 ): void {
-  const key = xmWorkbenchKey(instSlot1Based, sampleIdx);
-  if (!xmWorkbenches().has(key)) return;
-  const next = new Map(xmWorkbenches());
-  next.delete(key);
-  setXmWorkbenchesRaw(next);
+  store.clear(xmWorkbenchKey(instSlot1Based, sampleIdx));
 }
 
 export function clearAllXmWorkbenches(): void {
-  if (xmWorkbenches().size === 0) return;
-  setXmWorkbenchesRaw(new Map());
+  store.clearAll();
 }
 
 export function withXmWorkbench(
@@ -55,9 +49,7 @@ export function withXmWorkbench(
   sampleIdx: number,
   wb: XmSampleWorkbench,
 ): XmWorkbenchMap {
-  const next = new Map(map);
-  next.set(xmWorkbenchKey(instSlot1Based, sampleIdx), wb);
-  return next;
+  return store.withSet(map, xmWorkbenchKey(instSlot1Based, sampleIdx), wb);
 }
 
 export function withoutXmWorkbench(
@@ -65,11 +57,5 @@ export function withoutXmWorkbench(
   instSlot1Based: number,
   sampleIdx: number,
 ): XmWorkbenchMap {
-  const key = xmWorkbenchKey(instSlot1Based, sampleIdx);
-  if (!map.has(key)) return map;
-  const next = new Map(map);
-  next.delete(key);
-  return next;
+  return store.withClear(map, xmWorkbenchKey(instSlot1Based, sampleIdx));
 }
-
-export { xmWorkbenches, setXmWorkbenchesRaw };
