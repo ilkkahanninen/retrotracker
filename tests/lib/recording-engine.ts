@@ -94,9 +94,29 @@ export class RecordingEngine {
       onEnded,
       restart,
     ]);
+    this.xmPreviewActive = true;
+    this.xmPreviewEnded = () => {
+      this.xmPreviewActive = false;
+      onEnded?.();
+    };
+  }
+  /** Test-only: simulate the worklet's natural-end signal. */
+  fireXmPreviewEnded(): void {
+    const cb = this.xmPreviewEnded;
+    this.xmPreviewEnded = null;
+    cb?.();
+  }
+  private xmPreviewActive = false;
+  private xmPreviewEnded: (() => void) | null = null;
+  isXmPreviewActive(): boolean {
+    return this.xmPreviewActive;
   }
   stopPreview(): void {
     this.rec("stopPreview", []);
+    // Mirror the real engine: stopping cancels the natural-end
+    // callback, so `isXmPreviewActive` flips false immediately.
+    this.xmPreviewActive = false;
+    this.xmPreviewEnded = null;
   }
   async dispose(): Promise<void> {
     this.rec("dispose", []);

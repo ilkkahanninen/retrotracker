@@ -302,8 +302,21 @@ export class AudioEngine {
   private xmPreviewNode: AudioWorkletNode | null = null;
   private xmPreviewModuleAdded = false;
   /** Current preview's onEnded callback, fired when the worklet posts
-   *  back that the read pointer reached the buffer end. */
+   *  back that the read pointer reached the buffer end. Doubles as
+   *  the "is a preview currently audible on this engine?" gate read
+   *  by `isXmPreviewActive`. */
   private xmPreviewOnEnded: (() => void) | null = null;
+
+  /**
+   * True while an XM preview buffer is loaded into the worklet AND
+   * its natural-end callback hasn't fired yet. `xmLivePreviewSwap`
+   * gates its re-render on this so a slider drag after a key-up
+   * (which clears the callback) can't morph a no-longer-audible
+   * voice into a fresh-sounding playback.
+   */
+  isXmPreviewActive(): boolean {
+    return this.xmPreviewOnEnded !== null;
+  }
 
   private async ensureXmPreviewNode(): Promise<AudioWorkletNode> {
     if (this.xmPreviewNode) return this.xmPreviewNode;

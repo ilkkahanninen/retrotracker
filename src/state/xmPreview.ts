@@ -230,6 +230,20 @@ export function xmLivePreviewSwap(): void {
   const active = activeXmPreview();
   if (!active) return;
   if (transport() === "playing") return;
+  // The engine is created lazily, but if a preview is in flight it
+  // must already exist. Bail to the no-op path otherwise.
+  const eng = currentEngine();
+  if (!eng) return;
+  // Double-check that the engine is still tracking a live preview —
+  // `activeXmPreview` is a UI-level signal; if a key-up cleared the
+  // engine's onEnded callback but a stale `activeXmPreview` somehow
+  // survived (race between handlers, re-render, etc.), the engine's
+  // gate is the authoritative truth. Without this, a slider drag
+  // immediately after key-up could play unrequested audio.
+  if (!eng.isXmPreviewActive()) {
+    setActiveXmPreview(null);
+    return;
+  }
   const s = song();
   if (!s) return;
   const inst1Based = active.instrument1Based;
@@ -240,10 +254,6 @@ export function xmLivePreviewSwap(): void {
   const mapIdx = inst.keyMap[xmNote - 1] ?? 0;
   const sample = inst.samples[mapIdx] ?? inst.samples[0];
   if (!sample || sample.data.length === 0) return;
-  // The engine is created lazily, but if a preview is in flight it
-  // must already exist. Bail to the no-op path otherwise.
-  const eng = currentEngine();
-  if (!eng) return;
   const rate = eng.sampleRate || PREVIEW_SAMPLE_RATE;
   const previewSong = buildPreviewSong(s, inst1Based, xmNote);
   const { left, right } = renderPreviewBuffer(previewSong, rate);

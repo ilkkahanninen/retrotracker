@@ -162,6 +162,57 @@ describe("XM live preview swap", () => {
     expect(activeXmPreview()).toBeNull();
   });
 
+  it("slider drag after engine.stopPreview is silent even if activeXmPreview lingered briefly", async () => {
+    // Defensive test for the race the user reported: key-up calls
+    // engine.stopPreview (which clears the engine's xmPreviewOnEnded)
+    // BUT some external state momentarily leaves `activeXmPreview`
+    // set. The swap must consult the engine, not just the UI signal.
+    await ensureEngine();
+    setXmWorkbench(1, 0, xmWorkbenchFromChiptune());
+    previewXmNote(0);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(activeXmPreview()).not.toBeNull();
+    expect(fake.isXmPreviewActive()).toBe(true);
+
+    // Simulate ONLY the engine half of the key-up: the engine's
+    // preview is no longer audible, but `activeXmPreview` is still
+    // non-null (representing a stale UI-side signal).
+    fake.stopPreview();
+    expect(fake.isXmPreviewActive()).toBe(false);
+    // activeXmPreview is still set — this is the stale state we
+    // need the engine-gate to catch.
+    expect(activeXmPreview()).not.toBeNull();
+
+    const playsBefore = fake.callsTo("playXmPreviewBuffer").length;
+    updateXmChiptune({ cycleFrames: 128 });
+    // The engine-gate kicked in: no new play.
+    expect(fake.callsTo("playXmPreviewBuffer").length).toBe(playsBefore);
+    // And the stale signal got cleaned up as a side effect.
+    expect(activeXmPreview()).toBeNull();
+  });
+
+  it("slider drags AFTER the user releases the piano key stay silent", async () => {
+    // Direct repro: hold piano (preview plays), release piano (preview
+    // stops), then drag a slider — no audio should fire.
+    const { stopXmPreview } = await import("../src/state/xmPreview");
+    await ensureEngine();
+    setXmWorkbench(1, 0, xmWorkbenchFromChiptune());
+    previewXmNote(0);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(activeXmPreview()).not.toBeNull();
+
+    // Simulate key-up.
+    stopXmPreview();
+    expect(activeXmPreview()).toBeNull();
+    const playsBefore = fake.callsTo("playXmPreviewBuffer").length;
+
+    // Drag a slider — must not re-trigger the preview.
+    updateXmChiptune({ cycleFrames: 128 });
+    expect(fake.callsTo("playXmPreviewBuffer").length).toBe(playsBefore);
+  });
+
   it("clicking a source-kind tab with no active preview does NOT trigger audio", async () => {
     // Direct repro of the bug the user reported: open instrument view,
     // click Chiptune (no prior piano key), audio should stay silent.

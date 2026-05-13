@@ -59,7 +59,7 @@ import {
   xmOctaveDown,
   xmOctaveUp,
 } from "./xmEdit";
-import { previewXmNote } from "./xmPreview";
+import { previewXmNote, stopXmPreview } from "./xmPreview";
 import { stopEnginePreview } from "./playback";
 import * as preview from "./preview";
 import { bounceXmSelectionToInstrument } from "./xmSampleEdit";
@@ -246,6 +246,11 @@ export function registerXmAppKeybinds(): Array<() => void> {
         runUp: () => {
           stopEnginePreview();
           preview.stopPreview();
+          // Also clear the XM live-preview record so a subsequent
+          // slider drag doesn't morph against a no-longer-audible
+          // voice — the user has released the key, the preview is
+          // gone, drags should be silent until a fresh key press.
+          stopXmPreview();
         },
       }),
     );
@@ -264,6 +269,11 @@ export function registerXmAppKeybinds(): Array<() => void> {
         runUp: () => {
           stopEnginePreview();
           preview.stopPreview();
+          // Also clear the XM live-preview record so a subsequent
+          // slider drag doesn't morph against a no-longer-audible
+          // voice — the user has released the key, the preview is
+          // gone, drags should be silent until a fresh key press.
+          stopXmPreview();
         },
       }),
     );
