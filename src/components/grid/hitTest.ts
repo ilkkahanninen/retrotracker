@@ -32,6 +32,7 @@ export function hitTest(
   layout: CellLayout,
   channelCount: number,
   flatRowCount: number,
+  cellW: number = layout.cellW,
 ): GridHit | null {
   const x = xCss + scrollLeft;
   const y = yCss + scrollTop;
@@ -40,11 +41,14 @@ export function hitTest(
   const flatRowIndex = Math.floor(y / ROW_HEIGHT);
   if (flatRowIndex < 0 || flatRowIndex >= flatRowCount) return null;
   const cellsX = x - ROW_LABEL_W;
-  const channel = Math.floor(cellsX / layout.cellW);
+  const channel = Math.floor(cellsX / cellW);
   if (channel < 0 || channel >= channelCount) return null;
-  const inCellX = cellsX - channel * layout.cellW;
-  // Find the inner-most sub-field hit. Clicks on padding land on the
-  // first field ("note") — mirrors the DOM grid's fallback behaviour.
+  // Cell text is centred within `cellW`; sub-field zones live at
+  // `layout.cellW`-relative offsets, so shift the hit X back into that
+  // frame. Clicks on the extra side padding fall through to the "note"
+  // default below.
+  const centerOffset = (cellW - layout.cellW) / 2;
+  const inCellX = cellsX - channel * cellW - centerOffset;
   let field = layout.fields[0]!.name;
   for (const f of layout.fields) {
     if (inCellX >= f.x && inCellX < f.x + f.w) {

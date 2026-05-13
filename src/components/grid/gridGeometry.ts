@@ -128,12 +128,29 @@ export function readGridPalette(el: Element): GridPalette {
   };
 }
 
-/** Cell x in CSS px for `channelIndex` in a row with the given layout. */
-export function cellLeftX(layout: CellLayout, channelIndex: number): number {
-  return ROW_LABEL_W + channelIndex * layout.cellW;
+/** Cell x in CSS px for `channelIndex`, given the runtime cell width. */
+export function cellLeftX(channelIndex: number, cellW: number): number {
+  return ROW_LABEL_W + channelIndex * cellW;
 }
 
 /** Total grid width (row label + N cells) in CSS px. */
-export function gridWidth(layout: CellLayout, channelCount: number): number {
-  return ROW_LABEL_W + channelCount * layout.cellW;
+export function gridWidth(channelCount: number, cellW: number): number {
+  return ROW_LABEL_W + channelCount * cellW;
+}
+
+/**
+ * Pick a per-channel cell width that fills the available viewport when
+ * the natural layout would leave horizontal slack. Returns at least
+ * `naturalCellW`, so wide patterns (many channels in a narrow viewport)
+ * keep horizontal scrolling unchanged. Cells are centred on the runtime
+ * width; padding lives on either side of the text.
+ */
+export function effectiveCellW(
+  naturalCellW: number,
+  channelCount: number,
+  viewportWidth: number,
+): number {
+  if (channelCount <= 0 || viewportWidth <= 0) return naturalCellW;
+  const fit = Math.floor((viewportWidth - ROW_LABEL_W) / channelCount);
+  return Math.max(naturalCellW, fit);
 }

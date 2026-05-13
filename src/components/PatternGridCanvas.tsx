@@ -47,6 +47,7 @@ import {
   ROW_HEIGHT,
   ROW_LABEL_W,
   PT_CELL_LAYOUT,
+  effectiveCellW,
   gridWidth,
   readGridPalette,
   type GridPalette,
@@ -115,7 +116,12 @@ export const PatternGridCanvas: Component<PatternGridProps> = (props) => {
     typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1,
   );
 
-  const totalGridWidth = createMemo(() => gridWidth(PT_CELL_LAYOUT, CHANNELS));
+  // Stretch cells to fill horizontal slack: PT2's 4-channel cap leaves
+  // plenty of headroom on any reasonably-sized viewport.
+  const cellW = createMemo(() =>
+    effectiveCellW(PT_CELL_LAYOUT.cellW, CHANNELS, viewportWidth()),
+  );
+  const totalGridWidth = createMemo(() => gridWidth(CHANNELS, cellW()));
   const totalGridHeight = createMemo(() => flat().length * ROW_HEIGHT);
 
   const onScroll = (e: Event) => {
@@ -196,6 +202,7 @@ export const PatternGridCanvas: Component<PatternGridProps> = (props) => {
       flat: flat(),
       layout: PT_CELL_LAYOUT,
       offsets: fieldOffsets,
+      cellW: cellW(),
       scrollLeft: scrollLeft(),
       scrollTop: scrollTop(),
       viewportWidth: vw,
@@ -284,7 +291,7 @@ export const PatternGridCanvas: Component<PatternGridProps> = (props) => {
     if (props.active) return;
     const c = cursor();
     if (!scroller) return;
-    keepChannelInView(scroller, c.channel, PT_CELL_LAYOUT.cellW, ROW_LABEL_W);
+    keepChannelInView(scroller, c.channel, cellW(), ROW_LABEL_W);
   });
   // Jump-snap (order-list click, Insert slot): pin the destination row
   // to the viewport top so the user sees the bulk of the next pattern
@@ -321,6 +328,7 @@ export const PatternGridCanvas: Component<PatternGridProps> = (props) => {
       PT_CELL_LAYOUT,
       CHANNELS,
       flat().length,
+      cellW(),
     );
   };
 
@@ -408,7 +416,7 @@ export const PatternGridCanvas: Component<PatternGridProps> = (props) => {
         <div
           class="patgrid__header-inner"
           style={{
-            "grid-template-columns": `${ROW_LABEL_W}px repeat(${CHANNELS}, ${PT_CELL_LAYOUT.cellW}px)`,
+            "grid-template-columns": `${ROW_LABEL_W}px repeat(${CHANNELS}, ${cellW()}px)`,
             width: `${totalGridWidth()}px`,
             transform: `translateX(${-scrollLeft()}px)`,
           }}

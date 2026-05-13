@@ -40,6 +40,7 @@ import {
   ROW_HEIGHT,
   ROW_LABEL_W,
   XM_CELL_LAYOUT,
+  effectiveCellW,
   gridWidth,
   readGridPalette,
   type GridPalette,
@@ -110,8 +111,18 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
     typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1,
   );
 
+  // Stretch cells to fill horizontal slack: narrow patterns (few
+  // channels in a wide viewport) get wider cells with centred text;
+  // wide patterns keep the natural cellW and scroll horizontally.
+  const cellW = createMemo(() =>
+    effectiveCellW(
+      XM_CELL_LAYOUT.cellW,
+      props.song.channelCount,
+      viewportWidth(),
+    ),
+  );
   const totalGridWidth = createMemo(() =>
-    gridWidth(XM_CELL_LAYOUT, props.song.channelCount),
+    gridWidth(props.song.channelCount, cellW()),
   );
   const totalGridHeight = createMemo(() => flat().length * ROW_HEIGHT);
 
@@ -199,6 +210,7 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
       flat: flat(),
       layout: XM_CELL_LAYOUT,
       offsets: fieldOffsets,
+      cellW: cellW(),
       scrollLeft: scrollLeft(),
       scrollTop: scrollTop(),
       viewportWidth: vw,
@@ -291,7 +303,7 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
     if (props.active) return;
     const c = xmCursor();
     if (!scroller) return;
-    keepChannelInView(scroller, c.channel, XM_CELL_LAYOUT.cellW, ROW_LABEL_W);
+    keepChannelInView(scroller, c.channel, cellW(), ROW_LABEL_W);
   });
 
   // ── Pointer handling ─────────────────────────────────────────────────
@@ -316,6 +328,7 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
       XM_CELL_LAYOUT,
       props.song.channelCount,
       flat().length,
+      cellW(),
     );
   };
 
@@ -409,7 +422,7 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
         <div
           class="patgrid__header-inner"
           style={{
-            "grid-template-columns": `${ROW_LABEL_W}px repeat(${props.song.channelCount}, ${XM_CELL_LAYOUT.cellW}px)`,
+            "grid-template-columns": `${ROW_LABEL_W}px repeat(${props.song.channelCount}, ${cellW()}px)`,
             width: `${totalGridWidth()}px`,
             transform: `translateX(${-scrollLeft()}px)`,
           }}

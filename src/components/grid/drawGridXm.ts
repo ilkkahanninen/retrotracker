@@ -46,6 +46,10 @@ export interface DrawGridXmParams {
   layout: CellLayout;
   /** Pre-computed sub-field offsets (caller caches it once per layout). */
   offsets: XmFieldOffsets;
+  /** Runtime per-channel cell width. Equals `layout.cellW` when the
+   *  pattern would overflow the viewport; expanded to fill horizontal
+   *  slack otherwise. Cell text is centred within this width. */
+  cellW: number;
   scrollLeft: number;
   scrollTop: number;
   viewportWidth: number;
@@ -77,6 +81,7 @@ export function drawGridXm(
     flat,
     layout,
     offsets,
+    cellW,
     scrollLeft,
     scrollTop,
     viewportWidth,
@@ -95,7 +100,7 @@ export function drawGridXm(
 
   if (flat.length === 0 || song.channelCount === 0) return;
 
-  const cellW = layout.cellW;
+  const centerOffset = (cellW - layout.cellW) / 2;
   const firstRow = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT));
   const lastRow = Math.min(
     flat.length - 1,
@@ -167,7 +172,7 @@ export function drawGridXm(
     for (let c = firstCh; c <= lastCh; c++) {
       const cell = item.cells[c];
       if (!cell) continue;
-      const xLeft = toX(cellLeftX(layout, c));
+      const xLeft = toX(cellLeftX(c, cellW)) + centerOffset;
       drawCellXm(ctx, atlas, cell, xLeft, rowY, offsets, colors);
     }
   }
@@ -176,7 +181,7 @@ export function drawGridXm(
   // edge). Skipped over the row-label column.
   ctx.fillStyle = palette.gridLine;
   for (let c = firstCh; c <= lastCh + 1; c++) {
-    const x = toX(cellLeftX(layout, c));
+    const x = toX(cellLeftX(c, cellW));
     if (x < ROW_LABEL_W - scrollLeft) continue;
     ctx.fillRect(x, 0, 1, viewportHeight);
   }
@@ -196,8 +201,8 @@ export function drawGridXm(
       selLastR = r;
     }
     if (selFirstR >= 0) {
-      const x0 = toX(cellLeftX(layout, selection.startChannel));
-      const x1 = toX(cellLeftX(layout, selection.endChannel + 1));
+      const x0 = toX(cellLeftX(selection.startChannel, cellW));
+      const x1 = toX(cellLeftX(selection.endChannel + 1, cellW));
       const y0 = toY(selFirstR * ROW_HEIGHT);
       const y1 = toY((selLastR + 1) * ROW_HEIGHT);
       ctx.fillStyle = palette.selection;
@@ -210,7 +215,7 @@ export function drawGridXm(
     if (cursor.channel >= firstCh && cursor.channel <= lastCh) {
       const field = layout.fields.find((f) => f.name === cursor.field);
       if (field) {
-        const xLeft = toX(cellLeftX(layout, cursor.channel));
+        const xLeft = toX(cellLeftX(cursor.channel, cellW)) + centerOffset;
         const y = toY(cursorFlatIndex * ROW_HEIGHT);
         const fieldX = xLeft + field.x;
         ctx.fillStyle = palette.accent;
