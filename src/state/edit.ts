@@ -1,6 +1,6 @@
-import { createSignal } from "solid-js";
 import type { Note } from "../core/mod/types";
 import type { Field } from "./cursor";
+import { createRangedSignal } from "./editPrimitives";
 
 export const MIN_OCTAVE = 1;
 export const MAX_OCTAVE = 3;
@@ -12,40 +12,39 @@ export const MAX_SAMPLE = 31;
 export const MIN_EDIT_STEP = 0;
 export const MAX_EDIT_STEP = 16;
 
-export const [currentOctave, setCurrentOctave] = createSignal<number>(2);
-export const [currentSample, setCurrentSample] = createSignal<number>(1);
-export const [editStep, setEditStep] = createSignal<number>(1);
+const octave = createRangedSignal({
+  min: MIN_OCTAVE,
+  max: MAX_OCTAVE,
+  initial: 2,
+});
+const sample = createRangedSignal({
+  min: MIN_SAMPLE,
+  max: MAX_SAMPLE,
+  initial: 1,
+});
+const step = createRangedSignal({
+  min: MIN_EDIT_STEP,
+  max: MAX_EDIT_STEP,
+  initial: 1,
+});
 
-export function octaveUp(): void {
-  setCurrentOctave((o) => Math.min(MAX_OCTAVE, o + 1));
-}
+export const currentOctave = octave.sig;
+export const setCurrentOctave = octave.set;
+export const currentSample = sample.sig;
+export const setCurrentSample = sample.set;
+export const editStep = step.sig;
+export const setEditStep = step.set;
 
-export function octaveDown(): void {
-  setCurrentOctave((o) => Math.max(MIN_OCTAVE, o - 1));
-}
-
-export function selectSample(n: number): void {
-  setCurrentSample(Math.max(MIN_SAMPLE, Math.min(MAX_SAMPLE, n)));
-}
-
-export function nextSample(): void {
-  setCurrentSample((s) => Math.min(MAX_SAMPLE, s + 1));
-}
-
-export function prevSample(): void {
-  setCurrentSample((s) => Math.max(MIN_SAMPLE, s - 1));
-}
-
-export function incEditStep(): void {
-  setEditStep((s) => Math.min(MAX_EDIT_STEP, s + 1));
-}
-
-export function decEditStep(): void {
-  setEditStep((s) => Math.max(MIN_EDIT_STEP, s - 1));
-}
+export const octaveUp = octave.inc;
+export const octaveDown = octave.dec;
+export const selectSample = sample.selectClamped;
+export const nextSample = sample.inc;
+export const prevSample = sample.dec;
+export const incEditStep = step.inc;
+export const decEditStep = step.dec;
 
 export function resetEditStep(): void {
-  setEditStep(1);
+  step.set(1);
 }
 
 // Why: clearing note also wipes sample (orphaned sample numbers play nothing
