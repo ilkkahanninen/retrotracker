@@ -2,6 +2,7 @@ import { createSignal } from "solid-js";
 import type { ModSong } from "../core/mod/types";
 import { CHANNELS } from "../core/mod/types";
 import { flattenSong } from "../core/mod/flatten";
+import { cycleChannel, moveAlongFields } from "./cursorPrimitives";
 
 /**
  * Edit cursor.
@@ -94,19 +95,11 @@ function atFlatIndex(c: Cursor, song: ModSong, target: number): Cursor {
 }
 
 export function moveLeft(c: Cursor): Cursor {
-  const idx = FIELDS.indexOf(c.field);
-  if (idx > 0) return { ...c, field: FIELDS[idx - 1]! };
-  // Wrap to previous channel's last field; from channel 0 wrap to channel CHANNELS-1.
-  const prevCh = (c.channel - 1 + CHANNELS) % CHANNELS;
-  return { ...c, channel: prevCh, field: FIELDS[FIELDS.length - 1]! };
+  return { ...c, ...moveAlongFields(FIELDS, c.field, -1, CHANNELS, c.channel) };
 }
 
 export function moveRight(c: Cursor): Cursor {
-  const idx = FIELDS.indexOf(c.field);
-  if (idx < FIELDS.length - 1) return { ...c, field: FIELDS[idx + 1]! };
-  // Wrap to next channel's note; from last channel wrap to channel 0.
-  const nextCh = (c.channel + 1) % CHANNELS;
-  return { ...c, channel: nextCh, field: FIELDS[0]! };
+  return { ...c, ...moveAlongFields(FIELDS, c.field, 1, CHANNELS, c.channel) };
 }
 
 function moveByRows(c: Cursor, song: ModSong, delta: number): Cursor {
@@ -140,16 +133,18 @@ export function pageDown(c: Cursor, song: ModSong, pageRows: number): Cursor {
   return moveByRows(c, song, Math.max(1, pageRows));
 }
 
-/** Tab → next channel's note (wraps from last channel to first). */
 export function tabNext(c: Cursor): Cursor {
-  return { ...c, channel: (c.channel + 1) % CHANNELS, field: FIELDS[0]! };
+  return {
+    ...c,
+    channel: cycleChannel(c.channel, 1, CHANNELS),
+    field: FIELDS[0]!,
+  };
 }
 
-/** Shift+Tab → previous channel's note (wraps from first to last). */
 export function tabPrev(c: Cursor): Cursor {
   return {
     ...c,
-    channel: (c.channel - 1 + CHANNELS) % CHANNELS,
+    channel: cycleChannel(c.channel, -1, CHANNELS),
     field: FIELDS[0]!,
   };
 }

@@ -2,6 +2,7 @@ import { createSignal } from "solid-js";
 
 import { rowsOfPattern } from "../core/song";
 import type { XmSong } from "../core/xm/types";
+import { cycleChannel, moveAlongFields } from "./cursorPrimitives";
 
 export const XM_FIELDS = [
   "note",
@@ -42,19 +43,17 @@ export function resetXmCursor(): void {
 }
 
 export function xmMoveLeft(c: XmCursor, song: XmSong): XmCursor {
-  const idx = XM_FIELDS.indexOf(c.field);
-  if (idx > 0) return { ...c, field: XM_FIELDS[idx - 1]! };
-  const prevCh = (c.channel - 1 + song.channelCount) % song.channelCount;
-  return { ...c, channel: prevCh, field: XM_FIELDS[XM_FIELDS.length - 1]! };
+  return {
+    ...c,
+    ...moveAlongFields(XM_FIELDS, c.field, -1, song.channelCount, c.channel),
+  };
 }
 
 export function xmMoveRight(c: XmCursor, song: XmSong): XmCursor {
-  const idx = XM_FIELDS.indexOf(c.field);
-  if (idx < XM_FIELDS.length - 1) {
-    return { ...c, field: XM_FIELDS[idx + 1]! };
-  }
-  const nextCh = (c.channel + 1) % song.channelCount;
-  return { ...c, channel: nextCh, field: XM_FIELDS[0]! };
+  return {
+    ...c,
+    ...moveAlongFields(XM_FIELDS, c.field, 1, song.channelCount, c.channel),
+  };
 }
 
 export function xmMoveByRows(
@@ -115,7 +114,7 @@ export function xmPageDown(
 export function xmTabNext(c: XmCursor, song: XmSong): XmCursor {
   return {
     ...c,
-    channel: (c.channel + 1) % song.channelCount,
+    channel: cycleChannel(c.channel, 1, song.channelCount),
     field: XM_FIELDS[0]!,
   };
 }
@@ -123,7 +122,7 @@ export function xmTabNext(c: XmCursor, song: XmSong): XmCursor {
 export function xmTabPrev(c: XmCursor, song: XmSong): XmCursor {
   return {
     ...c,
-    channel: (c.channel - 1 + song.channelCount) % song.channelCount,
+    channel: cycleChannel(c.channel, -1, song.channelCount),
     field: XM_FIELDS[0]!,
   };
 }
