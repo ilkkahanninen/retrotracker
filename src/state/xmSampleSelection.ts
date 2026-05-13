@@ -1,16 +1,13 @@
-import { createSignal } from "solid-js";
+import {
+  createSampleSelectionSignal,
+  type Range,
+} from "./sampleSelectionStore";
 
 // Why: half-open range indexed by FRAME (not byte) so selections stay valid
-// across 8-bit / 16-bit XM samples — Int16 frames have data.length frames in
-// data.byteLength/2 bytes.
-export interface XmSampleSelection {
-  start: number;
-  end: number;
-}
+// across 8-bit / 16-bit XM samples.
+export type XmSampleSelection = Range;
 
-export const [xmSampleSelection, setXmSampleSelection] =
-  createSignal<XmSampleSelection | null>(null);
-
-export function clearXmSampleSelection(): void {
-  setXmSampleSelection(null);
-}
+const s = createSampleSelectionSignal();
+export const xmSampleSelection = s.signal;
+export const setXmSampleSelection = s.set;
+export const clearXmSampleSelection = s.clear;

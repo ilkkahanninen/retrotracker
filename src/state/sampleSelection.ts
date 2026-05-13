@@ -1,9 +1,10 @@
-import { createSignal } from "solid-js";
+import {
+  createSampleSelectionSignal,
+  type Range,
+} from "./sampleSelectionStore";
 
-export interface SampleSelection {
-  start: number;
-  end: number;
-}
+export type SampleSelection = Range;
 
-export const [sampleSelection, setSampleSelection] =
-  createSignal<SampleSelection | null>(null);
+const s = createSampleSelectionSignal();
+export const sampleSelection = s.signal;
+export const setSampleSelection = s.set;
