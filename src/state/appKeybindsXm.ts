@@ -82,14 +82,45 @@ import {
 
 const isFt2Mode = () => song()?.format === "FT2";
 
-// Why: XM extended effect codes (0x10..0x21, skipping unimplemented slots).
-// Typed when the cursor is on effectCmd; the registration matches by
-// produced character so a Nordic/Dvorak user gets the same G effect.
-const EFFECT_LETTERS = ["g", "h", "k", "l", "p", "r", "t", "x"] as const;
+// Why: full FT2 effect-command alphabet. 0..9 + A..F are the base PT-shared
+// codes (arpeggio…set speed); G..X are XM extensions (skipping I, J, M, N,
+// O, Q, S, U, V, W which ft2-clone leaves unimplemented). Routed to
+// `enterXmEffectChar` so the upper-nibble param tail (G..X) and the basic
+// 0..F flow through the same code path on the effectCmd field.
+const EFFECT_CMD_KEYS = [
+  "0",
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+  "a",
+  "b",
+  "c",
+  "d",
+  "e",
+  "f",
+  "g",
+  "h",
+  "k",
+  "l",
+  "p",
+  "r",
+  "t",
+  "x",
+] as const;
 
-/** True when the cursor's field accepts a hex digit (anything but `note`). */
+// Why: hex-digit entry covers instHi/Lo, volHi/Lo, effectHi/Lo — NOT
+// effectCmd. The effect-cmd field has its own EFFECT_CMD_KEYS loop, and
+// shadowing it with a hex registration would silently no-op (enterXmHexDigit
+// has no case for that field).
 function isXmHexField(): boolean {
-  return xmCursor().field !== "note";
+  const f = xmCursor().field;
+  return f !== "note" && f !== "effectCmd";
 }
 
 /** True when the cursor's field is the effect-cmd column (accepts letters G..X). */
@@ -258,10 +289,10 @@ export function registerXmAppKeybinds(): Array<() => void> {
       }),
     );
   }
-  // Effect-cmd letters: G..X (XM extended commands). Only fire when the
-  // cursor is exactly on the effect-cmd field — otherwise they'd shadow
-  // the piano keys and hex-letter entry on overlapping letters.
-  for (const ch of EFFECT_LETTERS) {
+  // Effect-cmd characters: 0..9, A..F (PT-shared codes) + G..X (XM
+  // extensions). Only fire when the cursor is exactly on the effect-cmd
+  // field so they don't shadow piano keys or the hex-nibble loop above.
+  for (const ch of EFFECT_CMD_KEYS) {
     cleanups.push(
       registerShortcut({
         key: ch,
