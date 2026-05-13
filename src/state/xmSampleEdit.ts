@@ -55,7 +55,12 @@ import {
   XM_MAX_INSTRUMENTS,
   type XmSample,
 } from "../core/xm/types";
-import { commitEditXm, transport, xm2Song } from "./song";
+import {
+  commitEditXm,
+  commitEditXmWithWorkbenches,
+  transport,
+  xm2Song,
+} from "./song";
 import { setError } from "./session";
 import {
   currentXmInstrument,
@@ -68,6 +73,7 @@ import {
   clearXmWorkbench,
   getXmWorkbench,
   setXmWorkbench,
+  withXmWorkbench,
   xmWorkbenches,
   setXmWorkbenchesRaw,
   xmWorkbenchKey,
@@ -156,13 +162,17 @@ function getOrInitCurrentXmWorkbench(): {
  * Replace the current workbench AND re-run the pipeline into the
  * instrument's sample. The XM sample's loop / volume / finetune / etc.
  * meta stay put — only data + bits + length are touched.
+ *
+ * Routed through `commitEditXmWithWorkbenches` so the workbench swap
+ * AND the resulting sample-bytes update land in the same history
+ * entry. Without that, `undo` would roll back the sample data but
+ * leave the new chain / source on the workbench, desyncing the editor.
  */
 function updateCurrentXmWorkbench(next: XmSampleWorkbench): void {
   if (transport() === "playing") return;
   const ctx = getOrInitCurrentXmWorkbench();
   if (!ctx) return;
   const { inst1Based, sampleIdx, sample } = ctx;
-  setXmWorkbench(inst1Based, sampleIdx, next);
   const { data, bits } = runXmPipeline(next);
   // Truncate the loop into the new buffer without shifting it: keep
   // the overlap between the original loop range and the new range.
@@ -181,9 +191,20 @@ function updateCurrentXmWorkbench(next: XmSampleWorkbench): void {
     loopLength,
     loopType: loopLength > 0 ? sample.loopType : "none",
   };
-  commitEditXm((s) =>
-    setXmInstrumentSample(s, inst1Based, updatedSample, sampleIdx),
-  );
+  commitEditXmWithWorkbenches((state) => ({
+    song: setXmInstrumentSample(
+      state.song,
+      inst1Based,
+      updatedSample,
+      sampleIdx,
+    ),
+    xmWorkbenches: withXmWorkbench(
+      state.xmWorkbenches,
+      inst1Based,
+      sampleIdx,
+      next,
+    ),
+  }));
 }
 
 // ─── Chain ops ───────────────────────────────────────────────────────────
@@ -406,7 +427,34 @@ export function setXmDither(dither: boolean): void {
 
 // ─── Source-kind toggle (sampler ↔ chiptune) ─────────────────────────────
 
+/**
+ * Materialise the current (instrument, sample) slot if it's still
+ * unallocated. A freshly-created XM song has `instruments: []`, so
+ * clicking a source tab on instrument 1 would otherwise no-op — the
+ * WAV-load path already lazy-creates here, and the source-picker
+ * affordance should do the same.
+ */
+function ensureCurrentXmSampleExists(): void {
+  if (transport() === "playing") return;
+  const song = xm2Song();
+  if (!song) return;
+  const slot1Based = currentXmInstrument();
+  const sampleIdx = currentXmSampleIndex();
+  if (slot1Based < 1 || slot1Based > XM_MAX_INSTRUMENTS) return;
+  const inst = song.instruments[slot1Based - 1];
+  if (inst && inst.samples[sampleIdx]) return;
+  commitEditXm((s) =>
+    setXmInstrumentSample(s, slot1Based, emptyXmSample(), sampleIdx),
+  );
+}
+
 export function setXmSourceKind(kind: SourceKind): void {
+  // Lazy-create the slot first so the empty-instrument case (typical
+  // for a fresh XM song) flips into chiptune instead of silently
+  // no-opping. `getOrInitCurrentXmWorkbench` then builds the sampler
+  // workbench from the empty sample, which becomes the `alt` stash
+  // when we switch over.
+  ensureCurrentXmSampleExists();
   const ctx = getOrInitCurrentXmWorkbench();
   if (!ctx) return;
   const { wb } = ctx;
@@ -477,7 +525,6 @@ export function newXmChiptune(): void {
   });
 }
 
-void emptyXmSample;
 void patchXmInstrumentSample;
 
 // ─── Bounce ──────────────────────────────────────────────────────────────

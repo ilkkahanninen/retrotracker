@@ -1056,6 +1056,319 @@ function buildVolColVibrato(): XmSong {
   return s;
 }
 
+/**
+ * 41-vol-env-loop: volume envelope with loop enabled. The envelope
+ * ramps up, dips, returns, and the loop wraps the dip→return segment
+ * forever. Sustain is OFF, so the loop drives the audible amplitude
+ * modulation by itself.
+ */
+function buildVolEnvLoop(): XmSong {
+  const samp = newSample(triangleSample(512), "tri");
+  const inst: XmInstrument = {
+    ...newInstrument(samp, "tri"),
+    volumeEnvelope: {
+      enabled: true,
+      sustainEnabled: false,
+      loopEnabled: true,
+      sustainPoint: 0,
+      loopStart: 1,
+      loopEnd: 3,
+      points: [
+        { tick: 0, value: 0 },
+        { tick: 4, value: 64 },
+        { tick: 12, value: 16 },
+        { tick: 20, value: 64 },
+      ],
+    },
+  };
+  const pat = { rowCount: 32, rows: emptyRows(32, 4) };
+  pat.rows[0]![0] = cell({ note: 49, instrument: 1 });
+  let s = songWithPatterns([pat], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "vol-env-loop";
+  return s;
+}
+
+/**
+ * 42-vol-env-disabled: instrument carries a configured volume
+ * envelope but `enabled: false`. The voice should play at full
+ * volume — the envelope shape is irrelevant. Guards against an
+ * accidental "envelope always applied" regression.
+ */
+function buildVolEnvDisabled(): XmSong {
+  const samp = newSample(triangleSample(512), "tri");
+  const inst: XmInstrument = {
+    ...newInstrument(samp, "tri"),
+    volumeEnvelope: {
+      enabled: false,
+      sustainEnabled: true,
+      loopEnabled: false,
+      sustainPoint: 1,
+      loopStart: 0,
+      loopEnd: 0,
+      points: [
+        { tick: 0, value: 0 },
+        { tick: 30, value: 0 },
+      ],
+    },
+  };
+  const pat = { rowCount: 32, rows: emptyRows(32, 4) };
+  pat.rows[0]![0] = cell({ note: 49, instrument: 1 });
+  let s = songWithPatterns([pat], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "vol-env-disabled";
+  return s;
+}
+
+/**
+ * 43-pan-env-sustain: panning envelope with a sustain point. The
+ * envelope sweeps left→right→halt-at-sustain; the voice should hold
+ * at the sustain pan value forever (no key-off in this song).
+ */
+function buildPanEnvSustain(): XmSong {
+  const samp = newSample(triangleSample(512), "tri");
+  const inst: XmInstrument = {
+    ...newInstrument(samp, "tri"),
+    panningEnvelope: {
+      enabled: true,
+      sustainEnabled: true,
+      loopEnabled: false,
+      sustainPoint: 2,
+      loopStart: 0,
+      loopEnd: 0,
+      points: [
+        { tick: 0, value: 0 },
+        { tick: 8, value: 64 },
+        { tick: 16, value: 48 },
+        { tick: 30, value: 0 },
+      ],
+    },
+  };
+  const pat = { rowCount: 32, rows: emptyRows(32, 4) };
+  pat.rows[0]![0] = cell({ note: 49, instrument: 1 });
+  let s = songWithPatterns([pat], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "pan-env-sustain";
+  return s;
+}
+
+/**
+ * 44-pan-env-loop: panning envelope with loop. The voice should
+ * oscillate left↔right indefinitely while the loop wraps.
+ */
+function buildPanEnvLoop(): XmSong {
+  const samp = newSample(triangleSample(512), "tri");
+  const inst: XmInstrument = {
+    ...newInstrument(samp, "tri"),
+    panningEnvelope: {
+      enabled: true,
+      sustainEnabled: false,
+      loopEnabled: true,
+      sustainPoint: 0,
+      loopStart: 1,
+      loopEnd: 3,
+      points: [
+        { tick: 0, value: 32 },
+        { tick: 6, value: 0 },
+        { tick: 12, value: 64 },
+        { tick: 18, value: 0 },
+      ],
+    },
+  };
+  const pat = { rowCount: 32, rows: emptyRows(32, 4) };
+  pat.rows[0]![0] = cell({ note: 49, instrument: 1 });
+  let s = songWithPatterns([pat], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "pan-env-loop";
+  return s;
+}
+
+/**
+ * 45-autovib-square: instrument autovibrato with square waveform.
+ * Pitch alternates between two values at the vibrato rate.
+ */
+function buildAutoVibratoSquare(): XmSong {
+  const samp = newSample(triangleSample(512), "tri");
+  const inst: XmInstrument = {
+    ...newInstrument(samp, "tri"),
+    vibratoType: "square",
+    vibratoSweep: 0,
+    vibratoDepth: 8,
+    vibratoRate: 4,
+  };
+  const pat = { rowCount: 32, rows: emptyRows(32, 4) };
+  pat.rows[0]![0] = cell({ note: 49, instrument: 1 });
+  let s = songWithPatterns([pat], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "autovib-square";
+  return s;
+}
+
+/**
+ * 46-autovib-ramp-down: instrument autovibrato with ramp-down sawtooth.
+ */
+function buildAutoVibratoRampDown(): XmSong {
+  const samp = newSample(triangleSample(512), "tri");
+  const inst: XmInstrument = {
+    ...newInstrument(samp, "tri"),
+    vibratoType: "ramp-down",
+    vibratoSweep: 0,
+    vibratoDepth: 8,
+    vibratoRate: 4,
+  };
+  const pat = { rowCount: 32, rows: emptyRows(32, 4) };
+  pat.rows[0]![0] = cell({ note: 49, instrument: 1 });
+  let s = songWithPatterns([pat], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "autovib-ramp-down";
+  return s;
+}
+
+/**
+ * 47-autovib-ramp-up: instrument autovibrato with ramp-up sawtooth.
+ */
+function buildAutoVibratoRampUp(): XmSong {
+  const samp = newSample(triangleSample(512), "tri");
+  const inst: XmInstrument = {
+    ...newInstrument(samp, "tri"),
+    vibratoType: "ramp-up",
+    vibratoSweep: 0,
+    vibratoDepth: 8,
+    vibratoRate: 4,
+  };
+  const pat = { rowCount: 32, rows: emptyRows(32, 4) };
+  pat.rows[0]![0] = cell({ note: 49, instrument: 1 });
+  let s = songWithPatterns([pat], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "autovib-ramp-up";
+  return s;
+}
+
+/**
+ * 48-multi-sample: two-sample instrument routed by the keyMap. Notes
+ * below B-3 (note 48) play sample 0 (triangle); B-3 and above play
+ * sample 1 (square). The fixture triggers one note on each side of
+ * the split so the libxmp reference can verify both routes.
+ */
+function buildMultiSample(): XmSong {
+  const sampLo = newSample(triangleSample(512), "lo");
+  const sampHi = newSample(squareSample(256), "hi");
+  const keyMap = new Uint8Array(96);
+  // Keymap is indexed by note-1 (note 1 = C-0). Notes 1..47 → sample 0,
+  // notes 48..96 → sample 1.
+  for (let i = 47; i < 96; i++) keyMap[i] = 1;
+  const inst: XmInstrument = {
+    ...newInstrument(sampLo, "multi"),
+    samples: [sampLo, sampHi],
+    keyMap,
+  };
+  const pat = { rowCount: 32, rows: emptyRows(32, 4) };
+  pat.rows[0]![0] = cell({ note: 37, instrument: 1 }); // C-3 → sample 0
+  pat.rows[8]![0] = cell({ note: 49, instrument: 1 }); // C-4 → sample 1
+  let s = songWithPatterns([pat], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "multi-sample";
+  return s;
+}
+
+/**
+ * 49-multi-sample-meta: two samples per instrument that disagree on
+ * volume / panning / finetune / relativeNote. The keyMap routes the
+ * lower half of the keyboard to a quiet, left-panned, +12-relative
+ * sample; the upper half plays a full-volume, right-panned, finetuned
+ * sample. Verifies that each per-sample meta field is consulted when
+ * the keymap picks that sample (not just samples[0]).
+ */
+function buildMultiSampleMeta(): XmSong {
+  const a: XmSample = {
+    ...newSample(triangleSample(512), "a"),
+    volume: 32,
+    panning: 0,
+    finetune: 0,
+    relativeNote: 12,
+  };
+  const b: XmSample = {
+    ...newSample(squareSample(256), "b"),
+    volume: 64,
+    panning: 255,
+    finetune: 32,
+    relativeNote: 0,
+  };
+  const keyMap = new Uint8Array(96);
+  for (let i = 47; i < 96; i++) keyMap[i] = 1;
+  const inst: XmInstrument = {
+    ...newInstrument(a, "meta"),
+    samples: [a, b],
+    keyMap,
+  };
+  const pat = { rowCount: 32, rows: emptyRows(32, 4) };
+  pat.rows[0]![0] = cell({ note: 37, instrument: 1 });
+  pat.rows[8]![0] = cell({ note: 49, instrument: 1 });
+  let s = songWithPatterns([pat], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "multi-sample-meta";
+  return s;
+}
+
+/**
+ * 50-no-loop: sample with `loopType: "none"`. The voice plays the
+ * 512-frame triangle once at the trigger rate and falls silent. The
+ * pattern holds the note for the full 32 rows so the tail of the
+ * comparison validates the silence (replayer must stop the voice when
+ * the sample end is reached, not wrap).
+ */
+function buildNoLoop(): XmSong {
+  const samp: XmSample = {
+    ...newSample(triangleSample(512), "once"),
+    loopType: "none",
+    loopStart: 0,
+    loopLength: 0,
+  };
+  const inst = { ...newInstrument(samp, "once"), samples: [samp] };
+  const pat = { rowCount: 32, rows: emptyRows(32, 4) };
+  pat.rows[0]![0] = cell({ note: 49, instrument: 1 });
+  let s = songWithPatterns([pat], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "no-loop";
+  return s;
+}
+
+/**
+ * 51-partial-loop: sample with a sub-range loop (loopStart > 0 and
+ * loopLength < data.length). The voice plays the head (frames 0..63)
+ * once and then loops the middle quarter (frames 64..127) forever.
+ */
+function buildPartialLoop(): XmSong {
+  const data = new Int8Array(256);
+  // Three-segment waveform so the loop is audibly distinct from the
+  // head: a ramp [0..63], a square middle [64..127], a sine tail
+  // [128..255]. Loop covers the square segment only.
+  for (let i = 0; i < 64; i++) data[i] = Math.round((i / 63) * 100 - 50);
+  for (let i = 64; i < 128; i++) data[i] = i < 96 ? 100 : -100;
+  for (let i = 128; i < 256; i++) {
+    data[i] = Math.round(80 * Math.sin(((i - 128) / 128) * 2 * Math.PI));
+  }
+  const samp: XmSample = {
+    name: "partial",
+    data,
+    bits: 8,
+    loopStart: 64,
+    loopLength: 64,
+    loopType: "forward",
+    volume: 64,
+    finetune: 0,
+    panning: 128,
+    relativeNote: 0,
+  };
+  const inst = { ...newInstrument(samp, "partial"), samples: [samp] };
+  const pat = { rowCount: 32, rows: emptyRows(32, 4) };
+  pat.rows[0]![0] = cell({ note: 49, instrument: 1 });
+  let s = songWithPatterns([pat], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "partial-loop";
+  return s;
+}
+
 // ─── Driver ────────────────────────────────────────────────────────────────
 
 const FIXTURES: { name: string; build: () => XmSong }[] = [
@@ -1100,6 +1413,17 @@ const FIXTURES: { name: string; build: () => XmSong }[] = [
   { name: "38-volcol-pan-slide", build: buildVolColPanSlide },
   { name: "39-volcol-tone-porta", build: buildVolColTonePorta },
   { name: "40-volcol-vibrato", build: buildVolColVibrato },
+  { name: "41-vol-env-loop", build: buildVolEnvLoop },
+  { name: "42-vol-env-disabled", build: buildVolEnvDisabled },
+  { name: "43-pan-env-sustain", build: buildPanEnvSustain },
+  { name: "44-pan-env-loop", build: buildPanEnvLoop },
+  { name: "45-autovib-square", build: buildAutoVibratoSquare },
+  { name: "46-autovib-ramp-down", build: buildAutoVibratoRampDown },
+  { name: "47-autovib-ramp-up", build: buildAutoVibratoRampUp },
+  { name: "48-multi-sample", build: buildMultiSample },
+  { name: "49-multi-sample-meta", build: buildMultiSampleMeta },
+  { name: "50-no-loop", build: buildNoLoop },
+  { name: "51-partial-loop", build: buildPartialLoop },
 ];
 
 const OUT_DIR = fileURLToPath(new URL("./", import.meta.url));

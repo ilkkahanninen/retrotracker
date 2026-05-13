@@ -81,12 +81,19 @@ const DEFAULT_TOLERANCE: Tolerance = { rms: 0.002, peak: 0.01 };
 //  - **Fadeout / finetune**: per-tick float / integer rounding drifts
 //    by a few units of period over a multi-row hold.
 const FIXTURE_TOLERANCES: Record<string, Tolerance> = {
-  // LFO phase drift.
+  // LFO phase drift (sine autovibrato + per-row vibrato/tremolo).
   "07-vibrato": { rms: 0.06, peak: 0.15 },
   "08-tremolo": { rms: 0.04, peak: 0.2 },
   "10-vibrato-vol-slide": { rms: 0.05, peak: 0.15 },
   "26-auto-vibrato": { rms: 0.02, peak: 0.05 },
   "40-volcol-vibrato": { rms: 0.05, peak: 0.15 },
+  // Non-sine autovibrato waveform shape differences. Our autovibrato
+  // table is ported from ft2-clone (256-entry LFO); libxmp uses 64-entry
+  // tables and a different sawtooth formula. The audible swing magnitude
+  // matches; the bit-exact shape doesn't.
+  "45-autovib-square": { rms: 0.05, peak: 0.15 },
+  "46-autovib-ramp-down": { rms: 0.12, peak: 0.3 },
+  "47-autovib-ramp-up": { rms: 0.06, peak: 0.2 },
   // Anti-click ramp shape on volume / pan transitions.
   "12-set-volume": { rms: 0.002, peak: 0.02 },
   "17-note-cut": { rms: 0.002, peak: 0.1 },
@@ -94,6 +101,13 @@ const FIXTURE_TOLERANCES: Record<string, Tolerance> = {
   "25-pan-envelope": { rms: 0.002, peak: 0.02 },
   "27-set-env-pos": { rms: 0.002, peak: 0.02 },
   "37-volcol-set-pan": { rms: 0.02, peak: 0.05 },
+  "44-pan-env-loop": { rms: 0.005, peak: 0.02 },
+  "49-multi-sample-meta": { rms: 0.002, peak: 0.02 },
+  // No-loop fixture cuts the voice when the sample ends; libxmp anti-
+  // click-ramps the final ~110 samples to silence while we still cut.
+  // The transient diff is bounded by the sample's amplitude at end-of-
+  // data (here ≈ ±99/127 ≈ 0.78); the running RMS stays small.
+  "50-no-loop": { rms: 0.005, peak: 0.5 },
   // Fadeout / finetune slow drift.
   "11-set-finetune": { rms: 0.01, peak: 0.05 },
   "22-key-off": { rms: 0.003, peak: 0.1 },

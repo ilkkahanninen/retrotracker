@@ -783,6 +783,20 @@ export function patchXmInstrumentSample(
     if (!sample) return inst;
     const clamp = (n: number, lo: number, hi: number) =>
       Math.max(lo, Math.min(hi, Math.floor(n)));
+    const dataLen = sample.data.length;
+    // Loop fields clamp against the sample's frame count so a drag past
+    // the buffer end can't poison the song with `loopStart=40000` on a
+    // 400-frame sample. The patch may update both start and length in
+    // one call, so resolve them in order: start first, then length
+    // against the remaining tail.
+    const nextLoopStart =
+      patch.loopStart !== undefined
+        ? clamp(patch.loopStart, 0, dataLen)
+        : sample.loopStart;
+    const nextLoopLength =
+      patch.loopLength !== undefined
+        ? clamp(patch.loopLength, 0, Math.max(0, dataLen - nextLoopStart))
+        : Math.min(sample.loopLength, Math.max(0, dataLen - nextLoopStart));
     const next: XmSample = {
       ...sample,
       ...(patch.name !== undefined ? { name: patch.name.slice(0, 22) } : {}),
@@ -799,12 +813,8 @@ export function patchXmInstrumentSample(
         ? { relativeNote: clamp(patch.relativeNote, -96, 95) }
         : {}),
       ...(patch.loopType !== undefined ? { loopType: patch.loopType } : {}),
-      ...(patch.loopStart !== undefined
-        ? { loopStart: Math.max(0, Math.floor(patch.loopStart)) }
-        : {}),
-      ...(patch.loopLength !== undefined
-        ? { loopLength: Math.max(0, Math.floor(patch.loopLength)) }
-        : {}),
+      ...(patch.loopStart !== undefined ? { loopStart: nextLoopStart } : {}),
+      ...(patch.loopLength !== undefined ? { loopLength: nextLoopLength } : {}),
     };
     if (
       next.name === sample.name &&

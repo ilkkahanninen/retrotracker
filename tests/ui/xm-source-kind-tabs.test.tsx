@@ -89,4 +89,34 @@ describe("InstrumentView source-kind tabs", () => {
     );
     expect(active?.textContent).toBe("Chiptune");
   });
+
+  it("clicking Chiptune on an empty instrument slot lazy-creates instrument + chiptune workbench", () => {
+    // Reseed without any instruments — mirrors a freshly-created XM
+    // song where the user hasn't loaded a WAV yet but lands on the
+    // first instrument slot.
+    const s = emptyXmSong();
+    s.instruments = [];
+    setSong(s);
+    setCurrentXmInstrument(1);
+    setCurrentXmSampleIndex(0);
+    setTransport("idle");
+    clearAllXmWorkbenches();
+    clearHistory();
+
+    const view = mountView();
+    const chiptuneTab = Array.from(
+      view.container.querySelectorAll<HTMLButtonElement>(
+        '.source-picker button[role="tab"]',
+      ),
+    ).find((t) => t.textContent === "Chiptune");
+    expect(chiptuneTab).toBeDefined();
+    fireEvent.click(chiptuneTab!);
+
+    const wb = getXmWorkbench(1, 0);
+    expect(wb?.source.kind).toBe("chiptune");
+    // The song should now have a materialised instrument + sample.
+    const song = xm2Song();
+    expect(song?.instruments[0]).toBeDefined();
+    expect(song?.instruments[0]?.samples[0]).toBeDefined();
+  });
 });

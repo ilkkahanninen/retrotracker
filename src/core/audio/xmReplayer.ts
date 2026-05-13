@@ -1641,11 +1641,16 @@ export class XmReplayer {
     const loopStart = samp.loopStart;
     const loopEnd = samp.loopStart + samp.loopLength;
     const hasLoop = loopType !== "none" && samp.loopLength > 0;
+    // Forward wrap point: when a loop is active, the voice cycles
+    // `[loopStart, loopEnd)` and never reads past `loopEnd` — matches
+    // libxmp's mixer.c loop_reposition, which subtracts the loop size
+    // at vi->end. For non-looping samples the cutoff is dataLen.
+    const endPos = hasLoop ? loopEnd : dataLen;
     let pos = v.pos;
     let stepSigned = v.step * v.direction;
     for (let i = 0; i < frames; i++) {
       pos += stepSigned;
-      if (v.direction === 1 && pos >= dataLen) {
+      if (v.direction === 1 && pos >= endPos) {
         if (hasLoop && loopType === "forward") {
           pos = loopStart + ((pos - loopStart) % samp.loopLength);
         } else if (hasLoop && loopType === "ping-pong") {
@@ -1693,6 +1698,9 @@ export class XmReplayer {
     const loopStart = samp.loopStart;
     const loopEnd = samp.loopStart + samp.loopLength;
     const hasLoop = loopType !== "none" && samp.loopLength > 0;
+    // See advanceVoicePos: with a loop active, the voice cycles
+    // `[loopStart, loopEnd)` — never reads past `loopEnd`.
+    const endPos = hasLoop ? loopEnd : dataLen;
     let peak = v.peak;
     // Cache the ramp state in locals so the hot loop reads / writes
     // them without going through the voice object each frame.
@@ -1784,7 +1792,7 @@ export class XmReplayer {
       // mirrors libxmp's vi->pos advancement — both ours and theirs
       // are in double space here.
       pos += stepSigned;
-      if (v.direction === 1 && pos >= dataLen) {
+      if (v.direction === 1 && pos >= endPos) {
         if (hasLoop && loopType === "forward") {
           pos = loopStart + ((pos - loopStart) % samp.loopLength);
         } else if (hasLoop && loopType === "ping-pong") {
