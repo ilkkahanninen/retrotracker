@@ -1,3 +1,4 @@
+import type { ModSong } from "../core/mod/types";
 import {
   cleanupOrders,
   deleteOrder,
@@ -7,101 +8,52 @@ import {
   nextPatternAtOrder,
   prevPatternAtOrder,
 } from "../core/mod/mutations";
-import { commitEditWithWorkbenches, playPos, song, transport } from "./song";
+import { commitEditWithWorkbenches, playPos, pt2Song, transport } from "./song";
 import { cursor, requestJumpToTop } from "./cursor";
 import { jumpPlaybackToOrder } from "./playback";
 import { applyCursor } from "./patternEdit";
+import { createOrderEdit } from "./orderEditCore";
 
-// Why: order-list commands target the playhead while playing (so `]` reroutes
-// the live mix), the cursor when stopped.
-function activeOrder(): number {
-  return transport() === "playing" ? playPos().order : cursor().order;
-}
+const ops = createOrderEdit<ModSong>({
+  getSong: pt2Song,
+  songLength: (s) => s.songLength,
+  // Why: order-list commands target the playhead while playing (so `]` reroutes
+  // the live mix), the cursor when stopped.
+  activeOrder: () =>
+    transport() === "playing" ? playPos().order : cursor().order,
+  cursorOrder: () => cursor().order,
+  applyCursorToOrder: (order) => {
+    applyCursor({ ...cursor(), order, row: 0 });
+    requestJumpToTop();
+  },
+  commitSong: (transform) =>
+    commitEditWithWorkbenches((state) => {
+      const next = transform(state.song);
+      return next === state.song ? state : { ...state, song: next };
+    }),
+  isPlaying: () => transport() === "playing",
+  jumpPlaybackToOrder: (order) => {
+    void jumpPlaybackToOrder(order);
+  },
+  mutations: {
+    insertOrder,
+    deleteOrder,
+    nextPattern: nextPatternAtOrder,
+    prevPattern: prevPatternAtOrder,
+    newPattern: newPatternAtOrder,
+    duplicatePattern: duplicatePatternAtOrder,
+  },
+});
 
-export function jumpToOrder(order: number): void {
-  const s = song();
-  if (!s) return;
-  const clamped = Math.max(0, Math.min(s.songLength - 1, order));
-  if (transport() === "playing") {
-    void jumpPlaybackToOrder(clamped);
-    return;
-  }
-  applyCursor({ ...cursor(), order: clamped, row: 0 });
-  requestJumpToTop();
-}
-
-export function jumpPrevOrder(): void {
-  const o = activeOrder();
-  if (o <= 0) return;
-  jumpToOrder(o - 1);
-}
-
-export function jumpNextOrder(): void {
-  const s = song();
-  if (!s) return;
-  const o = activeOrder();
-  if (o >= s.songLength - 1) return;
-  jumpToOrder(o + 1);
-}
-
-export function stepNextPattern(): void {
-  const o = activeOrder();
-  commitEditWithWorkbenches((state) => {
-    const next = nextPatternAtOrder(state.song, o);
-    return next === state.song ? state : { ...state, song: next };
-  });
-}
-
-export function stepPrevPattern(): void {
-  const o = activeOrder();
-  commitEditWithWorkbenches((state) => {
-    const next = prevPatternAtOrder(state.song, o);
-    return next === state.song ? state : { ...state, song: next };
-  });
-}
-
-export function insertOrderSlot(): void {
-  const before = song();
-  if (!before) return;
-  const o = activeOrder();
-  commitEditWithWorkbenches((state) => {
-    const next = insertOrder(state.song, o);
-    return next === state.song ? state : { ...state, song: next };
-  });
-  const after = song();
-  if (!after) return;
-  if (after.songLength === before.songLength) return;
-  applyCursor({ ...cursor(), order: o + 1, row: 0 });
-  requestJumpToTop();
-}
-
-export function deleteOrderSlot(): void {
-  const o = activeOrder();
-  commitEditWithWorkbenches((state) => {
-    const next = deleteOrder(state.song, o);
-    return next === state.song ? state : { ...state, song: next };
-  });
-  const after = song();
-  if (after && cursor().order >= after.songLength) {
-    applyCursor({ ...cursor(), order: after.songLength - 1, row: 0 });
-  }
-}
-
-export function newBlankPatternAtOrder(): void {
-  const o = activeOrder();
-  commitEditWithWorkbenches((state) => {
-    const next = newPatternAtOrder(state.song, o);
-    return next === state.song ? state : { ...state, song: next };
-  });
-}
-
-export function duplicateCurrentPattern(): void {
-  const o = activeOrder();
-  commitEditWithWorkbenches((state) => {
-    const next = duplicatePatternAtOrder(state.song, o);
-    return next === state.song ? state : { ...state, song: next };
-  });
-}
+export const jumpToOrder = ops.jumpToOrder;
+export const jumpPrevOrder = ops.jumpPrev;
+export const jumpNextOrder = ops.jumpNext;
+export const stepNextPattern = ops.stepNext;
+export const stepPrevPattern = ops.stepPrev;
+export const insertOrderSlot = ops.insertSlot;
+export const deleteOrderSlot = ops.deleteSlot;
+export const newBlankPatternAtOrder = ops.newBlankPattern;
+export const duplicateCurrentPattern = ops.duplicatePattern;
 
 // Why: song change and pattern-name re-keying must share one commit;
 // without the bundle, undo leaves names mapped to cleaned-up indices while
