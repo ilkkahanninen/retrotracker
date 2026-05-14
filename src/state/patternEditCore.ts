@@ -34,7 +34,13 @@ export interface PatternEditAdapter<
   setSelectionAnchor: (a: SelectionAnchor | null) => void;
   clearSelection: () => void;
   setPlayPos: (p: { order: number; row: number }) => void;
-  isPlaying: () => boolean;
+  /**
+   * Returns true when this commit / cursor move should be a no-op
+   * because playback is running *and* the Follow Playhead toggle is on.
+   * With Follow off, edits are forwarded live to the engine via
+   * sync.ts's `replaceSong` effect, so the gate releases.
+   */
+  isEditLocked: () => boolean;
   commitSong: (transform: (s: S) => S) => void;
   channelCount: (s: S) => number;
   visibleRowsOfOrder: (s: S, order: number) => { first: number; last: number };
@@ -86,14 +92,14 @@ export function createPatternEdit<
   Cell extends CellWithEffect,
 >(adapter: PatternEditAdapter<S, C, Cell>) {
   function applyCursor(next: C): void {
-    if (adapter.isPlaying()) return;
+    if (adapter.isEditLocked()) return;
     adapter.setCursorRaw(next);
     adapter.setPlayPos({ order: next.order, row: next.row });
     adapter.clearSelection();
   }
 
   function extendSelection(next: C): void {
-    if (adapter.isPlaying()) return;
+    if (adapter.isEditLocked()) return;
     const before = adapter.cursor();
     let anchor = adapter.selectionAnchor();
     if (!anchor) {
@@ -128,7 +134,7 @@ export function createPatternEdit<
   }
 
   function applyCursorWithSong(fn: (c: C, s: S) => C): void {
-    if (adapter.isPlaying()) return;
+    if (adapter.isEditLocked()) return;
     const s = adapter.song();
     if (!s) return;
     applyCursor(fn(adapter.cursor(), s));
@@ -182,7 +188,7 @@ export function createPatternEdit<
   });
 
   function clearAtCursor(): void {
-    if (adapter.isPlaying()) return;
+    if (adapter.isEditLocked()) return;
     const s = adapter.song();
     if (!s) return;
     const c = adapter.cursor();
@@ -196,7 +202,7 @@ export function createPatternEdit<
   }
 
   function repeatLastEffectFromAbove(): void {
-    if (adapter.isPlaying()) return;
+    if (adapter.isEditLocked()) return;
     const s = adapter.song();
     if (!s) return;
     const c = adapter.cursor();
@@ -218,7 +224,7 @@ export function createPatternEdit<
   }
 
   function selectAllStep(): void {
-    if (adapter.isPlaying()) return;
+    if (adapter.isEditLocked()) return;
     const s = adapter.song();
     if (!s) return;
     const c = adapter.cursor();
@@ -293,7 +299,7 @@ export function createPatternEdit<
   }
 
   function pasteAtCursor(): void {
-    if (adapter.isPlaying()) return;
+    if (adapter.isEditLocked()) return;
     const slice = adapter.getClipboard();
     if (!slice || slice.rows.length === 0) return;
     const c = adapter.cursor();
@@ -310,7 +316,7 @@ export function createPatternEdit<
   }
 
   function transposeAtCursor(deltaSemitones: number): void {
-    if (adapter.isPlaying()) return;
+    if (adapter.isEditLocked()) return;
     const s = adapter.song();
     if (!s) return;
     const sel = adapter.selection();
@@ -338,7 +344,7 @@ export function createPatternEdit<
   }
 
   function backspaceCell(): void {
-    if (adapter.isPlaying()) return;
+    if (adapter.isEditLocked()) return;
     const s = adapter.song();
     if (!s) return;
     const sel = adapter.selection();
@@ -362,7 +368,7 @@ export function createPatternEdit<
   }
 
   function backspaceRow(): void {
-    if (adapter.isPlaying()) return;
+    if (adapter.isEditLocked()) return;
     const s = adapter.song();
     if (!s) return;
     const sel = adapter.selection();
@@ -387,14 +393,14 @@ export function createPatternEdit<
   }
 
   function deleteSelection(): void {
-    if (adapter.isPlaying()) return;
+    if (adapter.isEditLocked()) return;
     const sel = adapter.selection();
     if (!sel) return;
     adapter.commitSong((song) => adapter.clipboardOps.clearRange(song, sel));
   }
 
   function insertEmptyCell(): void {
-    if (adapter.isPlaying()) return;
+    if (adapter.isEditLocked()) return;
     const s = adapter.song();
     if (!s) return;
     const c = adapter.cursor();
@@ -405,7 +411,7 @@ export function createPatternEdit<
   }
 
   function insertEmptyRow(): void {
-    if (adapter.isPlaying()) return;
+    if (adapter.isEditLocked()) return;
     const s = adapter.song();
     if (!s) return;
     const c = adapter.cursor();

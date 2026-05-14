@@ -8,7 +8,7 @@
  */
 
 import { registerShortcut } from "./shortcuts";
-import { song, transport, xm2Song } from "./song";
+import { song, xm2Song } from "./song";
 import { view } from "./view";
 import { toggleMute, toggleSolo } from "./channelMute";
 import { rowsPerBeat, beatsPerBar } from "./gridConfig";
@@ -78,6 +78,7 @@ import {
   DIGIT_QUICK_PICK as INSTRUMENT_QUICK,
   HEX_KEYS,
   PIANO_KEYS,
+  editsAllowed,
 } from "./keybindHelpers";
 
 const isFt2Mode = () => song()?.format === "FT2";
@@ -218,7 +219,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
         description: `Note (offset ${offset})`,
         when: () =>
           isFt2Mode() &&
-          transport() !== "playing" &&
+          editsAllowed() &&
           (view() === "sample" || xmCursor().field === "note"),
         run: () => onXmPianoKey(offset),
         runUp: () => {
@@ -242,7 +243,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
         position: true,
         shift: true,
         description: `Preview note (offset ${offset})`,
-        when: () => isFt2Mode() && transport() !== "playing",
+        when: () => isFt2Mode() && editsAllowed(),
         run: () => previewXmNote(offset),
         runUp: () => {
           stopEnginePreview();
@@ -264,7 +265,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
       description: "Key off (XM note 97)",
       when: () =>
         isFt2Mode() &&
-        transport() !== "playing" &&
+        editsAllowed() &&
         view() !== "sample" &&
         xmCursor().field === "note",
       run: enterXmKeyOff,
@@ -282,7 +283,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
         description: `Hex digit ${val.toString(16).toUpperCase()}`,
         when: () =>
           isFt2Mode() &&
-          transport() !== "playing" &&
+          editsAllowed() &&
           view() !== "sample" &&
           isXmHexField(),
         run: () => enterXmHexDigit(val),
@@ -299,7 +300,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
         description: `Effect command ${ch.toUpperCase()}`,
         when: () =>
           isFt2Mode() &&
-          transport() !== "playing" &&
+          editsAllowed() &&
           view() !== "sample" &&
           isEffectCmdField(),
         run: () => enterXmEffectChar(ch),
@@ -333,7 +334,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
         description: `Select instrument ${n}`,
         when: () =>
           isFt2Mode() &&
-          transport() !== "playing" &&
+          editsAllowed() &&
           (view() === "sample" || xmCursor().field === "note"),
         run: () => selectXmInstrument(n),
       }),
@@ -343,7 +344,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
         key: k,
         shift: true,
         description: `Select instrument ${n + 10}`,
-        when: () => isFt2Mode() && transport() !== "playing",
+        when: () => isFt2Mode() && editsAllowed(),
         run: () => selectXmInstrument(n + 10),
       }),
     );
@@ -353,7 +354,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
       key: "arrowup",
       alt: true,
       description: "Previous instrument",
-      when: () => isFt2Mode() && transport() !== "playing",
+      when: () => isFt2Mode() && editsAllowed(),
       run: prevXmInstrument,
     }),
   );
@@ -362,7 +363,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
       key: "arrowdown",
       alt: true,
       description: "Next instrument",
-      when: () => isFt2Mode() && transport() !== "playing",
+      when: () => isFt2Mode() && editsAllowed(),
       run: nextXmInstrument,
     }),
   );
@@ -372,7 +373,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
   // don't matter for a selection rectangle); up/down/page step rows.
   // All gated on FT2 + pattern view + transport idle.
   const selectionWhen = () =>
-    isFt2Mode() && transport() !== "playing" && view() !== "sample";
+    isFt2Mode() && editsAllowed() && view() !== "sample";
   cleanups.push(
     registerShortcut({
       key: "arrowleft",
@@ -448,7 +449,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
     registerShortcut({
       key: "delete",
       description: "Clear selected range",
-      when: () => isFt2Mode() && transport() !== "playing",
+      when: () => isFt2Mode() && editsAllowed(),
       run: deleteXmSelection,
     }),
   );
@@ -642,8 +643,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
       key: "e",
       mod: true,
       description: "Bounce selection to new instrument",
-      when: () =>
-        isFt2Mode() && transport() !== "playing" && view() !== "sample",
+      when: () => isFt2Mode() && editsAllowed() && view() !== "sample",
       run: bounceXmSelectionToInstrument,
     }),
   );
@@ -656,8 +656,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
     registerShortcut({
       key: ",",
       description: "Repeat last effect from above on this channel",
-      when: () =>
-        isFt2Mode() && transport() !== "playing" && view() !== "sample",
+      when: () => isFt2Mode() && editsAllowed() && view() !== "sample",
       run: repeatLastXmEffectFromAbove,
     }),
   );
@@ -668,7 +667,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
   // selection when one exists, otherwise on the cell at the cursor —
   // mirrors PT2's behaviour exactly.
   const transposeWhen = () =>
-    isFt2Mode() && transport() !== "playing" && view() !== "sample";
+    isFt2Mode() && editsAllowed() && view() !== "sample";
   cleanups.push(
     registerShortcut({
       key: "-",

@@ -212,34 +212,38 @@ The chiptune source persists in the `.retro` project (the synth is deterministic
 
 ## Playback
 
-Transport buttons at the top: **Play song**, **Play pattern (loop)**, **Stop**.
+The header transport is a single **Play / Stop** button plus three persisted toggles:
 
-| Shortcut            | Action                   |
-| ------------------- | ------------------------ |
-| Space               | Play song / Stop         |
-| Alt + Space         | Play pattern (loop)      |
-| Shift + Space       | Play song from cursor    |
-| Alt + Shift + Space | Play pattern from cursor |
+- **Song ↔ Pattern** segmented toggle — what Play starts: the whole song from row 0 or the cursor's pattern on loop.
+- **Follow** toggle — when on (default), the pattern view auto-scrolls to keep the playhead centered and pattern editing is locked. When off, the view tracks the editing cursor instead and pattern edits commit live during playback (forwarded to the engine via the in-flight song snapshot).
+
+Both toggles persist across sessions.
+
+| Shortcut       | Action                                                                                                       |
+| -------------- | ------------------------------------------------------------------------------------------------------------ |
+| Space          | Play / Stop (from row 0 of the song or cursor's pattern, depending on the Song / Pattern toggle)             |
+| Option + Space | Play from cursor row, or — when already playing — pause and snap the editing cursor to the playhead position |
+| C              | Toggle Song / Pattern mode (PT2: note column only; FT2: note column only)                                    |
+| V              | Toggle Follow playhead (FT2: anywhere except the effect-cmd column)                                          |
 
 The **playhead** row is highlighted in the grid; per-channel VU meters above each column track real-time peaks.
 
 ### Live editing during playback
 
-Most edits stay live while the song plays:
+With **Follow off**, pattern-cell edits, transpose, clipboard ops, and undo / redo all commit live and the engine picks up the change on the next row processed.
 
-- **Sample/synth edits** — chiptune sliders, sampler chain effects, crop, loop adjust, sample-meta tweaks. Changes are pushed to the worklet's voice latches and audibly snap into the next loop wrap.
+The following stay live regardless of the Follow toggle:
+
+- **Sample / synth edits** — chiptune sliders, sampler chain effects, crop, loop adjust, sample-meta tweaks. Changes are pushed to the worklet's voice latches and audibly snap into the next loop wrap.
 - **Order edits** — slot stepping, insert / delete, new / duplicate pattern. Audible on the next row tick.
 - **Order list jump** — clicking a slot or pressing `[` / `]` retargets playback to that slot's row 0 without stopping.
 - **Song title / file name / info text** — metadata only, instantly editable.
 - **Channel mute / solo** — instant.
 
-What's still gated during playback:
+What's still gated **only with Follow on**:
 
-- **Pattern-cell edits** — would race the worklet mixing the same data.
-- **Clean up** in the order list — renumbers patterns the worklet's snapshot still references.
-- **Undo / redo** — same race condition as pattern-cell edits.
-
-Stop playback (Space) when you need to do any of those.
+- **Pattern-cell edits, transpose, clipboard paste, undo / redo** — turn Follow off to release the lock.
+- **Clean up** in the order list — renumbers patterns the worklet's snapshot still references; do this while stopped.
 
 ## Channels: mute and solo
 
@@ -310,12 +314,12 @@ The full list lives in the Pattern view's right rail (PatternHelp pane), localis
 
 ### Playback
 
-| Keys                | Action                   |
-| ------------------- | ------------------------ |
-| Space               | Play song / Stop         |
-| Alt + Space         | Play pattern (loop)      |
-| Shift + Space       | Play song from cursor    |
-| Alt + Shift + Space | Play pattern from cursor |
+| Keys        | Action                                      |
+| ----------- | ------------------------------------------- |
+| Space       | Play / Stop (from row 0)                    |
+| Alt + Space | Play from cursor / pause and snap cursor    |
+| `C`         | Toggle Song / Pattern mode (note column)    |
+| `V`         | Toggle Follow playhead (off ⇒ live editing) |
 
 ### Channels
 

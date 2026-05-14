@@ -12,9 +12,14 @@ import {
   tabPrev,
   type Cursor,
 } from "./cursor";
-import { song, transport } from "./song";
+import { song, xm2Song } from "./song";
 import { setView, view } from "./view";
-import { togglePaulaModel } from "./settings";
+import {
+  togglePaulaModel,
+  toggleLoopPattern,
+  toggleFollowPlayback,
+} from "./settings";
+import { xmCursor } from "./cursorXm";
 import { rowsPerBeat, beatsPerBar } from "./gridConfig";
 import {
   decEditStep,
@@ -27,11 +32,8 @@ import {
   prevSample,
 } from "./edit";
 import {
-  stopPlayback,
-  playFromStart,
-  playFromCursor,
-  playPatternFromStart,
-  playPatternFromCursor,
+  toggleTransport,
+  playFromCursorRespectingMode,
   stopEnginePreview,
 } from "./playback";
 import * as preview from "./preview";
@@ -41,6 +43,7 @@ import {
   DIGIT_QUICK_PICK as SAMPLE_QUICK,
   HEX_KEYS,
   PIANO_KEYS,
+  editsAllowed,
 } from "./keybindHelpers";
 
 /**
@@ -145,8 +148,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       key: "a",
       mod: true,
       description: "Select all rows of channel / pattern",
-      when: () =>
-        isPt2Mode() && transport() !== "playing" && view() !== "sample",
+      when: () => isPt2Mode() && editsAllowed() && view() !== "sample",
       run: h.selectAllStep,
     }),
   );
@@ -198,7 +200,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       key: "e",
       mod: true,
       description: "Bounce selection to sample",
-      when: () => transport() !== "playing" && view() !== "sample",
+      when: () => editsAllowed() && view() !== "sample",
       run: h.bounceSelectionToSample,
     }),
   );
@@ -239,19 +241,22 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       run: togglePaulaModel,
     }),
   );
-  // Transport (Space-based chords; Option used instead of Cmd to avoid the
-  // macOS Spotlight conflict on ⌘+Space).
-  //   Space               → toggle: stop if playing, otherwise play song from start
-  //   Option + Space      → play pattern (loop) from start of cursor's pattern
-  //   Shift + Space       → play song from cursor
-  //   Option + Shift + Space → play pattern (loop) from cursor row
+  // Transport (Space-based; Option used instead of Cmd to avoid the
+  // macOS Spotlight conflict on ⌘+Space). Song-vs-pattern and the
+  // start-vs-cursor decision is now split between the persisted
+  // `loopPattern` toggle (header UI) and the Option modifier:
+  //   Space          → toggle Play/Stop, starts from row 0 of song or
+  //                    cursor's pattern depending on the loopPattern toggle
+  //   Option + Space → if stopped, play from the cursor row (mode-aware);
+  //                    if playing, pause and snap the cursor to the
+  //                    playhead row (so the next Option+Space resumes
+  //                    from where playback stopped)
   cleanups.push(
     registerShortcut({
       key: " ",
       description: "Play / Stop",
       run: () => {
-        if (transport() === "playing") stopPlayback();
-        else void playFromStart();
+        void toggleTransport();
       },
     }),
   );
@@ -259,31 +264,38 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
     registerShortcut({
       key: " ",
       alt: true,
-      description: "Play pattern (loop)",
+      description: "Play from cursor / Pause at playhead",
       run: () => {
-        void playPatternFromStart();
+        void playFromCursorRespectingMode();
       },
+    }),
+  );
+  // C / V toggle the persisted transport prefs. Placed near Space so the
+  // whole transport family lives under one hand. C conflicts with hex
+  // digit 0xC on PT hex fields and with FT2 effect letter C on the
+  // effectCmd field — gated to fire only on the note column to avoid
+  // shadowing pattern entry. V isn't a PT hex key but IS an FT2 effect
+  // letter (0x1F), so it's gated off the FT2 effect-cmd field.
+  cleanups.push(
+    registerShortcut({
+      key: "c",
+      description: "Toggle Song / Pattern playback mode",
+      when: () => {
+        if (xm2Song()) return xmCursor().field === "note";
+        return cursor().field === "note";
+      },
+      run: toggleLoopPattern,
     }),
   );
   cleanups.push(
     registerShortcut({
-      key: " ",
-      shift: true,
-      description: "Play song from cursor",
-      run: () => {
-        void playFromCursor();
+      key: "v",
+      description: "Toggle Follow playhead",
+      when: () => {
+        if (xm2Song()) return xmCursor().field !== "effectCmd";
+        return true;
       },
-    }),
-  );
-  cleanups.push(
-    registerShortcut({
-      key: " ",
-      alt: true,
-      shift: true,
-      description: "Play pattern from cursor (loop)",
-      run: () => {
-        void playPatternFromCursor();
-      },
+      run: toggleFollowPlayback,
     }),
   );
   // Cursor navigation (no-op while playing — handled inside applyCursor).
@@ -369,7 +381,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   // Shift+arrow selection: PT-mode-only (FT2 hasn't grown a selection model
   // yet — that lands when a Phase 3 follow-up adds clipboard support).
   const shiftSelectionWhen = () =>
-    isPt2Mode() && transport() !== "playing" && view() !== "sample";
+    isPt2Mode() && editsAllowed() && view() !== "sample";
   cleanups.push(
     registerShortcut({
       key: "arrowleft",
@@ -455,7 +467,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
         // just auditioning the current slot).
         when: () =>
           isPt2Mode() &&
-          transport() !== "playing" &&
+          editsAllowed() &&
           (view() === "sample" || cursor().field === "note"),
         run: () => h.onPianoKey(offset),
         runUp: () => {
@@ -473,7 +485,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
         position: true,
         shift: true,
         description: `Preview note (offset ${offset})`,
-        when: () => isPt2Mode() && transport() !== "playing",
+        when: () => isPt2Mode() && editsAllowed(),
         run: () => h.previewPianoKey(offset),
         runUp: () => {
           stopEnginePreview();
@@ -493,7 +505,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
         description: `Hex digit ${val.toString(16).toUpperCase()}`,
         when: () =>
           isPt2Mode() &&
-          transport() !== "playing" &&
+          editsAllowed() &&
           view() !== "sample" &&
           isHexField(cursor().field),
         run: () => h.enterHexDigit(val),
@@ -532,7 +544,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       shift: true,
       position: true,
       description: "Decrease edit step",
-      when: () => transport() !== "playing",
+      when: () => editsAllowed(),
       run: decEditStep,
     }),
   );
@@ -542,7 +554,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       shift: true,
       position: true,
       description: "Increase edit step",
-      when: () => transport() !== "playing",
+      when: () => editsAllowed(),
       run: incEditStep,
     }),
   );
@@ -551,7 +563,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       key: "/",
       position: true,
       description: "Reset edit step to 1",
-      when: () => transport() !== "playing",
+      when: () => editsAllowed(),
       run: resetEditStep,
     }),
   );
@@ -570,7 +582,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
         description: `Select sample ${n}`,
         when: () =>
           isPt2Mode() &&
-          transport() !== "playing" &&
+          editsAllowed() &&
           (view() === "sample" || !isHexField(cursor().field)),
         run: () => selectSample(n),
       }),
@@ -580,7 +592,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
         key: k,
         shift: true,
         description: `Select sample ${n + 10}`,
-        when: () => isPt2Mode() && transport() !== "playing",
+        when: () => isPt2Mode() && editsAllowed(),
         run: () => selectSample(n + 10),
       }),
     );
@@ -590,7 +602,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       key: "arrowup",
       alt: true,
       description: "Previous sample",
-      when: () => isPt2Mode() && transport() !== "playing",
+      when: () => isPt2Mode() && editsAllowed(),
       run: prevSample,
     }),
   );
@@ -599,7 +611,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       key: "arrowdown",
       alt: true,
       description: "Next sample",
-      when: () => isPt2Mode() && transport() !== "playing",
+      when: () => isPt2Mode() && editsAllowed(),
       run: nextSample,
     }),
   );
@@ -612,8 +624,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       key: "-",
       shift: true,
       description: "Transpose down 1 semitone",
-      when: () =>
-        isPt2Mode() && transport() !== "playing" && view() !== "sample",
+      when: () => isPt2Mode() && editsAllowed() && view() !== "sample",
       run: () => h.transposeAtCursor(-1),
     }),
   );
@@ -622,8 +633,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       key: "=",
       shift: true,
       description: "Transpose up 1 semitone",
-      when: () =>
-        isPt2Mode() && transport() !== "playing" && view() !== "sample",
+      when: () => isPt2Mode() && editsAllowed() && view() !== "sample",
       run: () => h.transposeAtCursor(1),
     }),
   );
@@ -633,8 +643,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       mod: true,
       shift: true,
       description: "Transpose down 1 octave",
-      when: () =>
-        isPt2Mode() && transport() !== "playing" && view() !== "sample",
+      when: () => isPt2Mode() && editsAllowed() && view() !== "sample",
       run: () => h.transposeAtCursor(-12),
     }),
   );
@@ -644,8 +653,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       mod: true,
       shift: true,
       description: "Transpose up 1 octave",
-      when: () =>
-        isPt2Mode() && transport() !== "playing" && view() !== "sample",
+      when: () => isPt2Mode() && editsAllowed() && view() !== "sample",
       run: () => h.transposeAtCursor(12),
     }),
   );
@@ -670,8 +678,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
     registerShortcut({
       key: ",",
       description: "Repeat last effect from above on this channel",
-      when: () =>
-        isPt2Mode() && transport() !== "playing" && view() !== "sample",
+      when: () => isPt2Mode() && editsAllowed() && view() !== "sample",
       run: h.repeatLastEffectFromAbove,
     }),
   );

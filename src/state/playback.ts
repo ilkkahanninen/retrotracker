@@ -9,11 +9,12 @@ import {
   transport,
   playMode,
 } from "./song";
-import { cursor } from "./cursor";
-import { xmCursor } from "./cursorXm";
-import { xm2Song } from "./song";
+import { cursor, setCursor } from "./cursor";
+import { xmCursor, setXmCursor } from "./cursorXm";
+import { xm2Song, playPos } from "./song";
 import { setChannelLevels } from "./channelLevel";
 import * as preview from "./preview";
+import { settings } from "./settings";
 
 /**
  * Active edit cursor for the loaded song. PT2 mode reads `cursor()`,
@@ -232,20 +233,66 @@ export async function jumpPlaybackToOrder(order: number): Promise<void> {
   await eng.playFrom(order, 0, { loopPattern: playMode() === "pattern" });
 }
 
-/** Header "Play song" button: starts the song from order 0 / row 0 when
- *  stopped or already playing the pattern; stops when already in song
- *  mode. Mirrors the bare Space shortcut. */
-export async function togglePlaySong(): Promise<void> {
-  if (transport() === "playing" && playMode() === "song") stopPlayback();
+/**
+ * Bare Space and the header play/stop button. Stops if playing; otherwise
+ * starts from row 0 in whichever mode the user has toggled — song-walk
+ * (`loopPattern: false`) or pattern-rehearsal loop (`loopPattern: true`).
+ *
+ * The Song↔Pattern toggle is the *preference* (persisted in `settings`);
+ * `playMode()` remains the *runtime* indicator of what's currently playing.
+ * They diverge only when the user toggles mid-playback, which is fine —
+ * the next Stop+Play picks up the new preference.
+ */
+export async function toggleTransport(): Promise<void> {
+  if (transport() === "playing") {
+    stopPlayback();
+    return;
+  }
+  if (settings().loopPattern) await playPatternFromStart();
   else await playFromStart();
 }
 
-/** Header "Play pattern" button: loops the cursor's pattern from row 0
- *  when stopped or playing the whole song; stops when already looping
- *  the pattern. Mirrors Option+Space. */
-export async function togglePlayPattern(): Promise<void> {
-  if (transport() === "playing" && playMode() === "pattern") stopPlayback();
-  else await playPatternFromStart();
+/**
+ * Option+Space dispatcher. Two modes:
+ *
+ * - **While playing**: pause and snap the editing cursor to the current
+ *   playhead row. Acts as a "stop here" — the next bare Space starts the
+ *   song over from row 0 (Song mode) or the pattern (Pattern mode), and
+ *   the next Option+Space resumes from the snapped cursor row. The cursor
+ *   keeps its channel / field; only `(order, row)` move so the user lands
+ *   where playback was.
+ * - **While stopped**: play from the current cursor row, looping the
+ *   pattern if the Pattern toggle is on.
+ */
+export async function playFromCursorRespectingMode(): Promise<void> {
+  if (transport() === "playing") {
+    pauseAndSnapCursorToPlayhead();
+    return;
+  }
+  if (settings().loopPattern) await playPatternFromCursor();
+  else await playFromCursor();
+}
+
+/**
+ * Stop the engine, leave the playhead frozen where it was, and move the
+ * editing cursor to that row so the user can pick up at the pause point.
+ * Differs from `stopPlayback` in two ways: cursor follows the playhead
+ * (not the other way around), and `playPos` is NOT snapped back to the
+ * cursor — so a subsequent bare Space still starts from row 0 / pattern
+ * start, while Option+Space resumes from the snap point.
+ */
+function pauseAndSnapCursorToPlayhead(): void {
+  const pos = playPos();
+  currentEngine()?.stop();
+  setTransport("ready");
+  setPlayMode(null);
+  if (xm2Song()) {
+    const c = xmCursor();
+    setXmCursor({ ...c, order: pos.order, row: pos.row });
+  } else {
+    const c = cursor();
+    setCursor({ ...c, order: pos.order, row: pos.row });
+  }
 }
 
 /** Halt the engine without touching transport state — used when swapping

@@ -349,13 +349,13 @@ const NOTE_TIPS: TipSection[] = [
   {
     title: "Play",
     items: [
-      { keys: "Space", action: "play song / stop" },
-      { keys: `${ALT_LABEL} + Space`, action: "play pattern (loop)" },
-      { keys: "Shift + Space", action: "play song from cursor" },
+      { keys: "Space", action: "play / stop (from row 0)" },
       {
-        keys: `${ALT_LABEL} + Shift + Space`,
-        action: "play pattern from cursor",
+        keys: `${ALT_LABEL} + Space`,
+        action: "play from cursor / pause at playhead",
       },
+      { keys: "C", action: "toggle Song / Pattern mode (note column)" },
+      { keys: "V", action: "toggle Follow playhead" },
     ],
   },
   {

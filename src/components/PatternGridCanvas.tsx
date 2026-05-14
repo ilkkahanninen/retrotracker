@@ -211,7 +211,7 @@ export const PatternGridCanvas: Component<PatternGridProps> = (props) => {
       rowsPerBeat: rowsPerBeat(),
       beatsPerBar: beatsPerBar(),
       channelCount: CHANNELS,
-      cursor: props.active ? null : cursor(),
+      cursor: props.active && settings().followPlayback ? null : cursor(),
       cursorFlatIndex: cursorFlatIndex(),
       selection: selection(),
       activeFlatIndex: props.active ? activeFlatIndex() : -1,
@@ -273,15 +273,18 @@ export const PatternGridCanvas: Component<PatternGridProps> = (props) => {
   });
 
   // ── Scroll-into-view effects ──────────────────────────────────────────
+  // Playhead-follow runs only when transport is playing AND the user has
+  // not turned the Follow Playhead toggle off — that toggle releases the
+  // view to track the editing cursor instead, even mid-playback.
   createEffect(() => {
-    if (!props.active) return;
+    if (!props.active || !settings().followPlayback) return;
     const idx = activeFlatIndex();
     if (idx < 0 || !scroller) return;
     centerRowInView(scroller, idx);
   });
   let prevCursorFlat = -1;
   createEffect(() => {
-    if (props.active) return;
+    if (props.active && settings().followPlayback) return;
     const idx = cursorFlatIndex();
     if (idx < 0 || !scroller) return;
     keepRowInView(scroller, idx, prevCursorFlat);
@@ -291,7 +294,7 @@ export const PatternGridCanvas: Component<PatternGridProps> = (props) => {
   // matters in practice, but matching XM avoids surprises if someone
   // is editing in a narrow viewport.
   createEffect(() => {
-    if (props.active) return;
+    if (props.active && settings().followPlayback) return;
     const c = cursor();
     if (!scroller) return;
     keepChannelInView(scroller, c.channel, cellW(), ROW_LABEL_W);
@@ -312,7 +315,7 @@ export const PatternGridCanvas: Component<PatternGridProps> = (props) => {
       return;
     }
     untrack(() => {
-      if (props.active || !scroller) return;
+      if ((props.active && settings().followPlayback) || !scroller) return;
       const idx = cursorFlatIndex();
       if (idx < 0) return;
       snapRowToTop(scroller, idx);

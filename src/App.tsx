@@ -191,8 +191,7 @@ import { loadSession, projectToBytes, saveSession } from "./state/persistence";
 import {
   disposeEngine,
   jumpPlaybackToOrder,
-  togglePlayPattern,
-  togglePlaySong,
+  toggleTransport,
 } from "./state/playback";
 import * as preview from "./state/preview";
 import {
@@ -202,14 +201,18 @@ import {
 } from "./state/sampleWorkbench";
 import { setXmWorkbench, xmWorkbenches } from "./state/xmSampleWorkbench";
 import { selection } from "./state/selection";
-import { settings, toggleShowPatternHelp } from "./state/settings";
+import {
+  settings,
+  setLoopPattern,
+  toggleFollowPlayback,
+  toggleShowPatternHelp,
+} from "./state/settings";
 import { installShortcuts } from "./state/shortcuts";
 import {
   canRedo,
   canUndo,
   commitEdit,
   commitEditWithWorkbenches,
-  playMode,
   playPos,
   pt2Song,
   redo,
@@ -598,19 +601,19 @@ export const App: Component = () => {
   ];
 
   const editMenuItems = (): MenuItem[] => {
-    const playing = transport() === "playing";
+    const locked = transport() === "playing" && settings().followPlayback;
     return [
       {
         label: "Undo",
         hint: "⌘Z",
         onClick: undo,
-        disabled: !canUndo() || playing,
+        disabled: !canUndo() || locked,
       },
       {
         label: "Redo",
         hint: "⇧⌘Z",
         onClick: redo,
-        disabled: !canRedo() || playing,
+        disabled: !canRedo() || locked,
       },
       { separator: true, label: "" },
       // Disabled checks mirror the shortcut `when` predicates so the
@@ -628,7 +631,7 @@ export const App: Component = () => {
         disabled:
           view() === "sample"
             ? !song() || !currentSampleHasData()
-            : playing || !song(),
+            : locked || !song(),
       },
       {
         label: "Copy",
@@ -644,7 +647,7 @@ export const App: Component = () => {
         disabled:
           view() === "sample"
             ? !song() || !sampleClipboard()
-            : playing || !song() || !clipboardSlice(),
+            : locked || !song() || !clipboardSlice(),
       },
       { separator: true, label: "" },
       {
@@ -652,7 +655,7 @@ export const App: Component = () => {
         hint: "⌘E",
         onClick: bounceSelectionToSample,
         disabled:
-          playing ||
+          locked ||
           view() === "sample" ||
           !song() ||
           !selection() ||
@@ -894,22 +897,40 @@ export const App: Component = () => {
             </button>
           </div>
           <div class="transport" role="group" aria-label="Transport">
-            <span class="transport__label">Play</span>
-            <div class="transport__group">
+            <button
+              type="button"
+              class="transport__btn transport__btn--play"
+              classList={{
+                "transport__btn--active": transport() === "playing",
+              }}
+              onClick={() => void toggleTransport()}
+              disabled={!song()}
+              title={
+                transport() === "playing"
+                  ? "Stop (Space)"
+                  : settings().loopPattern
+                    ? "Play pattern (Space)"
+                    : "Play song (Space)"
+              }
+              aria-label={transport() === "playing" ? "Stop" : "Play"}
+              aria-pressed={transport() === "playing"}
+            >
+              {transport() === "playing" ? "■" : "▶"}
+            </button>
+            <div
+              class="transport__group"
+              role="group"
+              aria-label="Playback mode"
+            >
               <button
                 type="button"
                 class="transport__btn"
                 classList={{
-                  "transport__btn--active":
-                    transport() === "playing" && playMode() === "song",
+                  "transport__btn--active": !settings().loopPattern,
                 }}
-                onClick={() => void togglePlaySong()}
-                disabled={!song()}
-                title="Play song / Stop (Space)"
-                aria-label="Play song"
-                aria-pressed={
-                  transport() === "playing" && playMode() === "song"
-                }
+                onClick={() => setLoopPattern(false)}
+                title="Play the whole song"
+                aria-pressed={!settings().loopPattern}
               >
                 Song
               </button>
@@ -917,20 +938,31 @@ export const App: Component = () => {
                 type="button"
                 class="transport__btn"
                 classList={{
-                  "transport__btn--active":
-                    transport() === "playing" && playMode() === "pattern",
+                  "transport__btn--active": settings().loopPattern,
                 }}
-                onClick={() => void togglePlayPattern()}
-                disabled={!song()}
-                title="Play pattern (Option+Space)"
-                aria-label="Play pattern"
-                aria-pressed={
-                  transport() === "playing" && playMode() === "pattern"
-                }
+                onClick={() => setLoopPattern(true)}
+                title="Loop the cursor's pattern"
+                aria-pressed={settings().loopPattern}
               >
                 Pattern
               </button>
             </div>
+            <button
+              type="button"
+              class="transport__btn transport__btn--pill"
+              classList={{
+                "transport__btn--active": settings().followPlayback,
+              }}
+              onClick={() => toggleFollowPlayback()}
+              title={
+                settings().followPlayback
+                  ? "View follows the playhead — click to track the cursor instead"
+                  : "View tracks the cursor — click to follow the playhead"
+              }
+              aria-pressed={settings().followPlayback}
+            >
+              Follow
+            </button>
           </div>
         </div>
         <Show when={song()}>

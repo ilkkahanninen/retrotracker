@@ -27,7 +27,7 @@ import {
 } from "./cursorXm";
 import { xmClipboardSlice, setXmClipboardSlice } from "./clipboard";
 import { editStep } from "./edit";
-import { commitEditXm, setPlayPos, transport, xm2Song as song } from "./song";
+import { commitEditXm, setPlayPos, xm2Song as song } from "./song";
 import { view } from "./view";
 import { previewXmNote } from "./xmPreview";
 import {
@@ -43,6 +43,7 @@ import {
   xmSelectionAnchor,
 } from "./selection";
 import { createPatternEdit } from "./patternEditCore";
+import { editsAllowed } from "./keybindHelpers";
 
 function visibleRowsOfXmOrder(
   s: XmSong,
@@ -63,7 +64,7 @@ const core = createPatternEdit<XmSong, XmCursor, XmNote>({
   setSelectionAnchor: setXmSelectionAnchor,
   clearSelection: clearXmSelection,
   setPlayPos,
-  isPlaying: () => transport() === "playing",
+  isEditLocked: () => !editsAllowed(),
   commitSong: commitEditXm,
   channelCount: (s) => s.channelCount,
   visibleRowsOfOrder: visibleRowsOfXmOrder,
@@ -124,7 +125,7 @@ function noteForOffset(offset: number): number | null {
 }
 
 export function enterXmNote(semitoneOffset: number): void {
-  if (transport() === "playing") return;
+  if (!editsAllowed()) return;
   const c = xmCursor();
   if (c.field !== "note") return;
   const note = noteForOffset(semitoneOffset);
@@ -143,7 +144,7 @@ export function onXmPianoKey(semitoneOffset: number): void {
 }
 
 export function enterXmKeyOff(): void {
-  if (transport() === "playing") return;
+  if (!editsAllowed()) return;
   const c = xmCursor();
   if (c.field !== "note") return;
   commitEditXm((s) => setXmCell(s, c.order, c.row, c.channel, { note: 97 }));
@@ -154,7 +155,7 @@ export function enterXmKeyOff(): void {
 // instLo/volLo land on next row, effectLo lands then rewinds to effectCmd
 // at step>0 (three-digit effect rhythm).
 export function enterXmHexDigit(digit: number): void {
-  if (transport() === "playing") return;
+  if (!editsAllowed()) return;
   const c = xmCursor();
   const s = song();
   if (!s) return;
@@ -238,7 +239,7 @@ export function enterXmHexDigit(digit: number): void {
 // (G=global vol, K=key off, P=pan slide, T=tremor, X=X-extended…).
 // Anything else is a no-op so a stray keystroke can't write garbage.
 export function enterXmEffectChar(char: string): void {
-  if (transport() === "playing") return;
+  if (!editsAllowed()) return;
   const c = xmCursor();
   if (c.field !== "effectCmd") return;
   const code = effectCodeForChar(char);
@@ -252,7 +253,7 @@ export function enterXmEffectChar(char: string): void {
 }
 
 export function setXmRowCountAtCursor(rowCount: number): void {
-  if (transport() === "playing") return;
+  if (!editsAllowed()) return;
   const s = song();
   if (!s) return;
   const c = xmCursor();
@@ -268,7 +269,7 @@ export function setXmRowCountAtCursor(rowCount: number): void {
 }
 
 export function setXmChannelCountAction(channelCount: number): void {
-  if (transport() === "playing") return;
+  if (!editsAllowed()) return;
   const s = song();
   if (!s) return;
   commitEditXm((s) => setXmChannelCount(s, channelCount));

@@ -158,6 +158,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  margin-left: 20px;
 }
 .transport__label {
   color: var(--muted);
@@ -555,6 +556,29 @@ body {
   border-color: var(--accent);
   color: var(--text-on-accent);
   z-index: 1;
+}
+
+/* Round Play/Stop control: a circular button with a centered glyph.
+ * Standalone (not in a segmented group) so the corner-radius overrides
+ * don't apply — set explicit border-radius and a square aspect. */
+.transport__btn--play {
+  border-radius: 999px;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* Pill-shaped standalone toggle (currently the Follow button). Same
+ * 28px height as the play button so the three transport controls share
+ * a baseline. */
+.transport__btn--pill {
+  border-radius: 999px;
+  padding: 4px 14px;
 }
 
 .app__samples,

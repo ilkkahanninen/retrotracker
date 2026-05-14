@@ -55,3 +55,17 @@ export const DIGIT_QUICK_PICK: Readonly<Record<string, number>> = {
   "9": 9,
   "0": 10,
 };
+
+import { transport } from "./song";
+import { settings } from "./settings";
+
+/**
+ * Gate for edit-time keybinds. Returns true when the user can mutate the
+ * song: either playback is idle, or the Follow Playhead toggle is off
+ * (meaning the user is intentionally decoupling the view from the
+ * playhead and wants to edit live — `sync.ts` forwards every commit to
+ * the engine via `replaceSong`, so playback keeps going).
+ */
+export function editsAllowed(): boolean {
+  return transport() !== "playing" || !settings().followPlayback;
+}

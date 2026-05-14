@@ -217,7 +217,7 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
       viewportHeight: vh,
       rowsPerBeat: rowsPerBeat(),
       beatsPerBar: beatsPerBar(),
-      cursor: props.active ? null : xmCursor(),
+      cursor: props.active && settings().followPlayback ? null : xmCursor(),
       cursorFlatIndex: cursorFlatIndex(),
       selection: xmSelection(),
       activeFlatIndex: props.active ? activeFlatIndex() : -1,
@@ -284,25 +284,27 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
   });
 
   // ── Scroll-into-view effects ──────────────────────────────────────────
+  // Playhead-follow gates on the Follow Playhead toggle — when off, the
+  // view tracks the editing cursor instead, even during playback.
   createEffect(() => {
-    if (!props.active) return;
+    if (!props.active || !settings().followPlayback) return;
     const idx = activeFlatIndex();
     if (idx < 0 || !scroller) return;
     centerRowInView(scroller, idx);
   });
   let prevCursorFlat = -1;
   createEffect(() => {
-    if (props.active) return;
+    if (props.active && settings().followPlayback) return;
     const idx = cursorFlatIndex();
     if (idx < 0 || !scroller) return;
     keepRowInView(scroller, idx, prevCursorFlat);
     prevCursorFlat = idx;
   });
   // Keyboard moves can carry the cursor past the visible channel range
-  // on many-channel XMs. Skipped during playback for the same reason
-  // the row-keep effect is — the playhead owns scroll then.
+  // on many-channel XMs. Skipped during playback only when Follow is on;
+  // with Follow off, the cursor owns scroll.
   createEffect(() => {
-    if (props.active) return;
+    if (props.active && settings().followPlayback) return;
     const c = xmCursor();
     if (!scroller) return;
     keepChannelInView(scroller, c.channel, cellW(), ROW_LABEL_W);

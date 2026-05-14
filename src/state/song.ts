@@ -16,6 +16,7 @@ import {
   patternNames as patternNamesSig,
   loadPatternNames,
 } from "./patternNames";
+import { settings } from "./settings";
 
 /**
  * Loaded song. Held as a signal so the UI reactively re-renders on swap;
@@ -243,11 +244,14 @@ function applyCommit(next: EditState): void {
  * of the snapshot we push, so a subsequent undo restores the workbench state
  * that was live at this commit.
  *
- * No-op if no song is loaded, the transform returns the same reference, or
- * the transport is currently playing.
+ * No-op if no song is loaded or the transform returns the same reference.
+ * Also no-ops while transport is playing *and* the Follow Playhead toggle
+ * is on — that's the legacy "view chases playhead, typing blind" mode. With
+ * Follow off, edits commit live and sync.ts forwards them to the worklet
+ * via `replaceSong` so playback continues to reflect the latest state.
  */
 export function commitEdit(transform: (song: ModSong) => ModSong): void {
-  if (transport() === "playing") return;
+  if (transport() === "playing" && settings().followPlayback) return;
   const current = song();
   if (!current || current.format !== "PT2") return;
   const next = transform(current);
@@ -267,10 +271,11 @@ export function commitEdit(transform: (song: ModSong) => ModSong): void {
  * workbench map IS part of the snapshot so chain edits and source-kind
  * transitions undo atomically with the song bytes — use
  * `commitEditXmWithWorkbenches` when both halves move in one commit.
- * Like `commitEdit`, no-ops while playing.
+ * Like `commitEdit`, no-ops while playing *and* the Follow Playhead
+ * toggle is on; sync.ts forwards live edits otherwise.
  */
 export function commitEditXm(transform: (song: XmSong) => XmSong): void {
-  if (transport() === "playing") return;
+  if (transport() === "playing" && settings().followPlayback) return;
   const current = song();
   if (!current || current.format !== "FT2") return;
   const next = transform(current);
@@ -370,9 +375,15 @@ interface PtEditState {
   patternNames: Record<number, string>;
 }
 
-/** Pop the latest entry off the undo stack and restore it. No-op while playing. */
+/**
+ * Pop the latest entry off the undo stack and restore it. No-op while
+ * playing *and* the Follow Playhead toggle is on — same gate as
+ * `commitEdit`. With Follow off, the user is live-editing; sync.ts
+ * forwards the snapshot swap to the engine via `replaceSong` /
+ * `setSampleData` so undo immediately reflects in playback.
+ */
 export function undo(): void {
-  if (transport() === "playing") return;
+  if (transport() === "playing" && settings().followPlayback) return;
   const list = past();
   if (list.length === 0) return;
   const previous = list[list.length - 1]!;
@@ -407,9 +418,9 @@ export function undo(): void {
   setDirty(true);
 }
 
-/** Replay the most recently undone edit. No-op while playing. */
+/** Replay the most recently undone edit. Same playback gate as `undo`. */
 export function redo(): void {
-  if (transport() === "playing") return;
+  if (transport() === "playing" && settings().followPlayback) return;
   const list = future();
   if (list.length === 0) return;
   const next = list[list.length - 1]!;

@@ -38,6 +38,7 @@ import {
 } from "../../src/state/persistence";
 import { commitEdit } from "../../src/state/song";
 import { emptySong } from "../../src/core/mod/format";
+import { setLoopPattern, setFollowPlayback } from "../../src/state/settings";
 
 function resetState() {
   setSong(null);
@@ -462,64 +463,92 @@ describe("EditMenu: dropdown contents and actions", () => {
   });
 });
 
-describe("Header: Play song / Play pattern buttons", () => {
-  it('the Play song button is labelled "Song" when stopped', () => {
-    setSong(emptySong());
-    const { container } = render(() => <App />);
-    const btn = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Play song"]',
-    )!;
-    expect(btn.textContent).toBe("Song");
+describe("Header: Play/Stop, Song↔Pattern toggle, Follow toggle", () => {
+  // The two toggles live in `settings` (localStorage write-through). Reset
+  // them between cases so jsdom's persistent storage doesn't leak.
+  beforeEach(() => {
+    setLoopPattern(false);
+    setFollowPlayback(true);
   });
 
-  it("the Play pattern button is rendered alongside Play song", () => {
+  it("shows the play glyph on the play/stop button when stopped", () => {
     setSong(emptySong());
     const { container } = render(() => <App />);
     const btn = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Play pattern"]',
+      'button[aria-label="Play"]',
     )!;
     expect(btn).not.toBeNull();
-    expect(btn.textContent).toBe("Pattern");
+    expect(btn.textContent).toBe("▶");
+    expect(btn.classList.contains("transport__btn--active")).toBe(false);
   });
 
-  it('renders a "Play" label in front of the segmented buttons', () => {
-    setSong(emptySong());
-    const { container } = render(() => <App />);
-    const label = container.querySelector(".transport .transport__label");
-    expect(label?.textContent).toBe("Play");
-  });
-
-  it("labels stay the same while playing — the active mode is highlighted instead", () => {
+  it("flips to the stop glyph and goes active while playing", () => {
     setSong(emptySong());
     setTransport("playing");
-    setPlayMode("song");
     const { container } = render(() => <App />);
-    const songBtn = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Play song"]',
+    const btn = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Stop"]',
     )!;
-    const patBtn = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Play pattern"]',
-    )!;
-    expect(songBtn.textContent).toBe("Song");
-    expect(patBtn.textContent).toBe("Pattern");
-    expect(songBtn.classList.contains("transport__btn--active")).toBe(true);
-    expect(patBtn.classList.contains("transport__btn--active")).toBe(false);
-    expect(songBtn.getAttribute("aria-pressed")).toBe("true");
-    expect(patBtn.getAttribute("aria-pressed")).toBe("false");
+    expect(btn).not.toBeNull();
+    expect(btn.textContent).toBe("■");
+    expect(btn.classList.contains("transport__btn--active")).toBe(true);
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("highlights Play pattern when the pattern playmode is active", () => {
+  it("renders Song and Pattern as a segmented toggle, Song active by default", () => {
     setSong(emptySong());
-    setTransport("playing");
-    setPlayMode("pattern");
     const { container } = render(() => <App />);
-    const songBtn = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Play song"]',
+    const group = container.querySelector(
+      '.transport [aria-label="Playback mode"]',
     )!;
-    const patBtn = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Play pattern"]',
-    )!;
-    expect(songBtn.classList.contains("transport__btn--active")).toBe(false);
-    expect(patBtn.classList.contains("transport__btn--active")).toBe(true);
+    expect(group).not.toBeNull();
+    const buttons = group.querySelectorAll<HTMLButtonElement>("button");
+    expect(buttons.length).toBe(2);
+    expect(buttons[0]!.textContent).toBe("Song");
+    expect(buttons[1]!.textContent).toBe("Pattern");
+    expect(buttons[0]!.classList.contains("transport__btn--active")).toBe(true);
+    expect(buttons[1]!.classList.contains("transport__btn--active")).toBe(
+      false,
+    );
+  });
+
+  it("clicking the Pattern toggle flips loopPattern and the active highlight", async () => {
+    setSong(emptySong());
+    const user = userEvent.setup();
+    const { container } = render(() => <App />);
+    const buttons = container.querySelectorAll<HTMLButtonElement>(
+      '.transport [aria-label="Playback mode"] button',
+    );
+    await user.click(buttons[1]!);
+    expect(buttons[0]!.classList.contains("transport__btn--active")).toBe(
+      false,
+    );
+    expect(buttons[1]!.classList.contains("transport__btn--active")).toBe(true);
+  });
+
+  it("renders the Follow toggle, active by default", () => {
+    setSong(emptySong());
+    const { container } = render(() => <App />);
+    const buttons = container.querySelectorAll<HTMLButtonElement>(
+      ".transport > button",
+    );
+    // play/stop is first; follow is last among direct button children.
+    const follow = buttons[buttons.length - 1]!;
+    expect(follow.textContent).toBe("Follow");
+    expect(follow.classList.contains("transport__btn--active")).toBe(true);
+    expect(follow.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("clicking the Follow toggle deactivates it", async () => {
+    setSong(emptySong());
+    const user = userEvent.setup();
+    const { container } = render(() => <App />);
+    const buttons = container.querySelectorAll<HTMLButtonElement>(
+      ".transport > button",
+    );
+    const follow = buttons[buttons.length - 1]!;
+    await user.click(follow);
+    expect(follow.classList.contains("transport__btn--active")).toBe(false);
+    expect(follow.getAttribute("aria-pressed")).toBe("false");
   });
 });

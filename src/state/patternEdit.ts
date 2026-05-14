@@ -33,13 +33,14 @@ import {
   currentSample,
   editStep,
 } from "./edit";
-import { commitEdit, pt2Song as song, setPlayPos, transport } from "./song";
+import { commitEdit, pt2Song as song, setPlayPos } from "./song";
 import { triggerPreview } from "./playback";
 import { toggleMute, toggleSolo } from "./channelMute";
 import { getWorkbench } from "./sampleWorkbench";
 import { setSampleSelection } from "./sampleSelection";
 import { view } from "./view";
 import { createPatternEdit } from "./patternEditCore";
+import { editsAllowed } from "./keybindHelpers";
 
 const core = createPatternEdit<ModSong, Cursor, Note>({
   song,
@@ -51,7 +52,7 @@ const core = createPatternEdit<ModSong, Cursor, Note>({
   setSelectionAnchor,
   clearSelection,
   setPlayPos,
-  isPlaying: () => transport() === "playing",
+  isEditLocked: () => !editsAllowed(),
   commitSong: commitEdit,
   channelCount: () => CHANNELS,
   visibleRowsOfOrder: (s, order) =>
@@ -102,7 +103,7 @@ export const insertEmptyCell = core.insertEmptyCell;
 export const insertEmptyRow = core.insertEmptyRow;
 
 export function enterNote(semitoneOffset: number): void {
-  if (transport() === "playing") return;
+  if (!editsAllowed()) return;
   const c = cursor();
   if (c.field !== "note") return;
   const s = song();
@@ -125,7 +126,7 @@ export function enterNote(semitoneOffset: number): void {
 }
 
 export function previewSampleAtPitch(semitoneOffset: number): void {
-  if (transport() === "playing") return;
+  if (!editsAllowed()) return;
   const s = song();
   if (!s) return;
   const noteIdx = (currentOctave() - 1) * 12 + semitoneOffset;
@@ -145,7 +146,7 @@ export function onPianoKey(semitoneOffset: number): void {
 // for PT/FT2's three-digit effect rhythm). Sample numbers clamp to PT's
 // 1..31 (5-bit field).
 export function enterHexDigit(digit: number): void {
-  if (transport() === "playing") return;
+  if (!editsAllowed()) return;
   const c = cursor();
   const s = song();
   if (!s) return;

@@ -14,6 +14,7 @@ import {
 import { setCurrentOctave } from "../../src/state/edit";
 import { Effect, PERIOD_TABLE } from "../../src/core/mod/format";
 import { selection, clearSelection } from "../../src/state/selection";
+import { setFollowPlayback } from "../../src/state/settings";
 
 /**
  * Reset every module-level signal that App's mounted state writes into,
@@ -27,6 +28,7 @@ function resetState() {
   clearHistory();
   setCursor({ ...INITIAL_CURSOR });
   setCurrentOctave(2);
+  setFollowPlayback(true);
 }
 
 beforeEach(resetState);
@@ -271,7 +273,7 @@ describe("App: Dxx-truncated patterns", () => {
 });
 
 describe("App: editing is suppressed during playback", () => {
-  it('hex digits do not change the song while transport is "playing"', async () => {
+  it('hex digits do not change the song while transport is "playing" and Follow is on', async () => {
     render(() => <App />);
     const user = userEvent.setup();
     await user.keyboard("{ArrowRight}"); // sampleHi
@@ -280,5 +282,17 @@ describe("App: editing is suppressed during playback", () => {
     setCursor({ order: 0, row: 0, channel: 0, field: "sampleHi" });
     expect(cellAtCursor().sample).toBe(0);
     expect(transport()).toBe("playing"); // sanity: nothing toggled it back
+  });
+
+  it("Follow off releases the edit lock — hex digits commit live during playback", async () => {
+    render(() => <App />);
+    const user = userEvent.setup();
+    await user.keyboard("{ArrowRight}"); // sampleHi
+    setTransport("playing");
+    setFollowPlayback(false);
+    await user.keyboard("1");
+    setCursor({ order: 0, row: 0, channel: 0, field: "sampleHi" });
+    expect(cellAtCursor().sample).toBe(0x10);
+    expect(transport()).toBe("playing");
   });
 });

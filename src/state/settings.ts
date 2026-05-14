@@ -65,6 +65,16 @@ export interface Settings {
   ft2Interpolation: Ft2InterpolationMode;
   /** Whether the FT2 mixer applies the anti-click volume ramp. */
   ft2Ramping: boolean;
+  /** When true, Space and the play button loop the cursor's pattern
+   *  instead of starting the whole song. Persisted so the user's
+   *  rehearsal vs. song-walk preference carries across sessions. */
+  loopPattern: boolean;
+  /** When true (the default), the pattern view auto-scrolls to keep the
+   *  playhead row centered during playback and the editing cursor is
+   *  locked. When false, the view tracks the cursor and edits commit
+   *  live — playback continues uninterrupted via sync.ts's replaceSong
+   *  forwarder. */
+  followPlayback: boolean;
 }
 
 const DEFAULTS: Settings = {
@@ -76,6 +86,8 @@ const DEFAULTS: Settings = {
   showPatternHelp: true,
   ft2Interpolation: "linear",
   ft2Ramping: true,
+  loopPattern: false,
+  followPlayback: true,
 };
 
 function isFt2Interpolation(v: unknown): v is Ft2InterpolationMode {
@@ -143,6 +155,14 @@ function load(): Settings {
       typeof obj["ft2Ramping"] === "boolean"
         ? obj["ft2Ramping"]
         : DEFAULTS.ft2Ramping;
+    const loopPattern =
+      typeof obj["loopPattern"] === "boolean"
+        ? obj["loopPattern"]
+        : DEFAULTS.loopPattern;
+    const followPlayback =
+      typeof obj["followPlayback"] === "boolean"
+        ? obj["followPlayback"]
+        : DEFAULTS.followPlayback;
     return {
       paulaModel,
       colorScheme,
@@ -152,6 +172,8 @@ function load(): Settings {
       showPatternHelp,
       ft2Interpolation,
       ft2Ramping,
+      loopPattern,
+      followPlayback,
     };
   } catch {
     return { ...DEFAULTS };
@@ -213,4 +235,20 @@ export function setFt2Interpolation(mode: Ft2InterpolationMode): void {
 
 export function setFt2Ramping(on: boolean): void {
   setSettings({ ft2Ramping: on });
+}
+
+export function setLoopPattern(on: boolean): void {
+  setSettings({ loopPattern: on });
+}
+
+export function toggleLoopPattern(): void {
+  setSettings({ loopPattern: !settings().loopPattern });
+}
+
+export function setFollowPlayback(on: boolean): void {
+  setSettings({ followPlayback: on });
+}
+
+export function toggleFollowPlayback(): void {
+  setSettings({ followPlayback: !settings().followPlayback });
 }
