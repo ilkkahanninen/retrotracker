@@ -33,7 +33,17 @@ jobs:
       contents: read
       packages: write
     steps:
+      # fetch-depth: 0 + fetch-tags: true so scripts/version.sh can
+      # see the latest tag and count commits since it. The default
+      # shallow clone would leave version.sh with nothing to derive
+      # from and the image would build as "dev".
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - id: version
+        run: echo "value=$(./scripts/version.sh)" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -49,16 +59,23 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           flavor: |
             latest=true
+          # The `raw` tag below ties every image to the exact version
+          # string the bundle was built with (e.g. v0.2.3), so a
+          # `docker pull ghcr.io/.../retrotracker:v0.2.3` always
+          # matches what the About modal displays.
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-,format=short
+            type=raw,value=${{ steps.version.outputs.value }}
 
       - uses: docker/build-push-action@v5
         with:
           context: .
           push: true
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.value }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
