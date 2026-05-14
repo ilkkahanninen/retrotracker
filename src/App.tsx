@@ -8,6 +8,7 @@ import {
   type Component,
 } from "solid-js";
 import { AboutModal } from "./components/AboutModal";
+import { APP_VERSION } from "./version";
 import { ModePicker } from "./components/ModePicker";
 import { ModeBadge } from "./components/ModeBadge";
 import { InfoView } from "./components/InfoView";
@@ -850,7 +851,9 @@ export const App: Component = () => {
     >
       <header class="app__header">
         <div class="app__header-left">
-          <h1>RetroTracker</h1>
+          <h1>
+            RetroTracker <span class="app__version">{APP_VERSION}</span>
+          </h1>
           {/* Hidden — clicked by File→Open and Cmd+O. */}
           <input
             type="file"
