@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Refuse `git push` if any local tag is missing from the remote.
+# Tags created locally are easy to forget — CI's version.sh depends on
+# them, so a missing tag silently bakes "dev" into the built bundle.
+# Override with `git push --no-verify`.
+
+set -euo pipefail
+
+remote="$1"
+
+# Tags being pushed in this invocation (stdin: <local-ref> <local-sha> <remote-ref> <remote-sha>).
+pushing_tags=""
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  case "$remote_ref" in
+    refs/tags/*) pushing_tags+="${remote_ref#refs/tags/}"$'\n' ;;
+  esac
+done
+
+pushing_tags_sorted=$(printf '%s' "$pushing_tags" | sort -u)
+
+remote_tags=$(git ls-remote --tags --quiet "$remote" 2>/dev/null \
+  | awk '{print $2}' \
+  | sed -e 's#^refs/tags/##' -e 's/\^{}$//' \
+  | sort -u)
+
+local_tags=$(git tag --list | sort -u)
+
+# Tags that will exist on the remote after this push completes.
+after_push=$(printf '%s\n%s\n' "$remote_tags" "$pushing_tags_sorted" | sort -u)
+
+missing=$(comm -23 <(printf '%s\n' "$local_tags") <(printf '%s\n' "$after_push") || true)
+missing=$(printf '%s\n' "$missing" | sed '/^$/d')
+
+if [ -n "$missing" ]; then
+  echo "pre-push: refusing — local tags not on '$remote':" >&2
+  printf '  %s\n' $missing >&2
+  echo >&2
+  echo "  Push them:    git push '$remote' --tags" >&2
+  echo "  Override:     git push --no-verify" >&2
+  exit 1
+fi
+
+exit 0
