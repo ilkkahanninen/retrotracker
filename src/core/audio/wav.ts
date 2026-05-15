@@ -76,6 +76,12 @@ export function readWav(buf: ArrayBufferLike | Uint8Array): WavData {
   }
 
   const bytesPerSample = bitsPerSample / 8;
+  // Trust the file body over the data-chunk header: a truncated WAV with a
+  // lying dataLen would otherwise drive the 8/24-bit decode loops past the
+  // buffer (u8[...] returns undefined → NaN samples). 16-bit/float go via
+  // DataView and would throw, but silent NaN corruption is worse.
+  const available = u8.byteLength - dataOff;
+  if (dataLen > available) dataLen = Math.max(0, available);
   const frames = Math.floor(dataLen / (bytesPerSample * numChannels));
   const channels: Float32Array[] = Array.from(
     { length: numChannels },
