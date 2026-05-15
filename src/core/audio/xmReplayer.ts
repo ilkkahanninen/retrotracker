@@ -1420,13 +1420,12 @@ export class XmReplayer {
         break;
       }
       case 0x19: {
-        // Pxy pan slide. ft2-clone / libxmp: Px0 = pan LEFT by x (subtract),
-        // P0y = pan RIGHT by y (add). High-nibble takes precedence if both
-        // are nonzero (mirrors ft2-clone's effect dispatch order).
+        // Pxy pan slide. libxmp effects.c:648 — `pan.slide = LSN(fxp) - MSN(fxp)`:
+        // both nibbles apply simultaneously, low (y) adds (right), high (x)
+        // subtracts (left). Net delta is `y - x`, then clamped to [0, 255].
         const sx = (v.panSlideLast >>> 4) & 0xf;
         const sy = v.panSlideLast & 0xf;
-        if (sy !== 0) v.panning = Math.min(255, v.panning + sy);
-        else if (sx !== 0) v.panning = Math.max(0, v.panning - sx);
+        v.panning = Math.max(0, Math.min(255, v.panning + sy - sx));
         break;
       }
       case 0x1b:
