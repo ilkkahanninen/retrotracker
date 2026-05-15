@@ -73,6 +73,7 @@ import {
 } from "../core/xm/mutations";
 import { bounceXmSelection } from "../core/audio/xmBounce";
 import { xmWorkbenchFromWav } from "../core/audio/sampleWorkbench";
+import { effectiveXmSampleRate } from "./detectedPitch";
 import { setXmSampleClipboard, xmSampleClipboard } from "./xmSampleClipboard";
 import { setXmSampleSelection, xmSampleSelection } from "./xmSampleSelection";
 
@@ -117,7 +118,12 @@ function getOrInitCurrentXmWorkbench(): {
   if (!sample) return null;
   let wb = getXmWorkbench(inst1Based, sampleIdx);
   if (!wb) {
-    wb = xmWorkbenchFromSample(sample.data, sample.bits, sample.name);
+    wb = xmWorkbenchFromSample(
+      sample.data,
+      sample.bits,
+      sample.name,
+      effectiveXmSampleRate(sample),
+    );
     setXmWorkbench(inst1Based, sampleIdx, wb);
   }
   return { wb, inst1Based, sampleIdx, sample };

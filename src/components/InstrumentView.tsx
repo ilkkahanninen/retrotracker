@@ -84,7 +84,9 @@ import {
 } from "../core/audio/sampleWorkbench";
 import { ChiptuneEditor } from "./ChiptuneEditor";
 import { EnvelopeEditor } from "./EnvelopeEditor";
+import { PitchReadout } from "./PitchReadout";
 import { Slider } from "./Slider";
+import { createDetectedXmPitch } from "../state/detectedPitch";
 import { XmAutoVibratoPreview } from "./XmAutoVibratoPreview";
 import { XmKeyMapEditor } from "./XmKeyMapEditor";
 import { XmPipelineEditor } from "./XmPipelineEditor";
@@ -221,6 +223,7 @@ export const InstrumentView: Component<Props> = (props) => {
     return src.params;
   };
   const activeSample = () => inst().samples[activeSampleIndex()];
+  const detectedPitch = createDetectedXmPitch(workbench, activeSample);
   const hasData = () => (activeSample()?.data.length ?? 0) > 0;
   const hasFreeInstrumentSlot = () => {
     const insts = props.song.instruments;
@@ -430,6 +433,7 @@ export const InstrumentView: Component<Props> = (props) => {
                           {sample().data.length} samples ({sample().bits}-bit)
                         </span>
                       </label>
+                      <PitchReadout pitch={detectedPitch} />
                       <label>
                         <span class="samplemeta__label">Rel. note</span>
                         <input

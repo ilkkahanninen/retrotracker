@@ -102,7 +102,7 @@ export function decodeVolumeColumn(
 }
 
 /** Standard XM note names — note number 1..96 = C-0..B-7. */
-const NOTE_NAMES: ReadonlyArray<string> = [
+export const NOTE_NAMES: ReadonlyArray<string> = [
   "C-",
   "C#",
   "D-",

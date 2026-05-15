@@ -18,9 +18,51 @@ import {
   SAMPLE_NAME_MAX,
 } from "../audio/sampleHelpers";
 import { readWav, type WavData } from "../audio/wav";
+import { XM_BASE_HZ } from "../audio/xmFreqTable";
 
 import { emptyXmSample } from "./format";
 import type { XmSample } from "./types";
+
+/**
+ * FT2 doesn't store a per-sample sample rate on disk; it stores
+ * `relativeNote` (semitones from C-4) and `finetune` (-128..127, 128
+ * units per semitone) and reads them at trigger time to derive the
+ * Paula playback rate. The standard import convention — what ft2-clone,
+ * libxmp, and OpenMPT all do — is to auto-set these so that triggering
+ * the sample at C-4 plays the data back at its original sample rate.
+ *
+ * Without this, a 44.1 kHz WAV plays back at the C-4 default rate of
+ * 8363 Hz, i.e. ~28 semitones too low — a sample labelled "E4" would
+ * sound like B1.
+ *
+ * Math: at C-4 trigger, playback Hz = `8363 * 2^(relativeNote/12 +
+ * finetune/(128*12))`. Solving for tuning that produces `targetRate`
+ * gives `total = 1536 * log2(targetRate / 8363)` 1/128-semitone units,
+ * then split into relativeNote × 128 + finetune.
+ */
+export function tuneForSampleRate(targetRate: number): {
+  relativeNote: number;
+  finetune: number;
+} {
+  if (!Number.isFinite(targetRate) || targetRate <= 0) {
+    return { relativeNote: 0, finetune: 0 };
+  }
+  const total = Math.round(1536 * Math.log2(targetRate / XM_BASE_HZ));
+  let relativeNote = Math.round(total / 128);
+  let finetune = total - relativeNote * 128;
+  // finetune lands in [-64, 64] from the round() split; clamp the pair
+  // to the format's storage range so downstream writers don't truncate.
+  if (finetune > 127) {
+    relativeNote += 1;
+    finetune -= 128;
+  } else if (finetune < -128) {
+    relativeNote -= 1;
+    finetune += 128;
+  }
+  relativeNote = Math.max(-96, Math.min(95, relativeNote));
+  finetune = Math.max(-128, Math.min(127, finetune));
+  return { relativeNote, finetune };
+}
 
 /** XM sample-name field is 22 ASCII bytes. Mirrors PT's `SAMPLE_NAME_MAX`. */
 export const XM_SAMPLE_NAME_MAX = SAMPLE_NAME_MAX;
@@ -60,11 +102,16 @@ export function importWavXmSample(
   const wav = readWav(bytes);
   const bits = opts.bits ?? 16;
   const data = wavToXmSampleData(wav, bits);
+  // Auto-tune so triggering at C-4 plays the sample back at the WAV's
+  // original sample rate — see `tuneForSampleRate` for the rationale.
+  const { relativeNote, finetune } = tuneForSampleRate(wav.sampleRate);
   const sample: XmSample = {
     ...emptyXmSample(),
     name: deriveXmSampleName(filename),
     data,
     bits,
+    relativeNote,
+    finetune,
     // `emptyXmSample` defaults to no loop; that's the right starting
     // point for a fresh import.
     loopLength: 0,

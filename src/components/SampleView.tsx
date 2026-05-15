@@ -37,7 +37,9 @@ import {
 } from "../state/sampleSelection";
 import { PipelineEditor } from "./PipelineEditor";
 import { ChiptuneEditor } from "./ChiptuneEditor";
+import { PitchReadout } from "./PitchReadout";
 import { Slider } from "./Slider";
+import { createDetectedPitch } from "../state/detectedPitch";
 import {
   EFFECT_BUTTON_KINDS,
   titleForEffectButton,
@@ -185,6 +187,7 @@ export const SampleView: Component<Props> = (props) => {
   const workbench = createMemo<SampleWorkbench | null>(
     () => workbenches().get(currentSample() - 1) ?? null,
   );
+  const detectedPitch = createDetectedPitch(workbench);
 
   // Envelope overlay payload for the Waveform. Active only when the
   // user has selected a chain entry that owns the active param's
@@ -463,6 +466,7 @@ export const SampleView: Component<Props> = (props) => {
               {exportedLengthWords() * 2} bytes ({exportedLengthWords()} words)
             </span>
           </label>
+          <PitchReadout pitch={detectedPitch} />
           <Slider
             label={`Volume (0–${PT_VOLUME_MAX})`}
             min={0}

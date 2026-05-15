@@ -1477,11 +1477,16 @@ export function xmWorkbenchFromSample(
   data: Int8Array | Int16Array,
   bits: 8 | 16,
   sourceName: string,
+  sampleRate: number = 8363,
 ): XmSampleWorkbench {
-  // Build a Float32 WavData at a nominal rate (the chain doesn't depend on
-  // this; the XM transformer doesn't resample). 8363 Hz is the conventional
-  // XM "middle C" rate (the reference for finetune/relativeNote 0).
-  const sampleRate = 8363;
+  // Build a Float32 WavData at the caller-supplied rate (the chain
+  // doesn't depend on this; the XM transformer doesn't resample). 8363
+  // Hz is the conventional XM C-4 reference and the safe default when
+  // the caller has no better information. Callers that know the
+  // sample's `relativeNote`/`finetune` should pass the rate
+  // `effectiveXmSampleRate(sample)` produces — that's the rate the user
+  // will actually hear at C-4 trigger, which is what the Pipeline
+  // editor's readout and the pitch-detection memo both read.
   const ch = new Float32Array(data.length);
   if (bits === 8) {
     const src = data as Int8Array;
