@@ -489,7 +489,7 @@ export function generateChiptuneCycle(p: ChiptuneParams): WavData {
           osc2.phaseSplit += lfoVal * splitRange;
           break;
         case "combineAmount":
-          combineAmt += lfoVal;
+          combineAmt = clamp(combineAmt + lfoVal, 0, 1);
           break;
         case "shaperAmount":
           shaperAmt = clamp(shaperAmt + lfoVal, 0, 1);
