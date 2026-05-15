@@ -12,14 +12,13 @@ import {
   tabPrev,
   type Cursor,
 } from "./cursor";
-import { song, xm2Song } from "./song";
+import { song } from "./song";
 import { setView, view } from "./view";
 import {
   togglePaulaModel,
   toggleLoopPattern,
   toggleFollowPlayback,
 } from "./settings";
-import { xmCursor } from "./cursorXm";
 import { rowsPerBeat, beatsPerBar } from "./gridConfig";
 import {
   decEditStep,
@@ -270,31 +269,22 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       },
     }),
   );
-  // C / V toggle the persisted transport prefs. Placed near Space so the
-  // whole transport family lives under one hand. C conflicts with hex
-  // digit 0xC on PT hex fields and with FT2 effect letter C on the
-  // effectCmd field — gated to fire only on the note column to avoid
-  // shadowing pattern entry. V isn't a PT hex key but IS an FT2 effect
-  // letter (0x1F), so it's gated off the FT2 effect-cmd field.
+  // ⌘N / ⌘M toggle the persisted transport prefs. The modifier keeps them
+  // off the pattern-entry path (N/M would otherwise collide with FT2
+  // effect letters), so no field-gate is needed.
   cleanups.push(
     registerShortcut({
-      key: "c",
+      key: "n",
+      mod: true,
       description: "Toggle Song / Pattern playback mode",
-      when: () => {
-        if (xm2Song()) return xmCursor().field === "note";
-        return cursor().field === "note";
-      },
       run: toggleLoopPattern,
     }),
   );
   cleanups.push(
     registerShortcut({
-      key: "v",
+      key: "m",
+      mod: true,
       description: "Toggle Follow playhead",
-      when: () => {
-        if (xm2Song()) return xmCursor().field !== "effectCmd";
-        return true;
-      },
       run: toggleFollowPlayback,
     }),
   );
