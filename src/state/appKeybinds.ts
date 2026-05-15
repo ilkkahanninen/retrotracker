@@ -269,13 +269,18 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       },
     }),
   );
-  // ⌘N / ⌘M toggle the persisted transport prefs. The modifier keeps them
-  // off the pattern-entry path (N/M would otherwise collide with FT2
-  // effect letters), so no field-gate is needed.
+  // ⌥N / ⌥M toggle the persisted transport prefs. Option (not ⌘) so we
+  // don't collide with browser ⌘N (new window) / ⌘M (minimize). Matched
+  // by physical key position because Option+letter on macOS produces a
+  // composed character (Option+N = `˜`, Option+M = `µ`), and the default
+  // `event.key` letter-mode matching deliberately doesn't fall back to
+  // `event.code` for letters. `position: true` reads the physical key
+  // directly so the binding works cross-platform.
   cleanups.push(
     registerShortcut({
       key: "n",
-      mod: true,
+      alt: true,
+      position: true,
       description: "Toggle Song / Pattern playback mode",
       run: toggleLoopPattern,
     }),
@@ -283,7 +288,8 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   cleanups.push(
     registerShortcut({
       key: "m",
-      mod: true,
+      alt: true,
+      position: true,
       description: "Toggle Follow playhead",
       run: toggleFollowPlayback,
     }),
