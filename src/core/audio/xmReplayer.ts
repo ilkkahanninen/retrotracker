@@ -1417,10 +1417,8 @@ export class XmReplayer {
         }
         break;
       case 0x11: {
-        // Hxy global vol slide.
-        const p =
-          v.volSlideLast === 0 ? this.state.globalVolSlideLast : v.volSlideLast;
-        void p;
+        // Hxy global vol slide. Memory is global (libxmp `gvol.memory`),
+        // independent of per-voice Axy memory.
         const sx = (this.state.globalVolSlideLast >>> 4) & 0xf;
         const sy = this.state.globalVolSlideLast & 0xf;
         if (sx !== 0) {
