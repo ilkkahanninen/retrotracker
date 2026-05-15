@@ -318,6 +318,13 @@ function parseInstrument(
       loopStart = h.loopStart;
       loopLength = h.loopLength;
     }
+    // Clamp loop bounds: a malformed .xm can declare loopStart/loopLength past
+    // the sample data, which the replayer and waveform editor both treat as
+    // valid frame indices. Pin them inside [0, data.length] so out-of-range
+    // values can't reach downstream code.
+    if (loopStart > data.length) loopStart = data.length;
+    if (loopStart + loopLength > data.length)
+      loopLength = data.length - loopStart;
 
     samples[s] = {
       name: h.name,
