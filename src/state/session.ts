@@ -308,7 +308,9 @@ export function xmChiptuneSourcesSnapshot(): Record<
 /**
  * Capture each XM workbench in sampler mode whose source carries audio
  * (an empty-sampler placeholder is skipped — the reload path lazy-
- * creates one from the sample bytes anyway).
+ * creates one from the sample bytes anyway). A workbench with no audio
+ * but a configured chain is still emitted so the user's chain work
+ * isn't silently dropped on save.
  */
 export function xmSamplerSourcesSnapshot(): Record<
   string,
@@ -318,7 +320,8 @@ export function xmSamplerSourcesSnapshot(): Record<
   for (const [key, wb] of xmWorkbenches()) {
     if (wb.source.kind !== "sampler") continue;
     const hasAudio = wb.source.wav.channels.some((ch) => ch.length > 0);
-    if (!hasAudio) continue;
+    const hasChain = wb.chain.length > 0;
+    if (!hasAudio && !hasChain) continue;
     out[key] = {
       sourceName: wb.source.sourceName,
       wav: wb.source.wav,
@@ -334,14 +337,17 @@ void xmWorkbenchKey;
 /**
  * Empty workbenches (placeholder created by toggling Sampler → Chiptune
  * on a fresh slot) are skipped: no audio to store, and the toggle
- * recreates them on demand.
+ * recreates them on demand. A workbench with no audio but a configured
+ * chain is still emitted so the user's chain work isn't silently
+ * dropped on save.
  */
 export function samplerSourcesSnapshot(): Record<number, SamplerSourceInputs> {
   const out: Record<number, SamplerSourceInputs> = {};
   for (const [slot, wb] of workbenches()) {
     if (wb.source.kind !== "sampler") continue;
     const hasAudio = wb.source.wav.channels.some((ch) => ch.length > 0);
-    if (!hasAudio) continue;
+    const hasChain = wb.chain.length > 0;
+    if (!hasAudio && !hasChain) continue;
     out[slot] = {
       sourceName: wb.source.sourceName,
       wav: wb.source.wav,
