@@ -215,6 +215,16 @@ export class AudioEngine {
   }
 
   /**
+   * Flip the running replayer's Song↔Pattern playback flag. Picked up at
+   * the next pattern boundary so the user's toggle takes effect without a
+   * Stop+Play round-trip.
+   */
+  setLoopPattern(on: boolean): void {
+    const msg: WorkletMessage = { type: "setLoopPattern", on };
+    this.node.port.postMessage(msg);
+  }
+
+  /**
    * Swap the Paula filter model on both the song and (if it exists) the
    * preview worklet. The model is also cached on the engine so that a
    * preview worklet created after this call still picks up the right

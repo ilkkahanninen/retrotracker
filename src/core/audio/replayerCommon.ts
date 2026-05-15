@@ -36,6 +36,13 @@ export interface Replayer {
   setChannelMuted(channel: number, muted: boolean): void;
 
   /**
+   * Flip the pattern-loop flag mid-playback. Picked up at the next
+   * pattern boundary so the user's Song↔Pattern toggle takes effect
+   * without a Stop+Play round-trip.
+   */
+  setLoopPattern(on: boolean): void;
+
+  /**
    * Copy per-channel peak amplitudes into `out`, then reset internal
    * peaks. `out.length` should match the song's channel count;
    * implementations write only as many channels as they have.

@@ -437,7 +437,9 @@ export class XmReplayer {
   private readonly voices: XmVoice[];
   private readonly state: XmSongState;
   private readonly loop: boolean;
-  private readonly loopPattern: boolean;
+  /** Mutable so the worklet can flip Song↔Pattern playback mid-stream;
+   *  picked up at the next pattern boundary. */
+  private loopPattern: boolean;
   /** Per-channel live mute gate. */
   private readonly channelMuted: boolean[];
   /** Samples remaining until the next tick boundary. */
@@ -553,6 +555,15 @@ export class XmReplayer {
   setChannelMuted(channel: number, muted: boolean): void {
     if (channel < 0 || channel >= this.voices.length) return;
     this.channelMuted[channel] = muted;
+  }
+
+  /**
+   * Flip the pattern-loop flag mid-playback. Picked up at the next pattern
+   * boundary so the current pattern finishes either looping or advancing
+   * depending on the fresh value.
+   */
+  setLoopPattern(on: boolean): void {
+    this.loopPattern = on;
   }
 
   peakSnapshotAndReset(out: Float32Array): void {

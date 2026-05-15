@@ -26,7 +26,8 @@ export type WorkletMessage =
   | { type: "setAmigaModel"; model: AmigaModel }
   | { type: "setStereoSeparation"; sep: number }
   | { type: "setSampleData"; slot: number; sample: Sample }
-  | { type: "replaceSong"; song: Song };
+  | { type: "replaceSong"; song: Song }
+  | { type: "setLoopPattern"; on: boolean };
 
 export type WorkletEvent =
   | { type: "pos"; order: number; row: number }
@@ -211,6 +212,12 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           // editor's state.
           this.song = msg.song;
           this.replayer?.replaceSong(msg.song);
+          break;
+        case "setLoopPattern":
+          // Flip the running replayer's Song↔Pattern flag without a
+          // Stop+Play round-trip. The replayer picks up the new value at
+          // the next pattern boundary.
+          this.replayer?.setLoopPattern(msg.on);
           break;
       }
     };

@@ -48,6 +48,17 @@ export function installEngineSync(): void {
     eng?.setMasterGain(gain);
   });
 
+  // Forward Song↔Pattern toggle to the running replayer so the user's
+  // header-toggle / hotkey-`c` flips take effect mid-playback. While
+  // transport is idle the flag is captured at the next `playFrom` call,
+  // so we only need to push it while playing.
+  createEffect(() => {
+    const loopPat = settings().loopPattern;
+    const playing = transport() === "playing";
+    const eng = currentEngine();
+    if (playing && eng) eng.setLoopPattern(loopPat);
+  });
+
   // PT-only: reference-diff sample-array + order-list / pattern-array
   // against the previous render's snapshot and forward changes through
   // engine.setSampleData / engine.replaceSong. FT2 has its own block

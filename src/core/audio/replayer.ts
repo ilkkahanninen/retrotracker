@@ -183,8 +183,11 @@ export class Pt2Replayer {
   private sideFactor: number;
   /** If true, never report ended; treat Bxx revisits and end-of-orders as a wrap. */
   private readonly loop: boolean;
-  /** If true, playback never advances past the starting order's pattern. */
-  private readonly loopPattern: boolean;
+  /** If true, playback never advances past the starting order's pattern.
+   *  Mutable so the worklet can flip it mid-playback when the user toggles
+   *  the Song↔Pattern preference; the new value takes effect at the next
+   *  pattern boundary. */
+  private loopPattern: boolean;
   /**
    * Per-channel live mute gate. When `true` for a channel, syncPaula
    * pins that channel's Paula volume to 0 — DMA still advances normally,
@@ -402,6 +405,16 @@ export class Pt2Replayer {
   setChannelMuted(channel: number, muted: boolean): void {
     if (channel < 0 || channel >= CHANNELS) return;
     this.channelMuted[channel] = muted;
+  }
+
+  /**
+   * Flip the pattern-loop flag mid-playback. Picked up at the next pattern
+   * boundary (the end-of-pattern branch checks `this.loopPattern`), so the
+   * current pattern finishes either looping or advancing depending on the
+   * fresh value. No effect on the current row/tick.
+   */
+  setLoopPattern(on: boolean): void {
+    this.loopPattern = on;
   }
 
   /**
