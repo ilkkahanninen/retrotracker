@@ -77,6 +77,9 @@ export class RecordingEngine {
   setMasterGain(percent: number): void {
     this.rec("setMasterGain", [percent]);
   }
+  setLoopPattern(on: boolean): void {
+    this.rec("setLoopPattern", [on]);
+  }
   async previewNote(sample: Sample, period: number): Promise<void> {
     this.rec("previewNote", [sample, period]);
   }
