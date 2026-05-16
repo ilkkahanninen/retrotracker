@@ -39,7 +39,15 @@ export interface BackendConfig {
   enabled: boolean;
   dataDir: string;
   auth: AuthConfig | null;
+  /**
+   * Per-user disk quota in bytes. Only enforced when auth is on (the
+   * anonymous bucket is a single shared scope and a quota there doesn't
+   * meaningfully bound anything). 0 disables the check.
+   */
+  userQuotaBytes: number;
 }
+
+const DEFAULT_USER_QUOTA_MB = 100;
 
 const TRUTHY = new Set(["1", "true", "yes", "on"]);
 
@@ -80,14 +88,48 @@ export function readAuthConfig(env: NodeJS.ProcessEnv): AuthConfig | null {
       "[retrotracker] OIDC_COOKIE_SECRET must decode to >= 32 bytes",
     );
   }
+  const issuer = stripTrailingSlash(env["OIDC_ISSUER"]!);
+  assertSecureIssuer(issuer);
   return {
-    issuer: stripTrailingSlash(env["OIDC_ISSUER"]!),
+    issuer,
     clientId: env["OIDC_CLIENT_ID"]!,
     clientSecret: env["OIDC_CLIENT_SECRET"]!,
     redirectUri: env["OIDC_REDIRECT_URI"]!,
     cookieSecret,
     postLogoutRedirect: env["OIDC_POST_LOGOUT_REDIRECT"] ?? "/",
   };
+}
+
+/**
+ * The OIDC discovery doc + token endpoint URL come from the issuer.
+ * Allowing plaintext `http://` lets a network attacker MITM the entire
+ * flow (substitute keys, redirect tokens). Refuse to start unless the
+ * issuer is https — with a single localhost exception for development
+ * against a local IdP container.
+ */
+export function assertSecureIssuer(issuer: string): void {
+  let url: URL;
+  try {
+    url = new URL(issuer);
+  } catch {
+    throw new Error(`[retrotracker] OIDC_ISSUER is not a valid URL: ${issuer}`);
+  }
+  if (url.protocol === "https:") return;
+  // WHATWG URL parser keeps IPv6 brackets in `hostname`, hence `[::1]`.
+  const host = url.hostname;
+  if (
+    url.protocol === "http:" &&
+    (host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "::1" ||
+      host === "[::1]")
+  ) {
+    return;
+  }
+  throw new Error(
+    `[retrotracker] OIDC_ISSUER must use https:// (got ${url.protocol}//${url.hostname}). ` +
+      `Plaintext is only allowed for localhost.`,
+  );
 }
 
 /**
@@ -110,7 +152,20 @@ export function readConfig(
   const defaultDir = mode === "dev" ? resolve(process.cwd(), "data") : "/";
   const dataDir = resolve(env["RETROTRACKER_DATA_DIR"] ?? defaultDir);
   const auth = enabled ? readAuthConfig(env) : null;
-  return { enabled, dataDir, auth };
+  const userQuotaBytes = readQuota(env);
+  return { enabled, dataDir, auth, userQuotaBytes };
+}
+
+function readQuota(env: NodeJS.ProcessEnv): number {
+  const raw = env["RETROTRACKER_USER_QUOTA_MB"];
+  if (raw === undefined) return DEFAULT_USER_QUOTA_MB * 1024 * 1024;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(
+      `[retrotracker] RETROTRACKER_USER_QUOTA_MB must be a non-negative number, got ${raw}`,
+    );
+  }
+  return Math.floor(n * 1024 * 1024);
 }
 
 function stripTrailingSlash(s: string): string {

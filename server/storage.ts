@@ -38,6 +38,15 @@ const MAX_PATH_LEN = 500;
 const MAX_SEGMENT_LEN = 200;
 
 /**
+ * Caps on the recursive listing. A malicious or runaway user can't
+ * force the server to walk an unbounded tree — the walk halts at
+ * either limit and the response gets `truncated: true`. Generous
+ * enough that legitimate libraries won't notice.
+ */
+const MAX_LIST_DEPTH = 8;
+const MAX_LIST_ENTRIES = 10_000;
+
+/**
  * Build the per-request scope. When auth is enabled, `userId` is the
  * verified OIDC `sub` and gets hashed before it lands on disk (no PII
  * exposure, no need to defend against weird sub formats containing
@@ -146,6 +155,72 @@ export async function ensureDirs(scope: UserScope): Promise<void> {
 }
 
 /**
+ * Total bytes-on-disk used by all of a scope's resource buckets.
+ * Walks the file tree directly (single pass per bucket, capped by the
+ * same `MAX_LIST_*` limits as `listDir`) so we don't store a separate
+ * running counter we'd have to keep in sync. Cheap for the file counts
+ * a single user accumulates in practice.
+ */
+export async function scopeUsage(scope: UserScope): Promise<number> {
+  let total = 0;
+  for (const r of RESOURCES) {
+    const { entries } = await listDir(scope, r);
+    for (const e of entries) total += e.size;
+  }
+  return total;
+}
+
+/**
+ * Stat a single file without throwing if it's missing. Returns the
+ * byte length on disk or 0. Used by the quota check to compute "what
+ * would the total be after this overwrite?" — the existing file's
+ * bytes are subtracted first.
+ */
+export async function existingSize(
+  scope: UserScope,
+  resource: Resource,
+  name: string,
+): Promise<number> {
+  try {
+    const path = resolveSafePath(scope, resource, name);
+    const st = await fs.lstat(path);
+    if (st.isFile()) return st.size;
+    return 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Per-user session revocation floor. Stored as a dotfile at the scope
+ * root so it lives outside any resource bucket and is never reachable
+ * via the API (resource listings skip dotfiles; the file isn't under
+ * `subdirs[r]` anyway). Reading returns 0 when the file is absent or
+ * unreadable — i.e. "never revoked".
+ */
+function sessionFloorPath(scope: UserScope): string {
+  return resolve(scope.root, ".session-floor");
+}
+
+export async function readSessionFloor(scope: UserScope): Promise<number> {
+  try {
+    const buf = await fs.readFile(sessionFloorPath(scope), "utf8");
+    const n = Number(buf.trim());
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function writeSessionFloor(
+  scope: UserScope,
+  unixSeconds: number,
+): Promise<void> {
+  await fs.mkdir(scope.root, { recursive: true });
+  await fs.writeFile(sessionFloorPath(scope), String(unixSeconds));
+}
+
+/**
  * Boot-time directory setup. Anonymous mode pre-creates the three flat
  * subdirs so an empty data dir works on first hit. Auth mode just makes
  * sure `<dataDir>/users` exists — per-user dirs get created lazily on
@@ -159,21 +234,41 @@ export async function ensureBaseDirs(cfg: BackendConfig): Promise<void> {
   }
 }
 
+export interface ListResult {
+  entries: FileEntry[];
+  /** True when the walk halted at one of the safety caps. */
+  truncated: boolean;
+}
+
 /**
  * Recursively list files under the resource subdir. Returns entries
  * with slash-separated relative paths, sorted by mtime descending.
  * Hidden entries (segments starting with `.`) and wrong-extension files
  * are skipped.
+ *
+ * Safety caps: walks at most `MAX_LIST_DEPTH` deep and collects at most
+ * `MAX_LIST_ENTRIES` files. Either cap flips `truncated: true`. This
+ * bounds the CPU / I/O a single GET can consume.
  */
 export async function listDir(
   scope: UserScope,
   resource: Resource,
-): Promise<FileEntry[]> {
+): Promise<ListResult> {
   const root = scope.subdirs[resource];
   const allowed = RESOURCE_EXTENSIONS[resource];
   const out: FileEntry[] = [];
+  let truncated = false;
 
-  async function walk(absDir: string, rel: string): Promise<void> {
+  async function walk(
+    absDir: string,
+    rel: string,
+    depth: number,
+  ): Promise<void> {
+    if (truncated) return;
+    if (depth > MAX_LIST_DEPTH) {
+      truncated = true;
+      return;
+    }
     let entries: string[];
     try {
       entries = await fs.readdir(absDir);
@@ -182,28 +277,36 @@ export async function listDir(
       throw e;
     }
     for (const name of entries) {
+      if (truncated) return;
       if (name.startsWith(".")) continue;
       const abs = resolve(absDir, name);
       const relPath = rel === "" ? name : posix.join(rel, name);
       let st;
       try {
-        st = await fs.stat(abs);
+        st = await fs.lstat(abs);
       } catch {
         continue;
       }
+      // Symlinks are silently skipped — we never write them via the
+      // API, and following one could escape the user's scope.
+      if (st.isSymbolicLink()) continue;
       if (st.isDirectory()) {
-        await walk(abs, relPath);
+        await walk(abs, relPath, depth + 1);
         continue;
       }
       if (!st.isFile()) continue;
       if (!allowed.includes(extname(name).toLowerCase())) continue;
+      if (out.length >= MAX_LIST_ENTRIES) {
+        truncated = true;
+        return;
+      }
       out.push({ name: relPath, size: st.size, mtime: st.mtimeMs });
     }
   }
 
-  await walk(root, "");
+  await walk(root, "", 0);
   out.sort((a, b) => b.mtime - a.mtime);
-  return out;
+  return { entries: out, truncated };
 }
 
 export async function readFile(

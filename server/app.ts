@@ -4,8 +4,10 @@ import {
   BadNameError,
   NotFoundError,
   deleteFile,
+  existingSize,
   listDir,
   readFile,
+  scopeUsage,
   userScope,
   writeFile,
   type UserScope,
@@ -137,11 +139,12 @@ export function createApp({ cfg, version }: AppDeps): AppType {
 
     app.get(base, async (c) => {
       const scope = scopeFor(cfg, c);
-      const entries = await listDir(scope, resource);
+      const { entries, truncated } = await listDir(scope, resource);
       return c.json({
         resource,
         extensions: RESOURCE_EXTENSIONS[resource],
         entries,
+        truncated,
       });
     });
 
@@ -193,6 +196,25 @@ export function createApp({ cfg, version }: AppDeps): AppType {
             },
             413,
           );
+        }
+        // Per-user quota — only enforced when auth is on (anonymous mode
+        // shares one bucket). Overwriting a file refunds its current
+        // bytes before checking the new total.
+        if (cfg.auth && cfg.userQuotaBytes > 0) {
+          const current = await scopeUsage(scope);
+          const existing = await existingSize(scope, resource, name);
+          const after = current - existing + buf.byteLength;
+          if (after > cfg.userQuotaBytes) {
+            return c.json(
+              {
+                error: "quota-exceeded",
+                message: `user quota of ${cfg.userQuotaBytes} bytes would be exceeded`,
+                used: current,
+                limit: cfg.userQuotaBytes,
+              },
+              413,
+            );
+          }
         }
         await writeFile(scope, resource, name, new Uint8Array(buf));
         return c.json({ ok: true, name });

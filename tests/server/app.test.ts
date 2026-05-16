@@ -8,7 +8,7 @@ import type { BackendConfig } from "../../server/config.js";
 
 async function tempCfg(): Promise<BackendConfig> {
   const dir = await mkdtemp(resolve(tmpdir(), "rt-backend-app-"));
-  return { enabled: true, dataDir: dir, auth: null };
+  return { enabled: true, dataDir: dir, auth: null, userQuotaBytes: 0 };
 }
 
 interface Harness {

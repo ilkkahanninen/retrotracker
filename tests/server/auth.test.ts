@@ -23,7 +23,12 @@ async function authedHarness(): Promise<{ cfg: BackendConfig; dir: string }> {
     cookieSecret: COOKIE_SECRET,
     postLogoutRedirect: "/",
   };
-  const cfg: BackendConfig = { enabled: true, dataDir: dir, auth };
+  const cfg: BackendConfig = {
+    enabled: true,
+    dataDir: dir,
+    auth,
+    userQuotaBytes: 0,
+  };
   return { cfg, dir };
 }
 
@@ -57,6 +62,7 @@ describe("auth status", () => {
       enabled: true,
       dataDir: harness.dir,
       auth: null,
+      userQuotaBytes: 0,
     };
     const app = createApp({ cfg, version: "t" });
     const res = await app.request("/api/auth/status");
@@ -280,6 +286,177 @@ describe("size limits", () => {
       },
     });
     expect(res.status).toBe(413);
+  });
+});
+
+describe("per-user disk quota", () => {
+  let harness: Awaited<ReturnType<typeof authedHarness>>;
+  beforeEach(async () => {
+    harness = await authedHarness();
+  });
+  afterEach(async () => {
+    await rm(harness.dir, { recursive: true, force: true });
+  });
+
+  it("413s when a PUT would push the user over their quota", async () => {
+    // 1 KB quota.
+    harness.cfg.userQuotaBytes = 1024;
+    const app = createApp({ cfg: harness.cfg, version: "t" });
+    const token = await signSession(COOKIE_SECRET, { sub: "alice" });
+
+    // First PUT fits.
+    const small = new Uint8Array(800);
+    const okRes = await app.request("/api/samples/a.wav", {
+      method: "PUT",
+      body: small,
+      headers: {
+        Cookie: `${SESSION_COOKIE}=${token}`,
+        Origin: APP_ORIGIN,
+      },
+    });
+    expect(okRes.status).toBe(200);
+
+    // Second PUT (300 B) would total 1100 B → over the 1 KB cap.
+    const second = new Uint8Array(300);
+    const overRes = await app.request("/api/samples/b.wav", {
+      method: "PUT",
+      body: second,
+      headers: {
+        Cookie: `${SESSION_COOKIE}=${token}`,
+        Origin: APP_ORIGIN,
+      },
+    });
+    expect(overRes.status).toBe(413);
+    expect(await overRes.json()).toMatchObject({ error: "quota-exceeded" });
+  });
+
+  it("overwriting an existing file refunds its bytes", async () => {
+    harness.cfg.userQuotaBytes = 1024;
+    const app = createApp({ cfg: harness.cfg, version: "t" });
+    const token = await signSession(COOKIE_SECRET, { sub: "alice" });
+
+    await app.request("/api/samples/a.wav", {
+      method: "PUT",
+      body: new Uint8Array(900),
+      headers: {
+        Cookie: `${SESSION_COOKIE}=${token}`,
+        Origin: APP_ORIGIN,
+      },
+    });
+
+    // Same name, smaller body — should succeed even though the new
+    // body plus the OLD body would have exceeded the cap.
+    const replace = await app.request("/api/samples/a.wav", {
+      method: "PUT",
+      body: new Uint8Array(900),
+      headers: {
+        Cookie: `${SESSION_COOKIE}=${token}`,
+        Origin: APP_ORIGIN,
+      },
+    });
+    expect(replace.status).toBe(200);
+  });
+});
+
+describe("session revocation on logout", () => {
+  let harness: Awaited<ReturnType<typeof authedHarness>>;
+  beforeEach(async () => {
+    harness = await authedHarness();
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            issuer: harness.cfg.auth!.issuer,
+            authorization_endpoint: "https://idp.test/auth",
+            token_endpoint: "https://idp.test/token",
+            jwks_uri: "https://idp.test/jwks",
+            end_session_endpoint: "https://idp.test/end",
+          }),
+          { status: 200 },
+        ),
+    ) as unknown as typeof fetch;
+  });
+  afterEach(async () => {
+    await rm(harness.dir, { recursive: true, force: true });
+  });
+
+  it("rejects an old token after the same user logs out", async () => {
+    const app = createApp({ cfg: harness.cfg, version: "t" });
+
+    // Build a JWT whose iat is well in the past so the 5-second grace
+    // window doesn't mask the revocation.
+    const oldIat = Math.floor(Date.now() / 1000) - 3600;
+    const token = await new jose.SignJWT({})
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("alice")
+      .setIssuer("retrotracker")
+      .setAudience("retrotracker-spa")
+      .setIssuedAt(oldIat)
+      .setExpirationTime("7d")
+      .sign(COOKIE_SECRET);
+
+    // Before logout: token works.
+    const before = await app.request("/api/auth/status", {
+      headers: { Cookie: `${SESSION_COOKIE}=${token}` },
+    });
+    expect((await before.json()).user).toMatchObject({ id: "alice" });
+
+    // Logout bumps the floor.
+    const logout = await app.request("/api/auth/logout", {
+      method: "POST",
+      headers: {
+        Cookie: `${SESSION_COOKIE}=${token}`,
+        Origin: APP_ORIGIN,
+      },
+    });
+    expect(logout.status).toBe(200);
+
+    // Same token is now rejected.
+    const after = await app.request("/api/auth/status", {
+      headers: { Cookie: `${SESSION_COOKIE}=${token}` },
+    });
+    expect((await after.json()).user).toBeNull();
+
+    // CRUD also 401s with the revoked token.
+    const crud = await app.request("/api/projects", {
+      headers: { Cookie: `${SESSION_COOKIE}=${token}` },
+    });
+    expect(crud.status).toBe(401);
+  });
+
+  it("logging out user A doesn't revoke user B's tokens", async () => {
+    const app = createApp({ cfg: harness.cfg, version: "t" });
+    const oldIat = Math.floor(Date.now() / 1000) - 3600;
+    const aliceToken = await new jose.SignJWT({})
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("alice")
+      .setIssuer("retrotracker")
+      .setAudience("retrotracker-spa")
+      .setIssuedAt(oldIat)
+      .setExpirationTime("7d")
+      .sign(COOKIE_SECRET);
+    const bobToken = await new jose.SignJWT({})
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("bob")
+      .setIssuer("retrotracker")
+      .setAudience("retrotracker-spa")
+      .setIssuedAt(oldIat)
+      .setExpirationTime("7d")
+      .sign(COOKIE_SECRET);
+
+    await app.request("/api/auth/logout", {
+      method: "POST",
+      headers: {
+        Cookie: `${SESSION_COOKIE}=${aliceToken}`,
+        Origin: APP_ORIGIN,
+      },
+    });
+
+    // Bob still has a valid session.
+    const bob = await app.request("/api/auth/status", {
+      headers: { Cookie: `${SESSION_COOKIE}=${bobToken}` },
+    });
+    expect((await bob.json()).user).toMatchObject({ id: "bob" });
   });
 });
 

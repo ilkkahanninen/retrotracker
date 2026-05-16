@@ -9,6 +9,8 @@ import type { OidcUser } from "./oidc.js";
  */
 export interface SessionPayload {
   sub: string;
+  /** Issued-at, seconds since epoch. Used by the revocation check. */
+  iat: number;
   name?: string;
   email?: string;
   picture?: string;
@@ -56,8 +58,12 @@ export async function verifySession(
   if (typeof payload.sub !== "string" || payload.sub.length === 0) {
     throw new Error("session missing sub");
   }
+  if (typeof payload.iat !== "number") {
+    throw new Error("session missing iat");
+  }
   return {
     sub: payload.sub,
+    iat: payload.iat,
     name: stringOrUndef(payload["name"]),
     email: stringOrUndef(payload["email"]),
     picture: stringOrUndef(payload["picture"]),

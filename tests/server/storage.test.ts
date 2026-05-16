@@ -26,7 +26,12 @@ interface Harness {
 
 async function tempHarness(): Promise<Harness> {
   const dir = await mkdtemp(resolve(tmpdir(), "rt-backend-"));
-  const cfg: BackendConfig = { enabled: true, dataDir: dir, auth: null };
+  const cfg: BackendConfig = {
+    enabled: true,
+    dataDir: dir,
+    auth: null,
+    userQuotaBytes: 0,
+  };
   return { cfg, scope: userScope(cfg, null) };
 }
 
@@ -148,9 +153,10 @@ describe("storage CRUD", () => {
       new Date(2000, 0, 1),
     );
     await writeFile(h.scope, "samples", "sub/newer.wav", new Uint8Array([2]));
-    const entries = await listDir(h.scope, "samples");
+    const { entries, truncated } = await listDir(h.scope, "samples");
     expect(entries.map((e) => e.name)).toEqual(["sub/newer.wav", "old.wav"]);
     expect(entries[0]!.size).toBe(1);
+    expect(truncated).toBe(false);
   });
 
   it("list skips wrong-extension and dotfiles", async () => {
@@ -158,13 +164,36 @@ describe("storage CRUD", () => {
     // Drop bogus files directly with fs to bypass validation.
     await fs.writeFile(resolve(h.scope.subdirs.samples, "bad.mp3"), "x");
     await fs.writeFile(resolve(h.scope.subdirs.samples, ".hidden.wav"), "x");
-    const entries = await listDir(h.scope, "samples");
+    const { entries } = await listDir(h.scope, "samples");
     expect(entries.map((e) => e.name)).toEqual(["ok.wav"]);
   });
 
   it("list returns empty when dir does not exist", async () => {
     await rm(h.scope.subdirs.modules, { recursive: true, force: true });
-    expect(await listDir(h.scope, "modules")).toEqual([]);
+    const { entries, truncated } = await listDir(h.scope, "modules");
+    expect(entries).toEqual([]);
+    expect(truncated).toBe(false);
+  });
+
+  it("list truncates when the tree is deeper than MAX_LIST_DEPTH", async () => {
+    // 10 nested dirs > the depth cap of 8. The deepest file should be
+    // skipped and `truncated` should flip true.
+    const deep = "a/b/c/d/e/f/g/h/i/buried.wav";
+    await writeFile(h.scope, "samples", deep, new Uint8Array([1]));
+    const { entries, truncated } = await listDir(h.scope, "samples");
+    expect(truncated).toBe(true);
+    expect(entries.map((e) => e.name)).not.toContain(deep);
+  });
+
+  it("list skips symbolic links (no escape via dangling symlinks)", async () => {
+    await writeFile(h.scope, "samples", "real.wav", new Uint8Array([1]));
+    // Point a symlink at /etc/passwd; listDir should silently skip it.
+    await fs.symlink(
+      "/etc/passwd",
+      resolve(h.scope.subdirs.samples, "escape.wav"),
+    );
+    const { entries } = await listDir(h.scope, "samples");
+    expect(entries.map((e) => e.name)).toEqual(["real.wav"]);
   });
 
   it("read of missing file throws NotFoundError", async () => {
@@ -204,7 +233,12 @@ describe("storage CRUD", () => {
 
 describe("userScope", () => {
   it("anonymous mode lands at the flat data dir", () => {
-    const cfg: BackendConfig = { enabled: true, dataDir: "/data", auth: null };
+    const cfg: BackendConfig = {
+      enabled: true,
+      dataDir: "/data",
+      auth: null,
+      userQuotaBytes: 0,
+    };
     const scope = userScope(cfg, null);
     expect(scope.root).toBe("/data");
     expect(scope.subdirs.projects).toBe("/data/projects");
@@ -222,6 +256,7 @@ describe("userScope", () => {
         cookieSecret: new Uint8Array(32),
         postLogoutRedirect: "/",
       },
+      userQuotaBytes: 0,
     };
     const scope = userScope(cfg, "user-123");
     const hash = hashUserId("user-123");
@@ -242,6 +277,7 @@ describe("userScope", () => {
         cookieSecret: new Uint8Array(32),
         postLogoutRedirect: "/",
       },
+      userQuotaBytes: 0,
     };
     expect(() => userScope(cfg, null)).toThrow();
   });

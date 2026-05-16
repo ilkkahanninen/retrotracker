@@ -1,8 +1,9 @@
 import type { Hono } from "hono";
 import { setCookie, deleteCookie, getCookie } from "hono/cookie";
 import { generatePkce, randomToken, type OidcClient } from "./oidc.js";
-import { signSession } from "./session.js";
+import { signSession, verifySession } from "./session.js";
 import { SESSION_COOKIE, type SessionUser } from "./middleware.js";
+import { userScope, writeSessionFloor } from "../storage.js";
 import type { BackendConfig } from "../config.js";
 
 const STATE_COOKIE = "rt_state";
@@ -108,6 +109,21 @@ export function mountAuthRoutes<
   });
 
   app.post("/auth/logout", async (c) => {
+    // Bump the user's session floor before clearing the cookie. Every
+    // JWT they currently hold (this tab + any leaked copy) becomes
+    // invalid on the next request because its `iat` is now <= floor.
+    // Best-effort: if the cookie is missing/invalid there's nothing to
+    // revoke and we just clear and move on.
+    const token = getCookie(c, SESSION_COOKIE);
+    if (token) {
+      try {
+        const payload = await verifySession(authCfg.cookieSecret, token);
+        const scope = userScope(cfg, payload.sub);
+        await writeSessionFloor(scope, Math.floor(Date.now() / 1000));
+      } catch {
+        // invalid token — nothing to revoke
+      }
+    }
     deleteCookie(c, SESSION_COOKIE, sessionCookieOpts(authCfg.redirectUri));
     const endSession = await oidc.endSessionUrl(authCfg.postLogoutRedirect);
     return c.json({ ok: true, endSessionUrl: endSession });
