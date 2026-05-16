@@ -62,6 +62,14 @@ async function honoHandle(
     if (Array.isArray(v)) headers.set(k, v.join(", "));
     else headers.set(k, v);
   }
+  // Inject the socket's remote address so downstream middleware (rate
+  // limiter, audit log) can scope per client. Always overwrite — never
+  // trust an externally-supplied x-real-ip. If we're behind a reverse
+  // proxy, this captures the proxy IP and the operator should adjust
+  // rate limits accordingly (proper X-Forwarded-For trust is a future
+  // env-var-gated feature).
+  const remote = req.socket.remoteAddress;
+  if (remote) headers.set("x-real-ip", remote);
 
   const init: RequestInit & { duplex?: "half" } = { method, headers };
   if (method !== "GET" && method !== "HEAD") {

@@ -206,6 +206,11 @@ async function honoHandle(
     if (Array.isArray(v)) headers.set(k, v.join(", "));
     else headers.set(k, v);
   }
+  // See vitePlugin.ts for the same comment — always overwrite x-real-ip
+  // from the socket so downstream middleware can't be fooled by an
+  // attacker-supplied header.
+  const remote = req.socket.remoteAddress;
+  if (remote) headers.set("x-real-ip", remote);
 
   const init: RequestInit & { duplex?: "half" } = { method, headers };
   if (method !== "GET" && method !== "HEAD") {

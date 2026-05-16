@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import { resolve, sep, extname, dirname, posix } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   RESOURCE_EXTENSIONS,
   RESOURCES,
@@ -327,7 +327,14 @@ export async function readFile(
 }
 
 /**
- * Write `bytes` to the resolved path, creating any intermediate subdirs.
+ * Atomic write: stream `bytes` to `<path>.<rand>.tmp`, then `rename()`
+ * over the target. POSIX guarantees rename is atomic within a single
+ * filesystem, so concurrent PUTs to the same name resolve cleanly
+ * (one wins, the other's bytes are intact in the briefly-named tmp
+ * file until rename overwrites them) and a crash mid-write never
+ * leaves a half-truncated target. Listings filter by extension so the
+ * tmp suffix keeps the in-flight bytes invisible.
+ *
  * Overwrites silently — the UI is responsible for confirming with the
  * user before issuing a PUT against an existing name.
  */
@@ -339,7 +346,19 @@ export async function writeFile(
 ): Promise<void> {
   const path = resolveSafePath(scope, resource, name);
   await fs.mkdir(dirname(path), { recursive: true });
-  await fs.writeFile(path, bytes);
+  const tmp = `${path}.${randomBytes(6).toString("hex")}.tmp`;
+  try {
+    await fs.writeFile(tmp, bytes);
+    await fs.rename(tmp, path);
+  } catch (e) {
+    // Best-effort cleanup; ignore if the tmp file is already gone.
+    try {
+      await fs.unlink(tmp);
+    } catch {
+      // already gone
+    }
+    throw e;
+  }
 }
 
 /**

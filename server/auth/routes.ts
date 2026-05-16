@@ -3,8 +3,10 @@ import { setCookie, deleteCookie, getCookie } from "hono/cookie";
 import { generatePkce, randomToken, type OidcClient } from "./oidc.js";
 import { signSession, verifySession } from "./session.js";
 import { SESSION_COOKIE, type SessionUser } from "./middleware.js";
-import { userScope, writeSessionFloor } from "../storage.js";
+import { hashUserId, userScope, writeSessionFloor } from "../storage.js";
 import type { BackendConfig } from "../config.js";
+import { audit, clientIp } from "../audit.js";
+import { rateLimit } from "../rateLimit.js";
 
 const STATE_COOKIE = "rt_state";
 const NONCE_COOKIE = "rt_nonce";
@@ -20,7 +22,29 @@ export function mountAuthRoutes<
 >(app: T, cfg: BackendConfig, oidc: OidcClient): void {
   const authCfg = cfg.auth!;
 
-  app.get("/auth/login", async (c) => {
+  // Per-IP rate limits on the auth surface. Generous-but-finite: a
+  // logged-in user clicking "log in" a few times in quick succession
+  // is fine, but a script can't run a sustained brute-force or open a
+  // million flow cookies to DoS browser memory.
+  const loginLimiter = rateLimit({
+    scope: "auth.login",
+    capacity: 20,
+    refillPerSec: 1 / 6, // ~10 / min sustained
+  });
+  const callbackLimiter = rateLimit({
+    scope: "auth.callback",
+    capacity: 20,
+    refillPerSec: 1 / 6,
+  });
+  const logoutLimiter = rateLimit({
+    scope: "auth.logout",
+    capacity: 10,
+    refillPerSec: 1 / 6,
+  });
+
+  app.get("/auth/login", loginLimiter, async (c) => {
+    const ip = clientIp(c);
+    audit({ evt: "auth.login.start", ip });
     const state = randomToken();
     const nonce = randomToken();
     const { verifier, challenge } = generatePkce();
@@ -38,14 +62,17 @@ export function mountAuthRoutes<
     return c.redirect(url);
   });
 
-  app.get("/auth/callback", async (c) => {
+  app.get("/auth/callback", callbackLimiter, async (c) => {
+    const ip = clientIp(c);
     const code = c.req.query("code");
     const state = c.req.query("state");
     const error = c.req.query("error");
     if (error) {
+      audit({ evt: "auth.login.failure", ip, reason: `oidc:${error}` });
       return c.json({ error: "oidc-error", message: error }, 400);
     }
     if (!code || !state) {
+      audit({ evt: "auth.login.failure", ip, reason: "missing-code-or-state" });
       return c.json(
         { error: "bad-callback", message: "missing code/state" },
         400,
@@ -60,12 +87,14 @@ export function mountAuthRoutes<
     deleteCookie(c, VERIFIER_COOKIE, transientCookie(authCfg.redirectUri));
 
     if (!savedState || savedState !== state) {
+      audit({ evt: "auth.login.failure", ip, reason: "state-mismatch" });
       return c.json(
         { error: "state-mismatch", message: "state cookie missing or stale" },
         400,
       );
     }
     if (!savedNonce || !savedVerifier) {
+      audit({ evt: "auth.login.failure", ip, reason: "flow-state-missing" });
       return c.json(
         { error: "flow-state-missing", message: "auth flow cookies expired" },
         400,
@@ -88,6 +117,7 @@ export function mountAuthRoutes<
         "[retrotracker] token exchange failed:",
         e instanceof Error ? e.message : String(e),
       );
+      audit({ evt: "auth.login.failure", ip, reason: "token-exchange" });
       return c.json(
         { error: "token-exchange-failed", message: "sign-in failed" },
         400,
@@ -101,6 +131,12 @@ export function mountAuthRoutes<
       sessionToken,
       sessionCookieOpts(authCfg.redirectUri),
     );
+    audit({
+      evt: "auth.login.success",
+      ip,
+      userHash: hashUserId(user.sub),
+      name: user.name,
+    });
 
     // Redirect back to the SPA root. `?auth=ok` is a marker the frontend
     // strips after refreshing its auth status — useful for popping a
@@ -108,16 +144,19 @@ export function mountAuthRoutes<
     return c.redirect("/?auth=ok");
   });
 
-  app.post("/auth/logout", async (c) => {
+  app.post("/auth/logout", logoutLimiter, async (c) => {
+    const ip = clientIp(c);
     // Bump the user's session floor before clearing the cookie. Every
     // JWT they currently hold (this tab + any leaked copy) becomes
     // invalid on the next request because its `iat` is now <= floor.
     // Best-effort: if the cookie is missing/invalid there's nothing to
     // revoke and we just clear and move on.
+    let userHash: string | null = null;
     const token = getCookie(c, SESSION_COOKIE);
     if (token) {
       try {
         const payload = await verifySession(authCfg.cookieSecret, token);
+        userHash = hashUserId(payload.sub);
         const scope = userScope(cfg, payload.sub);
         await writeSessionFloor(scope, Math.floor(Date.now() / 1000));
       } catch {
@@ -125,6 +164,7 @@ export function mountAuthRoutes<
       }
     }
     deleteCookie(c, SESSION_COOKIE, sessionCookieOpts(authCfg.redirectUri));
+    audit({ evt: "auth.logout", ip, userHash });
     const endSession = await oidc.endSessionUrl(authCfg.postLogoutRedirect);
     return c.json({ ok: true, endSessionUrl: endSession });
   });

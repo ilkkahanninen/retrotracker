@@ -5,6 +5,7 @@ import {
   NotFoundError,
   deleteFile,
   existingSize,
+  hashUserId,
   listDir,
   readFile,
   scopeUsage,
@@ -12,6 +13,7 @@ import {
   writeFile,
   type UserScope,
 } from "./storage.js";
+import { audit, clientIp } from "./audit.js";
 import {
   RESOURCES,
   RESOURCE_EXTENSIONS,
@@ -229,6 +231,13 @@ export function createApp({ cfg, version }: AppDeps): AppType {
       try {
         const scope = scopeFor(cfg, c);
         await deleteFile(scope, resource, name);
+        audit({
+          evt: "file.delete",
+          ip: clientIp(c),
+          userHash: cfg.auth ? hashUserId(c.var.user!.sub) : null,
+          resource,
+          name,
+        });
         return c.json({ ok: true, name });
       } catch (e) {
         const { status, body } = errorPayload(e);
