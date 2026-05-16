@@ -112,6 +112,25 @@ Auth is opt-in via five env vars: `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_
 - **No-leak invariant**: when auth is on, every CRUD route runs through `requireUser` and `userScope(cfg, null)` throws — the anonymous flat-path bucket is unreachable from any HTTP path. Files left over from an anonymous-era deploy stay on disk but become invisible to the API; operators migrate manually (`mv data/projects data/users/<hash>/projects`). Verified by a regression test in [tests/server/auth.test.ts](tests/server/auth.test.ts).
 - **Frontend** ([src/state/auth.ts](src/state/auth.ts)): `probeBackend()` follows up with `/api/auth/status`; signals `authRequired()` + `currentUser()` drive the File menu. Auth-required + not-signed-in → only **Sign in to cloud…** appears, cloud Open/Save are hidden, and ⌘O / ⌘S fall back to the local pickers.
 
+#### Security hardening
+
+The backend was audited; concrete defenses ship in the server code:
+
+- **Per-resource body caps** ([server/app.ts](server/app.ts), `SIZE_LIMITS`): PUT bodies capped at 50 MB / 50 MB / 5 MB for projects / samples / modules respectively. Checked upfront via `Content-Length` and again post-buffer.
+- **Per-user disk quota** (`RETROTRACKER_USER_QUOTA_MB`, default 100): enforced on PUT when auth is on; overwriting refunds the existing file's bytes. Anonymous mode shares one bucket so no quota.
+- **Origin guard** ([server/app.ts](server/app.ts), `originGuard`): PUT/DELETE/POST require an `Origin` header matching `OIDC_REDIRECT_URI`'s origin when auth is configured (defence-in-depth on top of `SameSite=Lax`).
+- **Session revocation** ([server/auth/middleware.ts](server/auth/middleware.ts)): logout writes a per-user `.session-floor` dotfile; JWTs whose `iat` is at-or-below the floor are rejected. 5-second grace window covers the same-second logout/login race. Per-user — one user's logout doesn't affect others.
+- **HTTPS-only issuer** ([server/config.ts](server/config.ts), `assertSecureIssuer`): refuses to start when `OIDC_ISSUER` isn't `https://`, except for `localhost`.
+- **Sanitised errors**: 500s return `{error: "internal", message: "internal error"}` with the real error logged server-side; token-exchange failures get `"sign-in failed"`. Stops `EACCES` paths and IdP response bodies from leaking to clients.
+- **Cache headers**: every `/api/*` response carries `Cache-Control: private, no-store` + `Vary: Cookie` + `X-Content-Type-Options: nosniff` so a CDN/proxy can't cross-serve auth-scoped data.
+- **Static-serve CSP** ([server/index.ts](server/index.ts), `applySecurityHeaders`): `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, and a CSP allowing `self` + `'wasm-unsafe-eval'` + `blob:` for the AudioWorklet / sample preview. **Adjust `img-src` if you add a remote avatar host** (Logto profile pictures aren't rendered today; if you wire them up, add the picture host to `img-src`).
+- **List walk caps** ([server/storage.ts](server/storage.ts)): recursive listing halts at depth 8 or 10000 entries; sets `truncated: true` in the response. Symlinks are silently skipped — we never write them via the API but a co-process or operator could.
+- **Atomic writes**: `writeFile` writes to `<path>.<rand>.tmp` then `rename`s — POSIX-atomic, so concurrent PUTs to the same name resolve cleanly and a crash mid-write can't leave a half-truncated target.
+- **Rate limiting** ([server/rateLimit.ts](server/rateLimit.ts)): per-IP token bucket on `/api/auth/{login,callback,logout}` (20 burst / ~10/min sustained). In-memory state, scoped per single-node deploy.
+- **Audit log** ([server/audit.ts](server/audit.ts)): structured single-line JSON under the `[audit]` prefix for login start/success/failure, logout, and file.delete. Contains client IP and hashed user id; never the raw OIDC sub or session token. Pipe to journald / syslog as needed.
+- **Session JWT** carries `iss: "retrotracker"` + `aud: "retrotracker-spa"` claims so the cookie secret can't be cross-used by another service.
+- **Dev-server LAN exposure**: `npm run dev` binds 127.0.0.1 by default — safe. `vite dev --host` exposes the API on the LAN with no auth; only run that on a trusted network or set the `OIDC_*` env vars before binding 0.0.0.0.
+
 ## Conventions
 
 - TypeScript strict mode with `noUncheckedIndexedAccess` — array/record access returns `T | undefined`. Use `arr[i]!` only when an invariant guarantees presence (e.g., `PERIOD_TABLE[finetune]!` — finetune is 0..15).
