@@ -3,6 +3,8 @@ dist
 dist-server
 dist-ssr
 data
+.env
+.env.*
 coverage
 *.log
 *.tsbuildinfo

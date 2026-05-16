@@ -7,9 +7,11 @@
   "scripts": {
     "prepare": "git config core.hooksPath .githooks 2>/dev/null || true",
     "dev": "vite",
+    "dev:env": "node --env-file=.env ./node_modules/vite/bin/vite.js",
     "build": "tsc -b && vite build && npm run build:server",
     "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --target=node20 --packages=external --define:__APP_VERSION__=\\\"${APP_VERSION:-dev}\\\" --outfile=dist-server/index.mjs",
     "start": "node dist-server/index.mjs",
+    "start:env": "node --env-file=.env dist-server/index.mjs",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
@@ -22,6 +24,7 @@
   },
   "dependencies": {
     "hono": "^4.12.18",
+    "jose": "^6.2.3",
     "solid-js": "^1.9.3"
   },
   "devDependencies": {

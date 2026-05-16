@@ -3,7 +3,7 @@ import { Readable } from "node:stream";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createApp } from "./app.js";
 import { readConfig } from "./config.js";
-import { ensureDirs } from "./storage.js";
+import { ensureBaseDirs } from "./storage.js";
 
 /**
  * Vite plugin that mounts the Hono backend as dev-server middleware. The
@@ -21,7 +21,7 @@ export function backendPlugin(version: string): Plugin {
     apply: "serve",
     async configureServer(server: ViteDevServer) {
       const cfg = readConfig("dev");
-      await ensureDirs(cfg);
+      await ensureBaseDirs(cfg);
       const app = createApp({ cfg, version });
 
       const handler: Connect.NextHandleFunction = (req, res, next) => {
@@ -30,8 +30,13 @@ export function backendPlugin(version: string): Plugin {
       };
       server.middlewares.use(handler);
 
+      const authNote = cfg.auth
+        ? `auth on (issuer ${cfg.auth.issuer})`
+        : "anonymous (no OIDC)";
       // eslint-disable-next-line no-console
-      console.log(`[retrotracker] backend dev API → ${cfg.dataDir}`);
+      console.log(
+        `[retrotracker] backend dev API → ${cfg.dataDir} · ${authNote}`,
+      );
     },
   };
 }
@@ -68,7 +73,18 @@ async function honoHandle(
 
   const response = await fetch(new Request(url, init));
   res.statusCode = response.status;
-  response.headers.forEach((value, key) => res.setHeader(key, value));
+  // Web Headers.forEach collapses multi-valued headers into a single
+  // comma-joined string. That's fine for most headers but breaks
+  // Set-Cookie, whose grammar already uses commas (e.g. in `Expires`),
+  // so a browser receiving "rt_state=a; Path=/, rt_nonce=b; Path=/"
+  // parses it as one mangled cookie and drops the rest. Emit Set-Cookie
+  // as a real array via getSetCookie() and skip it in the forEach.
+  response.headers.forEach((value, key) => {
+    if (key.toLowerCase() === "set-cookie") return;
+    res.setHeader(key, value);
+  });
+  const setCookies = response.headers.getSetCookie();
+  if (setCookies.length > 0) res.setHeader("Set-Cookie", setCookies);
   if (response.body) {
     const stream = Readable.fromWeb(response.body as never);
     stream.pipe(res);

@@ -8,25 +8,26 @@ import {
   NotFoundError,
   deleteFile,
   ensureDirs,
+  hashUserId,
   listDir,
   readFile,
   resolveSafePath,
+  userScope,
   validatePath,
   writeFile,
+  type UserScope,
 } from "../../server/storage.js";
 import type { BackendConfig } from "../../server/config.js";
 
-async function tempCfg(): Promise<BackendConfig> {
+interface Harness {
+  cfg: BackendConfig;
+  scope: UserScope;
+}
+
+async function tempHarness(): Promise<Harness> {
   const dir = await mkdtemp(resolve(tmpdir(), "rt-backend-"));
-  return {
-    enabled: true,
-    dataDir: dir,
-    subdirs: {
-      projects: resolve(dir, "projects"),
-      samples: resolve(dir, "samples"),
-      modules: resolve(dir, "modules"),
-    },
-  };
+  const cfg: BackendConfig = { enabled: true, dataDir: dir, auth: null };
+  return { cfg, scope: userScope(cfg, null) };
 }
 
 describe("validatePath", () => {
@@ -87,114 +88,166 @@ describe("validatePath", () => {
 });
 
 describe("resolveSafePath", () => {
-  let cfg: BackendConfig;
+  let h: Harness;
   beforeEach(async () => {
-    cfg = await tempCfg();
+    h = await tempHarness();
   });
   afterEach(async () => {
-    await rm(cfg.dataDir, { recursive: true, force: true });
+    await rm(h.cfg.dataDir, { recursive: true, force: true });
   });
 
   it("returns absolute path under the resource subdir", () => {
-    const path = resolveSafePath(cfg, "projects", "song.retro");
-    expect(path).toBe(resolve(cfg.subdirs.projects, "song.retro"));
-    expect(path.startsWith(cfg.subdirs.projects + sep)).toBe(true);
+    const path = resolveSafePath(h.scope, "projects", "song.retro");
+    expect(path).toBe(resolve(h.scope.subdirs.projects, "song.retro"));
+    expect(path.startsWith(h.scope.subdirs.projects + sep)).toBe(true);
   });
 
   it("returns absolute path under nested subdirs", () => {
-    const path = resolveSafePath(cfg, "samples", "drums/kick.wav");
-    expect(path).toBe(resolve(cfg.subdirs.samples, "drums", "kick.wav"));
+    const path = resolveSafePath(h.scope, "samples", "drums/kick.wav");
+    expect(path).toBe(resolve(h.scope.subdirs.samples, "drums", "kick.wav"));
   });
 });
 
 describe("storage CRUD", () => {
-  let cfg: BackendConfig;
+  let h: Harness;
 
   beforeEach(async () => {
-    cfg = await tempCfg();
-    await ensureDirs(cfg);
+    h = await tempHarness();
+    await ensureDirs(h.scope);
   });
   afterEach(async () => {
-    await rm(cfg.dataDir, { recursive: true, force: true });
+    await rm(h.cfg.dataDir, { recursive: true, force: true });
   });
 
   it("write → read round-trips bytes", async () => {
     const bytes = new Uint8Array([1, 2, 3, 4, 5]);
-    await writeFile(cfg, "samples", "kick.wav", bytes);
-    const out = await readFile(cfg, "samples", "kick.wav");
+    await writeFile(h.scope, "samples", "kick.wav", bytes);
+    const out = await readFile(h.scope, "samples", "kick.wav");
     expect(Array.from(out)).toEqual([1, 2, 3, 4, 5]);
   });
 
   it("write creates parent directories", async () => {
     const bytes = new Uint8Array([9]);
-    await writeFile(cfg, "samples", "drums/kicks/short.wav", bytes);
-    const out = await readFile(cfg, "samples", "drums/kicks/short.wav");
+    await writeFile(h.scope, "samples", "drums/kicks/short.wav", bytes);
+    const out = await readFile(h.scope, "samples", "drums/kicks/short.wav");
     expect(out[0]).toBe(9);
   });
 
   it("write overwrites existing files", async () => {
-    await writeFile(cfg, "samples", "k.wav", new Uint8Array([1]));
-    await writeFile(cfg, "samples", "k.wav", new Uint8Array([2, 2]));
-    const out = await readFile(cfg, "samples", "k.wav");
+    await writeFile(h.scope, "samples", "k.wav", new Uint8Array([1]));
+    await writeFile(h.scope, "samples", "k.wav", new Uint8Array([2, 2]));
+    const out = await readFile(h.scope, "samples", "k.wav");
     expect(Array.from(out)).toEqual([2, 2]);
   });
 
   it("list returns recursive entries sorted by mtime desc", async () => {
-    await writeFile(cfg, "samples", "old.wav", new Uint8Array([1]));
+    await writeFile(h.scope, "samples", "old.wav", new Uint8Array([1]));
     await fs.utimes(
-      resolve(cfg.subdirs.samples, "old.wav"),
+      resolve(h.scope.subdirs.samples, "old.wav"),
       new Date(2000, 0, 1),
       new Date(2000, 0, 1),
     );
-    await writeFile(cfg, "samples", "sub/newer.wav", new Uint8Array([2]));
-    const entries = await listDir(cfg, "samples");
+    await writeFile(h.scope, "samples", "sub/newer.wav", new Uint8Array([2]));
+    const entries = await listDir(h.scope, "samples");
     expect(entries.map((e) => e.name)).toEqual(["sub/newer.wav", "old.wav"]);
     expect(entries[0]!.size).toBe(1);
   });
 
   it("list skips wrong-extension and dotfiles", async () => {
-    await writeFile(cfg, "samples", "ok.wav", new Uint8Array([1]));
+    await writeFile(h.scope, "samples", "ok.wav", new Uint8Array([1]));
     // Drop bogus files directly with fs to bypass validation.
-    await fs.writeFile(resolve(cfg.subdirs.samples, "bad.mp3"), "x");
-    await fs.writeFile(resolve(cfg.subdirs.samples, ".hidden.wav"), "x");
-    const entries = await listDir(cfg, "samples");
+    await fs.writeFile(resolve(h.scope.subdirs.samples, "bad.mp3"), "x");
+    await fs.writeFile(resolve(h.scope.subdirs.samples, ".hidden.wav"), "x");
+    const entries = await listDir(h.scope, "samples");
     expect(entries.map((e) => e.name)).toEqual(["ok.wav"]);
   });
 
   it("list returns empty when dir does not exist", async () => {
-    await rm(cfg.subdirs.modules, { recursive: true, force: true });
-    expect(await listDir(cfg, "modules")).toEqual([]);
+    await rm(h.scope.subdirs.modules, { recursive: true, force: true });
+    expect(await listDir(h.scope, "modules")).toEqual([]);
   });
 
   it("read of missing file throws NotFoundError", async () => {
     await expect(
-      readFile(cfg, "projects", "nope.retro"),
+      readFile(h.scope, "projects", "nope.retro"),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
 
   it("delete removes the file and prunes empty parents", async () => {
-    await writeFile(cfg, "samples", "a/b/c.wav", new Uint8Array([1]));
-    await deleteFile(cfg, "samples", "a/b/c.wav");
-    await expect(readFile(cfg, "samples", "a/b/c.wav")).rejects.toBeInstanceOf(
-      NotFoundError,
-    );
+    await writeFile(h.scope, "samples", "a/b/c.wav", new Uint8Array([1]));
+    await deleteFile(h.scope, "samples", "a/b/c.wav");
+    await expect(
+      readFile(h.scope, "samples", "a/b/c.wav"),
+    ).rejects.toBeInstanceOf(NotFoundError);
     // a/ and a/b/ should be gone, but the resource root must remain.
-    await expect(fs.stat(resolve(cfg.subdirs.samples, "a"))).rejects.toThrow();
-    await expect(fs.stat(cfg.subdirs.samples)).resolves.toBeTruthy();
+    await expect(
+      fs.stat(resolve(h.scope.subdirs.samples, "a")),
+    ).rejects.toThrow();
+    await expect(fs.stat(h.scope.subdirs.samples)).resolves.toBeTruthy();
   });
 
   it("delete keeps non-empty parent dirs", async () => {
-    await writeFile(cfg, "samples", "a/b.wav", new Uint8Array([1]));
-    await writeFile(cfg, "samples", "a/c.wav", new Uint8Array([2]));
-    await deleteFile(cfg, "samples", "a/b.wav");
+    await writeFile(h.scope, "samples", "a/b.wav", new Uint8Array([1]));
+    await writeFile(h.scope, "samples", "a/c.wav", new Uint8Array([2]));
+    await deleteFile(h.scope, "samples", "a/b.wav");
     await expect(
-      fs.stat(resolve(cfg.subdirs.samples, "a")),
+      fs.stat(resolve(h.scope.subdirs.samples, "a")),
     ).resolves.toBeTruthy();
   });
 
   it("delete of missing file throws NotFoundError", async () => {
     await expect(
-      deleteFile(cfg, "projects", "nope.retro"),
+      deleteFile(h.scope, "projects", "nope.retro"),
     ).rejects.toBeInstanceOf(NotFoundError);
+  });
+});
+
+describe("userScope", () => {
+  it("anonymous mode lands at the flat data dir", () => {
+    const cfg: BackendConfig = { enabled: true, dataDir: "/data", auth: null };
+    const scope = userScope(cfg, null);
+    expect(scope.root).toBe("/data");
+    expect(scope.subdirs.projects).toBe("/data/projects");
+  });
+
+  it("auth mode hashes the sub into a per-user dir", () => {
+    const cfg: BackendConfig = {
+      enabled: true,
+      dataDir: "/data",
+      auth: {
+        issuer: "https://example.test",
+        clientId: "c",
+        clientSecret: "s",
+        redirectUri: "https://app.test/cb",
+        cookieSecret: new Uint8Array(32),
+        postLogoutRedirect: "/",
+      },
+    };
+    const scope = userScope(cfg, "user-123");
+    const hash = hashUserId("user-123");
+    expect(hash).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    expect(scope.root).toBe(`/data/users/${hash}`);
+    expect(scope.subdirs.samples).toBe(`/data/users/${hash}/samples`);
+  });
+
+  it("auth mode with null userId throws (programming error)", () => {
+    const cfg: BackendConfig = {
+      enabled: true,
+      dataDir: "/data",
+      auth: {
+        issuer: "https://example.test",
+        clientId: "c",
+        clientSecret: "s",
+        redirectUri: "https://app.test/cb",
+        cookieSecret: new Uint8Array(32),
+        postLogoutRedirect: "/",
+      },
+    };
+    expect(() => userScope(cfg, null)).toThrow();
+  });
+
+  it("hashUserId is deterministic", () => {
+    expect(hashUserId("foo")).toBe(hashUserId("foo"));
+    expect(hashUserId("foo")).not.toBe(hashUserId("bar"));
   });
 });

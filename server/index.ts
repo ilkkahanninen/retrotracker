@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
 import { createApp } from "./app.js";
 import { readConfig } from "./config.js";
-import { ensureDirs } from "./storage.js";
+import { ensureBaseDirs } from "./storage.js";
 
 declare const __APP_VERSION__: string;
 const VERSION =
@@ -49,7 +49,7 @@ async function main(): Promise<void> {
     | ((req: IncomingMessage, res: ServerResponse) => Promise<void>)
     | null = null;
   if (cfg.enabled) {
-    await ensureDirs(cfg);
+    await ensureBaseDirs(cfg);
     const app = createApp({ cfg, version: VERSION });
     apiHandler = (req, res) => honoHandle(app.fetch, req, res);
     // eslint-disable-next-line no-console
@@ -178,7 +178,15 @@ async function honoHandle(
 
   const response = await fetch(new Request(url, init));
   res.statusCode = response.status;
-  response.headers.forEach((value, key) => res.setHeader(key, value));
+  // Set-Cookie must be emitted as multiple separate header lines —
+  // collapsing via Headers.forEach corrupts cookies whose grammar
+  // already uses commas. Mirror the dev plugin's handling.
+  response.headers.forEach((value, key) => {
+    if (key.toLowerCase() === "set-cookie") return;
+    res.setHeader(key, value);
+  });
+  const setCookies = response.headers.getSetCookie();
+  if (setCookies.length > 0) res.setHeader("Set-Cookie", setCookies);
   if (response.body) {
     const stream = Readable.fromWeb(response.body as never);
     stream.pipe(res);

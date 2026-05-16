@@ -1,4 +1,5 @@
 import { createSignal } from "solid-js";
+import { refreshAuth } from "./auth";
 
 /**
  * Resource buckets exposed by the optional Node backend. Match the
@@ -30,6 +31,10 @@ export { backendAvailable, serverVersion };
  * One-shot health check on app boot. The backend is optional and we
  * never want a failed ping to surface as an error to the user — a
  * thrown fetch or non-200 just means "no server mode available".
+ *
+ * If the backend is up we follow with an auth-status probe (idempotent
+ * and cheap) so the File menu can decide between cloud-entries and
+ * sign-in-entry on the first paint.
  */
 export async function probeBackend(): Promise<void> {
   try {
@@ -41,6 +46,7 @@ export async function probeBackend(): Promise<void> {
     if (body.ok) {
       setBackendAvailable(true);
       setServerVersion(body.version ?? null);
+      await refreshAuth();
     }
   } catch {
     // network error, CORS, parse error — backend simply stays unavailable.

@@ -2,32 +2,23 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { createApp } from "../../server/app.js";
-import { ensureDirs } from "../../server/storage.js";
+import { createApp, type AppType } from "../../server/app.js";
+import { ensureDirs, userScope } from "../../server/storage.js";
 import type { BackendConfig } from "../../server/config.js";
-import type { Hono } from "hono";
 
 async function tempCfg(): Promise<BackendConfig> {
   const dir = await mkdtemp(resolve(tmpdir(), "rt-backend-app-"));
-  return {
-    enabled: true,
-    dataDir: dir,
-    subdirs: {
-      projects: resolve(dir, "projects"),
-      samples: resolve(dir, "samples"),
-      modules: resolve(dir, "modules"),
-    },
-  };
+  return { enabled: true, dataDir: dir, auth: null };
 }
 
 interface Harness {
   cfg: BackendConfig;
-  app: Hono;
+  app: AppType;
 }
 
 async function setup(): Promise<Harness> {
   const cfg = await tempCfg();
-  await ensureDirs(cfg);
+  await ensureDirs(userScope(cfg, null));
   const app = createApp({ cfg, version: "test" });
   return { cfg, app };
 }

@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import { resolve, sep, extname, dirname, posix } from "node:path";
+import { createHash } from "node:crypto";
 import {
   RESOURCE_EXTENSIONS,
   RESOURCES,
@@ -14,6 +15,18 @@ export interface FileEntry {
   mtime: number;
 }
 
+/**
+ * Filesystem scope for a single request. `root` is the user-or-anonymous
+ * data root; `subdirs[r]` is the resource bucket inside it. Built per
+ * request by `userScope(cfg, userId | null)` — the storage layer never
+ * sees the config directly so it can't accidentally fall back to the
+ * anonymous bucket while auth is on.
+ */
+export interface UserScope {
+  root: string;
+  subdirs: Record<Resource, string>;
+}
+
 export class BadNameError extends Error {
   override readonly name = "BadNameError";
 }
@@ -23,6 +36,53 @@ export class NotFoundError extends Error {
 
 const MAX_PATH_LEN = 500;
 const MAX_SEGMENT_LEN = 200;
+
+/**
+ * Build the per-request scope. When auth is enabled, `userId` is the
+ * verified OIDC `sub` and gets hashed before it lands on disk (no PII
+ * exposure, no need to defend against weird sub formats containing
+ * slashes/dots). When auth is disabled, `userId` must be `null` and
+ * paths live at the legacy flat root.
+ *
+ * Throws if auth is enabled but no user is provided — that's a coding
+ * mistake (the route should have already returned 401).
+ */
+export function userScope(
+  cfg: BackendConfig,
+  userId: string | null,
+): UserScope {
+  if (cfg.auth && userId === null) {
+    throw new Error(
+      "[retrotracker] userScope: auth is enabled but no userId — route is leaking past requireUser",
+    );
+  }
+  const root = cfg.auth
+    ? resolve(cfg.dataDir, "users", hashUserId(userId!))
+    : cfg.dataDir;
+  return {
+    root,
+    subdirs: {
+      projects: resolve(root, "projects"),
+      samples: resolve(root, "samples"),
+      modules: resolve(root, "modules"),
+    },
+  };
+}
+
+/**
+ * Hash the OIDC `sub` into a fixed-format filesystem-safe directory
+ * name. SHA-256 → base64url → first 32 chars. Deterministic, no PII
+ * on disk, no escapable characters.
+ */
+export function hashUserId(sub: string): string {
+  const digest = createHash("sha256").update(sub, "utf8").digest();
+  return digest
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "")
+    .slice(0, 32);
+}
 
 /**
  * Validate a slash-separated relative path. Names may contain subdirs
@@ -65,12 +125,12 @@ export function validatePath(resource: Resource, name: string): void {
  * in depth on top of `validatePath`.
  */
 export function resolveSafePath(
-  cfg: BackendConfig,
+  scope: UserScope,
   resource: Resource,
   name: string,
 ): string {
   validatePath(resource, name);
-  const root = cfg.subdirs[resource];
+  const root = scope.subdirs[resource];
   const full = resolve(root, name);
   if (full !== root && !full.startsWith(root + sep)) {
     throw new BadNameError("resolved path escapes resource dir");
@@ -79,9 +139,23 @@ export function resolveSafePath(
 }
 
 /** Ensure every resource subdir exists. Safe to call repeatedly. */
-export async function ensureDirs(cfg: BackendConfig): Promise<void> {
+export async function ensureDirs(scope: UserScope): Promise<void> {
   for (const r of RESOURCES) {
-    await fs.mkdir(cfg.subdirs[r], { recursive: true });
+    await fs.mkdir(scope.subdirs[r], { recursive: true });
+  }
+}
+
+/**
+ * Boot-time directory setup. Anonymous mode pre-creates the three flat
+ * subdirs so an empty data dir works on first hit. Auth mode just makes
+ * sure `<dataDir>/users` exists — per-user dirs get created lazily on
+ * the first write.
+ */
+export async function ensureBaseDirs(cfg: BackendConfig): Promise<void> {
+  if (!cfg.auth) {
+    await ensureDirs(userScope(cfg, null));
+  } else {
+    await fs.mkdir(resolve(cfg.dataDir, "users"), { recursive: true });
   }
 }
 
@@ -92,10 +166,10 @@ export async function ensureDirs(cfg: BackendConfig): Promise<void> {
  * are skipped.
  */
 export async function listDir(
-  cfg: BackendConfig,
+  scope: UserScope,
   resource: Resource,
 ): Promise<FileEntry[]> {
-  const root = cfg.subdirs[resource];
+  const root = scope.subdirs[resource];
   const allowed = RESOURCE_EXTENSIONS[resource];
   const out: FileEntry[] = [];
 
@@ -133,11 +207,11 @@ export async function listDir(
 }
 
 export async function readFile(
-  cfg: BackendConfig,
+  scope: UserScope,
   resource: Resource,
   name: string,
 ): Promise<Uint8Array> {
-  const path = resolveSafePath(cfg, resource, name);
+  const path = resolveSafePath(scope, resource, name);
   try {
     const buf = await fs.readFile(path);
     return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
@@ -155,12 +229,12 @@ export async function readFile(
  * user before issuing a PUT against an existing name.
  */
 export async function writeFile(
-  cfg: BackendConfig,
+  scope: UserScope,
   resource: Resource,
   name: string,
   bytes: Uint8Array,
 ): Promise<void> {
-  const path = resolveSafePath(cfg, resource, name);
+  const path = resolveSafePath(scope, resource, name);
   await fs.mkdir(dirname(path), { recursive: true });
   await fs.writeFile(path, bytes);
 }
@@ -170,12 +244,12 @@ export async function writeFile(
  * that became empty as a result. Stops at the resource root.
  */
 export async function deleteFile(
-  cfg: BackendConfig,
+  scope: UserScope,
   resource: Resource,
   name: string,
 ): Promise<void> {
-  const root = cfg.subdirs[resource];
-  const path = resolveSafePath(cfg, resource, name);
+  const root = scope.subdirs[resource];
+  const path = resolveSafePath(scope, resource, name);
   try {
     await fs.unlink(path);
   } catch (e) {

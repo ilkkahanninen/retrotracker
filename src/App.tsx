@@ -148,6 +148,14 @@ import {
   type BackendResource,
 } from "./state/backend";
 import {
+  authRequired,
+  cloudVisibleFor,
+  currentUser,
+  login as cloudLogin,
+  logout as cloudLogout,
+  refreshAuth,
+} from "./state/auth";
+import {
   ServerBrowser,
   type ServerBrowserMode,
 } from "./components/ServerBrowser";
@@ -439,6 +447,20 @@ export const App: Component = () => {
     // Optional backend: one-shot probe so the File menu can grow
     // server-side entries when /api/health responds.
     void probeBackend();
+
+    // After the OIDC callback redirects to "/?auth=ok", refresh the
+    // auth signals and strip the query so a page reload doesn't loop.
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("auth") === "ok") {
+        void refreshAuth();
+        params.delete("auth");
+        const q = params.toString();
+        const newUrl =
+          window.location.pathname + (q ? `?${q}` : "") + window.location.hash;
+        window.history.replaceState({}, "", newUrl);
+      }
+    }
     // Sampler workbenches restore only when the previous session fit in
     // localStorage's quota — saveSession silently drops the write when
     // it doesn't, in which case the slot's int8 still plays from the
@@ -572,12 +594,13 @@ export const App: Component = () => {
       selectAllSample();
     };
 
-    // ⌘O / ⌘S switch to cloud variants when the backend is available, so
-    // users with a cloud backend keep the same muscle memory but their
-    // files round-trip through the server. Falls back to local pickers
-    // when there's no backend.
+    // ⌘O / ⌘S switch to cloud variants when the cloud features are
+    // visible (backend up AND signed in if auth is on). Falls back to
+    // local pickers in every other case — including auth-required-but-
+    // signed-out, since the cloud entries are hidden then anyway.
+    const cloudVisible = () => cloudVisibleFor(backendAvailable());
     const openShortcut = () => {
-      if (backendAvailable()) {
+      if (cloudVisible()) {
         setServerBrowser({
           mode: "open",
           resources: ["projects", "modules"],
@@ -589,7 +612,7 @@ export const App: Component = () => {
     };
     const saveShortcut = () => {
       if (!song()) return;
-      if (backendAvailable()) {
+      if (cloudVisible()) {
         setServerBrowser({
           mode: "save",
           resources: ["projects"],
@@ -655,11 +678,18 @@ export const App: Component = () => {
   });
 
   // Functions, not arrays — disabled flags need to re-evaluate every
-  // time the Menu reads `props.items`. ⌘O / ⌘S hint hops to the cloud
-  // entry when the backend is available, mirroring what the shortcut
-  // actually fires (see `openShortcut` / `saveShortcut` above).
+  // time the Menu reads `props.items`. Three cloud states matter:
+  //   1. backend down               → no cloud entries at all
+  //   2. backend up, no auth        → cloud entries always shown
+  //   3. backend up, auth required  → entries only when signed in;
+  //      otherwise only a Sign-in entry appears
+  // ⌘O / ⌘S hint hops to the cloud entry whenever it's visible.
   const fileMenuItems = (): MenuItem[] => {
-    const cloud = backendAvailable();
+    const backend = backendAvailable();
+    const needsAuth = authRequired();
+    const user = currentUser();
+    const cloud = cloudVisibleFor(backend);
+    const showSignIn = backend && needsAuth && !user;
     const items: MenuItem[] = [
       { label: "New", onClick: () => setModePickerOpen(true) },
       { separator: true, label: "" },
@@ -703,6 +733,19 @@ export const App: Component = () => {
           }),
         disabled: !song(),
       });
+    }
+    if (showSignIn) {
+      items.push(
+        { separator: true, label: "" },
+        { label: "Sign in to cloud…", onClick: () => cloudLogin() },
+      );
+    } else if (backend && needsAuth && user) {
+      const who = user.name || user.email || "Signed in";
+      items.push(
+        { separator: true, label: "" },
+        { label: `Signed in as ${who}`, onClick: () => {}, disabled: true },
+        { label: "Sign out", onClick: () => void cloudLogout() },
+      );
     }
     items.push(
       { separator: true, label: "" },

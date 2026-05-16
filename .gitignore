@@ -3,6 +3,9 @@ dist
 dist-server
 dist-ssr
 data
+.env
+.env.*
+!.env.example
 *.local
 .DS_Store
 .vscode/*
