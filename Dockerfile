@@ -13,9 +13,20 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginx:alpine AS runtime
-COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+# Production image is Node serving both the SPA and the optional /api
+# backend. The backend is gated by RETROTRACKER_BACKEND at runtime —
+# when unset (default), only static files are served, so the CI-built
+# image stays inert for the public deploy.
+FROM node:20-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/dist-server ./dist-server
+COPY --from=build /app/package.json ./package.json
+# Install only runtime deps (hono) — esbuild marked them external in the
+# bundle, so node needs them present in node_modules at start.
+COPY --from=build /app/package-lock.json ./package-lock.json
+RUN npm ci --omit=dev && npm cache clean --force
 ENV PORT=80
-ENV NGINX_ENVSUBST_FILTER=^PORT$
 EXPOSE 80
+CMD ["node", "dist-server/index.mjs"]

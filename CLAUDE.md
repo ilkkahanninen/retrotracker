@@ -93,6 +93,16 @@ The sample editor wraps each loaded WAV in a [SampleWorkbench](src/core/audio/sa
 
 Chain + envelope mutations go through the shared `makePipelineActions<W>` factory (see _State + shared factories_ above); only format-specific persistence (source-kind toggles, loop policy, slot addressing) lives in the per-format file.
 
+### Optional backend
+
+The app is a static SPA by default. An optional Node backend at [server/](server/) (Hono) exposes `/api/{projects,samples,modules}` for listing / GET / PUT / DELETE of `.retro` projects, `.wav` samples, and `.mod` / `.xm` modules — names may include slashes for subdirectories; [server/storage.ts](server/storage.ts) rejects `..`, dotfiles, wrong extensions, and resolves paths under the configured root.
+
+Wiring:
+
+- **Dev**: [server/vitePlugin.ts](server/vitePlugin.ts) registers the Hono `fetch` handler as Vite middleware so `npm run dev` runs both on one port. Backend is always on in dev; data lives in `./data/{projects,samples,modules}` (gitignored). Override with `RETROTRACKER_DATA_DIR`.
+- **Prod**: [server/index.ts](server/index.ts) is the entry — Node `http` that serves `dist/` (with SPA fallback to `index.html`) and conditionally mounts the API. esbuild bundles it (`npm run build:server`) to `dist-server/index.mjs`. Backend is **off by default** and activates only when `RETROTRACKER_BACKEND=1` is set at runtime, so CI-built images stay inert until an operator opts in. Default data dir is `/`, so volumes mount as `/projects`, `/samples`, `/modules`.
+- **Frontend**: [src/state/backend.ts](src/state/backend.ts) pings `/api/health` on boot and flips the `backendAvailable` signal. When set, [App.tsx](src/App.tsx) adds "Open from cloud…" / "Save to cloud…" entries to the File menu (rendered by [ServerBrowser](src/components/ServerBrowser.tsx)). "Open from cloud" lists `.retro` projects and `.mod` / `.xm` modules merged — the user sees one list of songs, not two buckets. Loading routes through `loadServerBytes` → `loadFile` so file-picker, drag-drop, and cloud paths share format sniffing.
+
 ## Conventions
 
 - TypeScript strict mode with `noUncheckedIndexedAccess` — array/record access returns `T | undefined`. Use `arr[i]!` only when an invariant guarantees presence (e.g., `PERIOD_TABLE[finetune]!` — finetune is 0..15).

@@ -132,7 +132,7 @@ describe("FileMenu: dropdown behaviour", () => {
     expect(container.querySelector(".menu__list")).toBeNull();
   });
 
-  it("lists New, Open…, Save…, Export .mod…, Export .wav…, Song info in order", () => {
+  it("lists New, Open from computer…, Save to computer…, Export .mod…, Export .wav…, Song info in order", () => {
     const { container } = render(() => <App />);
     fireEvent.click(menuTrigger(container, "File"));
     const labels = Array.from(
@@ -140,8 +140,8 @@ describe("FileMenu: dropdown behaviour", () => {
     ).map((el) => el.textContent);
     expect(labels).toEqual([
       "New",
-      "Open…",
-      "Save…",
+      "Open from computer…",
+      "Save to computer…",
       "Export .mod…",
       "Export .wav…",
       "Song info",
@@ -195,7 +195,7 @@ describe("File menu: Save… (.retro)", () => {
     setEditStep(3);
     setView("sample");
     const { container } = render(() => <App />);
-    clickItem(container, "File", "Save…");
+    clickItem(container, "File", "Save to computer…");
     expect(io.download).toHaveBeenCalledTimes(1);
     const [name, bytes, mime] = (io.download as ReturnType<typeof vi.fn>).mock
       .calls[0]!;
@@ -221,7 +221,7 @@ describe("File menu: Save… (.retro)", () => {
     const { container } = render(() => <App />);
     commitEdit((s) => ({ ...s, title: "x" }));
     expect(dirty()).toBe(true);
-    clickItem(container, "File", "Save…");
+    clickItem(container, "File", "Save to computer…");
     expect(dirty()).toBe(false);
   });
 });

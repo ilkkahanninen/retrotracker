@@ -1,6 +1,8 @@
 node_modules
 dist
+dist-server
 dist-ssr
+data
 *.local
 .DS_Store
 .vscode/*

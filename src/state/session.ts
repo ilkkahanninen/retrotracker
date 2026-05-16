@@ -432,16 +432,17 @@ export function exportWav(): void {
  * `.retro` is the lossless round-trip format. Save .mod loses the cursor
  * position, current sample, edit step, mute state, and pattern names.
  */
-export function saveProject(): void {
+/**
+ * Build the `.retro` payload for the currently loaded song. Factored so
+ * both the download path (`saveProject`) and the server-save path can
+ * reuse the same snapshot logic.
+ */
+export function projectBytes(): Uint8Array | null {
   const s = song();
-  if (!s) return;
-  // PT2 carries `chiptuneSources` / `samplerSources` / `patternNames`;
-  // FT2 carries the per-(instrument, sampleIdx) XM workbench maps. The
-  // payload itself is format-agnostic — fields not relevant to the
-  // active format stay undefined.
+  if (!s) return null;
   const isPt2 = s.format === "PT2";
   const isXm = s.format === "FT2";
-  const bytes = projectToBytes({
+  return projectToBytes({
     song: s,
     filename: filename(),
     infoText: infoText(),
@@ -458,12 +459,47 @@ export function saveProject(): void {
     xmSamplerSources: isXm ? xmSamplerSourcesSnapshot() : undefined,
     xmChiptuneSources: isXm ? xmChiptuneSourcesSnapshot() : undefined,
   });
+}
+
+export function saveProject(): void {
+  const s = song();
+  if (!s) return;
+  const bytes = projectBytes();
+  if (!bytes) return;
   io.download(
     deriveProjectFilename(filename(), s.title),
     bytes,
     "application/json",
   );
   setDirty(false);
+}
+
+/**
+ * Native-binary bytes for the loaded song. PT2 → `.mod`, FT2 → `.xm`.
+ * Returns `null` when no song is loaded.
+ */
+export function moduleBytes(): Uint8Array | null {
+  const s = song();
+  if (!s) return null;
+  if (s.format === "PT2") {
+    return writeModule(withInfoTextAsSampleNames(s, infoText()));
+  }
+  return writeXm(s);
+}
+
+/**
+ * Load bytes that came from the server into the editor by tunneling
+ * them through the same `loadFile` path the file picker / drag-drop
+ * use — the format sniff and `applyLoadedSession` plumbing is reused
+ * for free. The `name` drives the extension-based format pick.
+ */
+export async function loadServerBytes(
+  bytes: Uint8Array,
+  name: string,
+): Promise<void> {
+  const ab = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(ab).set(bytes);
+  await loadFile(new File([ab], name));
 }
 
 export function newProject(format: ProjectFormat = "PT2"): void {

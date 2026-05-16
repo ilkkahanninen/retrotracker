@@ -132,12 +132,25 @@ import {
   exportWav,
   filename,
   loadFile,
+  loadServerBytes,
   newProject,
+  projectBytes,
   samplerSourcesSnapshot,
   saveProject,
   setError,
   setFilename,
 } from "./state/session";
+import {
+  backendAvailable,
+  getBytes,
+  probeBackend,
+  putBytes,
+  type BackendResource,
+} from "./state/backend";
+import {
+  ServerBrowser,
+  type ServerBrowserMode,
+} from "./components/ServerBrowser";
 import {
   mutedChannels,
   setChannelMuteState,
@@ -245,6 +258,12 @@ export const App: Component = () => {
   const [editingTitle, setEditingTitle] = createSignal(false);
   const [aboutOpen, setAboutOpen] = createSignal(false);
   const [modePickerOpen, setModePickerOpen] = createSignal(false);
+  const [serverBrowser, setServerBrowser] = createSignal<{
+    mode: ServerBrowserMode;
+    resources: BackendResource[];
+    saveTo?: BackendResource;
+    title: string;
+  } | null>(null);
 
   const USER_MANUAL_URL =
     "https://github.com/ilkkahanninen/retrotracker/blob/main/docs/user-manual.md";
@@ -336,6 +355,34 @@ export const App: Component = () => {
 
   const openFilePicker = () => fileInput?.click();
 
+  /**
+   * Cloud bytes → editor: GETs the bytes and tunnels them through the
+   * regular `loadFile` path so format sniffing + workbench rebuild stay
+   * identical to drag-drop / file-picker loads. Works for both `.retro`
+   * projects and native `.mod` / `.xm` modules — the user doesn't have
+   * to know which bucket a file lives in.
+   */
+  const openFromCloud = async (
+    resource: BackendResource,
+    name: string,
+  ): Promise<void> => {
+    const bytes = await getBytes(resource, name);
+    await loadServerBytes(bytes, name.split("/").pop()!);
+    setServerBrowser(null);
+  };
+
+  /**
+   * `.retro` payload → cloud. Reuses `projectBytes` so the snapshot
+   * (chiptune sources, workbenches, view, cursor, …) matches the
+   * Save-to-computer path byte-for-byte.
+   */
+  const saveProjectToCloud = async (name: string): Promise<void> => {
+    const bytes = projectBytes();
+    if (!bytes) return;
+    await putBytes("projects", name, bytes);
+    setServerBrowser(null);
+  };
+
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setDragOver(false);
@@ -389,6 +436,9 @@ export const App: Component = () => {
 
   const cleanups: Array<() => void> = [];
   onMount(() => {
+    // Optional backend: one-shot probe so the File menu can grow
+    // server-side entries when /api/health responds.
+    void probeBackend();
     // Sampler workbenches restore only when the previous session fit in
     // localStorage's quota — saveSession silently drops the write when
     // it doesn't, in which case the slot's int8 still plays from the
@@ -522,9 +572,38 @@ export const App: Component = () => {
       selectAllSample();
     };
 
+    // ⌘O / ⌘S switch to cloud variants when the backend is available, so
+    // users with a cloud backend keep the same muscle memory but their
+    // files round-trip through the server. Falls back to local pickers
+    // when there's no backend.
+    const openShortcut = () => {
+      if (backendAvailable()) {
+        setServerBrowser({
+          mode: "open",
+          resources: ["projects", "modules"],
+          title: "Open from cloud",
+        });
+      } else {
+        openFilePicker();
+      }
+    };
+    const saveShortcut = () => {
+      if (!song()) return;
+      if (backendAvailable()) {
+        setServerBrowser({
+          mode: "save",
+          resources: ["projects"],
+          saveTo: "projects",
+          title: "Save to cloud",
+        });
+      } else {
+        saveProject();
+      }
+    };
+
     for (const c of registerAppKeybinds({
-      openFilePicker,
-      saveProject,
+      openFilePicker: openShortcut,
+      saveProject: saveShortcut,
       selectAllStep,
       selectAllSample: selectAllSampleForActiveSong,
       copySelection: copyClipboardForActiveView,
@@ -576,30 +655,77 @@ export const App: Component = () => {
   });
 
   // Functions, not arrays — disabled flags need to re-evaluate every
-  // time the Menu reads `props.items`.
-  const fileMenuItems = (): MenuItem[] => [
-    { label: "New", onClick: () => setModePickerOpen(true) },
-    { label: "Open…", hint: "⌘O", onClick: openFilePicker },
-    { separator: true, label: "" },
-    { label: "Save…", hint: "⌘S", onClick: saveProject, disabled: !song() },
-    {
-      label: song()?.format === "FT2" ? "Export .xm…" : "Export .mod…",
-      onClick: exportSong,
-      disabled: !song(),
-    },
-    {
-      label: "Export .wav…",
-      onClick: exportWav,
-      disabled: !song(),
-    },
-    { separator: true, label: "" },
-    {
-      label: "Song info",
-      hint: "F4",
-      onClick: () => setView("info"),
-      disabled: !song(),
-    },
-  ];
+  // time the Menu reads `props.items`. ⌘O / ⌘S hint hops to the cloud
+  // entry when the backend is available, mirroring what the shortcut
+  // actually fires (see `openShortcut` / `saveShortcut` above).
+  const fileMenuItems = (): MenuItem[] => {
+    const cloud = backendAvailable();
+    const items: MenuItem[] = [
+      { label: "New", onClick: () => setModePickerOpen(true) },
+      { separator: true, label: "" },
+      {
+        label: "Open from computer…",
+        hint: cloud ? undefined : "⌘O",
+        onClick: openFilePicker,
+      },
+    ];
+    if (cloud) {
+      items.push({
+        label: "Open from cloud…",
+        hint: "⌘O",
+        onClick: () =>
+          setServerBrowser({
+            mode: "open",
+            resources: ["projects", "modules"],
+            title: "Open from cloud",
+          }),
+      });
+    }
+    items.push(
+      { separator: true, label: "" },
+      {
+        label: "Save to computer…",
+        hint: cloud ? undefined : "⌘S",
+        onClick: saveProject,
+        disabled: !song(),
+      },
+    );
+    if (cloud) {
+      items.push({
+        label: "Save to cloud…",
+        hint: "⌘S",
+        onClick: () =>
+          setServerBrowser({
+            mode: "save",
+            resources: ["projects"],
+            saveTo: "projects",
+            title: "Save to cloud",
+          }),
+        disabled: !song(),
+      });
+    }
+    items.push(
+      { separator: true, label: "" },
+      {
+        label: song()?.format === "FT2" ? "Export .xm…" : "Export .mod…",
+        onClick: exportSong,
+        disabled: !song(),
+      },
+      {
+        label: "Export .wav…",
+        onClick: exportWav,
+        disabled: !song(),
+      },
+      { separator: true, label: "" },
+      {
+        label: "Song info",
+        hint: "F4",
+        onClick: () => setView("info"),
+        disabled: !song(),
+      },
+    );
+    return items;
+  };
 
   const editMenuItems = (): MenuItem[] => {
     const locked = transport() === "playing" && settings().followPlayback;
@@ -1529,6 +1655,27 @@ export const App: Component = () => {
           }}
           onCancel={() => setModePickerOpen(false)}
         />
+      </Show>
+      <Show when={serverBrowser()}>
+        {(sb) => (
+          <ServerBrowser
+            mode={sb().mode}
+            resources={sb().resources}
+            saveTo={sb().saveTo}
+            title={sb().title}
+            initialName={
+              sb().mode === "save"
+                ? (filename()?.replace(/\.(mod|xm|retro)$/i, ".retro") ??
+                  `${song()?.title || "untitled"}.retro`)
+                : ""
+            }
+            onPick={(name, resource) => {
+              if (sb().mode === "open") return openFromCloud(resource, name);
+              return saveProjectToCloud(name);
+            }}
+            onClose={() => setServerBrowser(null)}
+          />
+        )}
       </Show>
     </div>
   );
