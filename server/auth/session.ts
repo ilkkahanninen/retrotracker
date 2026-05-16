@@ -17,6 +17,15 @@ export interface SessionPayload {
 const ALG = "HS256";
 const COOKIE_LIFETIME = "7d";
 
+/**
+ * `iss` and `aud` are checked on every verify so the same HMAC secret
+ * can't be re-used by another service to mint tokens accepted here
+ * (and vice versa). Values are app-private constants — they never
+ * touch a wire.
+ */
+const SESSION_ISSUER = "retrotracker";
+const SESSION_AUDIENCE = "retrotracker-spa";
+
 export async function signSession(
   secret: Uint8Array,
   user: OidcUser,
@@ -28,6 +37,8 @@ export async function signSession(
   })
     .setProtectedHeader({ alg: ALG })
     .setSubject(user.sub)
+    .setIssuer(SESSION_ISSUER)
+    .setAudience(SESSION_AUDIENCE)
     .setIssuedAt()
     .setExpirationTime(COOKIE_LIFETIME)
     .sign(secret);
@@ -39,6 +50,8 @@ export async function verifySession(
 ): Promise<SessionPayload> {
   const { payload } = await jose.jwtVerify(token, secret, {
     algorithms: [ALG],
+    issuer: SESSION_ISSUER,
+    audience: SESSION_AUDIENCE,
   });
   if (typeof payload.sub !== "string" || payload.sub.length === 0) {
     throw new Error("session missing sub");

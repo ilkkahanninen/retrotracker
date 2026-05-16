@@ -119,6 +119,7 @@ async function serveStatic(
   const mime = MIME[ext] ?? "application/octet-stream";
   res.statusCode = 200;
   res.setHeader("Content-Type", mime);
+  applySecurityHeaders(res);
   if (
     path !== resolve(distDir, "index.html") &&
     path.includes(`${sep}assets${sep}`)
@@ -131,6 +132,44 @@ async function serveStatic(
     stream.on("end", done);
     stream.pipe(res);
   });
+}
+
+/**
+ * Baseline browser-side hardening for every static response.
+ *
+ * - `X-Frame-Options` + `frame-ancestors 'none'`: no embedding (clickjacking).
+ * - `X-Content-Type-Options: nosniff`: kill MIME confusion.
+ * - `Referrer-Policy`: don't leak deep-link URLs to third parties.
+ * - CSP: same-origin everything plus the few escape hatches the tracker
+ *   actually needs:
+ *     - `'wasm-unsafe-eval'`: WebAudio + bundled wasm tables.
+ *     - `style-src 'unsafe-inline'`: Solid emits a few inline styles.
+ *     - `worker-src/media-src/img-src blob:`: AudioWorklet + sample preview.
+ *     - `img-src data:`: SVG / favicons inlined by Vite.
+ *     - `connect-src 'self'`: only our own /api endpoints.
+ *     - `object-src 'none'`, `base-uri 'self'`: kill historical bypasses.
+ *   Adjust if you add a CDN or an external image host (e.g. Logto avatars).
+ */
+function applySecurityHeaders(res: ServerResponse): void {
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader(
+    "Content-Security-Policy",
+    [
+      "default-src 'self'",
+      "script-src 'self' 'wasm-unsafe-eval'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob:",
+      "media-src 'self' blob:",
+      "worker-src 'self' blob:",
+      "connect-src 'self'",
+      "font-src 'self' data:",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "frame-ancestors 'none'",
+    ].join("; "),
+  );
 }
 
 async function pickExisting(

@@ -79,11 +79,16 @@ export function mountAuthRoutes<
         expectedNonce: savedNonce,
       });
     } catch (e) {
+      // Sanitize: the upstream error text from the IdP could leak
+      // internal endpoint details. Log it server-side, return a
+      // generic 400 to the client.
+      // eslint-disable-next-line no-console
+      console.error(
+        "[retrotracker] token exchange failed:",
+        e instanceof Error ? e.message : String(e),
+      );
       return c.json(
-        {
-          error: "token-exchange-failed",
-          message: e instanceof Error ? e.message : String(e),
-        },
+        { error: "token-exchange-failed", message: "sign-in failed" },
         400,
       );
     }

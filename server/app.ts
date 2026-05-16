@@ -33,6 +33,19 @@ const MIME: Record<Resource, string> = {
 };
 
 /**
+ * Maximum upload sizes per resource. Conservative defaults chosen to fit
+ * any plausible tracker payload — `.retro` (JSON wrapper around the
+ * module + chiptune sources) is the largest because it can carry many
+ * raw sampler WAVs. Hard caps prevent the trivial memory-DoS attack
+ * where `c.req.arrayBuffer()` buffers an unbounded body.
+ */
+const SIZE_LIMITS: Record<Resource, number> = {
+  projects: 50 * 1024 * 1024,
+  samples: 50 * 1024 * 1024,
+  modules: 5 * 1024 * 1024,
+};
+
+/**
  * Hono variables threaded through the request. `user` is populated by
  * `sessionMiddleware` from the signed cookie; absent in anonymous mode.
  */
@@ -66,9 +79,30 @@ export function createApp({ cfg, version }: AppDeps): AppType {
       })
     : null;
 
+  // Defence-in-depth security headers on every API response:
+  //   - Cache-Control / Vary: stop CDNs from cross-serving auth-scoped
+  //     responses between users.
+  //   - X-Content-Type-Options: kill MIME-sniffing surprises (we control
+  //     the Content-Type per resource).
+  app.use("*", async (c, next) => {
+    await next();
+    c.res.headers.set("Cache-Control", "private, no-store");
+    c.res.headers.set("Vary", "Cookie");
+    c.res.headers.set("X-Content-Type-Options", "nosniff");
+  });
+
   // sessionMiddleware sets c.var.user on every request; routes that need
   // an authenticated user run requireUser below.
   app.use("*", sessionMiddleware(cfg));
+
+  // Origin guard on state-changing routes: when auth is on, refuse PUT
+  // / DELETE / POST whose Origin header is absent or doesn't match the
+  // configured redirect URI's origin. SameSite=Lax already blocks the
+  // common CSRF cases; this is the belt to the suspenders.
+  if (cfg.auth) {
+    const expectedOrigin = safeOrigin(cfg.auth.redirectUri);
+    app.use("*", originGuard(expectedOrigin));
+  }
 
   app.get("/health", (c) => c.json({ ok: true, version }));
 
@@ -94,6 +128,7 @@ export function createApp({ cfg, version }: AppDeps): AppType {
   for (const resource of RESOURCES) {
     const base = `/${resource}`;
     const mime = MIME[resource];
+    const limit = SIZE_LIMITS[resource];
 
     // requireUser keeps the anonymous bucket unreachable when auth is
     // configured. In anonymous mode it's a no-op pass-through.
@@ -129,9 +164,36 @@ export function createApp({ cfg, version }: AppDeps): AppType {
 
     app.put(`${base}/:name{.+}`, async (c) => {
       const name = c.req.param("name");
+      // Reject oversized bodies upfront via Content-Length when the
+      // client honours it. Below we re-check the actual byteLength as
+      // the authoritative limit — a lying header doesn't help an
+      // attacker because the buffered body would still trip the check
+      // (and a streaming-buffer cap is the v2 hardening).
+      const headerLen = c.req.header("content-length");
+      if (headerLen !== undefined) {
+        const n = Number(headerLen);
+        if (!Number.isFinite(n) || n < 0 || n > limit) {
+          return c.json(
+            {
+              error: "too-large",
+              message: `body exceeds limit of ${limit} bytes`,
+            },
+            413,
+          );
+        }
+      }
       try {
         const scope = scopeFor(cfg, c);
         const buf = await c.req.arrayBuffer();
+        if (buf.byteLength > limit) {
+          return c.json(
+            {
+              error: "too-large",
+              message: `body exceeds limit of ${limit} bytes`,
+            },
+            413,
+          );
+        }
         await writeFile(scope, resource, name, new Uint8Array(buf));
         return c.json({ ok: true, name });
       } catch (e) {
@@ -190,6 +252,41 @@ function requireUser(cfg: BackendConfig) {
   };
 }
 
+/**
+ * Reject PUT/DELETE/POST requests whose Origin header doesn't match the
+ * configured redirect URI's origin. GET/HEAD/OPTIONS pass through
+ * unchecked — they're not state-changing and Origin is unreliable on
+ * them (Lax navs may omit it).
+ *
+ * Server-to-server clients (curl, fetch-without-Origin) are intentionally
+ * rejected on state-changing routes: the API is browser-only today, and
+ * a missing Origin is indistinguishable from a CSRF attempt.
+ */
+function originGuard(expectedOrigin: string | null) {
+  return async (c: Context, next: Next): Promise<Response | void> => {
+    const method = c.req.method.toUpperCase();
+    if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
+      return next();
+    }
+    const origin = c.req.header("origin");
+    if (!origin || (expectedOrigin && origin !== expectedOrigin)) {
+      return c.json(
+        { error: "origin-mismatch", message: "request origin not allowed" },
+        403,
+      );
+    }
+    return next();
+  };
+}
+
+function safeOrigin(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
 interface ErrorBody {
   error: string;
   message: string;
@@ -205,6 +302,13 @@ function errorPayload(e: unknown): {
   if (e instanceof NotFoundError) {
     return { status: 404, body: { error: "not-found", message: e.message } };
   }
-  const message = e instanceof Error ? e.message : String(e);
-  return { status: 500, body: { error: "internal", message } };
+  // Internal errors get a sanitized body — `e.message` can leak filesystem
+  // paths, errno text, etc. Log the real error server-side for diagnosis.
+  const real = e instanceof Error ? e.message : String(e);
+  // eslint-disable-next-line no-console
+  console.error("[retrotracker] internal error:", real);
+  return {
+    status: 500,
+    body: { error: "internal", message: "internal error" },
+  };
 }

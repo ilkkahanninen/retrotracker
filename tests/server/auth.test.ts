@@ -11,6 +11,7 @@ import { SESSION_COOKIE } from "../../server/auth/middleware.js";
 import type { BackendConfig, AuthConfig } from "../../server/config.js";
 
 const COOKIE_SECRET = new Uint8Array(32).fill(7);
+const APP_ORIGIN = "https://app.test";
 
 async function authedHarness(): Promise<{ cfg: BackendConfig; dir: string }> {
   const dir = await mkdtemp(resolve(tmpdir(), "rt-backend-auth-"));
@@ -114,10 +115,12 @@ describe("CRUD gating when auth is enabled", () => {
     const put = await app.request("/api/projects/a.retro", {
       method: "PUT",
       body: new Uint8Array([1]),
+      headers: { Origin: APP_ORIGIN },
     });
     expect(put.status).toBe(401);
     const del = await app.request("/api/projects/a.retro", {
       method: "DELETE",
+      headers: { Origin: APP_ORIGIN },
     });
     expect(del.status).toBe(401);
   });
@@ -128,7 +131,10 @@ describe("CRUD gating when auth is enabled", () => {
     const put = await app.request("/api/projects/song.retro", {
       method: "PUT",
       body: new Uint8Array([9, 9, 9]),
-      headers: { Cookie: `${SESSION_COOKIE}=${token}` },
+      headers: {
+        Cookie: `${SESSION_COOKIE}=${token}`,
+        Origin: APP_ORIGIN,
+      },
     });
     expect(put.status).toBe(200);
 
@@ -147,7 +153,10 @@ describe("CRUD gating when auth is enabled", () => {
     await app.request("/api/projects/secret.retro", {
       method: "PUT",
       body: new Uint8Array([1]),
-      headers: { Cookie: `${SESSION_COOKIE}=${aliceToken}` },
+      headers: {
+        Cookie: `${SESSION_COOKIE}=${aliceToken}`,
+        Origin: APP_ORIGIN,
+      },
     });
 
     const bobList = await app.request("/api/projects", {
@@ -181,6 +190,114 @@ describe("CRUD gating when auth is enabled", () => {
     });
     const body = (await userList.json()) as { entries: { name: string }[] };
     expect(body.entries.find((e) => e.name === "leak.retro")).toBeUndefined();
+  });
+});
+
+describe("Origin guard", () => {
+  let harness: Awaited<ReturnType<typeof authedHarness>>;
+  beforeEach(async () => {
+    harness = await authedHarness();
+  });
+  afterEach(async () => {
+    await rm(harness.dir, { recursive: true, force: true });
+  });
+
+  it("403s state-changing requests with no Origin header", async () => {
+    const app = createApp({ cfg: harness.cfg, version: "t" });
+    const token = await signSession(COOKIE_SECRET, { sub: "alice" });
+    const put = await app.request("/api/projects/a.retro", {
+      method: "PUT",
+      body: new Uint8Array([1]),
+      headers: { Cookie: `${SESSION_COOKIE}=${token}` },
+    });
+    expect(put.status).toBe(403);
+    const del = await app.request("/api/projects/a.retro", {
+      method: "DELETE",
+      headers: { Cookie: `${SESSION_COOKIE}=${token}` },
+    });
+    expect(del.status).toBe(403);
+  });
+
+  it("403s state-changing requests from a foreign Origin", async () => {
+    const app = createApp({ cfg: harness.cfg, version: "t" });
+    const token = await signSession(COOKIE_SECRET, { sub: "alice" });
+    const put = await app.request("/api/projects/a.retro", {
+      method: "PUT",
+      body: new Uint8Array([1]),
+      headers: {
+        Cookie: `${SESSION_COOKIE}=${token}`,
+        Origin: "https://evil.example",
+      },
+    });
+    expect(put.status).toBe(403);
+  });
+
+  it("lets GET / HEAD through without an Origin", async () => {
+    const app = createApp({ cfg: harness.cfg, version: "t" });
+    // GET /api/auth/status must work without Origin even in auth mode.
+    const status = await app.request("/api/auth/status");
+    expect(status.status).toBe(200);
+  });
+});
+
+describe("size limits", () => {
+  let harness: Awaited<ReturnType<typeof authedHarness>>;
+  beforeEach(async () => {
+    harness = await authedHarness();
+  });
+  afterEach(async () => {
+    await rm(harness.dir, { recursive: true, force: true });
+  });
+
+  it("413s a PUT whose Content-Length exceeds the resource limit", async () => {
+    const app = createApp({ cfg: harness.cfg, version: "t" });
+    const token = await signSession(COOKIE_SECRET, { sub: "alice" });
+    const tooBig = 10 * 1024 * 1024; // 10MB, exceeds modules' 5MB cap
+    const res = await app.request("/api/modules/big.mod", {
+      method: "PUT",
+      body: new Uint8Array([1]),
+      headers: {
+        Cookie: `${SESSION_COOKIE}=${token}`,
+        Origin: APP_ORIGIN,
+        "Content-Length": String(tooBig),
+      },
+    });
+    expect(res.status).toBe(413);
+  });
+
+  it("413s a PUT whose actual body exceeds the resource limit", async () => {
+    const app = createApp({ cfg: harness.cfg, version: "t" });
+    const token = await signSession(COOKIE_SECRET, { sub: "alice" });
+    // 6MB body > 5MB modules cap (no Content-Length sent → falls
+    // through to the post-buffer check).
+    const big = new Uint8Array(6 * 1024 * 1024);
+    const res = await app.request("/api/modules/big.mod", {
+      method: "PUT",
+      body: big,
+      headers: {
+        Cookie: `${SESSION_COOKIE}=${token}`,
+        Origin: APP_ORIGIN,
+      },
+    });
+    expect(res.status).toBe(413);
+  });
+});
+
+describe("cache headers", () => {
+  let harness: Awaited<ReturnType<typeof authedHarness>>;
+  beforeEach(async () => {
+    harness = await authedHarness();
+  });
+  afterEach(async () => {
+    await rm(harness.dir, { recursive: true, force: true });
+  });
+
+  it("attaches no-store + Vary on every /api response", async () => {
+    const app = createApp({ cfg: harness.cfg, version: "t" });
+    const res = await app.request("/api/auth/status");
+    expect(res.headers.get("cache-control")).toMatch(/no-store/);
+    expect(res.headers.get("vary")?.toLowerCase()).toContain("cookie");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
   });
 });
 
@@ -345,7 +462,10 @@ describe("logout", () => {
     ) as unknown as typeof fetch;
 
     const app = createApp({ cfg: harness.cfg, version: "t" });
-    const res = await app.request("/api/auth/logout", { method: "POST" });
+    const res = await app.request("/api/auth/logout", {
+      method: "POST",
+      headers: { Origin: APP_ORIGIN },
+    });
     expect(res.status).toBe(200);
     const cookies = res.headers.get("set-cookie") ?? "";
     // Clearing → Max-Age=0 or expires=epoch — Hono uses Max-Age=0.
