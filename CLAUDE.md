@@ -93,6 +93,44 @@ The sample editor wraps each loaded WAV in a [SampleWorkbench](src/core/audio/sa
 
 Chain + envelope mutations go through the shared `makePipelineActions<W>` factory (see _State + shared factories_ above); only format-specific persistence (source-kind toggles, loop policy, slot addressing) lives in the per-format file.
 
+### Optional backend
+
+The app is a static SPA by default. An optional Node backend at [server/](server/) (Hono) exposes `/api/{projects,samples,modules}` for listing / GET / PUT / DELETE of `.retro` projects, `.wav` samples, and `.mod` / `.xm` modules — names may include slashes for subdirectories; [server/storage.ts](server/storage.ts) rejects `..`, dotfiles, wrong extensions, and resolves paths under the configured root.
+
+Wiring:
+
+- **Dev**: [server/vitePlugin.ts](server/vitePlugin.ts) registers the Hono `fetch` handler as Vite middleware so `npm run dev` runs both on one port. Backend is always on in dev; data lives in `./data/{projects,samples,modules}` (gitignored). Override with `RETROTRACKER_DATA_DIR`.
+- **Prod**: [server/index.ts](server/index.ts) is the entry — Node `http` that serves `dist/` (with SPA fallback to `index.html`) and conditionally mounts the API. esbuild bundles it (`npm run build:server`) to `dist-server/index.mjs`. Backend is **off by default** and activates only when `RETROTRACKER_BACKEND=1` is set at runtime, so CI-built images stay inert until an operator opts in. Default data dir is `/`, so volumes mount as `/projects`, `/samples`, `/modules`.
+- **Frontend**: [src/state/backend.ts](src/state/backend.ts) pings `/api/health` on boot and flips the `backendAvailable` signal. When set, [App.tsx](src/App.tsx) adds "Open from cloud…" / "Save to cloud…" entries to the File menu (rendered by [ServerBrowser](src/components/ServerBrowser.tsx)). "Open from cloud" lists `.retro` projects and `.mod` / `.xm` modules merged — the user sees one list of songs, not two buckets. Loading routes through `loadServerBytes` → `loadFile` so file-picker, drag-drop, and cloud paths share format sniffing.
+
+#### Optional OIDC auth (per-user namespaces)
+
+Auth is opt-in via five env vars: `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI`, `OIDC_COOKIE_SECRET` (≥ 32 bytes, base64 or UTF-8). All-or-nothing — partial config throws at boot. When unset the backend serves a single shared bucket at the flat `<dataDir>/{projects,samples,modules}` paths (unchanged behavior). When set, every CRUD route requires a signed session cookie (401 otherwise) and storage is namespaced under `<dataDir>/users/<sha256(sub).b64url.slice(0,32)>/{projects,…}` — see [hashUserId](server/storage.ts) and [userScope](server/storage.ts).
+
+- **Provider**: Logto Cloud (free tier) is the recommended target; the code talks pure OIDC (discovery + PKCE auth-code + JWKS-verified ID token) so Authentik / Keycloak / Auth0 all work by swapping env vars.
+- **Routes** ([server/auth/routes.ts](server/auth/routes.ts)): `/api/auth/{login,callback,logout,status}`. Login uses PKCE with S256, state + nonce in HttpOnly cookies. Callback verifies state, exchanges code, validates `id_token` against issuer JWKS, then sets a 7-day HMAC-signed session cookie (HS256 via [jose](https://github.com/panva/jose)).
+- **No-leak invariant**: when auth is on, every CRUD route runs through `requireUser` and `userScope(cfg, null)` throws — the anonymous flat-path bucket is unreachable from any HTTP path. Files left over from an anonymous-era deploy stay on disk but become invisible to the API; operators migrate manually (`mv data/projects data/users/<hash>/projects`). Verified by a regression test in [tests/server/auth.test.ts](tests/server/auth.test.ts).
+- **Frontend** ([src/state/auth.ts](src/state/auth.ts)): `probeBackend()` follows up with `/api/auth/status`; signals `authRequired()` + `currentUser()` drive the File menu. Auth-required + not-signed-in → only **Sign in to cloud…** appears, cloud Open/Save are hidden, and ⌘O / ⌘S fall back to the local pickers.
+
+#### Security hardening
+
+The backend was audited; concrete defenses ship in the server code:
+
+- **Per-resource body caps** ([server/app.ts](server/app.ts), `SIZE_LIMITS`): PUT bodies capped at 50 MB / 50 MB / 5 MB for projects / samples / modules respectively. Checked upfront via `Content-Length` and again post-buffer.
+- **Per-user disk quota** (`RETROTRACKER_USER_QUOTA_MB`, default 100): enforced on PUT when auth is on; overwriting refunds the existing file's bytes. Anonymous mode shares one bucket so no quota.
+- **Origin guard** ([server/app.ts](server/app.ts), `originGuard`): PUT/DELETE/POST require an `Origin` header matching `OIDC_REDIRECT_URI`'s origin when auth is configured (defence-in-depth on top of `SameSite=Lax`).
+- **Session revocation** ([server/auth/middleware.ts](server/auth/middleware.ts)): logout writes a per-user `.session-floor` dotfile; JWTs whose `iat` is at-or-below the floor are rejected. 5-second grace window covers the same-second logout/login race. Per-user — one user's logout doesn't affect others.
+- **HTTPS-only issuer** ([server/config.ts](server/config.ts), `assertSecureIssuer`): refuses to start when `OIDC_ISSUER` isn't `https://`, except for `localhost`.
+- **Sanitised errors**: 500s return `{error: "internal", message: "internal error"}` with the real error logged server-side; token-exchange failures get `"sign-in failed"`. Stops `EACCES` paths and IdP response bodies from leaking to clients.
+- **Cache headers**: every `/api/*` response carries `Cache-Control: private, no-store` + `Vary: Cookie` + `X-Content-Type-Options: nosniff` so a CDN/proxy can't cross-serve auth-scoped data.
+- **Static-serve CSP** ([server/index.ts](server/index.ts), `applySecurityHeaders`): `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, and a CSP allowing `self` + `'wasm-unsafe-eval'` + `blob:` for the AudioWorklet / sample preview. **Adjust `img-src` if you add a remote avatar host** (Logto profile pictures aren't rendered today; if you wire them up, add the picture host to `img-src`).
+- **List walk caps** ([server/storage.ts](server/storage.ts)): recursive listing halts at depth 8 or 10000 entries; sets `truncated: true` in the response. Symlinks are silently skipped — we never write them via the API but a co-process or operator could.
+- **Atomic writes**: `writeFile` writes to `<path>.<rand>.tmp` then `rename`s — POSIX-atomic, so concurrent PUTs to the same name resolve cleanly and a crash mid-write can't leave a half-truncated target.
+- **Rate limiting** ([server/rateLimit.ts](server/rateLimit.ts)): per-IP token bucket on `/api/auth/{login,callback,logout}` (20 burst / ~10/min sustained). In-memory state, scoped per single-node deploy.
+- **Audit log** ([server/audit.ts](server/audit.ts)): structured single-line JSON under the `[audit]` prefix for login start/success/failure, logout, and file.delete. Contains client IP and hashed user id; never the raw OIDC sub or session token. Pipe to journald / syslog as needed.
+- **Session JWT** carries `iss: "retrotracker"` + `aud: "retrotracker-spa"` claims so the cookie secret can't be cross-used by another service.
+- **Dev-server LAN exposure**: `npm run dev` binds 127.0.0.1 by default — safe. `vite dev --host` exposes the API on the LAN with no auth; only run that on a trusted network or set the `OIDC_*` env vars before binding 0.0.0.0.
+
 ## Conventions
 
 - TypeScript strict mode with `noUncheckedIndexedAccess` — array/record access returns `T | undefined`. Use `arr[i]!` only when an invariant guarantees presence (e.g., `PERIOD_TABLE[finetune]!` — finetune is 0..15).

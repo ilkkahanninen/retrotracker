@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
+import { backendPlugin } from "./server/vitePlugin";
 
 /**
  * Resolves the build's version string. Order of precedence:
@@ -34,7 +35,7 @@ function readVersion(): string {
 const APP_VERSION = readVersion();
 
 export default defineConfig({
-  plugins: [solid()],
+  plugins: [solid(), backendPlugin(APP_VERSION)],
   resolve: {
     alias: {
       "~": fileURLToPath(new URL("./src", import.meta.url)),
