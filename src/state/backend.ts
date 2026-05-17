@@ -24,8 +24,15 @@ interface ListResponse {
 
 const [backendAvailable, setBackendAvailable] = createSignal(false);
 const [serverVersion, setServerVersion] = createSignal<string | null>(null);
+/**
+ * Whether the backend has the share-link feature enabled (i.e. it was
+ * started with `DATABASE_URL` set). The "Share this song" menu item
+ * gates on this so it never appears against a backend that would 404
+ * the share routes.
+ */
+const [shareAvailable, setShareAvailable] = createSignal(false);
 
-export { backendAvailable, serverVersion };
+export { backendAvailable, serverVersion, shareAvailable };
 
 /**
  * One-shot health check on app boot. The backend is optional and we
@@ -42,10 +49,15 @@ export async function probeBackend(): Promise<void> {
       headers: { Accept: "application/json" },
     });
     if (!res.ok) return;
-    const body = (await res.json()) as { ok?: boolean; version?: string };
+    const body = (await res.json()) as {
+      ok?: boolean;
+      version?: string;
+      shareAvailable?: boolean;
+    };
     if (body.ok) {
       setBackendAvailable(true);
       setServerVersion(body.version ?? null);
+      setShareAvailable(body.shareAvailable === true);
       await refreshAuth();
     }
   } catch {

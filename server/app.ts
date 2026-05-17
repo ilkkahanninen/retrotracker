@@ -23,11 +23,20 @@ import {
 import { OidcClient } from "./auth/oidc.js";
 import { mountAuthRoutes } from "./auth/routes.js";
 import { type SessionUser, sessionMiddleware } from "./auth/middleware.js";
+import type { Pool } from "./db/pool.js";
+import { mountShareRoutes } from "./shareRoutes.js";
 
 export interface AppDeps {
   cfg: BackendConfig;
   /** Version string surfaced by /api/health. */
   version: string;
+  /**
+   * PG pool for the share-link feature. Required when `cfg.db` is set
+   * (the entry point creates the pool and runs the migration before
+   * passing it in); ignored otherwise. Decoupled from `cfg` so tests
+   * can inject a per-test pool without rewriting config.
+   */
+  pool?: Pool | null;
 }
 
 const MIME: Record<Resource, string> = {
@@ -69,8 +78,9 @@ export interface AppVariables {
  */
 export type AppType = Hono<{ Variables: AppVariables }, never, "/api">;
 
-export function createApp({ cfg, version }: AppDeps): AppType {
+export function createApp({ cfg, version, pool }: AppDeps): AppType {
   const app = new Hono<{ Variables: AppVariables }>().basePath("/api");
+  const shareEnabled = cfg.db !== null && pool != null;
 
   // OIDC client is lazily instantiated and shared across requests so
   // discovery + JWKS get cached. Only built when auth is configured.
@@ -108,7 +118,9 @@ export function createApp({ cfg, version }: AppDeps): AppType {
     app.use("*", originGuard(expectedOrigin));
   }
 
-  app.get("/health", (c) => c.json({ ok: true, version }));
+  app.get("/health", (c) =>
+    c.json({ ok: true, version, shareAvailable: shareEnabled }),
+  );
 
   app.get("/auth/status", (c) => {
     const user = c.var.user;
@@ -127,6 +139,16 @@ export function createApp({ cfg, version }: AppDeps): AppType {
 
   if (cfg.auth && oidc) {
     mountAuthRoutes(app, cfg, oidc);
+  }
+
+  // Share routes are mounted alongside the resource routes — paths
+  // don't collide (`/api/shares*` vs `/api/{projects,samples,modules}*`)
+  // so order is irrelevant. The public GET inside `mountShareRoutes`
+  // applies its own per-handler auth wrapper instead of `requireUser`,
+  // so the resource-route `app.use("/projects", requireUser)` below
+  // never sees /shares paths.
+  if (shareEnabled && pool) {
+    mountShareRoutes(app, cfg, pool);
   }
 
   for (const resource of RESOURCES) {

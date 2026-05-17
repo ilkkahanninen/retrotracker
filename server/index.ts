@@ -10,6 +10,8 @@ import { Readable } from "node:stream";
 import { createApp } from "./app.js";
 import { readConfig } from "./config.js";
 import { ensureBaseDirs } from "./storage.js";
+import { createPool, type Pool } from "./db/pool.js";
+import { migrate } from "./db/migrate.js";
 
 declare const __APP_VERSION__: string;
 const VERSION =
@@ -50,10 +52,24 @@ async function main(): Promise<void> {
     | null = null;
   if (cfg.enabled) {
     await ensureBaseDirs(cfg);
-    const app = createApp({ cfg, version: VERSION });
+    // Pool + schema bootstrap fail loud — an operator who set
+    // DATABASE_URL expects sharing to work; degrading silently would
+    // be worse than refusing to start. The pool lives for the process
+    // lifetime; no explicit `pool.end()` needed because Node exit
+    // closes the underlying sockets and `pg` doesn't queue work.
+    let pool: Pool | null = null;
+    if (cfg.db) {
+      pool = createPool(cfg.db.dsn);
+      await migrate(pool);
+    }
+    const app = createApp({ cfg, version: VERSION, pool });
     apiHandler = (req, res) => honoHandle(app.fetch, req, res);
     // eslint-disable-next-line no-console
-    console.log(`[retrotracker] backend ENABLED → ${cfg.dataDir}`);
+    console.log(
+      `[retrotracker] backend ENABLED → ${cfg.dataDir} · shares ${
+        pool ? "on" : "off"
+      }`,
+    );
   } else {
     // eslint-disable-next-line no-console
     console.log(

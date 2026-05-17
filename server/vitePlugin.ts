@@ -4,6 +4,8 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { createApp } from "./app.js";
 import { readConfig } from "./config.js";
 import { ensureBaseDirs } from "./storage.js";
+import { createPool, type Pool } from "./db/pool.js";
+import { migrate } from "./db/migrate.js";
 
 /**
  * Vite plugin that mounts the Hono backend as dev-server middleware. The
@@ -22,7 +24,14 @@ export function backendPlugin(version: string): Plugin {
     async configureServer(server: ViteDevServer) {
       const cfg = readConfig("dev");
       await ensureBaseDirs(cfg);
-      const app = createApp({ cfg, version });
+      // Same posture as prod: pool + migration fail loud. Dev devs who
+      // haven't set DATABASE_URL just won't get the share UI.
+      let pool: Pool | null = null;
+      if (cfg.db) {
+        pool = createPool(cfg.db.dsn);
+        await migrate(pool);
+      }
+      const app = createApp({ cfg, version, pool });
 
       const handler: Connect.NextHandleFunction = (req, res, next) => {
         if (!req.url || !req.url.startsWith("/api")) return next();
@@ -35,7 +44,9 @@ export function backendPlugin(version: string): Plugin {
         : "anonymous (no OIDC)";
       // eslint-disable-next-line no-console
       console.log(
-        `[retrotracker] backend dev API → ${cfg.dataDir} · ${authNote}`,
+        `[retrotracker] backend dev API → ${cfg.dataDir} · ${authNote} · shares ${
+          pool ? "on" : "off"
+        }`,
       );
     },
   };

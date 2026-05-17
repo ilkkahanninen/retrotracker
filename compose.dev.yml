@@ -1,0 +1,41 @@
+# Local-dev-only PostgreSQL for the share-link feature. Production
+# never uses this file — set DATABASE_URL to a managed Postgres in the
+# real deployment. Bound to 127.0.0.1 only so it isn't reachable from
+# the LAN (the share-table contents include raw OIDC subs).
+#
+# Usage:
+#   npm run db:up         # start in the background, idempotent
+#   npm run db:down       # stop without deleting data
+#   npm run db:logs       # tail
+#   npm run db:reset      # wipe the named volume (data loss!)
+#   npm run dev:db        # db up + dev server (loads .env)
+#
+# Data persists in the named volume `retrotracker-pg-data` across
+# `db:down` / restarts. `db:reset` removes it.
+
+services:
+  db:
+    image: postgres:16
+    container_name: retrotracker-dev-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: retrotracker
+      POSTGRES_PASSWORD: retrotracker
+      POSTGRES_DB: retrotracker
+    ports:
+      # 5432 on loopback only. If your machine already runs a system
+      # Postgres on 5432, change the LEFT side (e.g. "5433:5432") and
+      # update DATABASE_URL in your .env to match.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - retrotracker-pg-data:/var/lib/postgresql/data
+    # Healthcheck lets `npm run dev:db` wait for readiness before
+    # starting Vite — otherwise the first request races the DB init.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U retrotracker -d retrotracker"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  retrotracker-pg-data:

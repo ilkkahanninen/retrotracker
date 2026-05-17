@@ -8,6 +8,11 @@
     "prepare": "git config core.hooksPath .githooks 2>/dev/null || true",
     "dev": "vite",
     "dev:env": "node --env-file=.env ./node_modules/vite/bin/vite.js",
+    "dev:db": "docker compose -f compose.dev.yml up -d --wait db && npm run dev:env",
+    "db:up": "docker compose -f compose.dev.yml up -d --wait db",
+    "db:down": "docker compose -f compose.dev.yml down",
+    "db:logs": "docker compose -f compose.dev.yml logs -f db",
+    "db:reset": "docker compose -f compose.dev.yml down -v",
     "build": "tsc -b && vite build && npm run build:server",
     "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --target=node20 --packages=external --define:__APP_VERSION__=\\\"${APP_VERSION:-dev}\\\" --outfile=dist-server/index.mjs",
     "start": "node dist-server/index.mjs",
@@ -25,12 +30,14 @@
   "dependencies": {
     "hono": "^4.12.18",
     "jose": "^6.2.3",
+    "pg": "^8.20.0",
     "solid-js": "^1.9.3"
   },
   "devDependencies": {
     "@solidjs/testing-library": "^0.8.10",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^22.10.0",
+    "@types/pg": "^8.20.0",
     "esbuild": "^0.28.0",
     "jsdom": "^29.1.1",
     "prettier": "^3.8.3",

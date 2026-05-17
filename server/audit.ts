@@ -28,6 +28,31 @@ export type AuditEvent =
       userHash: string | null;
       resource: string;
       name: string;
+    }
+  // Share lifecycle. `tokenPrefix` is the first 6 chars of the share
+  // token — never the full token, since anyone who can read the audit
+  // log could otherwise hijack live shares. `ownerHash` is hashed.
+  | {
+      evt: "share.create";
+      ip: string;
+      userHash: string;
+      resource: string;
+      name: string;
+      tokenPrefix: string;
+    }
+  | {
+      evt: "share.delete";
+      ip: string;
+      userHash: string;
+      tokenPrefix: string;
+    }
+  | {
+      evt: "share.read";
+      ip: string;
+      tokenPrefix: string;
+      ownerHash: string;
+      resource: string;
+      name: string;
     };
 
 export function audit(e: AuditEvent): void {

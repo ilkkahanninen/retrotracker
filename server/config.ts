@@ -45,9 +45,23 @@ export interface BackendConfig {
    * meaningfully bound anything). 0 disables the check.
    */
   userQuotaBytes: number;
+  /**
+   * PostgreSQL configuration for the share-link feature. Null when
+   * `DATABASE_URL` is unset — the share API is then not mounted and the
+   * frontend hides the "Share this song" menu item via the
+   * `shareAvailable` flag on `/api/health`.
+   */
+  db: DbConfig | null;
+  /** Max share links a single user may own at once. 0 disables the cap. */
+  shareUserCap: number;
+}
+
+export interface DbConfig {
+  dsn: string;
 }
 
 const DEFAULT_USER_QUOTA_MB = 100;
+const DEFAULT_SHARE_USER_CAP = 500;
 
 const TRUTHY = new Set(["1", "true", "yes", "on"]);
 
@@ -153,7 +167,35 @@ export function readConfig(
   const dataDir = resolve(env["RETROTRACKER_DATA_DIR"] ?? defaultDir);
   const auth = enabled ? readAuthConfig(env) : null;
   const userQuotaBytes = readQuota(env);
-  return { enabled, dataDir, auth, userQuotaBytes };
+  const db = enabled ? readDbConfig(env) : null;
+  const shareUserCap = readShareUserCap(env);
+  return { enabled, dataDir, auth, userQuotaBytes, db, shareUserCap };
+}
+
+/**
+ * `DATABASE_URL` enables the share-link feature. Returns null when the
+ * env var is absent or empty; never throws on parse — the pg driver
+ * will surface a clearer error on first connect.
+ *
+ * We deliberately don't print the DSN anywhere (it can contain a
+ * password); the boot log under `index.ts` only notes `db on/off`.
+ */
+export function readDbConfig(env: NodeJS.ProcessEnv): DbConfig | null {
+  const raw = env["DATABASE_URL"];
+  if (typeof raw !== "string" || raw.length === 0) return null;
+  return { dsn: raw };
+}
+
+function readShareUserCap(env: NodeJS.ProcessEnv): number {
+  const raw = env["RETROTRACKER_SHARE_USER_CAP"];
+  if (raw === undefined) return DEFAULT_SHARE_USER_CAP;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(
+      `[retrotracker] RETROTRACKER_SHARE_USER_CAP must be a non-negative number, got ${raw}`,
+    );
+  }
+  return Math.floor(n);
 }
 
 function readQuota(env: NodeJS.ProcessEnv): number {

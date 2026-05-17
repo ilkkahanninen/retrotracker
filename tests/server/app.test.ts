@@ -8,7 +8,14 @@ import type { BackendConfig } from "../../server/config.js";
 
 async function tempCfg(): Promise<BackendConfig> {
   const dir = await mkdtemp(resolve(tmpdir(), "rt-backend-app-"));
-  return { enabled: true, dataDir: dir, auth: null, userQuotaBytes: 0 };
+  return {
+    enabled: true,
+    dataDir: dir,
+    auth: null,
+    userQuotaBytes: 0,
+    db: null,
+    shareUserCap: 0,
+  };
 }
 
 interface Harness {
@@ -36,7 +43,11 @@ describe("server/app", () => {
   it("GET /api/health returns ok + version", async () => {
     const res = await h.app.request("/api/health");
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, version: "test" });
+    expect(await res.json()).toEqual({
+      ok: true,
+      version: "test",
+      shareAvailable: false,
+    });
   });
 
   it("GET /api/projects returns empty listing on a fresh dir", async () => {

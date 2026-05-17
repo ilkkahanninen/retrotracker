@@ -28,6 +28,8 @@ async function tempHarness(): Promise<Harness> {
     dataDir: dir,
     auth: null,
     userQuotaBytes: 0,
+    db: null,
+    shareUserCap: 0,
   };
   const scope = userScope(cfg, null);
   await ensureDirs(scope);

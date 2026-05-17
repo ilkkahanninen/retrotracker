@@ -31,6 +31,8 @@ async function tempHarness(): Promise<Harness> {
     dataDir: dir,
     auth: null,
     userQuotaBytes: 0,
+    db: null,
+    shareUserCap: 0,
   };
   return { cfg, scope: userScope(cfg, null) };
 }
@@ -238,6 +240,8 @@ describe("userScope", () => {
       dataDir: "/data",
       auth: null,
       userQuotaBytes: 0,
+      db: null,
+      shareUserCap: 0,
     };
     const scope = userScope(cfg, null);
     expect(scope.root).toBe("/data");
@@ -257,6 +261,8 @@ describe("userScope", () => {
         postLogoutRedirect: "/",
       },
       userQuotaBytes: 0,
+      db: null,
+      shareUserCap: 0,
     };
     const scope = userScope(cfg, "user-123");
     const hash = hashUserId("user-123");
@@ -278,6 +284,8 @@ describe("userScope", () => {
         postLogoutRedirect: "/",
       },
       userQuotaBytes: 0,
+      db: null,
+      shareUserCap: 0,
     };
     expect(() => userScope(cfg, null)).toThrow();
   });

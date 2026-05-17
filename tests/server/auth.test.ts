@@ -28,6 +28,8 @@ async function authedHarness(): Promise<{ cfg: BackendConfig; dir: string }> {
     dataDir: dir,
     auth,
     userQuotaBytes: 0,
+    db: null,
+    shareUserCap: 0,
   };
   return { cfg, dir };
 }
@@ -63,6 +65,8 @@ describe("auth status", () => {
       dataDir: harness.dir,
       auth: null,
       userQuotaBytes: 0,
+      db: null,
+      shareUserCap: 0,
     };
     const app = createApp({ cfg, version: "t" });
     const res = await app.request("/api/auth/status");

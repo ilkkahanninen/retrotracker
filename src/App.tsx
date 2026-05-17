@@ -125,6 +125,7 @@ import {
 } from "./state/sampleEdit";
 import {
   chiptuneSourcesSnapshot,
+  cloudOrigin,
   xmChiptuneSourcesSnapshot,
   xmSamplerSourcesSnapshot,
   error,
@@ -137,14 +138,24 @@ import {
   projectBytes,
   samplerSourcesSnapshot,
   saveProject,
+  setCloudOrigin,
   setError,
   setFilename,
 } from "./state/session";
+import {
+  detectAndLoadShareLink,
+  dismissSharedBanner,
+  dismissShareLoadError,
+  sharedBanner,
+  shareLoadError,
+} from "./state/shareLoad";
+import { ShareModal } from "./components/ShareModal";
 import {
   backendAvailable,
   getBytes,
   probeBackend,
   putBytes,
+  shareAvailable,
   type BackendResource,
 } from "./state/backend";
 import {
@@ -272,6 +283,7 @@ export const App: Component = () => {
     saveTo?: BackendResource;
     title: string;
   } | null>(null);
+  const [shareModalOpen, setShareModalOpen] = createSignal(false);
 
   const USER_MANUAL_URL =
     "https://github.com/ilkkahanninen/retrotracker/blob/main/docs/user-manual.md";
@@ -376,6 +388,15 @@ export const App: Component = () => {
   ): Promise<void> => {
     const bytes = await getBytes(resource, name);
     await loadServerBytes(bytes, name.split("/").pop()!);
+    // Track cloud origin for share-enabled buckets only. Samples
+    // aren't shareable, so don't pretend the loaded song has a
+    // shareable origin even if it came from the samples bucket
+    // (which today isn't reachable from "Open from cloud" anyway).
+    if (resource === "projects" || resource === "modules") {
+      setCloudOrigin({ resource, name });
+    } else {
+      setCloudOrigin(null);
+    }
     setServerBrowser(null);
   };
 
@@ -388,6 +409,8 @@ export const App: Component = () => {
     const bytes = projectBytes();
     if (!bytes) return;
     await putBytes("projects", name, bytes);
+    // The user now owns a cloud copy — enable the "Share" menu item.
+    setCloudOrigin({ resource: "projects", name });
     setServerBrowser(null);
   };
 
@@ -447,6 +470,12 @@ export const App: Component = () => {
     // Optional backend: one-shot probe so the File menu can grow
     // server-side entries when /api/health responds.
     void probeBackend();
+
+    // Catch /share/<token> in the URL and load the linked song. Runs
+    // independently of `probeBackend` because the share GET endpoint
+    // is anonymous — we don't have to wait for the auth probe before
+    // fetching. URL is stripped immediately so reload doesn't refetch.
+    void detectAndLoadShareLink();
 
     // After the OIDC callback redirects to "/?auth=ok", refresh the
     // auth signals and strip the query so a page reload doesn't loop.
@@ -734,6 +763,18 @@ export const App: Component = () => {
         disabled: !song(),
       });
     }
+    // "Share this song…" appears only when the backend exposes the
+    // share feature (DATABASE_URL set on the server). Disabled-with-
+    // tooltip beats hidden when the song isn't from the cloud yet —
+    // less mysterious for users who expect the item to be there.
+    if (cloud && shareAvailable()) {
+      const origin = cloudOrigin();
+      items.push({
+        label: "Share this song…",
+        onClick: () => setShareModalOpen(true),
+        disabled: !song() || origin === null,
+      });
+    }
     if (showSignIn) {
       items.push(
         { separator: true, label: "" },
@@ -1018,6 +1059,41 @@ export const App: Component = () => {
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
+      <Show when={sharedBanner()}>
+        {(b) => (
+          <div class="share-banner" role="status">
+            <span class="share-banner__text">
+              Opened from a share link: <code>{b().filename}</code>. Sign in and
+              use <em>Save to cloud…</em> to keep a copy in your own library.
+            </span>
+            <button
+              type="button"
+              class="share-banner__dismiss"
+              onClick={dismissSharedBanner}
+              aria-label="Dismiss"
+              title="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        )}
+      </Show>
+      <Show when={shareLoadError()}>
+        {(msg) => (
+          <div class="share-banner share-banner--error" role="alert">
+            <span class="share-banner__text">{msg()}</span>
+            <button
+              type="button"
+              class="share-banner__dismiss"
+              onClick={dismissShareLoadError}
+              aria-label="Dismiss"
+              title="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        )}
+      </Show>
       <header class="app__header">
         <div class="app__header-left">
           <h1>
@@ -1719,6 +1795,12 @@ export const App: Component = () => {
             onClose={() => setServerBrowser(null)}
           />
         )}
+      </Show>
+      <Show when={shareModalOpen()}>
+        <ShareModal
+          origin={cloudOrigin()}
+          onClose={() => setShareModalOpen(false)}
+        />
       </Show>
     </div>
   );

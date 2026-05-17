@@ -96,6 +96,26 @@ export { error, setError };
 const [filename, setFilename] = createSignal<string | null>(null);
 export { filename, setFilename };
 
+/**
+ * The cloud bucket + path the loaded song was last read from or saved
+ * to, or `null` for songs that only exist locally (drag-drop, file
+ * picker, fresh "New", or "opened from share link" — recipients don't
+ * own the source). Drives the "Share this song" menu item: gated to
+ * `cloudOrigin() !== null` so users can only share songs that already
+ * live in their own cloud bucket.
+ *
+ * Set explicitly by the cloud-open and cloud-save flows in App.tsx —
+ * not by `applyLoadedSession`, which clears it on every load so a
+ * local-load can't accidentally inherit the previous song's origin.
+ */
+export type CloudResource = "projects" | "modules";
+export interface CloudOrigin {
+  resource: CloudResource;
+  name: string;
+}
+const [cloudOrigin, setCloudOrigin] = createSignal<CloudOrigin | null>(null);
+export { cloudOrigin, setCloudOrigin };
+
 export interface LoadedSession {
   song: Song | null;
   filename: string | null;
@@ -117,6 +137,10 @@ export interface LoadedSession {
 
 export function applyLoadedSession(loaded: LoadedSession): void {
   if (!loaded.song) return;
+  // Every load — local, cloud, or share — starts with a clean origin.
+  // Cloud paths re-set it explicitly after this call; local paths
+  // (file picker / drag-drop / share-link recipient) leave it null.
+  setCloudOrigin(null);
   // Halt the worklet AND flip transport BEFORE setSong: the live-edit
   // createEffect reads `transport()` and would otherwise dispatch wasted
   // setSampleData / replaceSong messages to the stopped worklet for

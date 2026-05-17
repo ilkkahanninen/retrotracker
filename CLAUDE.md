@@ -10,11 +10,19 @@ RetroTracker is a web-based tracker (Solid + Vite + TypeScript) that edits both 
 
 ```bash
 npm run dev              # Vite dev server
+npm run dev:env          # dev server with .env loaded (OIDC + DATABASE_URL)
+npm run dev:db           # start dev Postgres via docker compose, then dev:env
 npm run build            # tsc -b && vite build
 npm run typecheck        # tsc -b --noEmit
 npm test                 # vitest run (includes accuracy test bed)
 npm run test:watch
 npm run render -- in.mod out.wav [--seconds=N] [--rate=44100]   # offline render via our replayer
+
+# Local Postgres for the share-link feature (compose.dev.yml)
+npm run db:up            # start the dev DB in the background, wait for ready
+npm run db:down          # stop without deleting data
+npm run db:logs          # tail
+npm run db:reset         # nuke the data volume (then `db:up` for a fresh DB)
 ```
 
 Run a single test file: `npx vitest run tests/render-accuracy.test.ts`. Filter by name: `npx vitest run -t "00-baseline"`.
@@ -112,6 +120,19 @@ Auth is opt-in via five env vars: `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_
 - **No-leak invariant**: when auth is on, every CRUD route runs through `requireUser` and `userScope(cfg, null)` throws — the anonymous flat-path bucket is unreachable from any HTTP path. Files left over from an anonymous-era deploy stay on disk but become invisible to the API; operators migrate manually (`mv data/projects data/users/<hash>/projects`). Verified by a regression test in [tests/server/auth.test.ts](tests/server/auth.test.ts).
 - **Frontend** ([src/state/auth.ts](src/state/auth.ts)): `probeBackend()` follows up with `/api/auth/status`; signals `authRequired()` + `currentUser()` drive the File menu. Auth-required + not-signed-in → only **Sign in to cloud…** appears, cloud Open/Save are hidden, and ⌘O / ⌘S fall back to the local pickers.
 
+#### Shareable cloud song links
+
+When `DATABASE_URL` is set on the backend, signed-in users can mint a `/share/<token>` link from any `.retro` / `.mod` / `.xm` they've saved to the cloud. Anyone with the link can open the song (no sign-in required); to keep a copy they sign in and use **Save to cloud…** in their own bucket.
+
+- **Storage**: PostgreSQL via `pg`. Schema lives in [server/db/migrate.ts](server/db/migrate.ts) as a single idempotent `CREATE TABLE IF NOT EXISTS` block (`shares (token, owner_sub, resource, name, created_at)` + a unique index on `(owner_sub, resource, name)` that makes share creation idempotent). [server/db/pool.ts](server/db/pool.ts) is a thin `pg.Pool` wrapper. Migration runs at boot from both [server/index.ts](server/index.ts) and [server/vitePlugin.ts](server/vitePlugin.ts) — refuses to start on connect failure (same posture as `assertSecureIssuer`).
+- **Routes** ([server/shareRoutes.ts](server/shareRoutes.ts)): `GET /api/shares/:token` is **public** (no `requireUser`, no origin guard — it's the whole point), returns the file bytes with `Content-Disposition: attachment`. `POST /api/shares`, `GET /api/shares` (list-my-shares), and `DELETE /api/shares/:token` require a session. Auth is enforced per-handler via `requireSession(cfg)` rather than a path-prefix `app.use("/shares", requireUser)` so the public GET can't be accidentally protected by a future mount-order change.
+- **Frontend** ([src/state/share.ts](src/state/share.ts), [src/state/shareLoad.ts](src/state/shareLoad.ts), [src/components/ShareModal.tsx](src/components/ShareModal.tsx)): `cloudOrigin` signal in [src/state/session.ts](src/state/session.ts) tracks the bucket+path a song was loaded from / saved to. The **Share this song…** menu item appears when `shareAvailable() && cloudVisibleFor(backendAvailable())` and disables (with tooltip) until `cloudOrigin()` is set. On App mount, `detectAndLoadShareLink()` matches `/^\/share\/([A-Za-z0-9_-]{16,32})$/` against `location.pathname`, strips the URL via `history.replaceState`, fetches the bytes, and tunnels them through `loadServerBytes` — recipients don't inherit the owner's `cloudOrigin`, so they can't accidentally re-share someone else's song without saving their own copy first. A transient banner above the header surfaces the "save a copy to your cloud" CTA. SPA fallback for `/share/<token>` works out of the box in both dev (Vite default) and prod ([server/index.ts](server/index.ts) `pickExisting` falls back to `index.html`).
+- **`owner_sub` column** holds the _raw_ OIDC `sub`, not the hash. `userScope(cfg, sub)` re-hashes internally; the row needs the raw value to rebuild the owner's bucket path for the public GET. Treat the column as PII at rest (no worse than an OIDC ID-token cache).
+- **Edge cases**: source file deleted by owner → 404 with `shared file no longer exists` (row left in place — a transient FS error wouldn't nuke valid shares; owners revoke explicitly). Auth-off mode rejects POST/DELETE with 401 ("sharing requires sign-in") — the feature is meaningless without per-user identity.
+- **Local dev**: [compose.dev.yml](compose.dev.yml) ships a one-command Postgres bound to `127.0.0.1:5432`. `npm run db:up` starts it (named volume `retrotracker-pg-data` persists across restarts); `npm run db:down` stops without data loss; `npm run db:reset` nukes the volume. `.env` carries the matching `DATABASE_URL=postgres://retrotracker:retrotracker@127.0.0.1:5432/retrotracker` so `npm run dev:env` picks it up automatically. The combined `npm run dev:db` brings the DB up (waiting for the healthcheck) then runs the dev server in the foreground — the typical share-feature dev loop.
+- **Testing**: [tests/server/shares.test.ts](tests/server/shares.test.ts) + [tests/server/shareRoutes.test.ts](tests/server/shareRoutes.test.ts) gate on `TEST_DATABASE_URL`; when unset both `describe.skip` so CI without PG stays green. Local: reuse the dev DB via `TEST_DATABASE_URL=postgres://retrotracker:retrotracker@127.0.0.1:5432/retrotracker npm test`. Per-test schema isolation lives in [tests/server/dbHarness.ts](tests/server/dbHarness.ts) (`CREATE SCHEMA rt_test_<rand>` + pinned `search_path` + `migrate` per test, `DROP SCHEMA … CASCADE` in `afterEach`) so the dev DB and the test runs never collide. Don't introduce an in-memory `ShareStore` abstraction — the bugs that matter (unique-constraint races, parameter escaping) only show up against real PG.
+- **Known limitations**: a song opened from a share link is lost if the viewer then signs in (full-page OIDC redirect). The CTA copy nudges users to sign in _before_ opening shares. No file-rename API today; if/when one is added, it must `UPDATE shares SET name = $new WHERE owner_sub = $1 AND resource = $2 AND name = $old`. No account-deletion flow; a future `DELETE` of a user must also `DELETE FROM shares WHERE owner_sub = $1`.
+
 #### Security hardening
 
 The backend was audited; concrete defenses ship in the server code:
@@ -126,8 +147,9 @@ The backend was audited; concrete defenses ship in the server code:
 - **Static-serve CSP** ([server/index.ts](server/index.ts), `applySecurityHeaders`): `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, and a CSP allowing `self` + `'wasm-unsafe-eval'` + `blob:` for the AudioWorklet / sample preview. **Adjust `img-src` if you add a remote avatar host** (Logto profile pictures aren't rendered today; if you wire them up, add the picture host to `img-src`).
 - **List walk caps** ([server/storage.ts](server/storage.ts)): recursive listing halts at depth 8 or 10000 entries; sets `truncated: true` in the response. Symlinks are silently skipped — we never write them via the API but a co-process or operator could.
 - **Atomic writes**: `writeFile` writes to `<path>.<rand>.tmp` then `rename`s — POSIX-atomic, so concurrent PUTs to the same name resolve cleanly and a crash mid-write can't leave a half-truncated target.
-- **Rate limiting** ([server/rateLimit.ts](server/rateLimit.ts)): per-IP token bucket on `/api/auth/{login,callback,logout}` (20 burst / ~10/min sustained). In-memory state, scoped per single-node deploy.
-- **Audit log** ([server/audit.ts](server/audit.ts)): structured single-line JSON under the `[audit]` prefix for login start/success/failure, logout, and file.delete. Contains client IP and hashed user id; never the raw OIDC sub or session token. Pipe to journald / syslog as needed.
+- **Rate limiting** ([server/rateLimit.ts](server/rateLimit.ts)): per-IP token bucket on `/api/auth/{login,callback,logout}` (20 burst / ~10/min sustained). Also on `POST /api/shares` (same envelope) and `GET /api/shares/:token` (60 burst / 1-per-sec sustained — a viral share legitimately fans out across many IPs but no single IP should hot-loop the file). In-memory state, scoped per single-node deploy.
+- **Audit log** ([server/audit.ts](server/audit.ts)): structured single-line JSON under the `[audit]` prefix for login start/success/failure, logout, file.delete, and share.create/delete/read. Contains client IP and hashed user id; never the raw OIDC sub or session token. Share events carry only the token _prefix_ (first 6 chars) — anyone with audit-log read could otherwise hijack live shares. Pipe to journald / syslog as needed.
+- **Share token grammar + 404-on-miss**: token must match `/^[A-Za-z0-9_-]{16,64}$/` and the regex is checked **in the route** before any DB lookup, so malformed paths never hit the pool. Both unknown and not-owned tokens return 404 (not 403/400) so callers can't probe for token existence. Per-user share cap (`RETROTRACKER_SHARE_USER_CAP`, default 500).
 - **Session JWT** carries `iss: "retrotracker"` + `aud: "retrotracker-spa"` claims so the cookie secret can't be cross-used by another service.
 - **Dev-server LAN exposure**: `npm run dev` binds 127.0.0.1 by default — safe. `vite dev --host` exposes the API on the LAN with no auth; only run that on a trusted network or set the `OIDC_*` env vars before binding 0.0.0.0.
 
