@@ -11,6 +11,7 @@ A web-based tracker — edit ProTracker `.mod` (4-channel "M.K.") and FastTracke
 - **Native project format.** A `.retro` project file preserves everything the underlying `.mod` / `.xm` can't: high-fidelity source samples, the editing pipeline you built around them, chiptune-synth parameters. Open it later and pick up exactly where you stopped.
 - **Non-destructive sampler.** Loaded WAVs (8 / 16 / 24-bit integer, float32, mono or stereo) are kept at full quality. Each slot owns a chain of effects — gain, normalise, reverse, crop, fade in / out — that you can reorder, disable, or remove at any time. Only the final 8-bit signed result is what playback hears; the source and the chain stay editable.
 - **Chiptune synth.** Build cycles inside the editor itself: two oscillators with shape, phase-split and ratio controls, two LFOs, several combine modes (morph, ring, FM, and friends), and an optional waveshaper. Output is rendered into a sample slot so it plays back like any other instrument.
+- **Optional cloud storage and shareable links.** When the deployment runs the bundled backend, signed-in users can save songs to a private bucket and mint `/share/<token>` links anyone can open in their own browser — recipients can save a copy to their own cloud with one click. The frontend stays a static SPA when the backend isn't running. See the [user manual's cloud section](docs/user-manual.md#cloud-and-sharing) for the user flow and [CLAUDE.md](CLAUDE.md#optional-backend) for the operator setup.
 
 ## Getting started
 

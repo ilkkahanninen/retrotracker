@@ -68,30 +68,31 @@ State that needs to flow to the audio engine — channel mute, Paula model, ster
 
 ## Where each big idea lives
 
-| Topic                               | Read first                                                                 |
-| ----------------------------------- | -------------------------------------------------------------------------- |
-| Tracker logic & effect quirks       | [src/core/audio/replayer.ts](../src/core/audio/replayer.ts)                |
-| Paula DMA / BLEP / filters          | [src/core/audio/paula.ts](../src/core/audio/paula.ts)                      |
-| Worklet ↔ main thread protocol      | [src/core/audio/worklet.ts](../src/core/audio/worklet.ts) + `engine.ts`    |
-| MOD binary format                   | [src/core/mod/parser.ts](../src/core/mod/parser.ts) / `writer.ts`          |
-| Pattern editing primitives          | [src/core/mod/mutations.ts](../src/core/mod/mutations.ts)                  |
-| Pattern flatten (order → flat rows) | [src/core/mod/flatten.ts](../src/core/mod/flatten.ts)                      |
-| Loop quirk fix-up                   | [src/core/audio/loopTruncate.ts](../src/core/audio/loopTruncate.ts)        |
-| Sample pipeline (edit chain)        | [src/core/audio/sampleWorkbench.ts](../src/core/audio/sampleWorkbench.ts)  |
-| Chiptune synth                      | [src/core/audio/chiptune.ts](../src/core/audio/chiptune.ts)                |
-| Bounce selection → sample           | [src/core/audio/bounce.ts](../src/core/audio/bounce.ts)                    |
-| Undo / redo                         | [src/state/song.ts](../src/state/song.ts) (`commitEdit`, `undo`, `redo`)   |
-| Drag-coalesced history              | [src/state/song.ts](../src/state/song.ts) (`beginDragEdit`, `endDragEdit`) |
-| Session persistence                 | [src/state/persistence.ts](../src/state/persistence.ts)                    |
-| Transport orchestration             | [src/state/playback.ts](../src/state/playback.ts)                          |
-| Engine sync (mute / model / song)   | [src/state/sync.ts](../src/state/sync.ts) (`installEngineSync`)            |
-| File load / save / export           | [src/state/session.ts](../src/state/session.ts)                            |
-| Pattern-grid edit handlers          | [src/state/patternEdit.ts](../src/state/patternEdit.ts)                    |
-| Sample-pipeline edit handlers       | [src/state/sampleEdit.ts](../src/state/sampleEdit.ts)                      |
-| Order-list edit handlers            | [src/state/orderEdit.ts](../src/state/orderEdit.ts)                        |
-| Multi-WAV drop import               | [src/state/dropImport.ts](../src/state/dropImport.ts)                      |
-| Accuracy test bed                   | [tests/render-accuracy.test.ts](../tests/render-accuracy.test.ts)          |
-| Engine-sync test bed                | [tests/ui/engine-sync.test.tsx](../tests/ui/engine-sync.test.tsx)          |
+| Topic                               | Read first                                                                                                                                                                                                                          |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tracker logic & effect quirks       | [src/core/audio/replayer.ts](../src/core/audio/replayer.ts)                                                                                                                                                                         |
+| Paula DMA / BLEP / filters          | [src/core/audio/paula.ts](../src/core/audio/paula.ts)                                                                                                                                                                               |
+| Worklet ↔ main thread protocol      | [src/core/audio/worklet.ts](../src/core/audio/worklet.ts) + `engine.ts`                                                                                                                                                             |
+| MOD binary format                   | [src/core/mod/parser.ts](../src/core/mod/parser.ts) / `writer.ts`                                                                                                                                                                   |
+| Pattern editing primitives          | [src/core/mod/mutations.ts](../src/core/mod/mutations.ts)                                                                                                                                                                           |
+| Pattern flatten (order → flat rows) | [src/core/mod/flatten.ts](../src/core/mod/flatten.ts)                                                                                                                                                                               |
+| Loop quirk fix-up                   | [src/core/audio/loopTruncate.ts](../src/core/audio/loopTruncate.ts)                                                                                                                                                                 |
+| Sample pipeline (edit chain)        | [src/core/audio/sampleWorkbench.ts](../src/core/audio/sampleWorkbench.ts)                                                                                                                                                           |
+| Chiptune synth                      | [src/core/audio/chiptune.ts](../src/core/audio/chiptune.ts)                                                                                                                                                                         |
+| Bounce selection → sample           | [src/core/audio/bounce.ts](../src/core/audio/bounce.ts)                                                                                                                                                                             |
+| Undo / redo                         | [src/state/song.ts](../src/state/song.ts) (`commitEdit`, `undo`, `redo`)                                                                                                                                                            |
+| Drag-coalesced history              | [src/state/song.ts](../src/state/song.ts) (`beginDragEdit`, `endDragEdit`)                                                                                                                                                          |
+| Session persistence                 | [src/state/persistence.ts](../src/state/persistence.ts)                                                                                                                                                                             |
+| Transport orchestration             | [src/state/playback.ts](../src/state/playback.ts)                                                                                                                                                                                   |
+| Engine sync (mute / model / song)   | [src/state/sync.ts](../src/state/sync.ts) (`installEngineSync`)                                                                                                                                                                     |
+| File load / save / export           | [src/state/session.ts](../src/state/session.ts)                                                                                                                                                                                     |
+| Pattern-grid edit handlers          | [src/state/patternEdit.ts](../src/state/patternEdit.ts)                                                                                                                                                                             |
+| Sample-pipeline edit handlers       | [src/state/sampleEdit.ts](../src/state/sampleEdit.ts)                                                                                                                                                                               |
+| Order-list edit handlers            | [src/state/orderEdit.ts](../src/state/orderEdit.ts)                                                                                                                                                                                 |
+| Multi-WAV drop import               | [src/state/dropImport.ts](../src/state/dropImport.ts)                                                                                                                                                                               |
+| Accuracy test bed                   | [tests/render-accuracy.test.ts](../tests/render-accuracy.test.ts)                                                                                                                                                                   |
+| Engine-sync test bed                | [tests/ui/engine-sync.test.tsx](../tests/ui/engine-sync.test.tsx)                                                                                                                                                                   |
+| Optional backend (cloud + sharing)  | [server/](../server/) — Hono app, OIDC, per-user storage, share-link Postgres. Operator details in [CLAUDE.md](../CLAUDE.md#optional-backend); user flow in [user-manual.md → Cloud and sharing](user-manual.md#cloud-and-sharing). |
 
 ## Build & dev pipeline
 

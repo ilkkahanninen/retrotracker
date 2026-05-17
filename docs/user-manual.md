@@ -6,6 +6,7 @@ RetroTracker is a web-based tracker that opens both ProTracker `.mod` (4-channel
 
 - [Getting started](#getting-started)
 - [Files and projects](#files-and-projects)
+- [Cloud and sharing](#cloud-and-sharing)
 - [The four views](#the-four-views)
 - [Pattern editing](#pattern-editing)
 - [Order list](#order-list)
@@ -27,7 +28,7 @@ npm run dev
 
 Open the URL Vite prints. Either way, the app boots with a blank "M.K." song so you can start editing immediately. Drop a `.mod`, `.xm`, or `.retro` file onto the page (or use **File → Open**) to load existing work — the format is detected by file extension, and the editor switches into the matching mode automatically.
 
-Your work autosaves to your browser's localStorage between every edit. Closing and re-opening the tab restores cursor position, view, sample workbenches, channel mute/solo, and everything else you can change in the editor. To save off-machine, use **File → Save…** which downloads a `.retro` project file.
+Your work autosaves to your browser's localStorage between every edit. Closing and re-opening the tab restores cursor position, view, sample workbenches, channel mute/solo, and everything else you can change in the editor — including the cloud bucket the song was loaded from or saved to, so **Share this song** stays available across reloads without re-saving. To save off-machine, use **File → Save to computer…** which downloads a `.retro` project file. To save to a remote bucket — and to share songs by link — see [Cloud and sharing](#cloud-and-sharing).
 
 ## Files and projects
 
@@ -53,6 +54,43 @@ You can also drop a file directly onto the page; this is the fastest way to load
 ### Why both the tracker format and `.retro`?
 
 Neither `.mod` nor `.xm` can represent the **source** WAV you imported, the chain of effects you built around it, or the chiptune synth parameters — they only store the final quantised sample bytes that play back. Save as `.retro` to keep all of those — open it later and the pipeline UI restores exactly as you left it. Export back to `.mod` / `.xm` when you're done.
+
+## Cloud and sharing
+
+Some deployments of RetroTracker (including the hosted build) also offer **cloud storage** and **shareable song links**. These only show up when the server you're connected to has them enabled — on a self-hosted build with the backend turned off, the File menu stays purely local. Nothing here is required to use the editor.
+
+### Signing in
+
+When auth is enabled, the File menu shows **Sign in to cloud…** until you do. Sign in once (the hosted build uses [Logto](https://logto.io/) — your browser bounces through their sign-in page and back), and the menu changes to show your name plus **Sign out**. Each signed-in user gets their own private bucket on the server — other users can't see your files.
+
+### Open / save to cloud
+
+After signing in (or on any deployment running in anonymous mode):
+
+- **File → Open from cloud…** lists every `.retro` project and `.mod` / `.xm` module in your bucket, mixed into one chronological list — you don't have to remember which format you saved under. Click to load; the editor sniffs the format and switches modes automatically. ⌘O picks the cloud picker over the local file dialog when cloud is available.
+- **File → Save to cloud…** writes the current song as `.retro` into your bucket. The default name is the song title; type a slash-separated path (e.g. `demos/intro.retro`) to organise into folders. ⌘S does the same thing.
+- The **×** next to a file in the picker deletes it. There's no trash — gone is gone.
+
+The hosted build caps each user at 100 MB and 500 share links by default; self-hosted deployments can adjust both.
+
+### Sharing a song
+
+Once a song lives in your cloud bucket, **File → Share this song…** mints a public link of the form `/share/<token>`. Anyone with the link can open the song in their own browser without signing in. The modal also lists every share link you've created — copy or revoke any of them from there. Revoking immediately invalidates the link.
+
+What recipients can do:
+
+- Open the song and play / edit it locally, like any drag-dropped file.
+- If they're signed in (or sign in afterwards), **Save to cloud…** keeps a copy in **their** bucket — your original is untouched. They can save it under any name; you don't get notified.
+- If they want to share their own remix, they have to save it to their own cloud first, then share from there. Receiving a share link doesn't give them re-share rights against your file.
+
+What recipients can't do:
+
+- Modify the original. The share is read-only.
+- See your other files. The link points at exactly one song.
+
+The link works until you revoke it — there is no automatic expiry. If you upload a new file at the same name, the link automatically points at the new bytes (it's keyed by path, not content). If you delete the source file, the link returns "shared file no longer exists" until you re-upload or revoke.
+
+Heads-up: if a recipient hits the link while not signed in and _then_ tries to save a copy, they go through the full sign-in redirect, which navigates away from the page and loses the loaded song. The simplest workaround is to sign in **before** opening the link.
 
 ## The four views
 
@@ -330,14 +368,14 @@ The full list lives in the Pattern view's right rail (PatternHelp pane), localis
 
 ### File and history
 
-| Keys                         | Action                     |
-| ---------------------------- | -------------------------- |
-| Cmd + O                      | Open                       |
-| Cmd + S                      | Save (.retro)              |
-| Cmd + Z                      | Undo                       |
-| Cmd + Shift + Z (or Cmd + Y) | Redo                       |
-| Cmd + C / V / X              | Copy / paste / cut         |
-| Cmd + E                      | Bounce selection to sample |
+| Keys                         | Action                                            |
+| ---------------------------- | ------------------------------------------------- |
+| Cmd + O                      | Open (cloud picker when signed in, else local)    |
+| Cmd + S                      | Save .retro (to cloud when signed in, else local) |
+| Cmd + Z                      | Undo                                              |
+| Cmd + Shift + Z (or Cmd + Y) | Redo                                              |
+| Cmd + C / V / X              | Copy / paste / cut                                |
+| Cmd + E                      | Bounce selection to sample                        |
 
 ### Views
 

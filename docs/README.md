@@ -13,6 +13,7 @@ These documents cover the engineering picture: how the audio path is structured,
 - [05. UI components](components.md) — `App.tsx` layout, views, pattern grid, sample editor, chiptune editor.
 - [06. Sample pipeline & chiptune synth](sample-pipeline.md) — `SampleWorkbench`, effect nodes, PT transformer, chiptune oscillators.
 - [07. Testing & accuracy bed](testing.md) — vitest layout, fixtures, pt2-clone reference, render-accuracy comparison.
+- **Optional backend** — operator-facing details (storage layout, OIDC, share links, dev DB) live in [CLAUDE.md](../CLAUDE.md#optional-backend). The frontend's user flow is in [user-manual.md → Cloud and sharing](user-manual.md#cloud-and-sharing).
 
 ## Conventions used in these docs
 
