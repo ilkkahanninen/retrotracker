@@ -173,6 +173,13 @@ interface PersistedShape {
   xmSamplerSources?: Record<string, PersistedXmSamplerSource>;
   /** Per-(instrument, sample) chiptune workbenches for XM projects. */
   xmChiptuneSources?: Record<string, PersistedXmChiptuneSource>;
+  /**
+   * Cloud origin of the persisted song, if any. Mirrors the in-memory
+   * `cloudOrigin` signal in session.ts. Absent when the song was never
+   * loaded from / saved to the cloud — readers treat absence as null.
+   * Backward-compatible: pre-feature payloads simply lack the field.
+   */
+  cloudOrigin?: { resource: "projects" | "modules"; name: string };
 }
 
 /**
@@ -246,6 +253,18 @@ export interface SessionInputs {
    */
   xmSamplerSources?: Record<string, XmSamplerSourceInputs>;
   xmChiptuneSources?: Record<string, XmChiptuneSourceInputs>;
+  /**
+   * The cloud bucket + path the song lives at (set after a successful
+   * cloud open or cloud save). Persisted alongside the song so a page
+   * refresh keeps "Share this song" enabled — without it, the user
+   * loses share access every time they reload and has to re-save to
+   * regenerate the origin. Omitted from the payload when null.
+   *
+   * Shape inlined (instead of importing `CloudOrigin` from session.ts)
+   * to avoid a runtime import cycle — the structural type is small
+   * enough that duplication doesn't hurt.
+   */
+  cloudOrigin?: { resource: "projects" | "modules"; name: string } | null;
 }
 
 /** A session that has been read back: same shape as SessionInputs, but
@@ -275,6 +294,8 @@ export type LoadedSession = Omit<
   /** Always materialised on load — empty record when none persisted. */
   xmSamplerSources: Record<string, XmSamplerSourceInputs>;
   xmChiptuneSources: Record<string, XmChiptuneSourceInputs>;
+  /** Cloud origin if the persisted payload had one, else `null`. */
+  cloudOrigin: { resource: "projects" | "modules"; name: string } | null;
 };
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -410,6 +431,7 @@ function buildPayload(state: SessionInputs): PersistedShape {
     ...(hasXmChiptune
       ? { xmChiptuneSources: encodeXmChiptuneSources(state.xmChiptuneSources!) }
       : {}),
+    ...(state.cloudOrigin ? { cloudOrigin: state.cloudOrigin } : {}),
   };
 }
 
@@ -515,7 +537,23 @@ function payloadToSession(parsed: unknown): LoadedSession | null {
     ),
     xmSamplerSources: parseXmSamplerSources(parsed.xmSamplerSources),
     xmChiptuneSources: parseXmChiptuneSources(parsed.xmChiptuneSources),
+    cloudOrigin: parseCloudOrigin(parsed.cloudOrigin),
   };
+}
+
+/** Defensive cast for the persisted `cloudOrigin` field — rejects anything
+ *  that isn't the exact `{resource, name}` shape with allowed enum values.
+ *  Treating malformed values as "no origin" keeps a botched payload from
+ *  silently enabling Share against a phantom file. */
+function parseCloudOrigin(
+  v: unknown,
+): { resource: "projects" | "modules"; name: string } | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.name !== "string" || o.name.length === 0) return null;
+  if (o.resource !== "projects" && o.resource !== "modules") return null;
+  return { resource: o.resource, name: o.name };
 }
 
 /**

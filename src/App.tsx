@@ -545,6 +545,11 @@ export const App: Component = () => {
         }
         loadPatternNames(restored.patternNames);
         setChannelMuteState(restored.mutedChannels, restored.soloedChannels);
+        // Restore the cloud origin so "Share this song" stays available
+        // after a page reload — without this, a refresh wipes the in-
+        // memory signal and the menu item silently disables itself even
+        // though the file is still in the user's cloud.
+        setCloudOrigin(restored.cloudOrigin);
         setTransport("ready");
       } else {
         setSong(emptySong());
@@ -583,6 +588,11 @@ export const App: Component = () => {
       // Track the XM workbench map so source-kind toggles flush through
       // autosave without waiting for an unrelated signal to change.
       xmWorkbenches();
+      // Track cloudOrigin so a setCloudOrigin (cloud open / save) fires
+      // an autosave even when no other field changed — without this read
+      // the very first save after a fresh boot would land in localStorage
+      // without the origin, and a reload would still lose Share.
+      const origin = cloudOrigin();
       if (saveTimer !== null) window.clearTimeout(saveTimer);
       const muted = mutedChannels();
       const soloed = soloedChannels();
@@ -603,6 +613,7 @@ export const App: Component = () => {
           soloedChannels: soloed,
           xmChiptuneSources: isXm ? xmChiptuneSourcesSnapshot() : undefined,
           xmSamplerSources: isXm ? xmSamplerSourcesSnapshot() : undefined,
+          cloudOrigin: origin,
         });
       }, 250);
     });
