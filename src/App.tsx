@@ -129,6 +129,7 @@ import {
   xmChiptuneSourcesSnapshot,
   xmSamplerSourcesSnapshot,
   error,
+  exportMp3,
   exportSong,
   exportWav,
   filename,
@@ -150,6 +151,7 @@ import {
   shareLoadError,
 } from "./state/shareLoad";
 import { ShareModal } from "./components/ShareModal";
+import { Mp3ExportModal } from "./components/Mp3ExportModal";
 import {
   backendAvailable,
   getBytes,
@@ -809,6 +811,11 @@ export const App: Component = () => {
       {
         label: "Export .wav…",
         onClick: exportWav,
+        disabled: !song(),
+      },
+      {
+        label: "Export .mp3…",
+        onClick: () => void exportMp3(),
         disabled: !song(),
       },
       { separator: true, label: "" },
@@ -1813,6 +1820,7 @@ export const App: Component = () => {
           onClose={() => setShareModalOpen(false)}
         />
       </Show>
+      <Mp3ExportModal />
     </div>
   );
 };

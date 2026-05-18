@@ -28,6 +28,7 @@
     "fixtures:render": "bash vendor/render-all-fixtures.sh"
   },
   "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
     "hono": "^4.12.18",
     "jose": "^6.2.3",
     "pg": "^8.20.0",

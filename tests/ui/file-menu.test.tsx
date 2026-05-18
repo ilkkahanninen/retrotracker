@@ -132,7 +132,7 @@ describe("FileMenu: dropdown behaviour", () => {
     expect(container.querySelector(".menu__list")).toBeNull();
   });
 
-  it("lists New, Open from computer…, Save to computer…, Export .mod…, Export .wav…, Song info in order", () => {
+  it("lists New, Open from computer…, Save to computer…, Export .mod…, Export .wav…, Export .mp3…, Song info in order", () => {
     const { container } = render(() => <App />);
     fireEvent.click(menuTrigger(container, "File"));
     const labels = Array.from(
@@ -144,6 +144,7 @@ describe("FileMenu: dropdown behaviour", () => {
       "Save to computer…",
       "Export .mod…",
       "Export .wav…",
+      "Export .mp3…",
       "Song info",
     ]);
   });

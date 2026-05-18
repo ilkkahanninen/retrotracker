@@ -581,6 +581,43 @@ body {
   white-space: nowrap;
 }
 
+.mp3-export {
+  width: min(380px, calc(100vw - 32px));
+}
+.mp3-export__body {
+  padding-top: 14px;
+}
+.mp3-export__phase {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.mp3-export__bar {
+  width: 100%;
+  height: 10px;
+  background: var(--panel);
+  border: 1px solid var(--grid-line);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.mp3-export__fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+.mp3-export__fill--indeterminate {
+  width: 35%;
+  animation: mp3-export-indeterminate 1.1s ease-in-out infinite;
+}
+@keyframes mp3-export-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(285%);
+  }
+}
+
 .share-banner {
   display: flex;
   align-items: center;

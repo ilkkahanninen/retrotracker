@@ -19,7 +19,11 @@ import {
   xmWorkbenchFromWav,
 } from "../core/audio/sampleWorkbench";
 import type { ChiptuneParams } from "../core/audio/chiptune";
-import { renderToBuffer } from "../core/audio/offlineRender";
+import {
+  renderToBuffer,
+  renderToBufferAsync,
+} from "../core/audio/offlineRender";
+import { setMp3ExportState } from "./mp3Export";
 import { writeWav } from "../core/audio/wav";
 import { songForPlayback } from "../core/audio/loopTruncate";
 import {
@@ -450,6 +454,47 @@ export function exportWav(): void {
     bytes,
     "audio/wav",
   );
+}
+
+/**
+ * MP3 counterpart of `exportWav`. Same render pipeline, but encodes to MP3
+ * via a dynamically-imported helper so the encoder (~85 KB minified) ships
+ * in a separate Vite chunk that only downloads when the user actually
+ * exports. Async because the encoder yields to the UI thread periodically;
+ * the menu item is fire-and-forget — `void exportMp3()` at the call site.
+ */
+export async function exportMp3(): Promise<void> {
+  const s = song();
+  if (!s) return;
+  const playbackSong =
+    s.format === "PT2"
+      ? songForPlayback(withInfoTextAsSampleNames(s, infoText()))
+      : s;
+  const sampleRate = 44100;
+  setMp3ExportState({ phase: "rendering", frac: NaN });
+  // Yield once so the modal has a chance to mount before render kicks off.
+  await new Promise<void>((r) => setTimeout(r, 0));
+  try {
+    const audio = await renderToBufferAsync(playbackSong, {
+      sampleRate,
+      maxSeconds: 30 * 60,
+      stopOnSongEnd: true,
+      amigaModel: settings().paulaModel,
+      stereoSeparation: settings().stereoSeparation,
+    });
+    setMp3ExportState({ phase: "encoding", frac: 0 });
+    const { encodeMp3 } = await import("~/core/audio/mp3Encode");
+    const bytes = await encodeMp3(audio, {
+      onProgress: (frac) => setMp3ExportState({ phase: "encoding", frac }),
+    });
+    io.download(
+      deriveExportFilename(filename(), s.title, "mp3"),
+      bytes,
+      "audio/mpeg",
+    );
+  } finally {
+    setMp3ExportState(null);
+  }
 }
 
 /**
