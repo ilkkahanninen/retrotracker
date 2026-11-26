@@ -48,6 +48,7 @@ import {
 } from "./xmSampleEdit";
 import { setCurrentXmInstrument, setCurrentXmSampleIndex } from "./xmEdit";
 import { reconcileUiToSong } from "./reconcile";
+import { dismissSharedBanner } from "./shareLoad";
 import { setView, view, type View } from "./view";
 import {
   setInfoText,
@@ -155,6 +156,9 @@ export function applyLoadedSession(loaded: LoadedSession): void {
   // Cloud paths re-set it explicitly after this call; local paths
   // (file picker / drag-drop / share-link recipient) leave it null.
   setCloudOrigin(null);
+  // The "opened from a share link" banner describes the previous song.
+  // (The share loader raises it again AFTER this call for its own load.)
+  dismissSharedBanner();
   // Halt the worklet AND flip transport BEFORE setSong: the live-edit
   // createEffect reads `transport()` and would otherwise dispatch wasted
   // setSampleData / replaceSong messages to the stopped worklet for
@@ -293,7 +297,8 @@ function parseXmKey(k: string): [number | null, number] {
 
 /**
  * Sniffs the file: `.retro` → project, "Extended Module: " magic → XM (FT2),
- * anything else → strict M.K. `.mod`.
+ * anything else → strict M.K. `.mod`. Resolves `true` when the file was
+ * loaded, `false` when it was rejected (the reason is in `error()`).
  *
  * Phase 2: XM files now parse end-to-end into an `XmSong`, but
  * `applyLoadedSession`'s editor-runtime gate still rejects FT2 (the editor
@@ -301,7 +306,7 @@ function parseXmKey(k: string): [number | null, number] {
  * "FT2 mode not yet supported" with a successful parse behind it, not a
  * bare error from the magic sniff.
  */
-export async function loadFile(file: File): Promise<void> {
+export async function loadFile(file: File): Promise<boolean> {
   setError(null);
   try {
     const buf = new Uint8Array(await file.arrayBuffer());
@@ -326,9 +331,18 @@ export async function loadFile(file: File): Promise<void> {
         infoText: infoTextFromSampleNames(mod.samples.map((sm) => sm.name)),
       });
     }
+    return true;
   } catch (e) {
-    setError(e instanceof Error ? e.message : String(e));
-    setTransport("idle");
+    // Parsing happens before `applyLoadedSession`, so a rejected file has
+    // not touched the editor: the open song (and its playback) carries on.
+    // Flipping transport to "idle" here used to desync the UI from a
+    // still-running worklet — only do it when there is no song at all.
+    // Resolves `false` so callers don't treat the failure as a load
+    // (share banner, cloud origin).
+    const msg = e instanceof Error ? e.message : String(e);
+    setError(`Could not open ${file.name}: ${msg}`);
+    if (!song()) setTransport("idle");
+    return false;
   }
 }
 
@@ -605,10 +619,10 @@ export function moduleBytes(): Uint8Array | null {
 export async function loadServerBytes(
   bytes: Uint8Array,
   name: string,
-): Promise<void> {
+): Promise<boolean> {
   const ab = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(ab).set(bytes);
-  await loadFile(new File([ab], name));
+  return loadFile(new File([ab], name));
 }
 
 export function newProject(format: ProjectFormat = "PT2"): void {

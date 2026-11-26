@@ -16,8 +16,8 @@ export interface SharedBanner {
 
 /**
  * Transient banner shown above the editor when a share link was just
- * opened. Cleared by `dismissSharedBanner()` (the close button) and
- * by `applyLoadedSession` indirectly — once the user navigates to a
+ * opened. Cleared by `dismissSharedBanner()` — from the close button,
+ * and from `applyLoadedSession` on every load: once the user opens a
  * different song, the banner is no longer about the loaded content.
  */
 const [sharedBanner, setSharedBanner] = createSignal<SharedBanner | null>(null);
@@ -59,7 +59,15 @@ export async function detectAndLoadShareLink(): Promise<void> {
     // Recipients don't own the source song, so don't set cloudOrigin —
     // the "Share" menu item stays disabled until they save a copy to
     // their own cloud bucket.
-    await loadServerBytes(bytes, filename);
+    const loaded = await loadServerBytes(bytes, filename);
+    // A rejected file leaves the previous song in place — claiming it was
+    // "opened from a share link" would mislabel that song.
+    if (!loaded) {
+      setShareLoadError(
+        `Could not open shared song: ${filename} is not a file RetroTracker can read.`,
+      );
+      return;
+    }
     setSharedBanner({ filename });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

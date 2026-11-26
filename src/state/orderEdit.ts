@@ -13,6 +13,7 @@ import { cursor, requestJumpToTop } from "./cursor";
 import { jumpPlaybackToOrder } from "./playback";
 import { applyCursor } from "./patternEdit";
 import { createOrderEdit } from "./orderEditCore";
+import { withPatternName } from "./patternNames";
 
 const ops = createOrderEdit<ModSong>({
   getSong: pt2Song,
@@ -71,5 +72,27 @@ export function cleanupOrderList(): void {
       if (newIdx !== undefined) newNames[newIdx] = oldNames[oldIdx]!;
     }
     return { ...state, song: result.song, patternNames: newNames };
+  });
+}
+
+/**
+ * Rename a pattern (project-only metadata) as an undoable edit.
+ *
+ * Pattern names ride along in every history snapshot, so undo restores
+ * the names that were live at that commit. A rename that bypassed the
+ * history (a bare signal write) was therefore silently reverted by
+ * undoing ANY earlier edit — and lost for good once a new edit cleared
+ * the redo stack. Committing the rename gives it its own undo entry.
+ */
+export function renamePattern(patternIndex: number, name: string): void {
+  commitEditWithWorkbenches((state) => {
+    const patternNames = withPatternName(
+      state.patternNames,
+      patternIndex,
+      name,
+    );
+    return patternNames === state.patternNames
+      ? state
+      : { ...state, patternNames };
   });
 }

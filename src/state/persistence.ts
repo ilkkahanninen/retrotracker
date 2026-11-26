@@ -454,6 +454,28 @@ function muteSnapshot(xs: readonly boolean[] | undefined): boolean[] {
   return Array.from({ length }, (_, i) => xs?.[i] === true);
 }
 
+/**
+ * Base64 of each sampler source's 16-bit WAV encoding, keyed by the
+ * `WavData` object. Source audio is by far the largest part of a
+ * project, and both the header's size estimate (recomputed on every
+ * song / workbench change) and the autosave re-encoded ALL of it each
+ * time — ~130 ms per keystroke with one 30-second stereo source.
+ *
+ * Keying by reference is sound for the same reason `encodeSongCached`
+ * is: a workbench source's `WavData` is never mutated in place — every
+ * op that changes the audio (load, paste, apply-chain) builds a new one.
+ * WeakMap, so an entry dies with its source.
+ */
+const wavBase64Cache = new WeakMap<WavData, string>();
+
+function encodeWavCached(wav: WavData): string {
+  const hit = wavBase64Cache.get(wav);
+  if (hit !== undefined) return hit;
+  const b64 = bytesToBase64(writeWav(wav, { bitsPerSample: 16 }));
+  wavBase64Cache.set(wav, b64);
+  return b64;
+}
+
 /** Encode each sampler source's WavData as 16-bit PCM bytes → base64,
  *  alongside the chain + PT params. Slot keys are preserved verbatim
  *  (numeric strings) so the JSON map parses back symmetrically. */
@@ -464,7 +486,7 @@ function encodeSamplerSources(
   for (const [k, v] of Object.entries(src)) {
     out[Number(k)] = {
       sourceName: v.sourceName,
-      wavBase64: bytesToBase64(writeWav(v.wav, { bitsPerSample: 16 })),
+      wavBase64: encodeWavCached(v.wav),
       ...(v.chain.length > 0 ? { chain: v.chain } : {}),
       pt: v.pt,
     };
@@ -482,7 +504,7 @@ function encodeXmSamplerSources(
   for (const [k, v] of Object.entries(src)) {
     out[k] = {
       sourceName: v.sourceName,
-      wavBase64: bytesToBase64(writeWav(v.wav, { bitsPerSample: 16 })),
+      wavBase64: encodeWavCached(v.wav),
       ...(v.chain.length > 0 ? { chain: v.chain } : {}),
       xm: v.xm,
     };
@@ -1207,15 +1229,15 @@ export function projectFromBytes(bytes: Uint8Array): LoadedSession | null {
 /**
  * Pick a download filename for a `.retro` project. Same heuristic as
  * `deriveExportFilename` (loaded name → song title → "untitled"), but
- * strips both `.mod` and `.retro` extensions on the way in so a user
- * doesn't end up with `Demo.mod.retro`.
+ * strips the `.mod` / `.xm` / `.retro` extension on the way in so a user
+ * doesn't end up with `Demo.mod.retro` or `Demo.xm.retro`.
  */
 export function deriveProjectFilename(
   loadedName: string | null,
   songTitle: string,
 ): string {
   const base = loadedName
-    ? loadedName.replace(/\.(mod|retro)$/i, "")
+    ? loadedName.replace(/\.(mod|xm|retro)$/i, "")
     : songTitle.trim();
   const sanitised = base.replace(/[^\w.\- ]+/g, "_").replace(/\s+/g, "_");
   const trimmed = sanitised.slice(0, 64);

@@ -73,6 +73,7 @@ import {
   jumpPrevOrder,
   jumpToOrder,
   newBlankPatternAtOrder,
+  renamePattern,
   stepNextPattern,
   stepPrevPattern,
 } from "./state/orderEdit";
@@ -205,11 +206,7 @@ import {
 } from "./core/xm/types";
 import { SAMPLE_NAME_MAX } from "./core/mod/sampleImport";
 import { infoText, setInfoText } from "./state/info";
-import {
-  PATTERN_NAME_MAX,
-  patternNames,
-  setPatternName,
-} from "./state/patternNames";
+import { PATTERN_NAME_MAX, patternNames } from "./state/patternNames";
 import {
   loadSession,
   projectToBytes,
@@ -237,9 +234,11 @@ import {
   canUndo,
   commitEdit,
   commitEditWithWorkbenches,
+  commitEditXm,
   playPos,
   pt2Song,
   redo,
+  setDirty,
   setSong,
   setTransport,
   song,
@@ -300,7 +299,7 @@ export const App: Component = () => {
 
   const commitPatternRename = (patternIdx: number, raw: string) => {
     setEditingOrderIdx(null);
-    setPatternName(patternIdx, raw);
+    renamePattern(patternIdx, raw);
   };
 
   // Cmd+C / Cmd+X / Cmd+V dispatch by active view: pattern view → the
@@ -388,7 +387,12 @@ export const App: Component = () => {
     name: string,
   ): Promise<void> => {
     const bytes = await getBytes(resource, name);
-    await loadServerBytes(bytes, name.split("/").pop()!);
+    const loaded = await loadServerBytes(bytes, name.split("/").pop()!);
+    setServerBrowser(null);
+    // Rejected file: the previous song is still open, so its cloud origin
+    // must stay as it was — otherwise "Share this song…" would share the
+    // file that failed to load. The reason is shown in the error banner.
+    if (!loaded) return;
     // Track cloud origin for share-enabled buckets only. Samples
     // aren't shareable, so don't pretend the loaded song has a
     // shareable origin even if it came from the samples bucket
@@ -398,7 +402,6 @@ export const App: Component = () => {
     } else {
       setCloudOrigin(null);
     }
-    setServerBrowser(null);
   };
 
   /**
@@ -412,6 +415,9 @@ export const App: Component = () => {
     await putBytes("projects", name, bytes);
     // The user now owns a cloud copy — enable the "Share" menu item.
     setCloudOrigin({ resource: "projects", name });
+    // Saved — same as Save to computer, so File → New doesn't ask to
+    // discard changes that were just stored.
+    setDirty(false);
     setServerBrowser(null);
   };
 
@@ -448,6 +454,21 @@ export const App: Component = () => {
   const commitTitleEdit = (raw: string) => {
     setEditingTitle(false);
     const title = raw.slice(0, 20);
+    commitEditWithWorkbenches((state) =>
+      state.song.title === title
+        ? state
+        : { ...state, song: { ...state.song, title } },
+    );
+  };
+
+  /** Info-view title edit, routed to the loaded format's commit path so
+   *  it is undoable for both PT2 and FT2 songs. Both headers hold 20 chars. */
+  const commitSongTitle = (raw: string) => {
+    const title = raw.slice(0, 20);
+    if (xm2Song()) {
+      commitEditXm((s) => (s.title === title ? s : { ...s, title }));
+      return;
+    }
     commitEditWithWorkbenches((state) =>
       state.song.title === title
         ? state
@@ -1058,6 +1079,25 @@ export const App: Component = () => {
           </div>
         )}
       </Show>
+      {/* `error()` used to render only on the empty-state dropzone, so with
+          a song open a failed load (or "no free sample slots", a bad WAV,
+          …) was completely silent. */}
+      <Show when={song() ? error() : null}>
+        {(msg) => (
+          <div class="share-banner share-banner--error" role="alert">
+            <span class="share-banner__text">{msg()}</span>
+            <button
+              type="button"
+              class="share-banner__dismiss"
+              onClick={() => setError(null)}
+              aria-label="Dismiss"
+              title="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        )}
+      </Show>
       <Show when={autosaveOutcome() !== "ok" && !autosaveWarningDismissed()}>
         <div class="share-banner share-banner--error" role="alert">
           <span class="share-banner__text">
@@ -1556,6 +1596,15 @@ export const App: Component = () => {
                   onNudgeEnvelopeSegment={nudgeEnvelopeSegment}
                 />
               </div>
+            </>
+          )}
+        </Show>
+        {/* Info and Settings are format-agnostic, so they live outside the
+            PT2 / FT2 branches above. They used to sit inside the PT2 one,
+            which left both views blank for FT2 songs. */}
+        <Show when={song()}>
+          {(s) => (
+            <>
               <div
                 class="infoview-wrapper"
                 classList={{ "view-hidden": view() !== "info" }}
@@ -1564,13 +1613,7 @@ export const App: Component = () => {
                   song={s()}
                   filename={filename()}
                   infoText={infoText()}
-                  onTitleChange={(title) =>
-                    commitEditWithWorkbenches((state) =>
-                      state.song.title === title
-                        ? state
-                        : { ...state, song: { ...state.song, title } },
-                    )
-                  }
+                  onTitleChange={commitSongTitle}
                   onFilenameChange={(name) => setFilename(name || null)}
                   onInfoTextChange={setInfoText}
                 />
