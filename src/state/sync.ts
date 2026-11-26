@@ -43,6 +43,13 @@ export function installEngineSync(): void {
   });
 
   createEffect(() => {
+    const interpolation = settings().ft2Interpolation;
+    const ramping = settings().ft2Ramping;
+    const eng = currentEngine();
+    eng?.setXmMixer(interpolation, ramping);
+  });
+
+  createEffect(() => {
     const gain = settings().masterGain;
     const eng = currentEngine();
     eng?.setMasterGain(gain);

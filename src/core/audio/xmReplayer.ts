@@ -38,7 +38,7 @@
 import type { Song } from "../song";
 import type { Sample } from "../mod/types";
 import type { XmInstrument, XmNote, XmSample, XmSong } from "../xm/types";
-import type { ReplayerOptions } from "./types";
+import type { ReplayerOptions, XmInterpolation } from "./types";
 import { hzForNote, periodForNote } from "./xmFreqTable";
 
 /** XM uses an 8-byte signed-ish sine table scaled to ±64 for vibrato/tremolo. */
@@ -431,6 +431,77 @@ function clampPeriod(p: number, linear: boolean): number {
   return Math.max(1, Math.min(32767, p));
 }
 
+/** Phases per sample step in the sinc kernel table. */
+const SINC_PHASES = 256;
+const SINC_TAPS = 8;
+
+/**
+ * 8-tap Blackman-windowed sinc kernel, `SINC_PHASES` fractional phases.
+ * Row `p` holds the weights for taps at offsets -3..+4 around the integer
+ * position when the fractional position is `p / SINC_PHASES`. Each row is
+ * normalised to unity DC gain so the interpolator doesn't change level.
+ * Built lazily — songs that stay on linear never pay for it.
+ */
+let sincTable: Float32Array | null = null;
+function getSincTable(): Float32Array {
+  if (sincTable) return sincTable;
+  const t = new Float32Array(SINC_PHASES * SINC_TAPS);
+  const half = SINC_TAPS / 2;
+  for (let p = 0; p < SINC_PHASES; p++) {
+    const frac = p / SINC_PHASES;
+    let sum = 0;
+    for (let k = 0; k < SINC_TAPS; k++) {
+      // Tap k sits at offset (k - 3); distance from the read position:
+      const x = k - (half - 1) - frac;
+      const sinc = x === 0 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x);
+      // Blackman window over the kernel's [-half, half] support.
+      const w = (x + half) / SINC_TAPS;
+      const win =
+        0.42 -
+        0.5 * Math.cos(2 * Math.PI * w) +
+        0.08 * Math.cos(4 * Math.PI * w);
+      const v = sinc * win;
+      t[p * SINC_TAPS + k] = v;
+      sum += v;
+    }
+    for (let k = 0; k < SINC_TAPS; k++) t[p * SINC_TAPS + k]! /= sum;
+  }
+  sincTable = t;
+  return t;
+}
+
+/**
+ * Read the sample at `idx` for a multi-tap interpolator, resolving
+ * indices that fall outside the playable region the same way the voice
+ * itself would travel: forward loops wrap, ping-pong loops mirror, and a
+ * one-shot holds its last value past the end (matching the linear path)
+ * and reads silence before the start.
+ */
+function tapAt(
+  data: Int8Array | Int16Array,
+  idx: number,
+  hasLoop: boolean,
+  pingPong: boolean,
+  loopStart: number,
+  loopEnd: number,
+  reversed: boolean,
+): number {
+  if (hasLoop) {
+    const len = loopEnd - loopStart;
+    if (idx >= loopEnd) {
+      idx = pingPong
+        ? Math.max(loopStart, loopEnd - 1 - (idx - loopEnd))
+        : loopStart + ((idx - loopStart) % len);
+    } else if (reversed && idx < loopStart) {
+      // Only reachable inside a ping-pong loop's return leg.
+      idx = Math.min(loopEnd - 1, loopStart + (loopStart - idx - 1));
+    }
+  } else if (idx >= data.length) {
+    idx = data.length - 1;
+  }
+  return idx < 0 ? 0 : (data[idx] ?? 0);
+}
+
 export class XmReplayer {
   private song: XmSong;
   private readonly sampleRate: number;
@@ -450,6 +521,10 @@ export class XmReplayer {
   private tickFracAccum = 0;
   /** Cached "is linear-mode" flag for the active song's flags. */
   private linearFreq: boolean;
+  /** Mixer resampling mode. `linear` is the reference / default path. */
+  private interpolation: XmInterpolation;
+  /** Anti-click gain ramp on tick boundaries. */
+  private ramping: boolean;
 
   constructor(song: Song, opts: ReplayerOptions) {
     if (song.format !== "FT2") {
@@ -460,6 +535,8 @@ export class XmReplayer {
     this.loop = opts.loop ?? false;
     this.loopPattern = opts.loopPattern ?? false;
     this.linearFreq = song.flags.linearFreq;
+    this.interpolation = opts.xmInterpolation ?? "linear";
+    this.ramping = opts.xmRamping ?? true;
     this.voices = new Array(song.channelCount);
     for (let i = 0; i < song.channelCount; i++) this.voices[i] = newVoice();
     this.channelMuted = new Array(song.channelCount).fill(false);
@@ -562,6 +639,16 @@ export class XmReplayer {
    * boundary so the current pattern finishes either looping or advancing
    * depending on the fresh value.
    */
+  /** Swap the mixer interpolation mode; takes effect on the next chunk. */
+  setXmInterpolation(mode: XmInterpolation): void {
+    this.interpolation = mode;
+  }
+
+  /** Toggle the anti-click gain ramp; takes effect on the next tick. */
+  setXmRamping(on: boolean): void {
+    this.ramping = on;
+  }
+
   setLoopPattern(on: boolean): void {
     this.loopPattern = on;
   }
@@ -749,8 +836,15 @@ export class XmReplayer {
       const [tL, tR] = this.computeVoiceGain(v, c);
       v.targetLGain = tL;
       v.targetRGain = tR;
-      // No-change → no ramp; saves work in mixVoice's hot loop.
-      if (v.currentLGain === tL && v.currentRGain === tR) {
+      // No-change → no ramp; saves work in mixVoice's hot loop. With
+      // ramping switched off, step straight to the new gain.
+      if (!this.ramping) {
+        v.currentLGain = tL;
+        v.currentRGain = tR;
+        v.rampLeft = 0;
+        v.rampDeltaL = 0;
+        v.rampDeltaR = 0;
+      } else if (v.currentLGain === tL && v.currentRGain === tR) {
         v.rampLeft = 0;
         v.rampDeltaL = 0;
         v.rampDeltaR = 0;
@@ -1730,6 +1824,18 @@ export class XmReplayer {
     // arithmetic).
     let pos = v.pos;
     let stepSigned = v.step * v.direction;
+    // Resolved once per chunk; the hot loop branches on small ints.
+    // 1 (linear) is the reference path and stays exactly as it was.
+    const interp =
+      this.interpolation === "none"
+        ? 0
+        : this.interpolation === "cubic"
+          ? 2
+          : this.interpolation === "sinc8"
+            ? 3
+            : 1;
+    const pingPong = loopType === "ping-pong";
+    const sinc = interp === 3 ? getSincTable() : null;
     for (let i = 0; i < frames; i++) {
       if (!v.playing) break;
       const posInt = Math.floor(pos) | 0;
@@ -1768,8 +1874,42 @@ export class XmReplayer {
       const smpDt = s1 - s0;
       // (posFrac >> 1) * smpDt fits in int32: posFrac>>1 is 0..32767,
       // smpDt is -65535..65535, product is < 2^31.
-      const smpInt = s0 + (((posFrac >> 1) * smpDt) >> 15);
-      const sample = smpInt / 32768;
+      let sample: number;
+      if (interp === 1) {
+        const smpInt = s0 + (((posFrac >> 1) * smpDt) >> 15);
+        sample = smpInt / 32768;
+      } else if (interp === 0) {
+        sample = s0 / 32768;
+      } else {
+        const reversed = v.direction === -1;
+        const tap = (k: number): number =>
+          tapAt(
+            data,
+            posInt + k,
+            hasLoop,
+            pingPong,
+            loopStart,
+            loopEnd,
+            reversed,
+          ) << sampleShift;
+        if (interp === 2) {
+          // 4-point Catmull-Rom through p0..p3, evaluated between p1, p2.
+          const t = posFrac / 65536;
+          const p0 = tap(-1);
+          const p3 = tap(2);
+          const a = -0.5 * p0 + 1.5 * s0 - 1.5 * s1 + 0.5 * p3;
+          const b = p0 - 2.5 * s0 + 2 * s1 - 0.5 * p3;
+          const c = -0.5 * p0 + 0.5 * s1;
+          sample = (((a * t + b) * t + c) * t + s0) / 32768;
+        } else {
+          const row = (posFrac >> 8) * SINC_TAPS;
+          let acc = 0;
+          for (let k = 0; k < SINC_TAPS; k++) {
+            acc += tap(k - 3) * sinc![row + k]!;
+          }
+          sample = acc / 32768;
+        }
+      }
       // Choose ramp vs. steady gain. Ramp runs for `rampLeft` samples;
       // once it hits 0 we snap to target to prevent float drift.
       let lGain: number, rGain: number;

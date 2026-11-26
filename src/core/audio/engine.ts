@@ -8,6 +8,7 @@ import type { WorkletEvent, WorkletMessage } from "./worklet";
 import type { PreviewMsg } from "./preview-worklet-types";
 import type { XmPreviewMsg, XmPreviewOutMsg } from "./xm-preview-worklet-types";
 import type { AmigaModel } from "./paula";
+import type { XmInterpolation } from "./types";
 
 /**
  * Browser-side wrapper around AudioContext + AudioWorkletNode.
@@ -238,6 +239,16 @@ export class AudioEngine {
       const previewMsg: PreviewMsg = { type: "setAmigaModel", model };
       this.previewNode.port.postMessage(previewMsg);
     }
+  }
+
+  /**
+   * FT2 mixer settings (interpolation mode + anti-click ramp). Applied to
+   * the running replayer immediately and cached in the worklet for every
+   * replayer it builds afterwards. PT songs ignore them.
+   */
+  setXmMixer(interpolation: XmInterpolation, ramping: boolean): void {
+    const msg: WorkletMessage = { type: "setXmMixer", interpolation, ramping };
+    this.node.port.postMessage(msg);
   }
 
   /** Mirror of `setPaulaModel` for the stereo-separation slider. */

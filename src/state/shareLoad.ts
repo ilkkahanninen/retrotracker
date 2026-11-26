@@ -46,7 +46,16 @@ export function dismissShareLoadError(): void {
  * Errors do NOT throw — they set `shareLoadError` for the UI to
  * surface. A failed share load shouldn't break the entire app boot.
  */
-export async function detectAndLoadShareLink(): Promise<void> {
+export async function detectAndLoadShareLink(
+  /**
+   * Asked once the shared bytes have arrived, right before they replace
+   * the editor's song. Return false to keep the current song. The App
+   * uses this to protect a session restored from autosave (or edited
+   * while the fetch was in flight) — a share link used to overwrite it,
+   * and the autosave slot 250 ms later, without a word.
+   */
+  confirmReplace: (filename: string) => boolean = () => true,
+): Promise<void> {
   if (typeof window === "undefined") return;
   const m = window.location.pathname.match(SHARE_PATH_RE);
   if (!m) return;
@@ -59,6 +68,7 @@ export async function detectAndLoadShareLink(): Promise<void> {
     // Recipients don't own the source song, so don't set cloudOrigin —
     // the "Share" menu item stays disabled until they save a copy to
     // their own cloud bucket.
+    if (!confirmReplace(filename)) return;
     const loaded = await loadServerBytes(bytes, filename);
     // A rejected file leaves the previous song in place — claiming it was
     // "opened from a share link" would mislabel that song.

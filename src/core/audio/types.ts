@@ -3,6 +3,16 @@ import type { AmigaModel } from "./paula";
 
 export type PaulaClock = "PAL" | "NTSC";
 
+/**
+ * FT2 mixer resampling quality. `linear` is the reference path — it is
+ * what the libxmp-based accuracy bed renders with, and the default.
+ *   none    nearest sample (no interpolation; gritty, aliased)
+ *   linear  2-point linear
+ *   cubic   4-point Catmull-Rom
+ *   sinc8   8-tap Blackman-windowed sinc
+ */
+export type XmInterpolation = "none" | "linear" | "cubic" | "sinc8";
+
 export interface ReplayerOptions {
   /** Output sample rate in Hz (e.g. 44100, 48000). */
   sampleRate: number;
@@ -60,6 +70,14 @@ export interface ReplayerOptions {
    * tick boundary. Live worklet only; offline render leaves this alone.
    */
   mutedChannels?: readonly boolean[];
+  /** FT2 only: mixer interpolation. Defaults to `linear`. PT ignores it. */
+  xmInterpolation?: XmInterpolation;
+  /**
+   * FT2 only: anti-click gain ramp on tick boundaries. Defaults to true
+   * (the reference behaviour). When false, voice gain steps straight to
+   * its new value each tick. PT ignores it.
+   */
+  xmRamping?: boolean;
 }
 
 export interface RenderOptions extends ReplayerOptions {

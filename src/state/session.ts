@@ -498,6 +498,8 @@ export function exportWav(): void {
     stopOnSongEnd: true,
     amigaModel: settings().paulaModel,
     stereoSeparation: settings().stereoSeparation,
+    xmInterpolation: settings().ft2Interpolation,
+    xmRamping: settings().ft2Ramping,
   });
   const bytes = writeWav({
     sampleRate: audio.sampleRate,
@@ -535,6 +537,8 @@ export async function exportMp3(): Promise<void> {
       stopOnSongEnd: true,
       amigaModel: settings().paulaModel,
       stereoSeparation: settings().stereoSeparation,
+      xmInterpolation: settings().ft2Interpolation,
+      xmRamping: settings().ft2Ramping,
     });
     setMp3ExportState({ phase: "encoding", frac: 0 });
     const { encodeMp3 } = await import("~/core/audio/mp3Encode");

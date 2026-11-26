@@ -74,6 +74,9 @@ export class RecordingEngine {
   setStereoSeparation(sep: number): void {
     this.rec("setStereoSeparation", [sep]);
   }
+  setXmMixer(interpolation: string, ramping: boolean): void {
+    this.rec("setXmMixer", [interpolation, ramping]);
+  }
   setMasterGain(percent: number): void {
     this.rec("setMasterGain", [percent]);
   }

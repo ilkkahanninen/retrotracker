@@ -170,8 +170,9 @@ import {
   type ServerBrowserMode,
 } from "./components/ServerBrowser";
 import { mutedChannels, soloedChannels } from "./state/channelMute";
-import { clipboardSlice } from "./state/clipboard";
+import { clipboardSlice, xmClipboardSlice } from "./state/clipboard";
 import { sampleClipboard } from "./state/sampleClipboard";
+import { xmSampleClipboard } from "./state/xmSampleClipboard";
 import { cursor, requestJumpToTop } from "./state/cursor";
 import { speedTempoAt } from "./core/mod/flatten";
 import {
@@ -188,6 +189,14 @@ import {
   selectXmInstrument,
 } from "./state/xmEdit";
 import { setXmSampleSelection } from "./state/xmSampleSelection";
+import {
+  deleteXmOrderSlot,
+  duplicateXmCurrentPattern,
+  insertXmOrderSlot,
+  newXmBlankPatternAtOrder,
+  stepXmNextPattern,
+  stepXmPrevPattern,
+} from "./state/xmOrderEdit";
 import { renameXmInstrument } from "./state/xmInstrumentEdit";
 import { xmCursor } from "./state/cursorXm";
 import {
@@ -235,6 +244,7 @@ import {
   commitEdit,
   commitEditWithWorkbenches,
   commitEditXm,
+  dirty,
   playPos,
   pt2Song,
   redo,
@@ -486,7 +496,17 @@ export const App: Component = () => {
     // independently of `probeBackend` because the share GET endpoint
     // is anonymous — we don't have to wait for the auth probe before
     // fetching. URL is stripped immediately so reload doesn't refetch.
-    void detectAndLoadShareLink();
+    // If the editor holds work by the time the bytes arrive — a session
+    // restored from autosave just below, or edits made meanwhile — ask
+    // before replacing it. A fresh visitor with nothing to lose isn't
+    // prompted.
+    let restoredFromAutosave = false;
+    void detectAndLoadShareLink((sharedName) => {
+      if (!restoredFromAutosave && !dirty()) return true;
+      return window.confirm(
+        `Open the shared song "${sharedName}"?\n\nIt replaces the song currently in the editor, including its autosaved copy. Cancel to keep your song; you can open the link again later.`,
+      );
+    });
 
     // After the OIDC callback redirects to "/?auth=ok", refresh the
     // auth signals and strip the query so a page reload doesn't loop.
@@ -509,6 +529,7 @@ export const App: Component = () => {
     if (!song()) {
       const restored = loadSession();
       if (restored) {
+        restoredFromAutosave = true;
         // Same path as every other load, so the restored session gets the
         // same sizing / clamping / reset treatment (mute arrays sized to
         // the song's channel count, XM cursor seeded, selections cleared).
@@ -842,8 +863,10 @@ export const App: Component = () => {
         onClick: pasteClipboardForActiveView,
         disabled:
           view() === "sample"
-            ? !song() || !sampleClipboard()
-            : locked || !song() || !clipboardSlice(),
+            ? !song() || !(xm2Song() ? xmSampleClipboard() : sampleClipboard())
+            : locked ||
+              !song() ||
+              !(xm2Song() ? xmClipboardSlice() : clipboardSlice()),
       },
       { separator: true, label: "" },
       {
@@ -896,45 +919,50 @@ export const App: Component = () => {
     const s = song();
     const playing = transport() === "playing";
     const hasSong = !!s;
-    const activeIdx = playing ? playPos().order : cursor().order;
+    // Every handler has a PT and an FT2 implementation; the menu used to
+    // call the PT ones unconditionally, so for an FT2 song every item was
+    // enabled and did nothing.
+    const xm = s?.format === "FT2";
+    const cursorOrder = xm ? xmCursor().order : cursor().order;
+    const activeIdx = playing ? playPos().order : cursorOrder;
     const slotPat = s ? (s.orders[activeIdx] ?? 0) : 0;
     return [
       {
         label: "Previous pattern",
         hint: "⇧[",
-        onClick: stepPrevPattern,
+        onClick: xm ? stepXmPrevPattern : stepPrevPattern,
         disabled: !hasSong || slotPat <= 0,
       },
       {
         label: "Next pattern",
         hint: "⇧]",
-        onClick: stepNextPattern,
+        onClick: xm ? stepXmNextPattern : stepNextPattern,
         disabled: !hasSong,
       },
       { separator: true, label: "" },
       {
         label: "Insert slot",
         hint: "⌘]",
-        onClick: insertOrderSlot,
+        onClick: xm ? insertXmOrderSlot : insertOrderSlot,
         disabled: !hasSong || (s ? s.songLength >= s.orders.length : true),
       },
       {
         label: "Delete slot",
         hint: "⌘[",
-        onClick: deleteOrderSlot,
+        onClick: xm ? deleteXmOrderSlot : deleteOrderSlot,
         disabled: !hasSong || (s ? s.songLength <= 1 : true),
       },
       { separator: true, label: "" },
       {
         label: "New blank pattern",
         hint: "⌥[",
-        onClick: newBlankPatternAtOrder,
+        onClick: xm ? newXmBlankPatternAtOrder : newBlankPatternAtOrder,
         disabled: !hasSong,
       },
       {
         label: "Duplicate pattern",
         hint: "⌥]",
-        onClick: duplicateCurrentPattern,
+        onClick: xm ? duplicateXmCurrentPattern : duplicateCurrentPattern,
         disabled: !hasSong,
       },
       { separator: true, label: "" },
@@ -942,10 +970,11 @@ export const App: Component = () => {
         // Renumbers patterns by appearance and discards unused. Gated on
         // playing because the worklet's snapshot still references the
         // pre-cleanup pattern indices — same reason the toolbar button
-        // disables.
+        // disables. PT-only: there is no FT2 clean-up yet, so the item is
+        // disabled rather than silently inert.
         label: "Clean up",
         onClick: cleanupOrderList,
-        disabled: !hasSong || playing,
+        disabled: !hasSong || playing || xm,
       },
     ];
   };
@@ -980,7 +1009,14 @@ export const App: Component = () => {
    *  populated slot to be meaningful. */
   const currentSampleHasData = createMemo(() => {
     const s = song();
-    if (!s || s.format !== "PT2") return false;
+    if (!s) return false;
+    if (s.format === "FT2") {
+      const sample =
+        s.instruments[currentXmInstrument() - 1]?.samples[
+          currentXmSampleIndex()
+        ];
+      return (sample?.data.length ?? 0) > 0;
+    }
     return (s.samples[currentSample() - 1]?.data.byteLength ?? 0) > 0;
   });
 

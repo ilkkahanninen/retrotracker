@@ -69,8 +69,16 @@ export const ServerBrowser: Component<Props> = (props) => {
   );
 
   let dialog: HTMLDivElement | undefined;
+  // While a request is in flight the dialog can't be dismissed and rows
+  // can't be picked. The pending open / save completes regardless of the
+  // dialog, so closing it used to let the user go back to editing and
+  // then have the song replaced under them when the fetch landed; a
+  // double-click fired the load three times (click, click, dblclick).
+  const close = () => {
+    if (!busy()) props.onClose();
+  };
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === "Escape") props.onClose();
+    if (e.key === "Escape") close();
   };
   onMount(() => {
     window.addEventListener("keydown", onKey);
@@ -102,6 +110,7 @@ export const ServerBrowser: Component<Props> = (props) => {
   };
 
   const pickRow = async (entry: BrowserEntry) => {
+    if (busy()) return;
     if (props.mode === "open") {
       setBusy(true);
       setOpError(null);
@@ -139,11 +148,7 @@ export const ServerBrowser: Component<Props> = (props) => {
   };
 
   return (
-    <div
-      class="modal-backdrop"
-      role="presentation"
-      onClick={() => props.onClose()}
-    >
+    <div class="modal-backdrop" role="presentation" onClick={close}>
       <div
         class="modal server-browser"
         role="dialog"
@@ -158,7 +163,8 @@ export const ServerBrowser: Component<Props> = (props) => {
           <button
             type="button"
             class="modal__close"
-            onClick={() => props.onClose()}
+            disabled={busy()}
+            onClick={close}
             aria-label="Close"
             title="Close (Esc)"
           >
@@ -186,7 +192,6 @@ export const ServerBrowser: Component<Props> = (props) => {
                   role="option"
                   aria-selected={name() === entry.name}
                   onClick={() => void pickRow(entry)}
-                  onDblClick={() => void pickRow(entry)}
                 >
                   <span class="server-browser__name">{entry.name}</span>
                   <span class="server-browser__meta">
