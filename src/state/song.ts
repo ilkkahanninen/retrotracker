@@ -177,8 +177,10 @@ export function endDragEdit(): void {
   dragSnapshot = null;
   if (!snap) return;
   const cur = song();
-  // A load / format switch mid-drag clears history; never push a snapshot
-  // of a different project onto the new one's stack.
+  // A load mid-drag never gets this far: every load goes through
+  // `applyLoadedSession` → `clearHistory`, which drops `dragSnapshot`, so
+  // `snap` is null above. The format check is a backstop for the one
+  // mismatch that would corrupt the stack outright.
   if (!cur || cur.format !== snap.song.format) return;
   if (
     snap.song === cur &&
@@ -453,6 +455,61 @@ export function redo(): void {
   if (next.patternNames !== currentNames) loadPatternNames(next.patternNames);
   setDirty(true);
   reconcileUiToSong();
+}
+
+/**
+ * Attach workbenches that belong to the loaded project but arrived late
+ * (a restored session's source audio is read asynchronously) — to the
+ * live maps AND to every snapshot already in the undo / redo stacks.
+ *
+ * The history half is what matters: an edit made before the workbenches
+ * arrived pushed a snapshot without them, and undoing to it would drop
+ * them again — after which the next autosave no longer references their
+ * audio and sweeps it from the source store.
+ *
+ * `amendPt` / `amendXm` must be pure and return the map they were given
+ * when there is nothing to add. Snapshots sharing one map keep sharing
+ * one (undo / redo compare maps by identity). Not an edit: no history
+ * entry, no dirty flag.
+ */
+export function attachLateWorkbenches(
+  amendPt: (map: WorkbenchMap) => WorkbenchMap,
+  amendXm: (map: XmWorkbenchMap) => XmWorkbenchMap,
+): void {
+  const ptCache = new Map<WorkbenchMap, WorkbenchMap>();
+  const xmCache = new Map<XmWorkbenchMap, XmWorkbenchMap>();
+  const pt = (map: WorkbenchMap): WorkbenchMap => {
+    let out = ptCache.get(map);
+    if (!out) ptCache.set(map, (out = amendPt(map)));
+    return out;
+  };
+  const xm = (map: XmWorkbenchMap): XmWorkbenchMap => {
+    let out = xmCache.get(map);
+    if (!out) xmCache.set(map, (out = amendXm(map)));
+    return out;
+  };
+  const amend = (entry: EditState): EditState => {
+    const workbenches = pt(entry.workbenches);
+    const xmWorkbenches = xm(entry.xmWorkbenches);
+    return workbenches === entry.workbenches &&
+      xmWorkbenches === entry.xmWorkbenches
+      ? entry
+      : { ...entry, workbenches, xmWorkbenches };
+  };
+  const amendStack = (stack: EditState[]): EditState[] => {
+    const next = stack.map(amend);
+    return next.some((e, i) => e !== stack[i]) ? next : stack;
+  };
+
+  const livePt = workbenchesSig();
+  const liveXm = xmWorkbenchesSig();
+  const nextPt = pt(livePt);
+  const nextXm = xm(liveXm);
+  if (nextPt !== livePt) setWorkbenchesRaw(nextPt);
+  if (nextXm !== liveXm) setXmWorkbenchesRaw(nextXm);
+  setPast(amendStack(past()));
+  setFuture(amendStack(future()));
+  if (dragSnapshot) dragSnapshot = amend(dragSnapshot);
 }
 
 /** Drop both stacks. Call after loading a new file. */

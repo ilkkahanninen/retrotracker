@@ -17,6 +17,8 @@ import {
   workbenchFromWavData,
   xmWorkbenchFromChiptune,
   xmWorkbenchFromWav,
+  type SampleWorkbench,
+  type XmSampleWorkbench,
 } from "../core/audio/sampleWorkbench";
 import type { ChiptuneParams } from "../core/audio/chiptune";
 import {
@@ -35,6 +37,7 @@ import {
   setDirty,
   dirty,
   clearHistory,
+  attachLateWorkbenches,
 } from "./song";
 import { cursor, setCursor, resetCursor, type Cursor } from "./cursor";
 import { resetXmCursor, setXmCursor, xmCursor } from "./cursorXm";
@@ -83,12 +86,14 @@ import {
   workbenches,
   setWorkbench,
   clearAllWorkbenches,
+  withWorkbench,
 } from "./sampleWorkbench";
 import {
   clearAllXmWorkbenches,
   setXmWorkbench,
   xmWorkbenches,
   xmWorkbenchKey,
+  withXmWorkbench,
 } from "./xmSampleWorkbench";
 import { clearAllStashedLoops } from "./loopStash";
 import { clearAllImportedStashes } from "./importedStash";
@@ -178,7 +183,10 @@ export { hydratingSources };
  * when this resolves.
  *
  * A slot that already has a workbench by then (the user acted first) is
- * left alone. Nothing here touches the undo history or the dirty flag.
+ * left alone. This is not an edit — no undo entry, no dirty flag — but
+ * the workbenches are also added to the snapshots already in the undo
+ * history (`attachLateWorkbenches`), so undoing an edit made while the
+ * audio was still loading doesn't drop them again.
  */
 export async function hydrateRestoredSources(
   pending: readonly PendingSource[],
@@ -194,28 +202,54 @@ export async function hydrateRestoredSources(
     );
     if (epoch !== loadEpoch) return;
     const s = song();
+    // Built once, so the live maps and every history snapshot share the
+    // same workbench objects.
+    const restoredPt: Array<[number, SampleWorkbench]> = [];
+    const restoredXm: Array<[number, number, XmSampleWorkbench]> = [];
     if (s?.format === "PT2") {
       for (const [slotStr, src] of Object.entries(samplerSources)) {
-        const slot = parseInt(slotStr, 10);
-        if (workbenches().has(slot)) continue;
-        setWorkbench(slot, {
-          ...workbenchFromWavData(src.wav, src.sourceName),
-          chain: src.chain,
-          pt: src.pt,
-        });
+        restoredPt.push([
+          parseInt(slotStr, 10),
+          {
+            ...workbenchFromWavData(src.wav, src.sourceName),
+            chain: src.chain,
+            pt: src.pt,
+          },
+        ]);
       }
     } else if (s?.format === "FT2") {
       for (const [key, src] of Object.entries(xmSamplerSources)) {
         const [inst, idx] = parseXmKey(key);
         if (inst === null) continue;
-        if (xmWorkbenches().has(xmWorkbenchKey(inst, idx))) continue;
-        setXmWorkbench(inst, idx, {
-          ...xmWorkbenchFromWav(src.wav, src.sourceName),
-          chain: src.chain,
-          xm: src.xm,
-        });
+        restoredXm.push([
+          inst,
+          idx,
+          {
+            ...xmWorkbenchFromWav(src.wav, src.sourceName),
+            chain: src.chain,
+            xm: src.xm,
+          },
+        ]);
       }
     }
+    attachLateWorkbenches(
+      (map) => {
+        let out = map;
+        for (const [slot, wb] of restoredPt) {
+          if (!out.has(slot)) out = withWorkbench(out, slot, wb);
+        }
+        return out;
+      },
+      (map) => {
+        let out = map;
+        for (const [inst, idx, wb] of restoredXm) {
+          if (!out.has(xmWorkbenchKey(inst, idx))) {
+            out = withXmWorkbench(out, inst, idx, wb);
+          }
+        }
+        return out;
+      },
+    );
   } catch {
     // The store failed mid-read. The slots keep playing from the song
     // bytes; they just come back without their workbenches.

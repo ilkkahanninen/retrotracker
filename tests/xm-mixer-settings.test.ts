@@ -87,6 +87,66 @@ const MODES: XmInterpolation[] = ["none", "linear", "cubic", "sinc8"];
 /** Skip the anti-click ramp-in at the start of the note. */
 const SETTLED = 1024;
 
+/**
+ * `attack` frames of pre-loop data followed by one sine cycle of `period`
+ * frames that loops. `attackLevel` fills the attack with a constant.
+ */
+function attackThenLoopSong(
+  attackLevel: number,
+  loopType: "forward" | "ping-pong",
+  attack = 16,
+  period = 32,
+): XmSong {
+  const data = new Int8Array(attack + period);
+  data.fill(attackLevel, 0, attack);
+  for (let i = 0; i < period; i++) {
+    data[attack + i] = Math.round(Math.sin((2 * Math.PI * i) / period) * 100);
+  }
+  const base = sineSong(period, loopType);
+  const inst = base.instruments[0]!;
+  return setXmInstrument(base, 0, {
+    ...inst,
+    samples: [
+      { ...inst.samples[0]!, data, loopStart: attack, loopLength: period },
+    ],
+  });
+}
+
+describe("XM mixer interpolation at the loop seam", () => {
+  // Regression: at the loop start the multi-tap kernels read the samples
+  // "behind" it from the pre-loop attack on every pass, not from the loop
+  // itself — a periodic click the linear path doesn't have. Once the
+  // voice is looping, what the attack contains must not matter.
+  const FRAMES = 8192;
+  // The attack + first loop pass is 48 source frames; at this note's
+  // step that is well under 2048 output frames.
+  const LOOPING = 2048;
+
+  for (const loopType of ["forward", "ping-pong"] as const) {
+    for (const mode of ["cubic", "sinc8"] as const) {
+      it(`${mode}, ${loopType} loop: the attack doesn't leak into later passes`, () => {
+        const quiet = render(
+          attackThenLoopSong(0, loopType),
+          { xmInterpolation: mode },
+          FRAMES,
+        );
+        const loud = render(
+          attackThenLoopSong(120, loopType),
+          { xmInterpolation: mode },
+          FRAMES,
+        );
+        expect(rms(quiet, LOOPING)).toBeGreaterThan(0.01);
+        // The attack itself is audible up front…
+        expect(
+          diffRms(quiet.subarray(0, 256), loud.subarray(0, 256)),
+        ).toBeGreaterThan(1e-3);
+        // …and gone once the voice is in the loop.
+        expect(diffRms(quiet, loud, LOOPING)).toBe(0);
+      });
+    }
+  }
+});
+
 describe("XM mixer interpolation", () => {
   it("defaults to linear — omitting the option changes nothing", () => {
     const song = sineSong(32);

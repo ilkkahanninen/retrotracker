@@ -1,10 +1,20 @@
 import { parseModule } from "../core/mod/parser";
 import { writeModule } from "../core/mod/writer";
-import type { ModSong } from "../core/mod/types";
+import {
+  CHANNELS,
+  MAX_ORDERS,
+  ROWS_PER_PATTERN,
+  type ModSong,
+} from "../core/mod/types";
 import type { Song } from "../core/song";
 import { parseXm } from "../core/xm/parser";
 import { writeXm } from "../core/xm/writer";
-import type { XmSong } from "../core/xm/types";
+import {
+  XM_MAX_CHANNELS,
+  XM_MAX_ORDERS,
+  XM_MAX_PATTERN_ROWS,
+  type XmSong,
+} from "../core/xm/types";
 import { FIELDS, type Cursor, type Field } from "./cursor";
 import type { View } from "./view";
 import type { ChiptuneParams } from "../core/audio/chiptune";
@@ -489,13 +499,6 @@ function buildPayload(
   };
 }
 
-/** Hard ceiling on persisted channel flags / cursor channel — FT2's
- *  channel cap. Local constant rather than an XM import so the PT-era
- *  validators below stay format-agnostic. */
-const MAX_PERSISTED_CHANNELS = 32;
-/** FT2's per-pattern row cap; PT patterns are always 64 rows. */
-const MAX_PERSISTED_ROWS = 256;
-
 /** Coerce a possibly-undefined mute/solo array to a clean boolean array.
  *  At least 4 entries (the PT shape older readers expect), and as many
  *  as the input carries up to the FT2 channel cap — a fixed 4 used to
@@ -504,7 +507,7 @@ const MAX_PERSISTED_ROWS = 256;
  *  on read for symmetry. */
 function muteSnapshot(xs: readonly boolean[] | undefined): boolean[] {
   const n = Array.isArray(xs) ? xs.length : 0;
-  const length = Math.max(4, Math.min(MAX_PERSISTED_CHANNELS, n));
+  const length = Math.max(CHANNELS, Math.min(XM_MAX_CHANNELS, n));
   return Array.from({ length }, (_, i) => xs?.[i] === true);
 }
 
@@ -1443,6 +1446,12 @@ let saveQueued: SessionInputs | null = null;
  * payload, sweep garbage" steps — the earlier sweep deleting audio the
  * later payload references. While one is in flight only the most recent
  * request is kept; older ones are superseded.
+ *
+ * A save (or its `onOutcome`) that throws must not strand the queued
+ * request: left behind, it would be written AFTER the next, newer call's
+ * state and roll the stored session back. So the queue is always drained
+ * — the queued request is newer than the one that threw — and the first
+ * error is rethrown once it is empty.
  */
 export async function queueSessionSave(
   state: SessionInputs,
@@ -1453,16 +1462,23 @@ export async function queueSessionSave(
     return;
   }
   saveRunning = true;
-  try {
-    let next: SessionInputs | null = state;
-    while (next) {
+  let failed = false;
+  let firstError: unknown;
+  let next: SessionInputs | null = state;
+  while (next) {
+    try {
       onOutcome(await saveSessionAuto(next));
-      next = saveQueued;
-      saveQueued = null;
+    } catch (err) {
+      if (!failed) {
+        failed = true;
+        firstError = err;
+      }
     }
-  } finally {
-    saveRunning = false;
+    next = saveQueued;
+    saveQueued = null;
   }
+  saveRunning = false;
+  if (failed) throw firstError;
 }
 
 /** Restore a previously saved session, or null if none / corrupt. */
@@ -1585,9 +1601,9 @@ function sanitiseCursor(c: Cursor, format: "PT2" | "FT2"): Cursor {
     : "note";
   const ft2 = format === "FT2";
   return {
-    order: clamp(c.order, 0, ft2 ? 255 : 127, 0),
-    row: clamp(c.row, 0, ft2 ? MAX_PERSISTED_ROWS - 1 : 63, 0),
-    channel: clamp(c.channel, 0, ft2 ? MAX_PERSISTED_CHANNELS - 1 : 3, 0),
+    order: clamp(c.order, 0, (ft2 ? XM_MAX_ORDERS : MAX_ORDERS) - 1, 0),
+    row: clamp(c.row, 0, (ft2 ? XM_MAX_PATTERN_ROWS : ROWS_PER_PATTERN) - 1, 0),
+    channel: clamp(c.channel, 0, (ft2 ? XM_MAX_CHANNELS : CHANNELS) - 1, 0),
     field,
   };
 }

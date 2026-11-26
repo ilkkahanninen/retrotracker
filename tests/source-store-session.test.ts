@@ -422,4 +422,39 @@ describe("queueSessionSave", () => {
     expect(outcomes).toEqual(["ok", "ok"]); // "two" was superseded
     expect(loadSession()!.song.title).toBe("three");
   });
+
+  it("a throwing outcome handler doesn't strand the queued save", async () => {
+    // Regression: the error left the queued state behind, and the NEXT
+    // call saved its own (newer) state and then the stale one on top.
+    const store = createMemorySourceStore();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const keys = store.keys.bind(store);
+    let first = true;
+    store.keys = async () => {
+      if (first) {
+        first = false;
+        await gate;
+      }
+      return keys();
+    };
+    setSourceStore(store);
+
+    const titled = (title: string) =>
+      inputs({ song: { ...emptySong(), title } });
+    let calls = 0;
+    const p1 = queueSessionSave(titled("one"), () => {
+      calls++;
+      throw new Error("handler blew up");
+    });
+    void queueSessionSave(titled("two"), () => {});
+    release();
+    await expect(p1).rejects.toThrow("handler blew up");
+    // The queued save still ran — it is newer than the one that threw.
+    expect(calls).toBe(2);
+    expect(loadSession()!.song.title).toBe("two");
+
+    await queueSessionSave(titled("three"), () => {});
+    expect(loadSession()!.song.title).toBe("three");
+  });
 });

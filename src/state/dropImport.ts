@@ -10,7 +10,13 @@ import {
   setXmInstrument as setXmInstrumentMutation,
   setXmInstrumentSample as setXmInstrumentSampleMutation,
 } from "../core/xm/mutations";
-import { commitEditWithWorkbenches, pt2Song as song, xm2Song } from "./song";
+import {
+  commitEditWithWorkbenches,
+  pt2Song as song,
+  transport,
+  xm2Song,
+} from "./song";
+import { settings } from "./settings";
 import { currentSample, selectSample } from "./edit";
 import { view } from "./view";
 import { withWorkbench } from "./sampleWorkbench";
@@ -303,15 +309,29 @@ function buildXmInstrumentFromSamples(samples: XmSample[]): XmInstrument {
  * keyed on that slot. An "empty" slot can still own workbenches (a lazily
  * created empty-source one, or a chiptune whose render was cleared); left
  * in place they would re-render over the freshly imported samples.
+ *
+ * Returns whether the instrument was written — `commitXmSlotShape` is a
+ * no-op while playing with Follow on, and callers must not move the UI
+ * as if the import had happened.
  */
-function replaceXmInstrument(slot1Based: number, next: XmInstrument): void {
-  commitXmSlotShape((state) => ({
+function replaceXmInstrument(slot1Based: number, next: XmInstrument): boolean {
+  return commitXmSlotShape((state) => ({
     song: setXmInstrumentMutation(state.song, slot1Based - 1, next),
     xmWorkbenches: withoutXmInstrumentWorkbenches(
       state.xmWorkbenches,
       slot1Based,
     ),
   }));
+}
+
+/** Tell the user why a dropped WAV went nowhere. The usual cause is the
+ *  structural-edit gate (playing with Follow on). */
+function reportXmImportRejected(): void {
+  setError(
+    transport() === "playing" && settings().followPlayback
+      ? "Can't import samples while playing with Follow on — stop playback or turn Follow off, then drop again."
+      : "Couldn't import the dropped samples.",
+  );
 }
 
 /**
@@ -342,7 +362,10 @@ export async function dropWavsToXmInstrumentView(files: File[]): Promise<void> {
 
   if (!isPopulated) {
     const next = buildXmInstrumentFromSamples(samples);
-    replaceXmInstrument(slot1Based, next);
+    if (!replaceXmInstrument(slot1Based, next)) {
+      reportXmImportRejected();
+      return;
+    }
     selectXmInstrument(slot1Based);
     setCurrentXmSampleIndex(0);
     return;
@@ -351,19 +374,28 @@ export async function dropWavsToXmInstrumentView(files: File[]): Promise<void> {
   // Populated slot — append to existing samples. Capped at 16.
   const SAMPLE_CAP = 16;
   let appended = 0;
+  let rejected = false;
   let nextIdx = existing.samples.length;
   for (const sample of samples) {
     if (nextIdx >= SAMPLE_CAP) break;
     const idx = nextIdx;
-    commitXmSlotShape((state) => ({
+    const committed = commitXmSlotShape((state) => ({
       song: setXmInstrumentSampleMutation(state.song, slot1Based, sample, idx),
       xmWorkbenches: withoutXmWorkbench(state.xmWorkbenches, slot1Based, idx),
     }));
+    if (!committed) {
+      // Gated or rejected: the later files would hit the same wall, and
+      // counting them as appended would point the UI at missing samples.
+      rejected = true;
+      break;
+    }
     nextIdx++;
     appended++;
   }
   const skipped = samples.length - appended;
-  if (skipped > 0) {
+  if (rejected) {
+    reportXmImportRejected();
+  } else if (skipped > 0) {
     setError(
       `Sample cap reached (${SAMPLE_CAP}) — skipped ${skipped} file${
         skipped === 1 ? "" : "s"
@@ -396,7 +428,10 @@ export async function dropWavsToXmPatternView(files: File[]): Promise<void> {
     return;
   }
   const next = buildXmInstrumentFromSamples(samples);
-  replaceXmInstrument(slot1Based, next);
+  if (!replaceXmInstrument(slot1Based, next)) {
+    reportXmImportRejected();
+    return;
+  }
   selectXmInstrument(slot1Based);
   setCurrentXmSampleIndex(0);
 }

@@ -126,6 +126,14 @@ interface XmVoice {
   stepFixed: number;
   /** Ping-pong direction: +1 forward, -1 backward. */
   direction: 1 | -1;
+  /**
+   * True once the voice has wrapped (forward loop) or reflected
+   * (ping-pong) at least once since it was triggered. The multi-tap
+   * interpolators use it at the loop start: before the first wrap the
+   * samples "behind" `loopStart` are the attack, afterwards they are the
+   * loop's own tail.
+   */
+  looped: boolean;
   /** Voice volume 0..64 (XM-native). Updated by Cxy, Axy, vol-col 1..5/6/7/8/9, EAy/EBy. */
   volume: number;
   /** Panning 0..255 (0 = left, 128 = center, 255 = right). */
@@ -276,6 +284,7 @@ function newVoice(): XmVoice {
     step: 0,
     stepFixed: 0,
     direction: 1,
+    looped: false,
     volume: 0,
     panning: 128,
     effectiveVolume: -1,
@@ -476,6 +485,12 @@ function getSincTable(): Float32Array {
  * itself would travel: forward loops wrap, ping-pong loops mirror, and a
  * one-shot holds its last value past the end (matching the linear path)
  * and reads silence before the start.
+ *
+ * `looped` says whether the voice has been round the loop yet. Until it
+ * has, indices before `loopStart` are the attack it really played; after
+ * that they resolve into the loop (its tail for a forward loop, the
+ * mirror image for ping-pong) so the kernel doesn't pull attack samples
+ * into every pass over the loop seam.
  */
 function tapAt(
   data: Int8Array | Int16Array,
@@ -484,7 +499,7 @@ function tapAt(
   pingPong: boolean,
   loopStart: number,
   loopEnd: number,
-  reversed: boolean,
+  looped: boolean,
 ): number {
   if (hasLoop) {
     const len = loopEnd - loopStart;
@@ -492,9 +507,10 @@ function tapAt(
       idx = pingPong
         ? Math.max(loopStart, loopEnd - 1 - (idx - loopEnd))
         : loopStart + ((idx - loopStart) % len);
-    } else if (reversed && idx < loopStart) {
-      // Only reachable inside a ping-pong loop's return leg.
-      idx = Math.min(loopEnd - 1, loopStart + (loopStart - idx - 1));
+    } else if (looped && idx < loopStart) {
+      idx = pingPong
+        ? Math.min(loopEnd - 1, loopStart + (loopStart - idx - 1))
+        : loopEnd - 1 - ((loopStart - idx - 1) % len);
     }
   } else if (idx >= data.length) {
     idx = data.length - 1;
@@ -634,11 +650,6 @@ export class XmReplayer {
     this.channelMuted[channel] = muted;
   }
 
-  /**
-   * Flip the pattern-loop flag mid-playback. Picked up at the next pattern
-   * boundary so the current pattern finishes either looping or advancing
-   * depending on the fresh value.
-   */
   /** Swap the mixer interpolation mode; takes effect on the next chunk. */
   setXmInterpolation(mode: XmInterpolation): void {
     this.interpolation = mode;
@@ -649,6 +660,11 @@ export class XmReplayer {
     this.ramping = on;
   }
 
+  /**
+   * Flip the pattern-loop flag mid-playback. Picked up at the next pattern
+   * boundary so the current pattern finishes either looping or advancing
+   * depending on the fresh value.
+   */
   setLoopPattern(on: boolean): void {
     this.loopPattern = on;
   }
@@ -1137,6 +1153,7 @@ export class XmReplayer {
     v.sample = samp;
     v.pos = 0;
     v.direction = 1;
+    v.looped = false;
     v.playing = true;
     v.note = note;
     v.effectiveNote = effectiveNote;
@@ -1506,7 +1523,10 @@ export class XmReplayer {
         if (((cell.effectParam >>> 4) & 0xf) === 0x9 && y !== 0) {
           if (this.state.tickInRow % y === 0 && this.state.tickInRow > 0) {
             // Retrigger: rewind sample position, keep volume.
-            if (v.sample) v.pos = 0;
+            if (v.sample) {
+              v.pos = 0;
+              v.looped = false;
+            }
           }
         }
         break;
@@ -1537,7 +1557,10 @@ export class XmReplayer {
           v.retrigInterval > 0 &&
           this.state.tickInRow % v.retrigInterval === 0
         ) {
-          if (v.sample) v.pos = 0;
+          if (v.sample) {
+            v.pos = 0;
+            v.looped = false;
+          }
           this.applyRetrigVolChange(v);
         }
         break;
@@ -1755,8 +1778,10 @@ export class XmReplayer {
       if (v.direction === 1 && pos >= endPos) {
         if (hasLoop && loopType === "forward") {
           pos = loopStart + ((pos - loopStart) % samp.loopLength);
+          v.looped = true;
         } else if (hasLoop && loopType === "ping-pong") {
           v.direction = -1;
+          v.looped = true;
           // libxmp's bidir reflection (mixer.c loop_reposition with
           // bidir_adjust = 0 for FT2): pos = 2 * loopEnd - pos.
           pos = 2 * loopEnd - pos;
@@ -1881,22 +1906,32 @@ export class XmReplayer {
       } else if (interp === 0) {
         sample = s0 / 32768;
       } else {
-        const reversed = v.direction === -1;
-        const tap = (k: number): number =>
-          tapAt(
-            data,
-            posInt + k,
-            hasLoop,
-            pingPong,
-            loopStart,
-            loopEnd,
-            reversed,
-          ) << sampleShift;
+        // `tapAt` is called directly: a per-frame closure here would
+        // allocate on the audio thread for every frame of every voice.
+        const looped = v.looped;
         if (interp === 2) {
           // 4-point Catmull-Rom through p0..p3, evaluated between p1, p2.
           const t = posFrac / 65536;
-          const p0 = tap(-1);
-          const p3 = tap(2);
+          const p0 =
+            tapAt(
+              data,
+              posInt - 1,
+              hasLoop,
+              pingPong,
+              loopStart,
+              loopEnd,
+              looped,
+            ) << sampleShift;
+          const p3 =
+            tapAt(
+              data,
+              posInt + 2,
+              hasLoop,
+              pingPong,
+              loopStart,
+              loopEnd,
+              looped,
+            ) << sampleShift;
           const a = -0.5 * p0 + 1.5 * s0 - 1.5 * s1 + 0.5 * p3;
           const b = p0 - 2.5 * s0 + 2 * s1 - 0.5 * p3;
           const c = -0.5 * p0 + 0.5 * s1;
@@ -1905,7 +1940,18 @@ export class XmReplayer {
           const row = (posFrac >> 8) * SINC_TAPS;
           let acc = 0;
           for (let k = 0; k < SINC_TAPS; k++) {
-            acc += tap(k - 3) * sinc![row + k]!;
+            acc +=
+              (tapAt(
+                data,
+                posInt + k - 3,
+                hasLoop,
+                pingPong,
+                loopStart,
+                loopEnd,
+                looped,
+              ) <<
+                sampleShift) *
+              sinc![row + k]!;
           }
           sample = acc / 32768;
         }
@@ -1943,8 +1989,10 @@ export class XmReplayer {
       if (v.direction === 1 && pos >= endPos) {
         if (hasLoop && loopType === "forward") {
           pos = loopStart + ((pos - loopStart) % samp.loopLength);
+          v.looped = true;
         } else if (hasLoop && loopType === "ping-pong") {
           v.direction = -1;
+          v.looped = true;
           // libxmp's bidir reflection (mixer.c loop_reposition with
           // bidir_adjust = 0 for FT2): pos = 2 * loopEnd - pos.
           pos = 2 * loopEnd - pos;

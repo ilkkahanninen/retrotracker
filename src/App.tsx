@@ -246,7 +246,7 @@ import {
   canUndo,
   commitEdit,
   commitEditWithWorkbenches,
-  commitEditXm,
+  commitEditXmWithWorkbenches,
   dirty,
   playPos,
   pt2Song,
@@ -479,7 +479,13 @@ export const App: Component = () => {
   const commitSongTitle = (raw: string) => {
     const title = raw.slice(0, 20);
     if (xm2Song()) {
-      commitEditXm((s) => (s.title === title ? s : { ...s, title }));
+      // Ungated, like the PT path below: the title stays editable while
+      // playing with Follow on. `commitEditXm` would drop the edit there.
+      commitEditXmWithWorkbenches((state) =>
+        state.song.title === title
+          ? state
+          : { ...state, song: { ...state.song, title } },
+      );
       return;
     }
     commitEditWithWorkbenches((state) =>
@@ -1211,7 +1217,7 @@ export const App: Component = () => {
           <span class="share-banner__text">
             {autosaveOutcome() === "degraded"
               ? "This project is too large for browser storage. Autosave now keeps the song and rendered samples only — sample sources and effect chains will be gone after a reload. Use Save to keep everything."
-              : "Autosave is off: this project no longer fits in browser storage, so a reload would bring back an older version. Use Save to keep your work."}
+              : "Autosave isn't working: the browser couldn't store this project (storage full or blocked), so a reload would bring back an older version. Use Save to keep your work."}
           </span>
           <button
             type="button"

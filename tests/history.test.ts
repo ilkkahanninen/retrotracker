@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   HISTORY_LIMIT,
+  attachLateWorkbenches,
   canRedo,
   canUndo,
   clearHistory,
@@ -13,6 +14,12 @@ import {
   undo,
 } from "../src/state/song";
 import { emptySong } from "../src/core/mod/format";
+import type { SampleWorkbench } from "../src/core/audio/sampleWorkbench";
+import {
+  clearAllWorkbenches,
+  withWorkbench,
+  workbenches,
+} from "../src/state/sampleWorkbench";
 import {
   loadPatternNames,
   patternNames,
@@ -184,5 +191,66 @@ describe("song history", () => {
       redo();
       expect(patternNames()).toEqual({ 5: "renamed" });
     });
+  });
+});
+
+describe("attachLateWorkbenches", () => {
+  const late = { source: { kind: "sampler" } } as unknown as SampleWorkbench;
+  const attach = () =>
+    attachLateWorkbenches(
+      (map) => (map.has(1) ? map : withWorkbench(map, 1, late)),
+      (map) => map,
+    );
+
+  beforeEach(() => {
+    setSong(makeSong("A"));
+    setTransport("idle");
+    clearAllWorkbenches();
+    clearHistory();
+  });
+  afterEach(() => {
+    setSong(null);
+    clearAllWorkbenches();
+    clearHistory();
+  });
+
+  it("survives undo / redo of edits made before it arrived", () => {
+    // Regression: restored sampler workbenches were set on the live map
+    // only. Undoing an earlier edit brought back a snapshot without them,
+    // and the next autosave swept their audio from the source store.
+    commitEdit((s) => ({ ...s, title: "B" }));
+    commitEdit((s) => ({ ...s, title: "C" }));
+    undo(); // "C" now sits in the redo stack
+    attach();
+    expect(workbenches().get(1)).toBe(late);
+
+    undo();
+    expect(song()!.title).toBe("A");
+    expect(workbenches().get(1)).toBe(late);
+    redo();
+    redo();
+    expect(song()!.title).toBe("C");
+    expect(workbenches().get(1)).toBe(late);
+  });
+
+  it("is not an edit: no undo entry, snapshots keep sharing one map", () => {
+    attach();
+    expect(canUndo()).toBe(false);
+    commitEdit((s) => ({ ...s, title: "B" }));
+    const live = workbenches();
+    undo();
+    expect(workbenches()).toBe(live);
+  });
+
+  it("leaves a slot the user already filled alone", () => {
+    const mine = { source: { kind: "chiptune" } } as unknown as SampleWorkbench;
+    commitEditWithWorkbenches((state) => ({
+      ...state,
+      workbenches: withWorkbench(state.workbenches, 1, mine),
+    }));
+    attach();
+    expect(workbenches().get(1)).toBe(mine);
+    undo(); // the pre-edit snapshot had no workbench — it gets the late one
+    expect(workbenches().get(1)).toBe(late);
   });
 });
