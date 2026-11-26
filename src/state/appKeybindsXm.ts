@@ -79,6 +79,8 @@ import {
   HEX_KEYS,
   PIANO_KEYS,
   editsAllowed,
+  pianoKeyDown,
+  pianoKeyUp,
 } from "./keybindHelpers";
 
 const isFt2Mode = () => song()?.format === "FT2";
@@ -226,8 +228,12 @@ export function registerXmAppKeybinds(): Array<() => void> {
           editsAllowed() &&
           (view() === "sample" ||
             (view() === "pattern" && xmCursor().field === "note")),
-        run: () => onXmPianoKey(offset),
+        run: () => {
+          pianoKeyDown(k);
+          onXmPianoKey(offset);
+        },
         runUp: () => {
+          if (!pianoKeyUp(k)) return;
           stopEnginePreview();
           preview.stopPreview();
           // Also clear the XM live-preview record so a subsequent
@@ -249,8 +255,12 @@ export function registerXmAppKeybinds(): Array<() => void> {
         shift: true,
         description: `Preview note (offset ${offset})`,
         when: () => isFt2Mode() && editsAllowed(),
-        run: () => previewXmNote(offset),
+        run: () => {
+          pianoKeyDown(k);
+          previewXmNote(offset);
+        },
         runUp: () => {
+          if (!pianoKeyUp(k)) return;
           stopEnginePreview();
           preview.stopPreview();
           // Also clear the XM live-preview record so a subsequent

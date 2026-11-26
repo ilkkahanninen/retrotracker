@@ -26,10 +26,14 @@ import {
   resetSourceStore,
   setSourceStore,
 } from "../../src/state/sourceStore";
+import { setCurrentSample } from "../../src/state/edit";
+import { convertSlotToSampler } from "../../src/state/sampleEdit";
 import {
   canUndo,
   clearHistory,
+  commitEdit,
   dirty,
+  undo,
   pt2Song,
   setSong,
   setTransport,
@@ -214,5 +218,93 @@ describe("boot restore with a source store", () => {
     render(() => <App />);
     await waitFor(() => expect(xmWorkbenches().get("1:0")).toBeDefined());
     expect(xmWorkbenches().get("1:0")!.xm.bitDepth).toBe(16);
+  });
+
+  /** A store whose reads wait for `release()`. */
+  function gated(store: ReturnType<typeof createMemorySourceStore>) {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const get = store.get.bind(store);
+    store.get = async (id) => {
+      await gate;
+      return get(id);
+    };
+    return release;
+  }
+
+  it("does not attach the source to a slot whose sample was replaced meanwhile", async () => {
+    const store = createMemorySourceStore();
+    await seedPtSession(store);
+    const release = gated(store);
+    setSourceStore(store);
+
+    render(() => <App />);
+    // The user replaces sample 1 while its source audio is still loading.
+    commitEdit((s) =>
+      replaceSampleData(s, 0, new Int8Array(32).fill(-9), { name: "other" }),
+    );
+    release();
+    await waitFor(() => expect(hydratingSources()).toBe(false));
+    // The new sample must not inherit the old one's source…
+    expect(workbenches().get(0)).toBeUndefined();
+    // …but the state it belonged to gets it back on undo.
+    undo();
+    expect(workbenches().get(0)).toBeDefined();
+  });
+
+  it("does not let a fresh sampler workbench shadow a source still loading", async () => {
+    const store = createMemorySourceStore();
+    await seedPtSession(store);
+    const release = gated(store);
+    setSourceStore(store);
+
+    render(() => <App />);
+    setCurrentSample(1);
+    convertSlotToSampler();
+    expect(workbenches().get(0)).toBeUndefined();
+    release();
+    await waitFor(() => expect(workbenches().get(0)).toBeDefined());
+    const wb = workbenches().get(0)!;
+    expect(wb.source.kind === "sampler" && wb.source.sourceName).toBe(
+      "kick.wav",
+    );
+  });
+
+  it("retries a read that fails once", async () => {
+    const store = createMemorySourceStore();
+    await seedPtSession(store);
+    const get = store.get.bind(store);
+    let calls = 0;
+    store.get = async (id) => {
+      if (calls++ === 0) throw new Error("transaction aborted");
+      return get(id);
+    };
+    setSourceStore(store);
+
+    render(() => <App />);
+    await waitFor(() => expect(workbenches().get(0)).toBeDefined());
+  });
+
+  it("keeps the audio referenced when it could not be read at all", async () => {
+    const store = createMemorySourceStore();
+    await seedPtSession(store);
+    const [id] = [...store.map.keys()];
+    store.get = async () => {
+      throw new Error("store unavailable");
+    };
+    setSourceStore(store);
+
+    render(() => <App />);
+    await waitFor(() => expect(hydratingSources()).toBe(false));
+    expect(workbenches().get(0)).toBeUndefined();
+    // Force an autosave after the failed read.
+    commitEdit((s) => ({ ...s, title: "edited" }));
+    await tick(400);
+
+    // The audio survived the sweep and the payload still points at it,
+    // so the next reload can try again.
+    expect([...store.map.keys()]).toEqual([id]);
+    expect(localStorage.getItem(STORAGE_KEY)).toContain(id!);
+    expect(localStorage.getItem(STORAGE_KEY)).toContain("kick.wav");
   });
 });

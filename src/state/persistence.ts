@@ -289,6 +289,15 @@ export interface SessionInputs {
    * enough that duplication doesn't hurt.
    */
   cloudOrigin?: { resource: "projects" | "modules"; name: string } | null;
+  /**
+   * Autosave-with-store only: sources the restored session referenced
+   * whose audio could not be READ this session (the store errored — the
+   * audio itself may be fine). They have no workbench, so they are absent
+   * from `samplerSources` / `xmSamplerSources`; carrying their references
+   * through keeps the next payload pointing at the audio, which in turn
+   * keeps it out of the sweep. A later reload gets another chance.
+   */
+  unreadSources?: readonly PendingSource[];
 }
 
 /** A session that has been read back: same shape as SessionInputs, but
@@ -1348,7 +1357,11 @@ export async function saveSessionWithStore(
 
   let json: string;
   try {
-    json = JSON.stringify(buildPayload(state, sourceIdFor));
+    const payload = buildPayload(state, sourceIdFor);
+    for (const ref of carryUnreadSources(payload, state.unreadSources)) {
+      referenced.add(ref);
+    }
+    json = JSON.stringify(payload);
   } catch {
     return "failed";
   }
@@ -1365,10 +1378,52 @@ export async function saveSessionWithStore(
 }
 
 /**
+ * Write still-unread source references back into `payload`, for slots the
+ * payload has no source for. Returns the ids now referenced.
+ */
+function carryUnreadSources(
+  payload: PersistedShape,
+  unread: readonly PendingSource[] | undefined,
+): string[] {
+  const refs: string[] = [];
+  for (const p of unread ?? []) {
+    const chain = p.chain.length > 0 ? { chain: p.chain } : {};
+    if (p.kind === "pt") {
+      if (payload.format !== "PT2") continue;
+      const map = (payload.samplerSources ??= {});
+      if (map[p.slot]) continue;
+      map[p.slot] = {
+        sourceName: p.sourceName,
+        wavRef: p.ref,
+        ...chain,
+        pt: p.pt,
+      };
+    } else {
+      if (payload.format !== "FT2") continue;
+      const map = (payload.xmSamplerSources ??= {});
+      if (map[p.key]) continue;
+      map[p.key] = {
+        sourceName: p.sourceName,
+        wavRef: p.ref,
+        ...chain,
+        xm: p.xm,
+      };
+    }
+    refs.push(p.ref);
+  }
+  return refs;
+}
+
+/**
  * Fetch the audio for sources a restored session referenced by id, and
  * return them in the same shape as inline sources. Entries whose audio
- * is missing or unreadable are dropped — the slot still plays from the
+ * is missing or undecodable are dropped — the slot still plays from the
  * song bytes, it just comes back without its workbench.
+ *
+ * Entries whose read FAILED (the store rejected) are returned in
+ * `unread` instead: the audio may well be intact, so the caller must keep
+ * referencing it (`SessionInputs.unreadSources`) rather than let the next
+ * autosave sweep it.
  */
 export async function resolvePendingSources(
   pending: readonly PendingSource[],
@@ -1376,9 +1431,12 @@ export async function resolvePendingSources(
 ): Promise<{
   samplerSources: Record<number, SamplerSourceInputs>;
   xmSamplerSources: Record<string, XmSamplerSourceInputs>;
+  unread: PendingSource[];
 }> {
   const samplerSources: Record<number, SamplerSourceInputs> = {};
   const xmSamplerSources: Record<string, XmSamplerSourceInputs> = {};
+  const unread: PendingSource[] = [];
+  const failedRefs = new Set<string>();
   // Several slots can share one source (duplicated samples): fetch and
   // decode each id once so they keep sharing a single `WavData`.
   const decoded = new Map<string, WavData | null>();
@@ -1386,18 +1444,27 @@ export async function resolvePendingSources(
     let wav = decoded.get(p.ref);
     if (wav === undefined) {
       wav = null;
+      let bytes: Uint8Array | null | undefined;
       try {
-        const bytes = await store.get(p.ref);
-        if (bytes) {
+        bytes = await readSourceWithRetry(store, p.ref);
+      } catch {
+        failedRefs.add(p.ref);
+      }
+      if (bytes) {
+        try {
           wav = readWav(bytes);
           sourceIds.set(wav, p.ref);
+        } catch {
+          // Stored bytes are corrupt — nothing worth keeping.
+          wav = null;
         }
-      } catch {
-        wav = null;
       }
       decoded.set(p.ref, wav);
     }
-    if (!wav) continue;
+    if (!wav) {
+      if (failedRefs.has(p.ref)) unread.push(p);
+      continue;
+    }
     const chain = fixupSentinelFrames(p.chain, wav, p.sourceName);
     if (p.kind === "pt") {
       samplerSources[p.slot] = {
@@ -1415,7 +1482,19 @@ export async function resolvePendingSources(
       };
     }
   }
-  return { samplerSources, xmSamplerSources };
+  return { samplerSources, xmSamplerSources, unread };
+}
+
+/** One retry: the usual failure is a transient transaction abort. */
+async function readSourceWithRetry(
+  store: SourceStore,
+  id: string,
+): ReturnType<SourceStore["get"]> {
+  try {
+    return await store.get(id);
+  } catch {
+    return await store.get(id);
+  }
 }
 
 /**

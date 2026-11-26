@@ -299,6 +299,24 @@ describe("text-editing chords inside a text field", () => {
     expect(song()).toBe(edited);
   });
 
+  it("⌘Z still undoes while a checkbox (not a text field) has focus", () => {
+    seedPtSong();
+    render(() => <App />);
+    const before = song();
+    commitEdit((s) => setCell(s, 0, 20, 0, { period: C2, sample: 1 }));
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    document.body.appendChild(box);
+    box.focus();
+    try {
+      const ev = chord("z");
+      expect(ev.defaultPrevented).toBe(true);
+      expect(song()).toBe(before);
+    } finally {
+      box.remove();
+    }
+  });
+
   it("the same chords still act on the song when no text field has focus", () => {
     seedPtSong();
     setView("sample");

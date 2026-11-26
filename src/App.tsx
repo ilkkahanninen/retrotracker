@@ -125,6 +125,7 @@ import {
   cursorForPersistence,
   hydrateRestoredSources,
   hydratingSources,
+  unreadSourcesSnapshot,
   xmChiptuneSourcesSnapshot,
   xmSamplerSourcesSnapshot,
   error,
@@ -398,8 +399,12 @@ export const App: Component = () => {
   const openFromCloud = async (
     resource: BackendResource,
     name: string,
+    signal?: AbortSignal,
   ): Promise<void> => {
-    const bytes = await getBytes(resource, name);
+    const bytes = await getBytes(resource, name, signal);
+    // Dialog dismissed while the bytes were on their way: the user went
+    // back to their song, so leave it alone.
+    if (signal?.aborted) return;
     const loaded = await loadServerBytes(bytes, name.split("/").pop()!);
     setServerBrowser(null);
     // Rejected file: the previous song is still open, so its cloud origin
@@ -422,10 +427,16 @@ export const App: Component = () => {
    * (chiptune sources, workbenches, view, cursor, …) matches the
    * Save-to-computer path byte-for-byte.
    */
-  const saveProjectToCloud = async (name: string): Promise<void> => {
+  const saveProjectToCloud = async (
+    name: string,
+    signal?: AbortSignal,
+  ): Promise<void> => {
     const bytes = projectBytes();
     if (!bytes) return;
-    await putBytes("projects", name, bytes);
+    await putBytes("projects", name, bytes, signal);
+    // Cancelled as it completed: the dialog is gone and the user was told
+    // nothing was saved, so don't mark the song clean.
+    if (signal?.aborted) return;
     // The user now owns a cloud copy — enable the "Share" menu item.
     setCloudOrigin({ resource: "projects", name });
     // Saved — same as Save to computer, so File → New doesn't ask to
@@ -619,6 +630,7 @@ export const App: Component = () => {
             soloedChannels: soloed,
             xmChiptuneSources: isXm ? xmChiptuneSourcesSnapshot() : undefined,
             xmSamplerSources: isXm ? xmSamplerSourcesSnapshot() : undefined,
+            unreadSources: unreadSourcesSnapshot(),
             cloudOrigin: origin,
           },
           recordAutosaveOutcome,
@@ -1948,9 +1960,11 @@ export const App: Component = () => {
                   `${song()?.title || "untitled"}.retro`)
                 : ""
             }
-            onPick={(name, resource) => {
-              if (sb().mode === "open") return openFromCloud(resource, name);
-              return saveProjectToCloud(name);
+            onPick={(name, resource, signal) => {
+              if (sb().mode === "open") {
+                return openFromCloud(resource, name, signal);
+              }
+              return saveProjectToCloud(name, signal);
             }}
             onClose={() => setServerBrowser(null)}
           />

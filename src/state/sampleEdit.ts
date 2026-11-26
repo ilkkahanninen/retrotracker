@@ -60,7 +60,7 @@ import {
 import { selection } from "./selection";
 import { activePreview } from "./preview";
 import { livePreviewSwap } from "./playback";
-import { setError } from "./session";
+import { setError, sourcePending } from "./session";
 import { makePipelineActions } from "./samplePipeline";
 
 /**
@@ -829,6 +829,8 @@ export function updateChiptune(patch: Partial<ChiptuneParams>): void {
 export function convertSlotToSampler(): void {
   const slot = currentSample() - 1;
   if (getWorkbench(slot)) return;
+  // The slot's real source is still being read after a boot restore.
+  if (sourcePending(slot)) return;
   const sample = song()?.samples[slot];
   if (!sample || sample.lengthWords <= 0 || sample.data.byteLength <= 0) return;
   const sourceName = (sample.name.trim() || `Sample ${slot + 1}`).slice(0, 22);

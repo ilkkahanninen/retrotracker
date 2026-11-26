@@ -87,6 +87,7 @@ import {
   setWorkbench,
   clearAllWorkbenches,
   withWorkbench,
+  type WorkbenchMap,
 } from "./sampleWorkbench";
 import {
   clearAllXmWorkbenches,
@@ -94,6 +95,7 @@ import {
   xmWorkbenches,
   xmWorkbenchKey,
   withXmWorkbench,
+  type XmWorkbenchMap,
 } from "./xmSampleWorkbench";
 import { clearAllStashedLoops } from "./loopStash";
 import { clearAllImportedStashes } from "./importedStash";
@@ -194,13 +196,28 @@ export async function hydrateRestoredSources(
   const store = getSourceStore();
   if (!store || pending.length === 0) return;
   const epoch = loadEpoch;
+  // Remember what each slot holds right now (we run synchronously after
+  // `applyLoadedSession`). The user can edit while the audio is read; a
+  // source is only attached to a state whose slot still has this exact
+  // sample data — a removed, cleared, replaced or shifted sample must not
+  // inherit it.
+  const loadedSong = song();
+  if (!loadedSong) return;
+  const expected = new Map<string, SlotData>();
+  for (const p of pending) {
+    const key = pendingKey(p);
+    const data = slotData(loadedSong, key);
+    if (data) expected.set(key, data);
+  }
+  awaitingSources = expected;
   setHydratingSources(true);
   try {
-    const { samplerSources, xmSamplerSources } = await resolvePendingSources(
-      pending,
-      store,
-    );
+    const { samplerSources, xmSamplerSources, unread } =
+      await resolvePendingSources(pending, store);
     if (epoch !== loadEpoch) return;
+    unreadSources = unread
+      .map((p) => ({ pending: p, data: expected.get(pendingKey(p)) }))
+      .filter((u): u is UnreadSource => u.data !== undefined);
     const s = song();
     // Built once, so the live maps and every history snapshot share the
     // same workbench objects.
@@ -232,35 +249,136 @@ export async function hydrateRestoredSources(
         ]);
       }
     }
+    // Memoised per (input map, set of additions): snapshots that share a
+    // map and get the same additions keep sharing one map.
+    const memo = <M extends object>() => {
+      const cache = new Map<M, Map<string, M>>();
+      return (map: M, sig: string, build: () => M): M => {
+        let bySig = cache.get(map);
+        if (!bySig) cache.set(map, (bySig = new Map()));
+        let out = bySig.get(sig);
+        if (!out) bySig.set(sig, (out = build()));
+        return out;
+      };
+    };
+    const ptMemo = memo<WorkbenchMap>();
+    const xmMemo = memo<XmWorkbenchMap>();
     attachLateWorkbenches(
-      (map) => {
-        let out = map;
-        for (const [slot, wb] of restoredPt) {
-          if (!out.has(slot)) out = withWorkbench(out, slot, wb);
-        }
-        return out;
+      (map, entrySong) => {
+        const add = restoredPt.filter(([slot]) => {
+          const key = String(slot);
+          return (
+            !map.has(slot) &&
+            expected.has(key) &&
+            slotData(entrySong, key) === expected.get(key)
+          );
+        });
+        if (add.length === 0) return map;
+        return ptMemo(map, add.map(([slot]) => slot).join(","), () => {
+          let out = map;
+          for (const [slot, wb] of add) out = withWorkbench(out, slot, wb);
+          return out;
+        });
       },
-      (map) => {
-        let out = map;
-        for (const [inst, idx, wb] of restoredXm) {
-          if (!out.has(xmWorkbenchKey(inst, idx))) {
-            out = withXmWorkbench(out, inst, idx, wb);
-          }
-        }
-        return out;
+      (map, entrySong) => {
+        const add = restoredXm.filter(([inst, idx]) => {
+          const key = xmWorkbenchKey(inst, idx);
+          return (
+            !map.has(key) &&
+            expected.has(key) &&
+            slotData(entrySong, key) === expected.get(key)
+          );
+        });
+        if (add.length === 0) return map;
+        return xmMemo(
+          map,
+          add.map(([inst, idx]) => xmWorkbenchKey(inst, idx)).join(","),
+          () => {
+            let out = map;
+            for (const [inst, idx, wb] of add) {
+              out = withXmWorkbench(out, inst, idx, wb);
+            }
+            return out;
+          },
+        );
       },
     );
   } catch {
     // The store failed mid-read. The slots keep playing from the song
     // bytes; they just come back without their workbenches.
   } finally {
+    if (epoch === loadEpoch) awaitingSources = null;
     setHydratingSources(false);
   }
+}
+
+type SlotData = Int8Array | Int16Array;
+type UnreadSource = { pending: PendingSource; data: SlotData };
+
+const pendingKey = (p: PendingSource): string =>
+  p.kind === "pt" ? String(p.slot) : p.key;
+
+/** Sample data held by the slot a pending source belongs to: a PT slot
+ *  index (`"3"`) or an XM `"inst:sampleIdx"` key. */
+function slotData(s: Song, key: string): SlotData | undefined {
+  if (s.format === "PT2") {
+    return key.includes(":") ? undefined : s.samples[parseInt(key, 10)]?.data;
+  }
+  const [inst, idx] = parseXmKey(key);
+  if (inst === null) return undefined;
+  return s.instruments[inst - 1]?.samples[idx]?.data;
+}
+
+/**
+ * Slots whose source audio is still being read, with the sample data
+ * they held at load. Null when no hydration is in flight.
+ */
+let awaitingSources: Map<string, SlotData> | null = null;
+
+/**
+ * True while the restored source for this slot (PT slot index or XM
+ * `"inst:sampleIdx"` key) is still being read. Editors must not wrap the
+ * slot's rendered bytes in a fresh workbench meanwhile: it would shadow
+ * the real source, whose audio the next autosave would then sweep.
+ */
+export function sourcePending(key: string | number): boolean {
+  if (!awaitingSources) return false;
+  const k = String(key);
+  const data = awaitingSources.get(k);
+  const s = song();
+  return data !== undefined && !!s && slotData(s, k) === data;
+}
+
+/**
+ * Sources whose audio could not be read this session (see
+ * `resolvePendingSources`). Reset on every load.
+ */
+let unreadSources: UnreadSource[] = [];
+
+/**
+ * The unread sources that still belong to the song as it is now — the
+ * slot holds the same sample data and has no workbench of its own. Passed
+ * to autosave so their audio stays referenced.
+ */
+export function unreadSourcesSnapshot(): PendingSource[] {
+  const s = song();
+  if (!s) return [];
+  return unreadSources
+    .filter(({ pending: p, data }) => {
+      const key = pendingKey(p);
+      if (slotData(s, key) !== data) return false;
+      return p.kind === "pt"
+        ? !workbenches().has(p.slot)
+        : ![...xmWorkbenches().keys()].some((k) => k === p.key);
+    })
+    .map((u) => u.pending);
 }
 
 export function applyLoadedSession(loaded: LoadedSession): void {
   if (!loaded.song) return;
   loadEpoch++;
+  awaitingSources = null;
+  unreadSources = [];
   // Every load — local, cloud, or share — starts with a clean origin.
   // Cloud paths re-set it explicitly after this call; local paths
   // (file picker / drag-drop / share-link recipient) leave it null.

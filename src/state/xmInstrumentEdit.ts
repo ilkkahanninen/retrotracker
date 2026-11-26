@@ -282,7 +282,7 @@ export function duplicateXmSample(
   const newIndex = inst.samples.length;
   // The copy carries the source's workbench (same bytes, same pipeline),
   // replacing whatever key might linger at the new index.
-  commitXmSlotShape((state) => ({
+  const committed = commitXmSlotShape((state) => ({
     song: setXmInstrumentSampleMutation(state.song, slot1Based, dup, newIndex),
     xmWorkbenches: withXmWorkbenchCopied(
       state.xmWorkbenches,
@@ -292,6 +292,8 @@ export function duplicateXmSample(
       newIndex,
     ),
   }));
+  // Gated (Play + Follow): nothing was added, so don't select it.
+  if (!committed) return;
   setCurrentXmSampleIndex(newIndex);
 }
 

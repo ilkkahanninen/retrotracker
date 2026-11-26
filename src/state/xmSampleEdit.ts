@@ -42,7 +42,7 @@ import {
   xm2Song,
 } from "./song";
 import { stopXmPreview, xmLivePreviewSwap } from "./xmPreview";
-import { setError } from "./session";
+import { setError, sourcePending } from "./session";
 import {
   currentXmInstrument,
   currentXmSampleIndex,
@@ -53,6 +53,7 @@ import { xmSelection } from "./selection";
 import {
   getXmWorkbench,
   setXmWorkbench,
+  xmWorkbenchKey,
   withXmWorkbench,
   withoutXmInstrumentWorkbenches,
   withXmWorkbenchCopied,
@@ -117,6 +118,9 @@ function getOrInitCurrentXmWorkbench(): {
   if (!sample) return null;
   let wb = getXmWorkbench(inst1Based, sampleIdx);
   if (!wb) {
+    // The slot's real source is still being read after a boot restore —
+    // wrapping the rendered bytes now would shadow it for good.
+    if (sourcePending(xmWorkbenchKey(inst1Based, sampleIdx))) return null;
     wb = xmWorkbenchFromSample(
       sample.data,
       sample.bits,
@@ -671,24 +675,26 @@ export function pasteXmSampleBytes(): void {
       Math.max(0, pastedData.length - sample.loopStart),
     ),
   };
-  commitEditXm((song) =>
-    setXmInstrumentSample(
-      song,
-      currentXmInstrument(),
-      next,
-      currentXmSampleIndex(),
-    ),
-  );
+  const inst1Based = currentXmInstrument();
+  const sampleIdx = currentXmSampleIndex();
   // Rebuild the workbench around the pasted bytes so subsequent chain
-  // edits start from the new source.
-  setXmWorkbench(
-    currentXmInstrument(),
-    currentXmSampleIndex(),
-    xmWorkbenchFromWav(
-      sampleBytesToWav(pastedData, clip.bits),
-      clip.name ?? sample.name,
-    ),
+  // edits start from the new source — in the SAME undo entry as the
+  // bytes, so undoing the paste also brings back the previous workbench
+  // (it used to linger and re-render the pasted audio over the restored
+  // sample on the next chain edit).
+  const wb = xmWorkbenchFromWav(
+    sampleBytesToWav(pastedData, clip.bits),
+    clip.name ?? sample.name,
   );
+  commitXmSlotShape((state) => ({
+    song: setXmInstrumentSample(state.song, inst1Based, next, sampleIdx),
+    xmWorkbenches: withXmWorkbench(
+      state.xmWorkbenches,
+      inst1Based,
+      sampleIdx,
+      wb,
+    ),
+  }));
 }
 
 function sampleBytesToWav(

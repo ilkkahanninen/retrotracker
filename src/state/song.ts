@@ -467,30 +467,23 @@ export function redo(): void {
  * them again — after which the next autosave no longer references their
  * audio and sweeps it from the source store.
  *
- * `amendPt` / `amendXm` must be pure and return the map they were given
- * when there is nothing to add. Snapshots sharing one map keep sharing
- * one (undo / redo compare maps by identity). Not an edit: no history
- * entry, no dirty flag.
+ * Each amender also gets the song of the state it is amending, so it can
+ * check that a slot still holds what the workbench was saved for — the
+ * user may have removed, cleared or replaced samples in the meantime, and
+ * the live state and each snapshot can differ on that.
+ *
+ * `amendPt` / `amendXm` must be pure, return the map they were given when
+ * there is nothing to add, and return the SAME map for the same input map
+ * whenever the additions are the same (undo / redo compare maps by
+ * identity). Not an edit: no history entry, no dirty flag.
  */
 export function attachLateWorkbenches(
-  amendPt: (map: WorkbenchMap) => WorkbenchMap,
-  amendXm: (map: XmWorkbenchMap) => XmWorkbenchMap,
+  amendPt: (map: WorkbenchMap, song: Song) => WorkbenchMap,
+  amendXm: (map: XmWorkbenchMap, song: Song) => XmWorkbenchMap,
 ): void {
-  const ptCache = new Map<WorkbenchMap, WorkbenchMap>();
-  const xmCache = new Map<XmWorkbenchMap, XmWorkbenchMap>();
-  const pt = (map: WorkbenchMap): WorkbenchMap => {
-    let out = ptCache.get(map);
-    if (!out) ptCache.set(map, (out = amendPt(map)));
-    return out;
-  };
-  const xm = (map: XmWorkbenchMap): XmWorkbenchMap => {
-    let out = xmCache.get(map);
-    if (!out) xmCache.set(map, (out = amendXm(map)));
-    return out;
-  };
   const amend = (entry: EditState): EditState => {
-    const workbenches = pt(entry.workbenches);
-    const xmWorkbenches = xm(entry.xmWorkbenches);
+    const workbenches = amendPt(entry.workbenches, entry.song);
+    const xmWorkbenches = amendXm(entry.xmWorkbenches, entry.song);
     return workbenches === entry.workbenches &&
       xmWorkbenches === entry.xmWorkbenches
       ? entry
@@ -503,8 +496,10 @@ export function attachLateWorkbenches(
 
   const livePt = workbenchesSig();
   const liveXm = xmWorkbenchesSig();
-  const nextPt = pt(livePt);
-  const nextXm = xm(liveXm);
+  const liveSong = song();
+  if (!liveSong) return;
+  const nextPt = amendPt(livePt, liveSong);
+  const nextXm = amendXm(liveXm, liveSong);
   if (nextPt !== livePt) setWorkbenchesRaw(nextPt);
   if (nextXm !== liveXm) setXmWorkbenchesRaw(nextXm);
   setPast(amendStack(past()));

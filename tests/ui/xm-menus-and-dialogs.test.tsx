@@ -136,7 +136,7 @@ describe("ServerBrowser while a request is in flight", () => {
     return { ...result, onPick, onClose, release };
   }
 
-  it("cannot be dismissed, and a second click does not load again", async () => {
+  it("a second click does not load again, and dismissing cancels the request", async () => {
     const { container, onPick, onClose } = mount();
     await waitFor(() =>
       expect(container.querySelector(".server-browser__row")).not.toBeNull(),
@@ -149,10 +149,13 @@ describe("ServerBrowser while a request is in flight", () => {
     fireEvent.dblClick(row);
     expect(onPick).toHaveBeenCalledTimes(1);
 
+    // A stalled request must not trap the user behind the modal: Escape
+    // closes it and aborts the request so its result is never applied.
+    const signal = (onPick.mock.calls[0] as unknown[])[2] as AbortSignal;
+    expect(signal.aborted).toBe(false);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    fireEvent.click(container.querySelector(".modal-backdrop")!);
-    fireEvent.click(container.querySelector(".modal__close")!);
-    expect(onClose).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(signal.aborted).toBe(true);
   });
 
   it("can be dismissed when idle", async () => {

@@ -43,6 +43,8 @@ import {
   HEX_KEYS,
   PIANO_KEYS,
   editsAllowed,
+  pianoKeyDown,
+  pianoKeyUp,
 } from "./keybindHelpers";
 
 /**
@@ -473,8 +475,12 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
           editsAllowed() &&
           (view() === "sample" ||
             (view() === "pattern" && cursor().field === "note")),
-        run: () => h.onPianoKey(offset),
+        run: () => {
+          pianoKeyDown(k);
+          h.onPianoKey(offset);
+        },
         runUp: () => {
+          if (!pianoKeyUp(k)) return;
           stopEnginePreview();
           preview.stopPreview();
         },
@@ -490,8 +496,12 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
         shift: true,
         description: `Preview note (offset ${offset})`,
         when: () => isPt2Mode() && editsAllowed(),
-        run: () => h.previewPianoKey(offset),
+        run: () => {
+          pianoKeyDown(k);
+          h.previewPianoKey(offset);
+        },
         runUp: () => {
+          if (!pianoKeyUp(k)) return;
           stopEnginePreview();
           preview.stopPreview();
         },

@@ -59,11 +59,16 @@ export const Slider: Component<Props> = (props) => {
             beginDragEdit();
             const release = () => {
               window.removeEventListener("pointerup", release);
+              window.removeEventListener("pointercancel", release);
               activeRelease = null;
               endDragEdit();
             };
             activeRelease = release;
             window.addEventListener("pointerup", release);
+            // A cancelled pointer (touch scroll takes over, …) never gets
+            // a pointerup; without this the group stays open and later
+            // edits stop producing undo entries.
+            window.addEventListener("pointercancel", release);
           }}
           onInput={(e) => {
             const v = parseFloat(e.currentTarget.value);

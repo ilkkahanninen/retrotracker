@@ -215,13 +215,32 @@ type FocusKind = "text" | "range" | "select" | null;
 function focusKind(): FocusKind {
   const el = typeof document === "undefined" ? null : document.activeElement;
   if (!el) return null;
-  if (el instanceof HTMLInputElement && el.type === "range") return "range";
+  if (el instanceof HTMLInputElement) {
+    if (el.type === "range") return "range";
+    // Checkboxes, radios, buttons, file pickers… take no typed input and
+    // have no text to cut / copy / undo. They used to count as "text",
+    // which swallowed ⌘Z / ⌘C / ⌘V and the bare-key shortcuts for as long
+    // as one kept focus after a click.
+    if (NON_TEXT_INPUT_TYPES.has(el.type)) return null;
+  }
   const tag = el.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA") return "text";
   if (tag === "SELECT") return "select";
   if (el instanceof HTMLElement && el.isContentEditable) return "text";
   return null;
 }
+
+/** `<input>` types that are controls, not text fields. */
+const NON_TEXT_INPUT_TYPES: ReadonlySet<string> = new Set([
+  "checkbox",
+  "radio",
+  "button",
+  "submit",
+  "reset",
+  "file",
+  "image",
+  "color",
+]);
 
 /** Keys a focused range input consumes natively — leave these to the slider. */
 const RANGE_NAV_KEYS: ReadonlySet<string> = new Set([

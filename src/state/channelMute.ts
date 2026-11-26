@@ -1,5 +1,6 @@
 import { createMemo, createSignal } from "solid-js";
 import { CHANNELS } from "../core/mod/types";
+import { XM_MAX_CHANNELS } from "../core/xm/types";
 
 /**
  * Per-channel mute and solo state for live playback. Persisted in `.retro`
@@ -26,7 +27,7 @@ import { CHANNELS } from "../core/mod/types";
  * the exposed arrays only, so a solo on a removed channel can't silence
  * the rest.
  */
-const MAX_CHANNELS = 32;
+const MAX_CHANNELS = XM_MAX_CHANNELS;
 const blank = (): boolean[] =>
   Array.from({ length: MAX_CHANNELS }, () => false);
 

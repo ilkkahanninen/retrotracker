@@ -10,8 +10,10 @@
  * it played.
  */
 
+import { XM_MAX_CHANNELS } from "../xm/types";
+
 /** FT2's channel cap — upper bound for a flag we're willing to cache. */
-export const MAX_MUTE_CHANNELS = 32;
+export const MAX_MUTE_CHANNELS = XM_MAX_CHANNELS;
 
 /**
  * Record `muted` for `channel`, growing the array when the channel lies

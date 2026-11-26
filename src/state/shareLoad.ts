@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js";
 import { fetchShare } from "./share";
-import { loadServerBytes } from "./session";
+import { loadServerBytes, setError } from "./session";
 
 /**
  * Token grammar — must match the regex enforced by the share route in
@@ -73,6 +73,9 @@ export async function detectAndLoadShareLink(
     // A rejected file leaves the previous song in place — claiming it was
     // "opened from a share link" would mislabel that song.
     if (!loaded) {
+      // `loadFile` already raised the generic error banner for this same
+      // failure; the share banner below replaces it rather than stacking.
+      setError(null);
       setShareLoadError(
         `Could not open shared song: ${filename} is not a file RetroTracker can read.`,
       );

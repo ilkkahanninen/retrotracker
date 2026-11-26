@@ -114,10 +114,12 @@ export async function listEntries(
 export async function getBytes(
   resource: BackendResource,
   name: string,
+  /** Aborting rejects the call (a "network" `BackendError`). */
+  signal?: AbortSignal,
 ): Promise<Uint8Array> {
   let res: Response;
   try {
-    res = await fetch(`/api/${resource}/${encodePath(name)}`);
+    res = await fetch(`/api/${resource}/${encodePath(name)}`, { signal });
   } catch (e) {
     throw new BackendError(
       "network",
@@ -125,7 +127,16 @@ export async function getBytes(
     );
   }
   if (!res.ok) throw await readError(res);
-  const buf = await res.arrayBuffer();
+  let buf: ArrayBuffer;
+  try {
+    buf = await res.arrayBuffer();
+  } catch (e) {
+    // Aborted (or the connection dropped) while the body was streaming.
+    throw new BackendError(
+      "network",
+      e instanceof Error ? e.message : String(e),
+    );
+  }
   return new Uint8Array(buf);
 }
 
@@ -133,6 +144,7 @@ export async function putBytes(
   resource: BackendResource,
   name: string,
   bytes: Uint8Array,
+  signal?: AbortSignal,
 ): Promise<void> {
   let res: Response;
   try {
@@ -142,6 +154,7 @@ export async function putBytes(
       method: "PUT",
       headers: { "Content-Type": "application/octet-stream" },
       body: ab,
+      signal,
     });
   } catch (e) {
     throw new BackendError(
@@ -155,11 +168,13 @@ export async function putBytes(
 export async function deleteEntry(
   resource: BackendResource,
   name: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   let res: Response;
   try {
     res = await fetch(`/api/${resource}/${encodePath(name)}`, {
       method: "DELETE",
+      signal,
     });
   } catch (e) {
     throw new BackendError(
