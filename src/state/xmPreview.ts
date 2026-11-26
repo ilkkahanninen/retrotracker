@@ -28,7 +28,12 @@ import {
 } from "../core/xm/format";
 import { XM_MAX_ORDERS, type XmSample, type XmSong } from "../core/xm/types";
 import { hzForNote } from "../core/audio/xmFreqTable";
-import { currentEngine, ensureEngine } from "./playback";
+import {
+  currentEngine,
+  ensureEngine,
+  previewStopCount,
+  stopEnginePreview,
+} from "./playback";
 import { transport, xm2Song as song } from "./song";
 import { currentXmInstrument, currentXmOctave } from "./xmEdit";
 
@@ -88,8 +93,7 @@ export function clearActiveXmPreview(): void {
 export function stopXmPreview(): void {
   setActiveXmPreview(null);
   stopXmPreviewTracking();
-  const eng = currentEngine();
-  eng?.stopPreview();
+  stopEnginePreview();
 }
 
 // ─── Playhead tracking ───────────────────────────────────────────────────
@@ -335,9 +339,12 @@ export function previewXmNote(semitoneOffset: number): void {
   // behind a user gesture by the browser, which is satisfied by the
   // keydown that brought us here). Without this, the first piano
   // press before any Play action silently no-ops.
+  const stops = previewStopCount();
   void ensureEngine()
     .then((eng) => {
       if (!eng) return;
+      // Key released before the engine existed — see `triggerPreview`.
+      if (stops !== previewStopCount()) return;
       const rate = eng.sampleRate || PREVIEW_SAMPLE_RATE;
       const { left, right } = renderPreviewBuffer(previewSong, rate);
       void eng.playXmPreviewBuffer(left, right, rate, onEnded);

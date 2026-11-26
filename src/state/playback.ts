@@ -131,8 +131,14 @@ export function triggerPreview(
   period: number,
 ): void {
   preview.startPreview(slot, sample, period);
+  const stops = previewStopCount();
   void ensureEngine()
     .then((eng) => {
+      // The key was already released while the engine was being created
+      // (first audition after page load): `stopEnginePreview` found no
+      // engine to stop, so starting now would leave a looped sample
+      // droning until the next key release.
+      if (stops !== previewStopCount()) return;
       if (eng) void eng.previewNote(sample, period);
     })
     .catch(() => {
@@ -308,8 +314,20 @@ export function stopEngine(): void {
   currentEngine()?.stop();
 }
 
-/** Cancel an in-flight previewNote (sample audition keyup). */
+/**
+ * Number of preview stops requested so far. A preview start that has to
+ * wait for the engine captures this first and gives up if it has moved
+ * by the time the engine is ready — the stop it missed still counts.
+ */
+let previewStops = 0;
+export function previewStopCount(): number {
+  return previewStops;
+}
+
+/** Cancel an in-flight previewNote (sample audition keyup). Also cancels
+ *  a preview that is still waiting for the engine to come up. */
 export function stopEnginePreview(): void {
+  previewStops++;
   currentEngine()?.stopPreview();
 }
 

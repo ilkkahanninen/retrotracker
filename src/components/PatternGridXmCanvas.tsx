@@ -7,6 +7,7 @@ import {
   onCleanup,
   onMount,
   type Component,
+  untrack,
 } from "solid-js";
 
 import { flattenXmSong } from "../core/xm/flatten";
@@ -299,6 +300,44 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
     if (idx < 0 || !scroller) return;
     keepRowInView(scroller, idx, prevCursorFlat);
     prevCursorFlat = idx;
+  });
+
+  // ── Re-sync after the pane was hidden ────────────────────────────────
+  // Every view stays mounted; a hidden pattern pane is `display: none`,
+  // so its scroller has no height and ignores `scrollTop` writes. Cursor
+  // or playhead moves made meanwhile (order jump, undo, song load,
+  // playback) therefore can't scroll the grid, and when the pane comes
+  // back the browser restores the OLD scroll offset — the cursor is
+  // off-screen until the next keypress, and the canvas (pinned to the
+  // viewport via the scroll signals) can be parked outside it entirely.
+  // When the viewport regains a height, bring the active row into view
+  // with real geometry and re-read the scroll offsets from the DOM.
+  let paneWasHidden = false;
+  createEffect(() => {
+    if (viewportHeight() === 0) {
+      paneWasHidden = true;
+      return;
+    }
+    if (!paneWasHidden || !scroller) return;
+    paneWasHidden = false;
+    const el = scroller;
+    untrack(() => {
+      const followingPlayhead = props.active && settings().followPlayback;
+      const idx = followingPlayhead ? activeFlatIndex() : cursorFlatIndex();
+      if (idx >= 0) {
+        // Only move the view when the row is actually out of sight, so
+        // a plain view toggle with no changes leaves the scroll alone.
+        const rowTop = idx * ROW_HEIGHT;
+        const visible =
+          rowTop >= el.scrollTop &&
+          rowTop + ROW_HEIGHT <= el.scrollTop + el.clientHeight;
+        if (!visible) centerRowInView(el, idx);
+        if (!followingPlayhead) prevCursorFlat = idx;
+      }
+      setScrollLeft(el.scrollLeft);
+      setScrollTop(el.scrollTop);
+      scheduleDraw();
+    });
   });
   // Keyboard moves can carry the cursor past the visible channel range
   // on many-channel XMs. Skipped during playback only when Follow is on;

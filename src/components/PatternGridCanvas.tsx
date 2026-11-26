@@ -290,6 +290,44 @@ export const PatternGridCanvas: Component<PatternGridProps> = (props) => {
     keepRowInView(scroller, idx, prevCursorFlat);
     prevCursorFlat = idx;
   });
+
+  // ── Re-sync after the pane was hidden ────────────────────────────────
+  // Every view stays mounted; a hidden pattern pane is `display: none`,
+  // so its scroller has no height and ignores `scrollTop` writes. Cursor
+  // or playhead moves made meanwhile (order jump, undo, song load,
+  // playback) therefore can't scroll the grid, and when the pane comes
+  // back the browser restores the OLD scroll offset — the cursor is
+  // off-screen until the next keypress, and the canvas (pinned to the
+  // viewport via the scroll signals) can be parked outside it entirely.
+  // When the viewport regains a height, bring the active row into view
+  // with real geometry and re-read the scroll offsets from the DOM.
+  let paneWasHidden = false;
+  createEffect(() => {
+    if (viewportHeight() === 0) {
+      paneWasHidden = true;
+      return;
+    }
+    if (!paneWasHidden || !scroller) return;
+    paneWasHidden = false;
+    const el = scroller;
+    untrack(() => {
+      const followingPlayhead = props.active && settings().followPlayback;
+      const idx = followingPlayhead ? activeFlatIndex() : cursorFlatIndex();
+      if (idx >= 0) {
+        // Only move the view when the row is actually out of sight, so
+        // a plain view toggle with no changes leaves the scroll alone.
+        const rowTop = idx * ROW_HEIGHT;
+        const visible =
+          rowTop >= el.scrollTop &&
+          rowTop + ROW_HEIGHT <= el.scrollTop + el.clientHeight;
+        if (!visible) centerRowInView(el, idx);
+        if (!followingPlayhead) prevCursorFlat = idx;
+      }
+      setScrollLeft(el.scrollLeft);
+      setScrollTop(el.scrollTop);
+      scheduleDraw();
+    });
+  });
   // Horizontal cursor follow — PT2 has 4 channels so this rarely
   // matters in practice, but matching XM avoids surprises if someone
   // is editing in a narrow viewport.
