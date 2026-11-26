@@ -27,7 +27,7 @@ npm run db:reset         # nuke the data volume (then `db:up` for a fresh DB)
 
 Run a single test file: `npx vitest run tests/render-accuracy.test.ts`. Filter by name: `npx vitest run -t "00-baseline"`.
 
-Tests under `tests/ui/**` run in jsdom (mounting Solid components, simulating keypresses with `@testing-library/user-event`); everything else runs on node. The split is configured in [vitest.config.ts](vitest.config.ts) via `environmentMatchGlobs` — UI test files use the `.test.tsx` extension by convention. Module-level signals (`cursor`, `song`, `transport`, …) persist across tests in the same file, so reset them in `beforeEach`.
+Tests under `tests/ui/**` run in jsdom (mounting Solid components, simulating keypresses with `@testing-library/user-event`); everything else runs on node. The split is configured in [vitest.config.ts](vitest.config.ts) as two `projects` (`node` and `ui`) — UI test files use the `.test.tsx` extension by convention. Module-level signals (`cursor`, `song`, `transport`, …) persist across tests in the same file, so reset them in `beforeEach`.
 
 Fixture / reference workflow (see [tests/fixtures/README.md](tests/fixtures/README.md)):
 

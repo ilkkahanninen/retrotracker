@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 WORKDIR /app
 # .dockerignore strips .git, so scripts/version.sh can't compute the
 # version inside the container. CI computes it on the host and passes

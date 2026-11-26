@@ -10,15 +10,31 @@ export default defineConfig({
     },
   },
   test: {
-    environment: "node",
-    include: ["tests/**/*.test.{ts,tsx}"],
-    // Per-file environment: anything under `tests/ui/` runs in jsdom so we
-    // can mount Solid components and dispatch keyboard events. The accuracy
-    // / replayer / parser tests keep the lighter node environment.
-    environmentMatchGlobs: [["tests/ui/**", "jsdom"]],
     // Polyfills jsdom's missing Blob/File arrayBuffer/text. Self-guards
     // against missing globals so node-env suites import it as a no-op.
     setupFiles: ["tests/ui/setup.ts"],
     testTimeout: 30_000,
+    // Per-directory environment: anything under `tests/ui/` runs in jsdom so
+    // we can mount Solid components and dispatch keyboard events. The
+    // accuracy / replayer / parser tests keep the lighter node environment.
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "node",
+          environment: "node",
+          include: ["tests/**/*.test.{ts,tsx}"],
+          exclude: ["tests/ui/**"],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "ui",
+          environment: "jsdom",
+          include: ["tests/ui/**/*.test.{ts,tsx}"],
+        },
+      },
+    ],
   },
 });
