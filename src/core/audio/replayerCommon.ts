@@ -64,6 +64,12 @@ export interface Replayer {
 
   /** PT-only: swap the Paula filter model (A500 / A1200). */
   setAmigaModel?(model: import("./paula").AmigaModel): void;
+
+  /** FT2-only: swap the mixer interpolation mode. */
+  setXmInterpolation?(mode: import("./types").XmInterpolation): void;
+
+  /** FT2-only: toggle the anti-click gain ramp. */
+  setXmRamping?(on: boolean): void;
 }
 
 /**

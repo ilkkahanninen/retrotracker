@@ -31,8 +31,17 @@ interface Props {
   title: string;
   /** Pre-filled filename when `mode === "save"`. Ignored for open. */
   initialName?: string;
-  /** Called when the user picks (open) or commits (save). Resource is the source bucket (open) or `saveTo` (save). */
-  onPick: (name: string, resource: BackendResource) => void | Promise<void>;
+  /**
+   * Called when the user picks (open) or commits (save). Resource is the
+   * source bucket (open) or `saveTo` (save). `signal` aborts when the user
+   * dismisses the dialog mid-request: pass it to the fetch and don't apply
+   * the result once it has fired.
+   */
+  onPick: (
+    name: string,
+    resource: BackendResource,
+    signal: AbortSignal,
+  ) => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -69,14 +78,35 @@ export const ServerBrowser: Component<Props> = (props) => {
   );
 
   let dialog: HTMLDivElement | undefined;
+  // While a request is in flight rows can't be picked (a double-click
+  // used to fire the load three times: click, click, dblclick), and
+  // dismissing the dialog CANCELS the request. Closing without cancelling
+  // let the user go back to editing and then have the song replaced under
+  // them when the fetch landed; refusing to close at all left no way out
+  // of a stalled request short of reloading the page.
+  let inFlight: AbortController | null = null;
+  const begin = (): AbortSignal => {
+    inFlight = new AbortController();
+    setBusy(true);
+    setOpError(null);
+    return inFlight.signal;
+  };
+  const close = () => {
+    inFlight?.abort();
+    inFlight = null;
+    props.onClose();
+  };
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === "Escape") props.onClose();
+    if (e.key === "Escape") close();
   };
   onMount(() => {
     window.addEventListener("keydown", onKey);
     queueMicrotask(() => dialog?.focus());
   });
-  onCleanup(() => window.removeEventListener("keydown", onKey));
+  onCleanup(() => {
+    window.removeEventListener("keydown", onKey);
+    inFlight?.abort();
+  });
 
   const commit = async () => {
     const trimmed = name().trim();
@@ -89,11 +119,11 @@ export const ServerBrowser: Component<Props> = (props) => {
       setOpError("Internal: saveTo missing");
       return;
     }
-    setBusy(true);
-    setOpError(null);
+    const signal = begin();
     try {
-      await props.onPick(trimmed, target);
+      await props.onPick(trimmed, target, signal);
     } catch (e) {
+      if (signal.aborted) return;
       setOpError(formatError(e));
       setBusy(false);
       return;
@@ -102,12 +132,13 @@ export const ServerBrowser: Component<Props> = (props) => {
   };
 
   const pickRow = async (entry: BrowserEntry) => {
+    if (busy()) return;
     if (props.mode === "open") {
-      setBusy(true);
-      setOpError(null);
+      const signal = begin();
       try {
-        await props.onPick(entry.name, entry.resource);
+        await props.onPick(entry.name, entry.resource, signal);
       } catch (e) {
+        if (signal.aborted) return;
         setOpError(formatError(e));
         setBusy(false);
       }
@@ -119,15 +150,14 @@ export const ServerBrowser: Component<Props> = (props) => {
   const removeRow = async (entry: BrowserEntry, ev: MouseEvent) => {
     ev.stopPropagation();
     if (!window.confirm(`Delete "${entry.name}" from cloud?`)) return;
-    setBusy(true);
-    setOpError(null);
+    const signal = begin();
     try {
-      await deleteEntry(entry.resource, entry.name);
+      await deleteEntry(entry.resource, entry.name, signal);
       await refetch();
     } catch (e) {
-      setOpError(formatError(e));
+      if (!signal.aborted) setOpError(formatError(e));
     } finally {
-      setBusy(false);
+      if (!signal.aborted) setBusy(false);
     }
   };
 
@@ -139,11 +169,7 @@ export const ServerBrowser: Component<Props> = (props) => {
   };
 
   return (
-    <div
-      class="modal-backdrop"
-      role="presentation"
-      onClick={() => props.onClose()}
-    >
+    <div class="modal-backdrop" role="presentation" onClick={close}>
       <div
         class="modal server-browser"
         role="dialog"
@@ -158,7 +184,7 @@ export const ServerBrowser: Component<Props> = (props) => {
           <button
             type="button"
             class="modal__close"
-            onClick={() => props.onClose()}
+            onClick={close}
             aria-label="Close"
             title="Close (Esc)"
           >
@@ -186,7 +212,6 @@ export const ServerBrowser: Component<Props> = (props) => {
                   role="option"
                   aria-selected={name() === entry.name}
                   onClick={() => void pickRow(entry)}
-                  onDblClick={() => void pickRow(entry)}
                 >
                   <span class="server-browser__name">{entry.name}</span>
                   <span class="server-browser__meta">
@@ -230,12 +255,7 @@ export const ServerBrowser: Component<Props> = (props) => {
           </Show>
 
           <div class="server-browser__actions">
-            <button
-              type="button"
-              class="server-browser__btn"
-              onClick={() => props.onClose()}
-              disabled={busy()}
-            >
+            <button type="button" class="server-browser__btn" onClick={close}>
               Cancel
             </button>
             <Show when={props.mode === "save"}>

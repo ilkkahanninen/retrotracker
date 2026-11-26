@@ -43,6 +43,8 @@ import {
   HEX_KEYS,
   PIANO_KEYS,
   editsAllowed,
+  pianoKeyDown,
+  pianoKeyUp,
 } from "./keybindHelpers";
 
 /**
@@ -120,6 +122,13 @@ const isPt2Mode = () => {
   return !s || s.format === "PT2";
 };
 
+/**
+ * Gate for every binding that moves the pattern cursor or edits pattern /
+ * order data. All views stay mounted, so without the view check these keys
+ * would silently edit the hidden grid from sample / info / settings view.
+ */
+const isPt2Pattern = () => isPt2Mode() && view() === "pattern";
+
 export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   const cleanups: Array<() => void> = [];
 
@@ -147,7 +156,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       key: "a",
       mod: true,
       description: "Select all rows of channel / pattern",
-      when: () => isPt2Mode() && editsAllowed() && view() !== "sample",
+      when: () => isPt2Mode() && editsAllowed() && view() === "pattern",
       run: h.selectAllStep,
     }),
   );
@@ -199,7 +208,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       key: "e",
       mod: true,
       description: "Bounce selection to sample",
-      when: () => editsAllowed() && view() !== "sample",
+      when: () => editsAllowed() && view() === "pattern",
       run: h.bounceSelectionToSample,
     }),
   );
@@ -300,7 +309,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
     registerShortcut({
       key: "arrowleft",
       description: "Cursor left",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: () => h.applyCursor(moveLeft(cursor())),
     }),
   );
@@ -308,7 +317,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
     registerShortcut({
       key: "arrowright",
       description: "Cursor right",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: () => h.applyCursor(moveRight(cursor())),
     }),
   );
@@ -316,7 +325,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
     registerShortcut({
       key: "arrowup",
       description: "Cursor up",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: () => h.applyCursorWithSong(moveUp),
     }),
   );
@@ -324,7 +333,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
     registerShortcut({
       key: "arrowdown",
       description: "Cursor down",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: () => h.applyCursorWithSong(moveDown),
     }),
   );
@@ -332,7 +341,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
     registerShortcut({
       key: "tab",
       description: "Next channel",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: () => h.applyCursor(tabNext(cursor())),
     }),
   );
@@ -341,7 +350,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       key: "tab",
       shift: true,
       description: "Previous channel",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: () => h.applyCursor(tabPrev(cursor())),
     }),
   );
@@ -349,7 +358,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
     registerShortcut({
       key: "pageup",
       description: "Page up",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: () =>
         h.applyCursorWithSong((c, s) =>
           pageUp(c, s, rowsPerBeat() * beatsPerBar()),
@@ -360,7 +369,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
     registerShortcut({
       key: "pagedown",
       description: "Page down",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: () =>
         h.applyCursorWithSong((c, s) =>
           pageDown(c, s, rowsPerBeat() * beatsPerBar()),
@@ -377,7 +386,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   // Shift+arrow selection: PT-mode-only (FT2 hasn't grown a selection model
   // yet — that lands when a Phase 3 follow-up adds clipboard support).
   const shiftSelectionWhen = () =>
-    isPt2Mode() && editsAllowed() && view() !== "sample";
+    isPt2Mode() && editsAllowed() && view() === "pattern";
   cleanups.push(
     registerShortcut({
       key: "arrowleft",
@@ -464,9 +473,14 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
         when: () =>
           isPt2Mode() &&
           editsAllowed() &&
-          (view() === "sample" || cursor().field === "note"),
-        run: () => h.onPianoKey(offset),
+          (view() === "sample" ||
+            (view() === "pattern" && cursor().field === "note")),
+        run: () => {
+          pianoKeyDown(k);
+          h.onPianoKey(offset);
+        },
         runUp: () => {
+          if (!pianoKeyUp(k)) return;
           stopEnginePreview();
           preview.stopPreview();
         },
@@ -482,8 +496,12 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
         shift: true,
         description: `Preview note (offset ${offset})`,
         when: () => isPt2Mode() && editsAllowed(),
-        run: () => h.previewPianoKey(offset),
+        run: () => {
+          pianoKeyDown(k);
+          h.previewPianoKey(offset);
+        },
         runUp: () => {
+          if (!pianoKeyUp(k)) return;
           stopEnginePreview();
           preview.stopPreview();
         },
@@ -502,7 +520,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
         when: () =>
           isPt2Mode() &&
           editsAllowed() &&
-          view() !== "sample" &&
+          view() === "pattern" &&
           isHexField(cursor().field),
         run: () => h.enterHexDigit(val),
       }),
@@ -620,7 +638,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       key: "-",
       shift: true,
       description: "Transpose down 1 semitone",
-      when: () => isPt2Mode() && editsAllowed() && view() !== "sample",
+      when: () => isPt2Mode() && editsAllowed() && view() === "pattern",
       run: () => h.transposeAtCursor(-1),
     }),
   );
@@ -629,7 +647,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       key: "=",
       shift: true,
       description: "Transpose up 1 semitone",
-      when: () => isPt2Mode() && editsAllowed() && view() !== "sample",
+      when: () => isPt2Mode() && editsAllowed() && view() === "pattern",
       run: () => h.transposeAtCursor(1),
     }),
   );
@@ -639,7 +657,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       mod: true,
       shift: true,
       description: "Transpose down 1 octave",
-      when: () => isPt2Mode() && editsAllowed() && view() !== "sample",
+      when: () => isPt2Mode() && editsAllowed() && view() === "pattern",
       run: () => h.transposeAtCursor(-12),
     }),
   );
@@ -649,7 +667,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       mod: true,
       shift: true,
       description: "Transpose up 1 octave",
-      when: () => isPt2Mode() && editsAllowed() && view() !== "sample",
+      when: () => isPt2Mode() && editsAllowed() && view() === "pattern",
       run: () => h.transposeAtCursor(12),
     }),
   );
@@ -674,7 +692,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
     registerShortcut({
       key: ",",
       description: "Repeat last effect from above on this channel",
-      when: () => isPt2Mode() && editsAllowed() && view() !== "sample",
+      when: () => isPt2Mode() && editsAllowed() && view() === "pattern",
       run: h.repeatLastEffectFromAbove,
     }),
   );
@@ -708,7 +726,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       shift: true,
       position: true,
       description: "Previous pattern at slot",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: h.stepPrevPattern,
     }),
   );
@@ -718,7 +736,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       shift: true,
       position: true,
       description: "Next pattern at slot",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: h.stepNextPattern,
     }),
   );
@@ -728,7 +746,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       mod: true,
       position: true,
       description: "Insert order slot",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: h.insertOrderSlot,
     }),
   );
@@ -738,7 +756,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       mod: true,
       position: true,
       description: "Delete order slot",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: h.deleteOrderSlot,
     }),
   );
@@ -748,7 +766,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       alt: true,
       position: true,
       description: "New blank pattern at slot",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: h.newBlankPatternAtOrder,
     }),
   );
@@ -758,7 +776,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       alt: true,
       position: true,
       description: "Duplicate pattern at slot",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: h.duplicateCurrentPattern,
     }),
   );
@@ -766,7 +784,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
     registerShortcut({
       key: ".",
       description: "Clear field under cursor",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: h.clearAtCursor,
     }),
   );
@@ -774,7 +792,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
     registerShortcut({
       key: "backspace",
       description: "Clear selection / clear cell, step up",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: h.backspaceCell,
     }),
   );
@@ -784,7 +802,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       shift: true,
       description:
         "Clear selected rows / clear current row, step up (all channels)",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: h.backspaceRow,
     }),
   );
@@ -792,7 +810,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
     registerShortcut({
       key: "delete",
       description: "Clear selected range",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: h.deleteSelection,
     }),
   );
@@ -800,7 +818,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
     registerShortcut({
       key: "enter",
       description: "Insert empty cell (push channel down)",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: h.insertEmptyCell,
     }),
   );
@@ -809,7 +827,7 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       key: "enter",
       shift: true,
       description: "Insert empty row (push all channels down)",
-      when: isPt2Mode,
+      when: isPt2Pattern,
       run: h.insertEmptyRow,
     }),
   );

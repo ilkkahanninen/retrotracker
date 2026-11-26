@@ -1,10 +1,20 @@
 import { parseModule } from "../core/mod/parser";
 import { writeModule } from "../core/mod/writer";
-import type { ModSong } from "../core/mod/types";
+import {
+  CHANNELS,
+  MAX_ORDERS,
+  ROWS_PER_PATTERN,
+  type ModSong,
+} from "../core/mod/types";
 import type { Song } from "../core/song";
 import { parseXm } from "../core/xm/parser";
 import { writeXm } from "../core/xm/writer";
-import type { XmSong } from "../core/xm/types";
+import {
+  XM_MAX_CHANNELS,
+  XM_MAX_ORDERS,
+  XM_MAX_PATTERN_ROWS,
+  type XmSong,
+} from "../core/xm/types";
 import { FIELDS, type Cursor, type Field } from "./cursor";
 import type { View } from "./view";
 import type { ChiptuneParams } from "../core/audio/chiptune";
@@ -30,6 +40,11 @@ import {
   runChain,
 } from "../core/audio/sampleWorkbench";
 import { SHAPER_MODES, type ShaperMode } from "../core/audio/shapers";
+import {
+  getSourceStore,
+  setSourceStore,
+  type SourceStore,
+} from "./sourceStore";
 
 /**
  * Local-storage session persistence.
@@ -50,8 +65,8 @@ import { SHAPER_MODES, type ShaperMode } from "../core/audio/shapers";
  *   - Sampler sources persist as 16-bit PCM WAV bytes (base64). 16-bit is
  *     well above the int8 PT quantizer downstream, so storing wider buys
  *     no audible quality. They're heavy — large enough that an autosave
- *     can blow the localStorage quota; saveSession swallows that silently
- *     and the user falls back to explicit Save.
+ *     can blow the localStorage quota; saveSession then stores the
+ *     session without them and reports "degraded" so the App can warn.
  *
  * Other things we don't persist:
  *   - History stacks — a fresh session starts with no undo, matching the
@@ -88,9 +103,16 @@ interface PersistedSamplerSource {
    * 16-bit PCM WAV file bytes, base64-encoded. Round-trips through
    * `writeWav` / `readWav` so the format is self-describing — sample rate
    * and channel count are recoverable from the chunk headers without
-   * inventing a parallel JSON shape.
+   * inventing a parallel JSON shape. Present in `.retro` files and in
+   * autosaves written without a source store.
    */
-  wavBase64: string;
+  wavBase64?: string;
+  /**
+   * Autosave only: id of the same WAV bytes in the source store
+   * (IndexedDB — see state/sourceStore.ts). Used instead of `wavBase64`
+   * so the localStorage payload stays small. Never written to `.retro`.
+   */
+  wavRef?: string;
   /** Effect chain in original order. Optional for back-compat. */
   chain?: EffectNode[];
   /** PT transformer params (mono mix + target note). Optional for back-compat. */
@@ -106,7 +128,9 @@ interface PersistedSamplerSource {
  */
 interface PersistedXmSamplerSource {
   sourceName: string;
-  wavBase64: string;
+  /** See `PersistedSamplerSource` — one of the two is present. */
+  wavBase64?: string;
+  wavRef?: string;
   chain?: EffectNode[];
   xm?: XmTransformerParams;
 }
@@ -265,6 +289,15 @@ export interface SessionInputs {
    * enough that duplication doesn't hurt.
    */
   cloudOrigin?: { resource: "projects" | "modules"; name: string } | null;
+  /**
+   * Autosave-with-store only: sources the restored session referenced
+   * whose audio could not be READ this session (the store errored — the
+   * audio itself may be fine). They have no workbench, so they are absent
+   * from `samplerSources` / `xmSamplerSources`; carrying their references
+   * through keeps the next payload pointing at the audio, which in turn
+   * keeps it out of the sweep. A later reload gets another chance.
+   */
+  unreadSources?: readonly PendingSource[];
 }
 
 /** A session that has been read back: same shape as SessionInputs, but
@@ -296,7 +329,35 @@ export type LoadedSession = Omit<
   xmChiptuneSources: Record<string, XmChiptuneSourceInputs>;
   /** Cloud origin if the persisted payload had one, else `null`. */
   cloudOrigin: { resource: "projects" | "modules"; name: string } | null;
+  /**
+   * Sampler sources whose audio lives in the source store rather than
+   * inline. The loader can't fetch them synchronously, so they are
+   * handed back un-resolved; `resolvePendingSources` turns them into
+   * the same shape as `samplerSources` / `xmSamplerSources`. Always
+   * empty for `.retro` files.
+   */
+  pendingSources: PendingSource[];
 };
+
+/** One sampler source awaiting its audio from the source store. */
+export type PendingSource =
+  | {
+      kind: "pt";
+      slot: number;
+      ref: string;
+      sourceName: string;
+      /** Parsed but not yet sentinel-fixed — that needs the audio. */
+      chain: EffectNode[];
+      pt: PtTransformerParams;
+    }
+  | {
+      kind: "xm";
+      key: string;
+      ref: string;
+      sourceName: string;
+      chain: EffectNode[];
+      xm: XmTransformerParams;
+    };
 
 function bytesToBase64(bytes: Uint8Array): string {
   // The CharCode-loop / btoa pair is the smallest reliable Uint8Array→base64
@@ -350,7 +411,12 @@ function encodeSongCached(song: Song): string {
 /** Build the on-the-wire payload — song goes through writeModule + base64
  *  so we re-use the lossless M.K. binary instead of inventing a JSON shape
  *  for the sample data.  Throws if `writeModule` rejects the song. */
-function buildPayload(state: SessionInputs): PersistedShape {
+function buildPayload(
+  state: SessionInputs,
+  /** When given, sampler audio is written as a store reference instead
+   *  of inline base64. Autosave-with-store only. */
+  refFor?: (wav: WavData) => string,
+): PersistedShape {
   const hasChiptune =
     !!state.chiptuneSources && Object.keys(state.chiptuneSources).length > 0;
   const hasSampler =
@@ -416,7 +482,9 @@ function buildPayload(state: SessionInputs): PersistedShape {
     editStep: state.editStep,
     ...(hasChiptune ? { chiptuneSources: state.chiptuneSources } : {}),
     ...(hasSampler
-      ? { samplerSources: encodeSamplerSources(state.samplerSources!) }
+      ? {
+          samplerSources: encodeSamplerSources(state.samplerSources!, refFor),
+        }
       : {}),
     ...(hasPatternNames ? { patternNames: state.patternNames } : {}),
     ...(hasMute
@@ -426,7 +494,12 @@ function buildPayload(state: SessionInputs): PersistedShape {
         }
       : {}),
     ...(hasXmSampler
-      ? { xmSamplerSources: encodeXmSamplerSources(state.xmSamplerSources!) }
+      ? {
+          xmSamplerSources: encodeXmSamplerSources(
+            state.xmSamplerSources!,
+            refFor,
+          ),
+        }
       : {}),
     ...(hasXmChiptune
       ? { xmChiptuneSources: encodeXmChiptuneSources(state.xmChiptuneSources!) }
@@ -435,11 +508,38 @@ function buildPayload(state: SessionInputs): PersistedShape {
   };
 }
 
-/** Coerce a possibly-undefined mute/solo array to a 4-element boolean
- *  array. Used at write time so the payload never contains stray
- *  undefineds; parsers do the same on read for symmetry. */
+/** Coerce a possibly-undefined mute/solo array to a clean boolean array.
+ *  At least 4 entries (the PT shape older readers expect), and as many
+ *  as the input carries up to the FT2 channel cap — a fixed 4 used to
+ *  drop the flags of channels 5+ on every FT2 save. Used at write time
+ *  so the payload never contains stray undefineds; parsers do the same
+ *  on read for symmetry. */
 function muteSnapshot(xs: readonly boolean[] | undefined): boolean[] {
-  return Array.from({ length: 4 }, (_, i) => xs?.[i] === true);
+  const n = Array.isArray(xs) ? xs.length : 0;
+  const length = Math.max(CHANNELS, Math.min(XM_MAX_CHANNELS, n));
+  return Array.from({ length }, (_, i) => xs?.[i] === true);
+}
+
+/**
+ * Base64 of each sampler source's 16-bit WAV encoding, keyed by the
+ * `WavData` object. Source audio is by far the largest part of a
+ * project, and both the header's size estimate (recomputed on every
+ * song / workbench change) and the autosave re-encoded ALL of it each
+ * time — ~130 ms per keystroke with one 30-second stereo source.
+ *
+ * Keying by reference is sound for the same reason `encodeSongCached`
+ * is: a workbench source's `WavData` is never mutated in place — every
+ * op that changes the audio (load, paste, apply-chain) builds a new one.
+ * WeakMap, so an entry dies with its source.
+ */
+const wavBase64Cache = new WeakMap<WavData, string>();
+
+function encodeWavCached(wav: WavData): string {
+  const hit = wavBase64Cache.get(wav);
+  if (hit !== undefined) return hit;
+  const b64 = bytesToBase64(writeWav(wav, { bitsPerSample: 16 }));
+  wavBase64Cache.set(wav, b64);
+  return b64;
 }
 
 /** Encode each sampler source's WavData as 16-bit PCM bytes → base64,
@@ -447,12 +547,15 @@ function muteSnapshot(xs: readonly boolean[] | undefined): boolean[] {
  *  (numeric strings) so the JSON map parses back symmetrically. */
 function encodeSamplerSources(
   src: Record<number, SamplerSourceInputs>,
+  refFor?: (wav: WavData) => string,
 ): Record<number, PersistedSamplerSource> {
   const out: Record<number, PersistedSamplerSource> = {};
   for (const [k, v] of Object.entries(src)) {
     out[Number(k)] = {
       sourceName: v.sourceName,
-      wavBase64: bytesToBase64(writeWav(v.wav, { bitsPerSample: 16 })),
+      ...(refFor
+        ? { wavRef: refFor(v.wav) }
+        : { wavBase64: encodeWavCached(v.wav) }),
       ...(v.chain.length > 0 ? { chain: v.chain } : {}),
       pt: v.pt,
     };
@@ -465,12 +568,15 @@ function encodeSamplerSources(
  *  trip per-sample. */
 function encodeXmSamplerSources(
   src: Record<string, XmSamplerSourceInputs>,
+  refFor?: (wav: WavData) => string,
 ): Record<string, PersistedXmSamplerSource> {
   const out: Record<string, PersistedXmSamplerSource> = {};
   for (const [k, v] of Object.entries(src)) {
     out[k] = {
       sourceName: v.sourceName,
-      wavBase64: bytesToBase64(writeWav(v.wav, { bitsPerSample: 16 })),
+      ...(refFor
+        ? { wavRef: refFor(v.wav) }
+        : { wavBase64: encodeWavCached(v.wav) }),
       ...(v.chain.length > 0 ? { chain: v.chain } : {}),
       xm: v.xm,
     };
@@ -524,7 +630,7 @@ function payloadToSession(parsed: unknown): LoadedSession | null {
           : parsed.view === "settings"
             ? "settings"
             : "pattern",
-    cursor: sanitiseCursor(parsed.cursor),
+    cursor: sanitiseCursor(parsed.cursor, format),
     currentSample: clamp(parsed.currentSample, 1, 31, 1),
     currentOctave: clamp(parsed.currentOctave, 1, 3, 2),
     editStep: clamp(parsed.editStep, 0, 16, 1),
@@ -538,7 +644,59 @@ function payloadToSession(parsed: unknown): LoadedSession | null {
     xmSamplerSources: parseXmSamplerSources(parsed.xmSamplerSources),
     xmChiptuneSources: parseXmChiptuneSources(parsed.xmChiptuneSources),
     cloudOrigin: parseCloudOrigin(parsed.cloudOrigin),
+    pendingSources: [
+      ...parsePendingSources(parsed.samplerSources, "pt"),
+      ...parsePendingSources(parsed.xmSamplerSources, "xm"),
+    ],
   };
+}
+
+/** Ids we hand out are UUIDs; accept anything of that general shape so a
+ *  hand-edited payload can't smuggle an odd key into the store lookup. */
+const SOURCE_REF_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * Collect the entries of a sampler-source map that reference the source
+ * store (`wavRef`) instead of carrying audio inline. Inline entries are
+ * handled by `parseSamplerSources` / `parseXmSamplerSources`; an entry
+ * with both is treated as inline. Validation mirrors those parsers.
+ */
+function parsePendingSources(raw: unknown, kind: "pt" | "xm"): PendingSource[] {
+  if (!raw || typeof raw !== "object") return [];
+  const out: PendingSource[] = [];
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!v || typeof v !== "object") continue;
+    const entry = v as Record<string, unknown>;
+    if (typeof entry["wavBase64"] === "string" && entry["wavBase64"]) continue;
+    const ref = entry["wavRef"];
+    if (typeof ref !== "string" || !SOURCE_REF_RE.test(ref)) continue;
+    const sourceName =
+      typeof entry["sourceName"] === "string" ? entry["sourceName"] : "";
+    const chain = parseEffectChain(entry["chain"]);
+    if (kind === "pt") {
+      const slot = parseInt(k, 10);
+      if (!Number.isFinite(slot) || slot < 0 || slot > 30) continue;
+      out.push({
+        kind,
+        slot,
+        ref,
+        sourceName,
+        chain,
+        pt: parsePtParams(entry["pt"]),
+      });
+    } else {
+      if (!isXmWorkbenchKey(k)) continue;
+      out.push({
+        kind,
+        key: k,
+        ref,
+        sourceName,
+        chain,
+        xm: parseXmTransformer(entry["xm"]),
+      });
+    }
+  }
+  return out;
 }
 
 /** Defensive cast for the persisted `cloudOrigin` field — rejects anything
@@ -1080,20 +1238,326 @@ function parsePatternNames(raw: unknown): Record<number, string> {
   return out;
 }
 
-/** Persist the inputs to localStorage. Silent on quota / SecurityErrors. */
-export function saveSession(state: SessionInputs): void {
-  let payload: PersistedShape;
+/**
+ * Result of an autosave attempt:
+ *   - "ok": the full session (including sampler source audio) was stored.
+ *   - "degraded": the full payload didn't fit the storage quota, so the
+ *     session was stored WITHOUT sampler source audio. The song bytes still
+ *     carry every slot's rendered sample, so a reload restores the current
+ *     song — but those slots come back without their workbench (source +
+ *     effect chain).
+ *   - "failed": nothing could be stored. Whatever an earlier successful
+ *     save left under the key is still there, so a reload would roll back
+ *     to it — the caller must tell the user.
+ */
+export type SaveOutcome = "ok" | "degraded" | "failed";
+
+/**
+ * Persist the inputs to localStorage and report how it went.
+ *
+ * Sampler sources are full-resolution WAVs and routinely exceed the
+ * ~5 MB quota. A plain "swallow the error" policy left the PREVIOUS
+ * session under the key, so a reload silently rolled the user back to
+ * whatever state last fit. Instead we retry without the source audio,
+ * which keeps the persisted song current, and surface the outcome.
+ */
+export function saveSession(state: SessionInputs): SaveOutcome {
+  let json: string;
   try {
-    payload = buildPayload(state);
+    json = JSON.stringify(buildPayload(state));
   } catch {
+    return "failed";
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, json);
+    return "ok";
+  } catch {
+    // Quota exceeded, private browsing, etc. — fall through to the
+    // reduced payload.
+  }
+  const hasSources =
+    (!!state.samplerSources && Object.keys(state.samplerSources).length > 0) ||
+    (!!state.xmSamplerSources &&
+      Object.keys(state.xmSamplerSources).length > 0);
+  if (!hasSources) return "failed";
+  try {
+    const lite = buildPayload({
+      ...state,
+      samplerSources: undefined,
+      xmSamplerSources: undefined,
+    });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(lite));
+    return "degraded";
+  } catch {
+    return "failed";
+  }
+}
+
+// ── Source store (IndexedDB) ──────────────────────────────────────────────
+//
+// With a source store, sampler audio is written there and the localStorage
+// payload carries only ids. See state/sourceStore.ts for why.
+
+/**
+ * Store id of each `WavData` we have seen. Assigned on first save, and on
+ * restore (so audio that came out of the store isn't written back under
+ * a new id). Keyed by reference — a source's `WavData` is never mutated
+ * in place, so a changed source is a new object and gets a new id.
+ */
+const sourceIds = new WeakMap<WavData, string>();
+
+function newSourceId(): string {
+  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  return `s${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+}
+
+function sourceIdFor(wav: WavData): string {
+  let id = sourceIds.get(wav);
+  if (!id) {
+    id = newSourceId();
+    sourceIds.set(wav, id);
+  }
+  return id;
+}
+
+/**
+ * Persist the session with sampler audio in `store`.
+ *
+ * Order matters: the audio is committed to the store BEFORE the
+ * localStorage payload that references it is written, so a reload can
+ * never find a reference without its audio. Afterwards, ids the new
+ * payload doesn't reference are deleted — there is one autosave slot, so
+ * anything else is garbage from replaced or removed sources.
+ *
+ * Rejects if the store fails (the caller falls back to `saveSession`).
+ * Resolves "failed" if the audio is safe but the song payload itself
+ * doesn't fit in localStorage.
+ */
+export async function saveSessionWithStore(
+  state: SessionInputs,
+  store: SourceStore,
+): Promise<SaveOutcome> {
+  const wavs: WavData[] = [
+    ...Object.values(state.samplerSources ?? {}),
+    ...Object.values(state.xmSamplerSources ?? {}),
+  ].map((src) => src.wav);
+
+  // Ask the store what it holds rather than remembering: another tab
+  // sharing the autosave slot may have collected our audio.
+  const present = new Set(await store.keys());
+  const referenced = new Set<string>();
+  for (const wav of wavs) {
+    const id = sourceIdFor(wav);
+    referenced.add(id);
+    if (present.has(id)) continue;
+    await store.put(id, writeWav(wav, { bitsPerSample: 16 }));
+    present.add(id);
+  }
+
+  let json: string;
+  try {
+    const payload = buildPayload(state, sourceIdFor);
+    for (const ref of carryUnreadSources(payload, state.unreadSources)) {
+      referenced.add(ref);
+    }
+    json = JSON.stringify(payload);
+  } catch {
+    return "failed";
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, json);
+  } catch {
+    return "failed";
+  }
+
+  const garbage = [...present].filter((id) => !referenced.has(id));
+  // Best-effort: a failed sweep only leaves unreferenced audio behind.
+  await store.delete(garbage).catch(() => {});
+  return "ok";
+}
+
+/**
+ * Write still-unread source references back into `payload`, for slots the
+ * payload has no source for. Returns the ids now referenced.
+ */
+function carryUnreadSources(
+  payload: PersistedShape,
+  unread: readonly PendingSource[] | undefined,
+): string[] {
+  const refs: string[] = [];
+  for (const p of unread ?? []) {
+    const chain = p.chain.length > 0 ? { chain: p.chain } : {};
+    if (p.kind === "pt") {
+      if (payload.format !== "PT2") continue;
+      const map = (payload.samplerSources ??= {});
+      if (map[p.slot]) continue;
+      map[p.slot] = {
+        sourceName: p.sourceName,
+        wavRef: p.ref,
+        ...chain,
+        pt: p.pt,
+      };
+    } else {
+      if (payload.format !== "FT2") continue;
+      const map = (payload.xmSamplerSources ??= {});
+      if (map[p.key]) continue;
+      map[p.key] = {
+        sourceName: p.sourceName,
+        wavRef: p.ref,
+        ...chain,
+        xm: p.xm,
+      };
+    }
+    refs.push(p.ref);
+  }
+  return refs;
+}
+
+/**
+ * Fetch the audio for sources a restored session referenced by id, and
+ * return them in the same shape as inline sources. Entries whose audio
+ * is missing or undecodable are dropped — the slot still plays from the
+ * song bytes, it just comes back without its workbench.
+ *
+ * Entries whose read FAILED (the store rejected) are returned in
+ * `unread` instead: the audio may well be intact, so the caller must keep
+ * referencing it (`SessionInputs.unreadSources`) rather than let the next
+ * autosave sweep it.
+ */
+export async function resolvePendingSources(
+  pending: readonly PendingSource[],
+  store: SourceStore,
+): Promise<{
+  samplerSources: Record<number, SamplerSourceInputs>;
+  xmSamplerSources: Record<string, XmSamplerSourceInputs>;
+  unread: PendingSource[];
+}> {
+  const samplerSources: Record<number, SamplerSourceInputs> = {};
+  const xmSamplerSources: Record<string, XmSamplerSourceInputs> = {};
+  const unread: PendingSource[] = [];
+  const failedRefs = new Set<string>();
+  // Several slots can share one source (duplicated samples): fetch and
+  // decode each id once so they keep sharing a single `WavData`.
+  const decoded = new Map<string, WavData | null>();
+  for (const p of pending) {
+    let wav = decoded.get(p.ref);
+    if (wav === undefined) {
+      wav = null;
+      let bytes: Uint8Array | null | undefined;
+      try {
+        bytes = await readSourceWithRetry(store, p.ref);
+      } catch {
+        failedRefs.add(p.ref);
+      }
+      if (bytes) {
+        try {
+          wav = readWav(bytes);
+          sourceIds.set(wav, p.ref);
+        } catch {
+          // Stored bytes are corrupt — nothing worth keeping.
+          wav = null;
+        }
+      }
+      decoded.set(p.ref, wav);
+    }
+    if (!wav) {
+      if (failedRefs.has(p.ref)) unread.push(p);
+      continue;
+    }
+    const chain = fixupSentinelFrames(p.chain, wav, p.sourceName);
+    if (p.kind === "pt") {
+      samplerSources[p.slot] = {
+        sourceName: p.sourceName,
+        wav,
+        chain,
+        pt: p.pt,
+      };
+    } else {
+      xmSamplerSources[p.key] = {
+        sourceName: p.sourceName,
+        wav,
+        chain,
+        xm: p.xm,
+      };
+    }
+  }
+  return { samplerSources, xmSamplerSources, unread };
+}
+
+/** One retry: the usual failure is a transient transaction abort. */
+async function readSourceWithRetry(
+  store: SourceStore,
+  id: string,
+): ReturnType<SourceStore["get"]> {
+  try {
+    return await store.get(id);
+  } catch {
+    return await store.get(id);
+  }
+}
+
+/**
+ * Autosave entry point: use the source store when there is one, and fall
+ * back to the inline `saveSession` when there isn't or it fails.
+ */
+export async function saveSessionAuto(
+  state: SessionInputs,
+): Promise<SaveOutcome> {
+  const store = getSourceStore();
+  if (!store) return saveSession(state);
+  try {
+    return await saveSessionWithStore(state, store);
+  } catch {
+    // IndexedDB is unusable (private window, blocked, quota). Stop using
+    // it for this session so every later save doesn't pay for a failure.
+    setSourceStore(null);
+    return saveSession(state);
+  }
+}
+
+let saveRunning = false;
+let saveQueued: SessionInputs | null = null;
+
+/**
+ * Run autosaves one at a time. A store-backed save is asynchronous, and
+ * two overlapping ones could interleave their "write audio, write
+ * payload, sweep garbage" steps — the earlier sweep deleting audio the
+ * later payload references. While one is in flight only the most recent
+ * request is kept; older ones are superseded.
+ *
+ * A save (or its `onOutcome`) that throws must not strand the queued
+ * request: left behind, it would be written AFTER the next, newer call's
+ * state and roll the stored session back. So the queue is always drained
+ * — the queued request is newer than the one that threw — and the first
+ * error is rethrown once it is empty.
+ */
+export async function queueSessionSave(
+  state: SessionInputs,
+  onOutcome: (outcome: SaveOutcome) => void,
+): Promise<void> {
+  if (saveRunning) {
+    saveQueued = state;
     return;
   }
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  } catch {
-    // Quota exceeded, private browsing, etc. — silent. Persistence is a
-    // best-effort convenience; the user explicitly Save-As'es to keep work.
+  saveRunning = true;
+  let failed = false;
+  let firstError: unknown;
+  let next: SessionInputs | null = state;
+  while (next) {
+    try {
+      onOutcome(await saveSessionAuto(next));
+    } catch (err) {
+      if (!failed) {
+        failed = true;
+        firstError = err;
+      }
+    }
+    next = saveQueued;
+    saveQueued = null;
   }
+  saveRunning = false;
+  if (failed) throw firstError;
 }
 
 /** Restore a previously saved session, or null if none / corrupt. */
@@ -1156,15 +1620,15 @@ export function projectFromBytes(bytes: Uint8Array): LoadedSession | null {
 /**
  * Pick a download filename for a `.retro` project. Same heuristic as
  * `deriveExportFilename` (loaded name → song title → "untitled"), but
- * strips both `.mod` and `.retro` extensions on the way in so a user
- * doesn't end up with `Demo.mod.retro`.
+ * strips the `.mod` / `.xm` / `.retro` extension on the way in so a user
+ * doesn't end up with `Demo.mod.retro` or `Demo.xm.retro`.
  */
 export function deriveProjectFilename(
   loadedName: string | null,
   songTitle: string,
 ): string {
   const base = loadedName
-    ? loadedName.replace(/\.(mod|retro)$/i, "")
+    ? loadedName.replace(/\.(mod|xm|retro)$/i, "")
     : songTitle.trim();
   const sanitised = base.replace(/[^\w.\- ]+/g, "_").replace(/\s+/g, "_");
   const trimmed = sanitised.slice(0, 64);
@@ -1206,14 +1670,19 @@ function isPersistedShape(v: unknown): v is PersistedShape {
   );
 }
 
-function sanitiseCursor(c: Cursor): Cursor {
+/** Clamp a persisted cursor to the FORMAT's limits. The loader then
+ *  clamps against the actual song (`reconcileUiToSong`). PT's fixed
+ *  64 × 4 grid used to be applied to FT2 too, snapping the cursor back
+ *  on any pattern longer than 64 rows or wider than 4 channels. */
+function sanitiseCursor(c: Cursor, format: "PT2" | "FT2"): Cursor {
   const field: Field = (FIELDS as readonly string[]).includes(c.field)
     ? c.field
     : "note";
+  const ft2 = format === "FT2";
   return {
-    order: clamp(c.order, 0, 127, 0),
-    row: clamp(c.row, 0, 63, 0),
-    channel: clamp(c.channel, 0, 3, 0),
+    order: clamp(c.order, 0, (ft2 ? XM_MAX_ORDERS : MAX_ORDERS) - 1, 0),
+    row: clamp(c.row, 0, (ft2 ? XM_MAX_PATTERN_ROWS : ROWS_PER_PATTERN) - 1, 0),
+    channel: clamp(c.channel, 0, (ft2 ? XM_MAX_CHANNELS : CHANNELS) - 1, 0),
     field,
   };
 }

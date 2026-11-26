@@ -69,3 +69,28 @@ import { settings } from "./settings";
 export function editsAllowed(): boolean {
   return transport() !== "playing" || !settings().followPlayback;
 }
+
+/**
+ * The audition voice is monophonic: a newer piano key takes it over from
+ * an older one. Releasing the OLDER key must then leave the newer note
+ * alone — it used to stop the voice (and, on the first audition after
+ * page load, cancel the newer note before the engine had even started
+ * it) while the key that owned it was still held.
+ */
+let heldPianoKey: string | null = null;
+
+/** Record `key` as the piano key that now owns the audition voice. */
+export function pianoKeyDown(key: string): void {
+  heldPianoKey = key;
+}
+
+/**
+ * Whether releasing `key` should stop the audition. False only when a
+ * different, newer key owns the voice; an untracked release still stops,
+ * so nothing can be left droning.
+ */
+export function pianoKeyUp(key: string): boolean {
+  if (heldPianoKey !== null && heldPianoKey !== key) return false;
+  heldPianoKey = null;
+  return true;
+}

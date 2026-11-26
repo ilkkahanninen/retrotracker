@@ -1,9 +1,10 @@
 import type { Component } from "solid-js";
-import type { ModSong } from "../core/mod/types";
+import type { Song } from "../core/song";
 import { INFO_MAX_LINES } from "../state/info";
 
 interface Props {
-  song: ModSong;
+  /** PT2 or FT2 — both carry a 20-character title in the file header. */
+  song: Song;
   filename: string | null;
   infoText: string;
   onTitleChange: (title: string) => void;
@@ -12,8 +13,9 @@ interface Props {
 }
 
 /**
- * ModSong-level metadata editor. Edits to the title round-trip through
- * `commitEditWithWorkbenches` so they participate in undo/redo and stay
+ * Song-level metadata editor, shared by PT2 and FT2 projects. Edits to
+ * the title round-trip through the format's commit path (the host picks
+ * it) so they participate in undo/redo and stay
  * live during playback; filename and info text are session signals
  * (persisted in `.retro` projects, not in the `.mod` directly — info
  * text is only stamped onto sample names at export time by the caller).
@@ -26,7 +28,7 @@ export const InfoView: Component<Props> = (props) => {
       <h2>Info</h2>
 
       <label class="infoview__field">
-        <span class="infoview__label">ModSong title</span>
+        <span class="infoview__label">Song title</span>
         <input
           type="text"
           class="infoview__input"
@@ -36,7 +38,8 @@ export const InfoView: Component<Props> = (props) => {
           spellcheck={false}
         />
         <span class="infoview__hint">
-          Stored in the .mod header (20 chars, ASCII).
+          Stored in the {props.song.format === "FT2" ? ".xm" : ".mod"} header
+          (20 chars, ASCII).
         </span>
       </label>
 
@@ -64,6 +67,11 @@ export const InfoView: Component<Props> = (props) => {
           onInput={(e) => props.onInfoTextChange(e.currentTarget.value)}
           spellcheck={false}
         />
+        <span class="infoview__hint">
+          {props.song.format === "FT2"
+            ? "Saved with the .retro project only — not written into the exported .xm."
+            : "Saved with the .retro project; stamped onto the sample names when exporting .mod."}
+        </span>
       </label>
     </section>
   );

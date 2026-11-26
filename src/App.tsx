@@ -30,12 +30,6 @@ import { SlotList, type SlotDisplay } from "./components/SlotList";
 import { SettingsView } from "./components/SettingsView";
 import { bounceSelection } from "./core/audio/bounce";
 import type { ChiptuneParams } from "./core/audio/chiptune";
-import {
-  workbenchFromChiptune,
-  workbenchFromWavData,
-  xmWorkbenchFromChiptune,
-  xmWorkbenchFromWav,
-} from "./core/audio/sampleWorkbench";
 import { emptySong } from "./core/mod/format";
 import { writeModule } from "./core/mod/writer";
 import { registerAppKeybinds } from "./state/appKeybinds";
@@ -79,6 +73,7 @@ import {
   jumpPrevOrder,
   jumpToOrder,
   newBlankPatternAtOrder,
+  renamePattern,
   stepNextPattern,
   stepPrevPattern,
 } from "./state/orderEdit";
@@ -124,8 +119,13 @@ import {
   writeWorkbenchToSongPure,
 } from "./state/sampleEdit";
 import {
+  applyLoadedSession,
   chiptuneSourcesSnapshot,
   cloudOrigin,
+  cursorForPersistence,
+  hydrateRestoredSources,
+  hydratingSources,
+  unreadSourcesSnapshot,
   xmChiptuneSourcesSnapshot,
   xmSamplerSourcesSnapshot,
   error,
@@ -172,14 +172,11 @@ import {
   ServerBrowser,
   type ServerBrowserMode,
 } from "./components/ServerBrowser";
-import {
-  mutedChannels,
-  setChannelMuteState,
-  soloedChannels,
-} from "./state/channelMute";
-import { clipboardSlice } from "./state/clipboard";
+import { mutedChannels, soloedChannels } from "./state/channelMute";
+import { clipboardSlice, xmClipboardSlice } from "./state/clipboard";
 import { sampleClipboard } from "./state/sampleClipboard";
-import { cursor, requestJumpToTop, setCursor } from "./state/cursor";
+import { xmSampleClipboard } from "./state/xmSampleClipboard";
+import { cursor, requestJumpToTop } from "./state/cursor";
 import { speedTempoAt } from "./core/mod/flatten";
 import {
   currentOctave,
@@ -188,9 +185,6 @@ import {
   editStep,
   incEditStep,
   selectSample,
-  setCurrentOctave,
-  setCurrentSample,
-  setEditStep,
 } from "./state/edit";
 import {
   currentXmInstrument,
@@ -198,6 +192,14 @@ import {
   selectXmInstrument,
 } from "./state/xmEdit";
 import { setXmSampleSelection } from "./state/xmSampleSelection";
+import {
+  deleteXmOrderSlot,
+  duplicateXmCurrentPattern,
+  insertXmOrderSlot,
+  newXmBlankPatternAtOrder,
+  stepXmNextPattern,
+  stepXmPrevPattern,
+} from "./state/xmOrderEdit";
 import { renameXmInstrument } from "./state/xmInstrumentEdit";
 import { xmCursor } from "./state/cursorXm";
 import {
@@ -216,25 +218,22 @@ import {
 } from "./core/xm/types";
 import { SAMPLE_NAME_MAX } from "./core/mod/sampleImport";
 import { infoText, setInfoText } from "./state/info";
+import { PATTERN_NAME_MAX, patternNames } from "./state/patternNames";
 import {
-  PATTERN_NAME_MAX,
-  loadPatternNames,
-  patternNames,
-  setPatternName,
-} from "./state/patternNames";
-import { loadSession, projectToBytes, saveSession } from "./state/persistence";
+  loadSession,
+  projectToBytes,
+  queueSessionSave,
+  type SaveOutcome,
+} from "./state/persistence";
+import { sourceStoreAvailable } from "./state/sourceStore";
 import {
   disposeEngine,
   jumpPlaybackToOrder,
   toggleTransport,
 } from "./state/playback";
 import * as preview from "./state/preview";
-import {
-  setWorkbench,
-  withWorkbench,
-  workbenches,
-} from "./state/sampleWorkbench";
-import { setXmWorkbench, xmWorkbenches } from "./state/xmSampleWorkbench";
+import { withWorkbench, workbenches } from "./state/sampleWorkbench";
+import { xmWorkbenches } from "./state/xmSampleWorkbench";
 import { selection } from "./state/selection";
 import {
   settings,
@@ -248,10 +247,12 @@ import {
   canUndo,
   commitEdit,
   commitEditWithWorkbenches,
+  commitEditXmWithWorkbenches,
+  dirty,
   playPos,
   pt2Song,
   redo,
-  setPlayPos,
+  setDirty,
   setSong,
   setTransport,
   song,
@@ -286,6 +287,17 @@ export const App: Component = () => {
     title: string;
   } | null>(null);
   const [shareModalOpen, setShareModalOpen] = createSignal(false);
+  // Autosave health. `autosaveOutcome` is the last result; the warning
+  // banner shows whenever it isn't "ok" and re-appears (after a dismiss)
+  // only when the outcome changes, so it informs without nagging on
+  // every debounced save.
+  const [autosaveOutcome, setAutosaveOutcome] = createSignal<SaveOutcome>("ok");
+  const [autosaveWarningDismissed, setAutosaveWarningDismissed] =
+    createSignal(false);
+  const recordAutosaveOutcome = (outcome: SaveOutcome) => {
+    if (outcome !== autosaveOutcome()) setAutosaveWarningDismissed(false);
+    setAutosaveOutcome(outcome);
+  };
 
   const USER_MANUAL_URL =
     "https://github.com/ilkkahanninen/retrotracker/blob/main/docs/user-manual.md";
@@ -301,7 +313,7 @@ export const App: Component = () => {
 
   const commitPatternRename = (patternIdx: number, raw: string) => {
     setEditingOrderIdx(null);
-    setPatternName(patternIdx, raw);
+    renamePattern(patternIdx, raw);
   };
 
   // Cmd+C / Cmd+X / Cmd+V dispatch by active view: pattern view → the
@@ -387,9 +399,18 @@ export const App: Component = () => {
   const openFromCloud = async (
     resource: BackendResource,
     name: string,
+    signal?: AbortSignal,
   ): Promise<void> => {
-    const bytes = await getBytes(resource, name);
-    await loadServerBytes(bytes, name.split("/").pop()!);
+    const bytes = await getBytes(resource, name, signal);
+    // Dialog dismissed while the bytes were on their way: the user went
+    // back to their song, so leave it alone.
+    if (signal?.aborted) return;
+    const loaded = await loadServerBytes(bytes, name.split("/").pop()!);
+    setServerBrowser(null);
+    // Rejected file: the previous song is still open, so its cloud origin
+    // must stay as it was — otherwise "Share this song…" would share the
+    // file that failed to load. The reason is shown in the error banner.
+    if (!loaded) return;
     // Track cloud origin for share-enabled buckets only. Samples
     // aren't shareable, so don't pretend the loaded song has a
     // shareable origin even if it came from the samples bucket
@@ -399,7 +420,6 @@ export const App: Component = () => {
     } else {
       setCloudOrigin(null);
     }
-    setServerBrowser(null);
   };
 
   /**
@@ -407,12 +427,21 @@ export const App: Component = () => {
    * (chiptune sources, workbenches, view, cursor, …) matches the
    * Save-to-computer path byte-for-byte.
    */
-  const saveProjectToCloud = async (name: string): Promise<void> => {
+  const saveProjectToCloud = async (
+    name: string,
+    signal?: AbortSignal,
+  ): Promise<void> => {
     const bytes = projectBytes();
     if (!bytes) return;
-    await putBytes("projects", name, bytes);
+    await putBytes("projects", name, bytes, signal);
+    // Cancelled as it completed: the dialog is gone and the user was told
+    // nothing was saved, so don't mark the song clean.
+    if (signal?.aborted) return;
     // The user now owns a cloud copy — enable the "Share" menu item.
     setCloudOrigin({ resource: "projects", name });
+    // Saved — same as Save to computer, so File → New doesn't ask to
+    // discard changes that were just stored.
+    setDirty(false);
     setServerBrowser(null);
   };
 
@@ -456,15 +485,25 @@ export const App: Component = () => {
     );
   };
 
-  /** Parse `"inst:sampleIdx"` (the in-memory XM workbench key shape)
-   *  into a tuple, returning `[null, 0]` when the key is malformed. */
-  const parseXmKey = (k: string): [number | null, number] => {
-    const parts = k.split(":");
-    if (parts.length !== 2) return [null, 0];
-    const inst = parseInt(parts[0]!, 10);
-    const idx = parseInt(parts[1]!, 10);
-    if (!Number.isFinite(inst) || !Number.isFinite(idx)) return [null, 0];
-    return [inst, idx];
+  /** Info-view title edit, routed to the loaded format's commit path so
+   *  it is undoable for both PT2 and FT2 songs. Both headers hold 20 chars. */
+  const commitSongTitle = (raw: string) => {
+    const title = raw.slice(0, 20);
+    if (xm2Song()) {
+      // Ungated, like the PT path below: the title stays editable while
+      // playing with Follow on. `commitEditXm` would drop the edit there.
+      commitEditXmWithWorkbenches((state) =>
+        state.song.title === title
+          ? state
+          : { ...state, song: { ...state.song, title } },
+      );
+      return;
+    }
+    commitEditWithWorkbenches((state) =>
+      state.song.title === title
+        ? state
+        : { ...state, song: { ...state.song, title } },
+    );
   };
 
   const cleanups: Array<() => void> = [];
@@ -477,7 +516,17 @@ export const App: Component = () => {
     // independently of `probeBackend` because the share GET endpoint
     // is anonymous — we don't have to wait for the auth probe before
     // fetching. URL is stripped immediately so reload doesn't refetch.
-    void detectAndLoadShareLink();
+    // If the editor holds work by the time the bytes arrive — a session
+    // restored from autosave just below, or edits made meanwhile — ask
+    // before replacing it. A fresh visitor with nothing to lose isn't
+    // prompted.
+    let restoredFromAutosave = false;
+    void detectAndLoadShareLink((sharedName) => {
+      if (!restoredFromAutosave && !dirty()) return true;
+      return window.confirm(
+        `Open the shared song "${sharedName}"?\n\nIt replaces the song currently in the editor, including its autosaved copy. Cancel to keep your song; you can open the link again later.`,
+      );
+    });
 
     // After the OIDC callback redirects to "/?auth=ok", refresh the
     // auth signals and strip the query so a page reload doesn't loop.
@@ -493,66 +542,26 @@ export const App: Component = () => {
       }
     }
     // Sampler workbenches restore only when the previous session fit in
-    // localStorage's quota — saveSession silently drops the write when
-    // it doesn't, in which case the slot's int8 still plays from the
-    // song bytes but the pipeline UI starts fresh.
+    // localStorage's quota — otherwise saveSession stored the session
+    // without source audio (and the autosave banner said so), in which
+    // case the slot's int8 still plays from the song bytes but the
+    // pipeline UI starts fresh.
     if (!song()) {
       const restored = loadSession();
       if (restored) {
-        setSong(restored.song);
-        setFilename(restored.filename);
-        setInfoText(restored.infoText);
-        setView(restored.view);
-        setCursor(restored.cursor);
-        setPlayPos({ order: restored.cursor.order, row: restored.cursor.row });
-        setCurrentSample(restored.currentSample);
-        setCurrentOctave(restored.currentOctave);
-        setEditStep(restored.editStep);
-        for (const [slotStr, params] of Object.entries(
-          restored.chiptuneSources,
-        )) {
-          const slot = parseInt(slotStr, 10);
-          if (Number.isFinite(slot))
-            setWorkbench(slot, workbenchFromChiptune(params));
-        }
-        for (const [slotStr, src] of Object.entries(restored.samplerSources)) {
-          const slot = parseInt(slotStr, 10);
-          if (!Number.isFinite(slot)) continue;
-          setWorkbench(slot, {
-            ...workbenchFromWavData(src.wav, src.sourceName),
-            chain: src.chain,
-            pt: src.pt,
-          });
-        }
-        // XM workbenches keyed by "inst1Based:sampleIdx". Restored so a
-        // refresh / autosave-reload keeps each instrument's source kind
-        // (Sampler vs. Chiptune), chain, and transformer params.
-        for (const [key, src] of Object.entries(restored.xmChiptuneSources)) {
-          const [inst, idx] = parseXmKey(key);
-          if (inst === null) continue;
-          setXmWorkbench(inst, idx, {
-            ...xmWorkbenchFromChiptune(src.params),
-            chain: src.chain,
-            xm: src.xm,
-          });
-        }
-        for (const [key, src] of Object.entries(restored.xmSamplerSources)) {
-          const [inst, idx] = parseXmKey(key);
-          if (inst === null) continue;
-          setXmWorkbench(inst, idx, {
-            ...xmWorkbenchFromWav(src.wav, src.sourceName),
-            chain: src.chain,
-            xm: src.xm,
-          });
-        }
-        loadPatternNames(restored.patternNames);
-        setChannelMuteState(restored.mutedChannels, restored.soloedChannels);
+        restoredFromAutosave = true;
+        // Same path as every other load, so the restored session gets the
+        // same sizing / clamping / reset treatment (mute arrays sized to
+        // the song's channel count, XM cursor seeded, selections cleared).
+        // A hand-rolled copy of this used to live here and had drifted.
+        applyLoadedSession(restored);
         // Restore the cloud origin so "Share this song" stays available
-        // after a page reload — without this, a refresh wipes the in-
-        // memory signal and the menu item silently disables itself even
-        // though the file is still in the user's cloud.
+        // after a page reload — `applyLoadedSession` clears it on every
+        // load, so it has to be re-set afterwards.
         setCloudOrigin(restored.cloudOrigin);
-        setTransport("ready");
+        // Source audio kept in IndexedDB can't be read synchronously:
+        // the song is usable now, the sampler pipelines follow.
+        void hydrateRestoredSources(restored.pendingSources);
       } else {
         setSong(emptySong());
         setTransport("ready");
@@ -578,7 +587,8 @@ export const App: Component = () => {
       const fname = filename();
       const info = infoText();
       const v = view();
-      const c = cursor();
+      // Tracks cursor() or xmCursor() depending on the song's format.
+      const c = cursorForPersistence();
       const samp = currentSample();
       const oct = currentOctave();
       const step = editStep();
@@ -596,27 +606,35 @@ export const App: Component = () => {
       // without the origin, and a reload would still lose Share.
       const origin = cloudOrigin();
       if (saveTimer !== null) window.clearTimeout(saveTimer);
+      // Restored sources still loading: a save now would omit them and
+      // then sweep their audio out of the store. The effect re-runs when
+      // the flag clears.
+      if (hydratingSources()) return;
       const muted = mutedChannels();
       const soloed = soloedChannels();
       saveTimer = window.setTimeout(() => {
-        saveSession({
-          song: s,
-          filename: fname,
-          infoText: info,
-          view: v,
-          cursor: c,
-          currentSample: samp,
-          currentOctave: oct,
-          editStep: step,
-          chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
-          samplerSources: isPt2 ? samplerSourcesSnapshot() : undefined,
-          patternNames: isPt2 ? names : undefined,
-          mutedChannels: muted,
-          soloedChannels: soloed,
-          xmChiptuneSources: isXm ? xmChiptuneSourcesSnapshot() : undefined,
-          xmSamplerSources: isXm ? xmSamplerSourcesSnapshot() : undefined,
-          cloudOrigin: origin,
-        });
+        void queueSessionSave(
+          {
+            song: s,
+            filename: fname,
+            infoText: info,
+            view: v,
+            cursor: c,
+            currentSample: samp,
+            currentOctave: oct,
+            editStep: step,
+            chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
+            samplerSources: isPt2 ? samplerSourcesSnapshot() : undefined,
+            patternNames: isPt2 ? names : undefined,
+            mutedChannels: muted,
+            soloedChannels: soloed,
+            xmChiptuneSources: isXm ? xmChiptuneSourcesSnapshot() : undefined,
+            xmSamplerSources: isXm ? xmSamplerSourcesSnapshot() : undefined,
+            unreadSources: unreadSourcesSnapshot(),
+            cloudOrigin: origin,
+          },
+          recordAutosaveOutcome,
+        );
       }, 250);
     });
     cleanups.push(() => {
@@ -875,8 +893,10 @@ export const App: Component = () => {
         onClick: pasteClipboardForActiveView,
         disabled:
           view() === "sample"
-            ? !song() || !sampleClipboard()
-            : locked || !song() || !clipboardSlice(),
+            ? !song() || !(xm2Song() ? xmSampleClipboard() : sampleClipboard())
+            : locked ||
+              !song() ||
+              !(xm2Song() ? xmClipboardSlice() : clipboardSlice()),
       },
       { separator: true, label: "" },
       {
@@ -929,45 +949,50 @@ export const App: Component = () => {
     const s = song();
     const playing = transport() === "playing";
     const hasSong = !!s;
-    const activeIdx = playing ? playPos().order : cursor().order;
+    // Every handler has a PT and an FT2 implementation; the menu used to
+    // call the PT ones unconditionally, so for an FT2 song every item was
+    // enabled and did nothing.
+    const xm = s?.format === "FT2";
+    const cursorOrder = xm ? xmCursor().order : cursor().order;
+    const activeIdx = playing ? playPos().order : cursorOrder;
     const slotPat = s ? (s.orders[activeIdx] ?? 0) : 0;
     return [
       {
         label: "Previous pattern",
         hint: "⇧[",
-        onClick: stepPrevPattern,
+        onClick: xm ? stepXmPrevPattern : stepPrevPattern,
         disabled: !hasSong || slotPat <= 0,
       },
       {
         label: "Next pattern",
         hint: "⇧]",
-        onClick: stepNextPattern,
+        onClick: xm ? stepXmNextPattern : stepNextPattern,
         disabled: !hasSong,
       },
       { separator: true, label: "" },
       {
         label: "Insert slot",
         hint: "⌘]",
-        onClick: insertOrderSlot,
+        onClick: xm ? insertXmOrderSlot : insertOrderSlot,
         disabled: !hasSong || (s ? s.songLength >= s.orders.length : true),
       },
       {
         label: "Delete slot",
         hint: "⌘[",
-        onClick: deleteOrderSlot,
+        onClick: xm ? deleteXmOrderSlot : deleteOrderSlot,
         disabled: !hasSong || (s ? s.songLength <= 1 : true),
       },
       { separator: true, label: "" },
       {
         label: "New blank pattern",
         hint: "⌥[",
-        onClick: newBlankPatternAtOrder,
+        onClick: xm ? newXmBlankPatternAtOrder : newBlankPatternAtOrder,
         disabled: !hasSong,
       },
       {
         label: "Duplicate pattern",
         hint: "⌥]",
-        onClick: duplicateCurrentPattern,
+        onClick: xm ? duplicateXmCurrentPattern : duplicateCurrentPattern,
         disabled: !hasSong,
       },
       { separator: true, label: "" },
@@ -975,10 +1000,11 @@ export const App: Component = () => {
         // Renumbers patterns by appearance and discards unused. Gated on
         // playing because the worklet's snapshot still references the
         // pre-cleanup pattern indices — same reason the toolbar button
-        // disables.
+        // disables. PT-only: there is no FT2 clean-up yet, so the item is
+        // disabled rather than silently inert.
         label: "Clean up",
         onClick: cleanupOrderList,
-        disabled: !hasSong || playing,
+        disabled: !hasSong || playing || xm,
       },
     ];
   };
@@ -1013,7 +1039,14 @@ export const App: Component = () => {
    *  populated slot to be meaningful. */
   const currentSampleHasData = createMemo(() => {
     const s = song();
-    if (!s || s.format !== "PT2") return false;
+    if (!s) return false;
+    if (s.format === "FT2") {
+      const sample =
+        s.instruments[currentXmInstrument() - 1]?.samples[
+          currentXmSampleIndex()
+        ];
+      return (sample?.data.length ?? 0) > 0;
+    }
     return (s.samples[currentSample() - 1]?.data.byteLength ?? 0) > 0;
   });
 
@@ -1063,6 +1096,66 @@ export const App: Component = () => {
     }).length;
   });
 
+  // Size level against the browser-storage budget. The header chip only
+  // tints; nothing used to SAY anything until an autosave had already
+  // failed. Warn once per level change so the user can shrink the
+  // project (or save it) while autosave still works.
+  //
+  // What counts against the budget depends on where sources live. With
+  // the source store (IndexedDB) the localStorage payload is the song
+  // plus small metadata — sample sources don't count. Without it they
+  // are inline, so the whole `.retro`-sized payload has to fit.
+  const sessionStorageBytes = createMemo(() => {
+    if (!sourceStoreAvailable()) return projectByteSize();
+    const s = song();
+    if (!s) return 0;
+    const isPt2 = s.format === "PT2";
+    return projectToBytes({
+      song: s,
+      filename: filename(),
+      infoText: infoText(),
+      view: "pattern",
+      cursor: { order: 0, row: 0, channel: 0, field: "note" },
+      currentSample: 1,
+      currentOctave: 1,
+      editStep: 1,
+      chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
+      patternNames: isPt2 ? patternNames() : undefined,
+      xmChiptuneSources: isPt2 ? undefined : xmChiptuneSourcesSnapshot(),
+    }).length;
+  });
+  const projectSizeLevel = createMemo<"ok" | "warn" | "over">(() => {
+    const n = sessionStorageBytes();
+    if (n > PROJECT_SIZE_LIMIT_BYTES) return "over";
+    return n >= PROJECT_SIZE_WARN_BYTES ? "warn" : "ok";
+  });
+  const [sizeWarningDismissed, setSizeWarningDismissed] = createSignal(false);
+  createEffect(() => {
+    projectSizeLevel();
+    setSizeWarningDismissed(false);
+  });
+  // Once autosave has actually degraded or failed, its own banner is the
+  // accurate one — don't stack a second warning about the same thing.
+  const sizeWarningText = () => {
+    const size = formatProjectSize(sessionStorageBytes());
+    const budget = formatProjectSize(PROJECT_SIZE_LIMIT_BYTES);
+    const over = projectSizeLevel() === "over";
+    if (sourceStoreAvailable()) {
+      // Sources are stored separately; it is the song itself (patterns
+      // plus rendered samples) that is filling the budget.
+      return over
+        ? `The song itself is ${size}, over the ${budget} browser-storage budget, so autosave may fail. Save the project to keep your work; shorter or fewer samples shrink it.`
+        : `The song itself is ${size} of the ${budget} browser-storage budget. Past it, autosave fails. Shorter or fewer samples shrink it.`;
+    }
+    return over
+      ? `This project is ${size}, over the ${budget} browser-storage budget. Autosave may stop keeping sample sources and effect chains. Save the project, or shrink it with "Apply chain to source" on cropped samples.`
+      : `This project is ${size} of the ${budget} browser-storage budget. Past it, autosave stops keeping sample sources and effect chains. "Apply chain to source" on cropped samples shrinks it.`;
+  };
+  const showSizeWarning = () =>
+    projectSizeLevel() !== "ok" &&
+    autosaveOutcome() === "ok" &&
+    !sizeWarningDismissed();
+
   return (
     <div
       class="app"
@@ -1111,6 +1204,57 @@ export const App: Component = () => {
             </button>
           </div>
         )}
+      </Show>
+      {/* `error()` used to render only on the empty-state dropzone, so with
+          a song open a failed load (or "no free sample slots", a bad WAV,
+          …) was completely silent. */}
+      <Show when={song() ? error() : null}>
+        {(msg) => (
+          <div class="share-banner share-banner--error" role="alert">
+            <span class="share-banner__text">{msg()}</span>
+            <button
+              type="button"
+              class="share-banner__dismiss"
+              onClick={() => setError(null)}
+              aria-label="Dismiss"
+              title="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        )}
+      </Show>
+      <Show when={autosaveOutcome() !== "ok" && !autosaveWarningDismissed()}>
+        <div class="share-banner share-banner--error" role="alert">
+          <span class="share-banner__text">
+            {autosaveOutcome() === "degraded"
+              ? "This project is too large for browser storage. Autosave now keeps the song and rendered samples only — sample sources and effect chains will be gone after a reload. Use Save to keep everything."
+              : "Autosave isn't working: the browser couldn't store this project (storage full or blocked), so a reload would bring back an older version. Use Save to keep your work."}
+          </span>
+          <button
+            type="button"
+            class="share-banner__dismiss"
+            onClick={() => setAutosaveWarningDismissed(true)}
+            aria-label="Dismiss"
+            title="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      </Show>
+      <Show when={song() && showSizeWarning()}>
+        <div class="share-banner share-banner--warn" role="status">
+          <span class="share-banner__text">{sizeWarningText()}</span>
+          <button
+            type="button"
+            class="share-banner__dismiss"
+            onClick={() => setSizeWarningDismissed(true)}
+            aria-label="Dismiss"
+            title="Dismiss"
+          >
+            ×
+          </button>
+        </div>
       </Show>
       <header class="app__header">
         <div class="app__header-left">
@@ -1238,20 +1382,27 @@ export const App: Component = () => {
           <span
             class="filesize"
             classList={{
-              "filesize--warn":
-                projectByteSize() >= PROJECT_SIZE_WARN_BYTES &&
-                projectByteSize() <= PROJECT_SIZE_LIMIT_BYTES,
-              "filesize--err": projectByteSize() > PROJECT_SIZE_LIMIT_BYTES,
+              "filesize--warn": projectSizeLevel() === "warn",
+              "filesize--err": projectSizeLevel() === "over",
             }}
-            title={`.mod file size · estimated .retro project size — limit ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}`}
+            title={
+              sourceStoreAvailable()
+                ? `.mod file size · estimated .retro project size. Autosave keeps sample sources in separate browser storage; the song itself is ${formatProjectSize(sessionStorageBytes())} of its ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)} budget.`
+                : `.mod file size · estimated .retro project size — browser-storage budget ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}. Past it, autosave stops keeping sample sources and effect chains; saving to a file or the cloud is unaffected.`
+            }
           >
             <span class="filesize__seg">
               .mod {formatProjectSize(modByteSize())}
             </span>
             <span class="filesize__sep">·</span>
             <span class="filesize__seg">
-              .retro {formatProjectSize(projectByteSize())} /{" "}
-              {formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}
+              .retro {formatProjectSize(projectByteSize())}
+              {/* The "/ budget" only means something when the whole
+                  project has to fit in localStorage. */}
+              <Show when={!sourceStoreAvailable()}>
+                {" "}
+                / {formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}
+              </Show>
             </span>
           </span>
         </Show>
@@ -1592,6 +1743,15 @@ export const App: Component = () => {
                   onNudgeEnvelopeSegment={nudgeEnvelopeSegment}
                 />
               </div>
+            </>
+          )}
+        </Show>
+        {/* Info and Settings are format-agnostic, so they live outside the
+            PT2 / FT2 branches above. They used to sit inside the PT2 one,
+            which left both views blank for FT2 songs. */}
+        <Show when={song()}>
+          {(s) => (
+            <>
               <div
                 class="infoview-wrapper"
                 classList={{ "view-hidden": view() !== "info" }}
@@ -1600,13 +1760,7 @@ export const App: Component = () => {
                   song={s()}
                   filename={filename()}
                   infoText={infoText()}
-                  onTitleChange={(title) =>
-                    commitEditWithWorkbenches((state) =>
-                      state.song.title === title
-                        ? state
-                        : { ...state, song: { ...state.song, title } },
-                    )
-                  }
+                  onTitleChange={commitSongTitle}
                   onFilenameChange={(name) => setFilename(name || null)}
                   onInfoTextChange={setInfoText}
                 />
@@ -1806,9 +1960,11 @@ export const App: Component = () => {
                   `${song()?.title || "untitled"}.retro`)
                 : ""
             }
-            onPick={(name, resource) => {
-              if (sb().mode === "open") return openFromCloud(resource, name);
-              return saveProjectToCloud(name);
+            onPick={(name, resource, signal) => {
+              if (sb().mode === "open") {
+                return openFromCloud(resource, name, signal);
+              }
+              return saveProjectToCloud(name, signal);
             }}
             onClose={() => setServerBrowser(null)}
           />

@@ -5,6 +5,7 @@ import {
   clearHistory,
   setSong,
   setTransport,
+  undo,
   xm2Song,
 } from "../src/state/song";
 import {
@@ -27,7 +28,10 @@ import {
   clearXmSampleSelection,
   setXmSampleSelection,
 } from "../src/state/xmSampleSelection";
-import { clearAllXmWorkbenches } from "../src/state/xmSampleWorkbench";
+import {
+  clearAllXmWorkbenches,
+  xmWorkbenches,
+} from "../src/state/xmSampleWorkbench";
 
 function seedSong() {
   const s = emptyXmSong();
@@ -82,6 +86,20 @@ describe("XM sample clipboard (whole-sample)", () => {
       1, 2, 3, 4, 5, 6, 7, 8,
     ]);
     expect(xm2Song()!.instruments[1]!.samples[0]!.bits).toBe(8);
+  });
+
+  it("undoing a paste also drops the workbench built around the pasted bytes", () => {
+    copyXmSampleRange(0, 8);
+    const s = xm2Song()!;
+    const second = emptyXmInstrument();
+    setSong({ ...s, instruments: [s.instruments[0]!, second] });
+    setCurrentXmInstrument(2);
+    setCurrentXmSampleIndex(0);
+    pasteXmSampleBytes();
+    expect(xmWorkbenches().has("2:0")).toBe(true);
+    undo();
+    expect(xm2Song()!.instruments[1]!.samples[0]!.data.length).toBe(0);
+    expect(xmWorkbenches().has("2:0")).toBe(false);
   });
 
   it("pasteXmSampleBytes is a no-op when clipboard is empty", () => {

@@ -1,5 +1,6 @@
-import { createSignal } from "solid-js";
+import { createMemo, createSignal } from "solid-js";
 import { CHANNELS } from "../core/mod/types";
+import { XM_MAX_CHANNELS } from "../core/xm/types";
 
 /**
  * Per-channel mute and solo state for live playback. Persisted in `.retro`
@@ -17,30 +18,47 @@ import { CHANNELS } from "../core/mod/types";
  * the user can hold a "muted" set and momentarily solo something without
  * losing which channels were muted before.
  */
-const initial = (n: number): boolean[] =>
-  Array.from({ length: Math.max(0, n) }, () => false);
+/**
+ * Flags are kept for every channel a song could ever have, and only the
+ * first `channelCount` are exposed. Shrinking the channel count therefore
+ * hides flags instead of destroying them: if the count grows back (most
+ * commonly by undoing the shrink) the user's mutes and solos are still
+ * there. Hidden flags never affect audibility — `isChannelMuted` reads
+ * the exposed arrays only, so a solo on a removed channel can't silence
+ * the rest.
+ */
+const MAX_CHANNELS = XM_MAX_CHANNELS;
+const blank = (): boolean[] =>
+  Array.from({ length: MAX_CHANNELS }, () => false);
 
-const [mutedChannels, setMutedRaw] = createSignal<readonly boolean[]>(
-  initial(CHANNELS),
+const [mutedAll, setMutedAll] = createSignal<readonly boolean[]>(blank());
+const [soloedAll, setSoloedAll] = createSignal<readonly boolean[]>(blank());
+const [channelCount, setChannelCount] = createSignal(CHANNELS);
+
+const clampCount = (n: number): number =>
+  Math.max(0, Math.min(MAX_CHANNELS, Math.floor(n)));
+
+const mutedChannels = createMemo<readonly boolean[]>(() =>
+  mutedAll().slice(0, channelCount()),
 );
-const [soloedChannels, setSoloedRaw] = createSignal<readonly boolean[]>(
-  initial(CHANNELS),
+const soloedChannels = createMemo<readonly boolean[]>(() =>
+  soloedAll().slice(0, channelCount()),
 );
 
 export { mutedChannels, soloedChannels };
 
 export function toggleMute(channel: number): void {
-  const arr = [...mutedChannels()];
-  if (channel < 0 || channel >= arr.length) return;
+  if (channel < 0 || channel >= channelCount()) return;
+  const arr = [...mutedAll()];
   arr[channel] = !arr[channel];
-  setMutedRaw(arr);
+  setMutedAll(arr);
 }
 
 export function toggleSolo(channel: number): void {
-  const arr = [...soloedChannels()];
-  if (channel < 0 || channel >= arr.length) return;
+  if (channel < 0 || channel >= channelCount()) return;
+  const arr = [...soloedAll()];
   arr[channel] = !arr[channel];
-  setSoloedRaw(arr);
+  setSoloedAll(arr);
 }
 
 /**
@@ -50,9 +68,20 @@ export function toggleSolo(channel: number): void {
  * the new song's `channelCount`. Defaults to PT's 4 channels when the
  * caller doesn't yet know the format (e.g. boot).
  */
-export function resetChannelMute(channelCount: number = CHANNELS): void {
-  setMutedRaw(initial(channelCount));
-  setSoloedRaw(initial(channelCount));
+export function resetChannelMute(count: number = CHANNELS): void {
+  setMutedAll(blank());
+  setSoloedAll(blank());
+  setChannelCount(clampCount(count));
+}
+
+/**
+ * Change how many channels are exposed WITHOUT touching any flag. Used
+ * when the loaded song's channel count changes (FT2 channel-count edit,
+ * undo / redo of one): flags of channels that go away are kept hidden and
+ * come back if the channels do.
+ */
+export function resizeChannelMute(count: number): void {
+  setChannelCount(clampCount(count));
 }
 
 /**
@@ -60,17 +89,20 @@ export function resetChannelMute(channelCount: number = CHANNELS): void {
  * in length and any non-boolean / out-of-range entry is treated as false,
  * so a malformed payload can't smuggle an undefined into the signals.
  * Used by the project-restore path so a `.retro` file remembers the
- * user's per-channel mute/solo state.
+ * user's per-channel mute/solo state. Replaces every flag, hidden ones
+ * included.
  */
 export function setChannelMuteState(
   muted: readonly unknown[] | null | undefined,
   soloed: readonly unknown[] | null | undefined,
-  channelCount: number = CHANNELS,
+  count: number = CHANNELS,
 ): void {
+  const n = clampCount(count);
   const sanitise = (xs: readonly unknown[] | null | undefined): boolean[] =>
-    Array.from({ length: channelCount }, (_, i) => xs?.[i] === true);
-  setMutedRaw(sanitise(muted));
-  setSoloedRaw(sanitise(soloed));
+    Array.from({ length: MAX_CHANNELS }, (_, i) => i < n && xs?.[i] === true);
+  setMutedAll(sanitise(muted));
+  setSoloedAll(sanitise(soloed));
+  setChannelCount(n);
 }
 
 /**

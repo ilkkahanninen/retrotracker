@@ -16,6 +16,7 @@ import {
   setCurrentOctave,
 } from "../../src/state/edit";
 import { setView } from "../../src/state/view";
+import { settings } from "../../src/state/settings";
 
 function resetState() {
   setSong(null);
@@ -176,26 +177,25 @@ describe("typing in inputs no longer fires bare-letter shortcuts", () => {
   it("mod-key shortcuts still fire while an input is focused", () => {
     // If focus-skip swallowed mod shortcuts the user could never save (or
     // run other ⌘-chord actions) while typing in the name field. We press
-    // Cmd+] — "insert order slot" — since it's mod-gated, has no view
-    // restriction, and is observable via songLength growing. Drive a raw
-    // KeyboardEvent so the position-mapped matcher sees the BracketRight
-    // code regardless of how userEvent escapes brackets.
+    // Cmd+Shift+A — "toggle Paula model" — since it has no view restriction
+    // and no native text-editing meaning (unlike ⌘A/C/X/V/Z, which a
+    // focused text field keeps for itself).
     setView("sample");
     const { container } = render(() => <App />);
     const input = container.querySelector<HTMLInputElement>(
       '.samplemeta input[type="text"]',
     )!;
     input.focus();
-    setCurrentOctave(3);
-    const before = song()!.songLength;
+    const before = settings().paulaModel;
     window.dispatchEvent(
       new KeyboardEvent("keydown", {
-        key: "]",
-        code: "BracketRight",
+        key: "A",
+        code: "KeyA",
         metaKey: true,
+        shiftKey: true,
       }),
     );
-    expect(song()!.songLength).toBe(before + 1);
+    expect(settings().paulaModel).not.toBe(before);
   });
 });
 

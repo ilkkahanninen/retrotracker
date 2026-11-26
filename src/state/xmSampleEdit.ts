@@ -42,7 +42,7 @@ import {
   xm2Song,
 } from "./song";
 import { stopXmPreview, xmLivePreviewSwap } from "./xmPreview";
-import { setError } from "./session";
+import { setError, sourcePending } from "./session";
 import {
   currentXmInstrument,
   currentXmSampleIndex,
@@ -51,17 +51,17 @@ import {
 } from "./xmEdit";
 import { xmSelection } from "./selection";
 import {
-  clearXmWorkbench,
   getXmWorkbench,
   setXmWorkbench,
-  withXmWorkbench,
-  xmWorkbenches,
-  setXmWorkbenchesRaw,
   xmWorkbenchKey,
+  withXmWorkbench,
+  withoutXmInstrumentWorkbenches,
+  withXmWorkbenchCopied,
 } from "./xmSampleWorkbench";
 import {
   clearXmInstrument as clearXmInstrumentMutation,
   clearXmSampleData as clearXmSampleDataMutation,
+  commitXmSlotShape,
   duplicateXmSample as duplicateXmSampleMutation,
 } from "./xmInstrumentEdit";
 import { importWavXmSample } from "../core/xm/sampleImport";
@@ -118,6 +118,9 @@ function getOrInitCurrentXmWorkbench(): {
   if (!sample) return null;
   let wb = getXmWorkbench(inst1Based, sampleIdx);
   if (!wb) {
+    // The slot's real source is still being read after a boot restore —
+    // wrapping the rendered bytes now would shadow it for good.
+    if (sourcePending(xmWorkbenchKey(inst1Based, sampleIdx))) return null;
     wb = xmWorkbenchFromSample(
       sample.data,
       sample.bits,
@@ -486,8 +489,16 @@ export function bounceXmSelectionToInstrument(): void {
     bits: bytes.bits,
   };
   setError(null);
-  commitEditXm((song) => setXmInstrument(song, slot, fresh));
-  setXmWorkbench(slot + 1, 0, wb);
+  const committed = commitXmSlotShape((state) => ({
+    song: setXmInstrument(state.song, slot, fresh),
+    xmWorkbenches: withXmWorkbench(
+      withoutXmInstrumentWorkbenches(state.xmWorkbenches, slot + 1),
+      slot + 1,
+      0,
+      wb,
+    ),
+  }));
+  if (!committed) return;
   setCurrentXmInstrument(slot + 1);
   setCurrentXmSampleIndex(0);
 }
@@ -664,24 +675,26 @@ export function pasteXmSampleBytes(): void {
       Math.max(0, pastedData.length - sample.loopStart),
     ),
   };
-  commitEditXm((song) =>
-    setXmInstrumentSample(
-      song,
-      currentXmInstrument(),
-      next,
-      currentXmSampleIndex(),
-    ),
-  );
+  const inst1Based = currentXmInstrument();
+  const sampleIdx = currentXmSampleIndex();
   // Rebuild the workbench around the pasted bytes so subsequent chain
-  // edits start from the new source.
-  setXmWorkbench(
-    currentXmInstrument(),
-    currentXmSampleIndex(),
-    xmWorkbenchFromWav(
-      sampleBytesToWav(pastedData, clip.bits),
-      clip.name ?? sample.name,
-    ),
+  // edits start from the new source — in the SAME undo entry as the
+  // bytes, so undoing the paste also brings back the previous workbench
+  // (it used to linger and re-render the pasted audio over the restored
+  // sample on the next chain edit).
+  const wb = xmWorkbenchFromWav(
+    sampleBytesToWav(pastedData, clip.bits),
+    clip.name ?? sample.name,
   );
+  commitXmSlotShape((state) => ({
+    song: setXmInstrumentSample(state.song, inst1Based, next, sampleIdx),
+    xmWorkbenches: withXmWorkbench(
+      state.xmWorkbenches,
+      inst1Based,
+      sampleIdx,
+      wb,
+    ),
+  }));
 }
 
 function sampleBytesToWav(
@@ -740,14 +753,24 @@ export function loadXmWavIntoCurrentSample(
         loopType: "none",
       }
     : imported.sample;
-  commitEditXm((song) =>
-    setXmInstrumentSample(song, slot1Based, next, sampleIdx),
+  // Song bytes and workbench swap in ONE commit. They used to be two
+  // steps: with Play + Follow on, the song half no-oped while the
+  // workbench was still replaced — the old chain was lost without a
+  // history entry and the next pipeline edit swapped the audio.
+  const wb = xmWorkbenchFromWav(
+    sampleBytesToWav(next.data, next.bits),
+    next.name,
   );
-  setXmWorkbench(
-    slot1Based,
-    sampleIdx,
-    xmWorkbenchFromWav(sampleBytesToWav(next.data, next.bits), next.name),
-  );
+  const committed = commitXmSlotShape((state) => ({
+    song: setXmInstrumentSample(state.song, slot1Based, next, sampleIdx),
+    xmWorkbenches: withXmWorkbench(
+      state.xmWorkbenches,
+      slot1Based,
+      sampleIdx,
+      wb,
+    ),
+  }));
+  if (!committed) return;
   setXmSampleSelection(null);
 }
 
@@ -763,8 +786,7 @@ export function duplicateCurrentXmSample(): void {
 export function clearCurrentXmSample(): void {
   const instSlot = currentXmInstrument();
   const sampleIdx = currentXmSampleIndex();
-  clearXmSampleDataMutation(instSlot, sampleIdx);
-  clearXmWorkbench(instSlot, sampleIdx);
+  if (!clearXmSampleDataMutation(instSlot, sampleIdx)) return;
   setXmSampleSelection(null);
 }
 
@@ -785,9 +807,23 @@ export function duplicateCurrentXmInstrument(): void {
     setError("No free instrument slots — clear one and try again.");
     return;
   }
-  commitEditXm((song) =>
-    duplicateXmInstrumentMutation(song, sourceSlot, targetSlot0 + 1),
-  );
+  const targetSlot = targetSlot0 + 1;
+  // The "free" target can still own workbenches (lazily created on an
+  // empty slot); replace them with copies of the source instrument's so
+  // each duplicated sample keeps the pipeline that rendered it.
+  const committed = commitXmSlotShape((state) => {
+    let wbs = withoutXmInstrumentWorkbenches(state.xmWorkbenches, targetSlot);
+    for (let i = 0; i < src.samples.length; i++) {
+      wbs = withXmWorkbenchCopied(wbs, sourceSlot, i, targetSlot, i);
+    }
+    return {
+      song: duplicateXmInstrumentMutation(state.song, sourceSlot, targetSlot),
+      xmWorkbenches: wbs,
+    };
+  });
+  // Gated (Play + Follow): nothing was copied, so don't jump to the
+  // still-empty target slot.
+  if (!committed) return;
   setCurrentXmInstrument(targetSlot0 + 1);
   setCurrentXmSampleIndex(0);
 }
@@ -799,21 +835,9 @@ export function duplicateCurrentXmInstrument(): void {
  */
 export function clearCurrentXmInstrument(): void {
   const instSlot = currentXmInstrument();
-  clearXmInstrumentMutation(instSlot);
-  // Drop every workbench whose key starts with `${instSlot}:` so a
-  // future Load WAV on the same slot doesn't inherit a stale chain.
-  const wbs = xmWorkbenches();
-  const prefix = `${instSlot}:`;
-  let mutated = false;
-  const next = new Map(wbs);
-  for (const key of wbs.keys()) {
-    if (key.startsWith(prefix)) {
-      next.delete(key);
-      mutated = true;
-    }
-  }
-  if (mutated) setXmWorkbenchesRaw(next);
-  void xmWorkbenchKey;
+  // The state action drops every `${instSlot}:*` workbench in the same
+  // commit, so a future Load WAV on the slot can't inherit a stale chain.
+  if (!clearXmInstrumentMutation(instSlot)) return;
   setXmSampleSelection(null);
   setCurrentXmSampleIndex(0);
 }

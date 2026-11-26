@@ -619,6 +619,9 @@ body {
 }
 
 .share-banner {
+  /* Banners are un-named children of the .app grid: span every column so
+   * auto-placement gives each one its own full-width row. */
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -627,6 +630,11 @@ body {
   background: var(--accent);
   color: var(--bg);
   font-size: 13px;
+}
+.share-banner--warn {
+  background: var(--warn, #e6b800);
+  /* --warn is a bright yellow; dark text keeps it readable. */
+  color: #1c1e26;
 }
 .share-banner--error {
   background: var(--danger, #c0392b);

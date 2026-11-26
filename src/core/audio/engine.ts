@@ -8,6 +8,7 @@ import type { WorkletEvent, WorkletMessage } from "./worklet";
 import type { PreviewMsg } from "./preview-worklet-types";
 import type { XmPreviewMsg, XmPreviewOutMsg } from "./xm-preview-worklet-types";
 import type { AmigaModel } from "./paula";
+import type { XmInterpolation } from "./types";
 
 /**
  * Browser-side wrapper around AudioContext + AudioWorkletNode.
@@ -44,6 +45,12 @@ export class AudioEngine {
   private paulaModel: AmigaModel = "A1200";
   /** Cached stereo separation, same lazy-preview reasoning as `paulaModel`. */
   private stereoSeparation = 20;
+  /**
+   * Bumped by every `stopPreview`. A preview start captures it before
+   * its awaits and bails if it changed, so a stop that lands while the
+   * start is still pending actually cancels it.
+   */
+  private previewStops = 0;
   /** Called whenever the replayer crosses a row boundary during playback. */
   onPosition: ((order: number, row: number) => void) | null = null;
   /**
@@ -240,6 +247,16 @@ export class AudioEngine {
     }
   }
 
+  /**
+   * FT2 mixer settings (interpolation mode + anti-click ramp). Applied to
+   * the running replayer immediately and cached in the worklet for every
+   * replayer it builds afterwards. PT songs ignore them.
+   */
+  setXmMixer(interpolation: XmInterpolation, ramping: boolean): void {
+    const msg: WorkletMessage = { type: "setXmMixer", interpolation, ramping };
+    this.node.port.postMessage(msg);
+  }
+
   /** Mirror of `setPaulaModel` for the stereo-separation slider. */
   setStereoSeparation(sep: number): void {
     this.stereoSeparation = sep;
@@ -278,8 +295,13 @@ export class AudioEngine {
    */
   async previewNote(sample: Sample, period: number): Promise<void> {
     if (sample.data.byteLength === 0 || period <= 0) return;
+    const stops = this.previewStops;
     if (this.ctx.state === "suspended") await this.ctx.resume();
     const node = await this.ensurePreviewNode();
+    // A stop arrived while the context / worklet was still warming up
+    // (first note after page load, key released immediately). Starting
+    // now would leave the note ringing with nothing left to stop it.
+    if (stops !== this.previewStops) return;
     // Match what `engine.load` feeds the song worklet: drop trailing bytes
     // past loopEnd for looped samples (PT/Amiga loopStart=0 quirk — see
     // loopTruncate.ts). Without this, preview audio plays the full
@@ -368,8 +390,11 @@ export class AudioEngine {
   ): Promise<void> {
     void _bufferSampleRate;
     if (left.length === 0) return;
+    const stops = this.previewStops;
     if (this.ctx.state === "suspended") await this.ctx.resume();
     const node = await this.ensureXmPreviewNode();
+    // Same late-start guard as `previewNote`.
+    if (stops !== this.previewStops) return;
     // Latest onEnded supersedes any prior one — the worklet only
     // signals once per natural end, and a swap is conceptually the
     // same trigger continuing under new audio.
@@ -380,6 +405,8 @@ export class AudioEngine {
 
   /** Stop any active preview note. */
   stopPreview(): void {
+    // Invalidate any preview start still awaiting the context / worklet.
+    this.previewStops++;
     if (this.previewNode) {
       const msg: PreviewMsg = { type: "stop" };
       this.previewNode.port.postMessage(msg);

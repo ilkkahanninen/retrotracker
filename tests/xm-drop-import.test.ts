@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { writeWav, type WavData } from "../src/core/audio/wav";
 import { emptyXmInstrument, emptyXmSong } from "../src/core/xm/format";
+import { setFollowPlayback } from "../src/state/settings";
+import { error } from "../src/state/session";
 import {
+  canUndo,
   clearHistory,
   setSong,
   setTransport,
@@ -144,5 +147,56 @@ describe("dropWavsToXmPatternView", () => {
     const inst = xm2Song()!.instruments[0]!;
     expect(inst.samples.length).toBe(1);
     expect(inst.samples[0]!.name).toBe("solo");
+  });
+});
+
+describe("drops while playing with Follow on (structural edits are gated)", () => {
+  // Regression: the commit was skipped but the handlers still selected
+  // the slot and moved the sample index — at a sample that didn't exist —
+  // without telling the user their files went nowhere.
+  beforeEach(() => setFollowPlayback(true));
+
+  it("appending to a populated slot changes nothing and says why", async () => {
+    seedPopulatedSlot1();
+    setTransport("playing");
+    await dropWavsToXmInstrumentView([
+      makeWavFile("a.wav"),
+      makeWavFile("b.wav"),
+    ]);
+    expect(xm2Song()!.instruments[0]!.samples.length).toBe(1);
+    expect(currentXmSampleIndex()).toBe(0);
+    expect(canUndo()).toBe(false);
+    expect(error()).toMatch(/Follow/);
+  });
+
+  it("an empty slot stays empty and the selection stays put", async () => {
+    seedEmptySong();
+    setCurrentXmInstrument(3);
+    setCurrentXmSampleIndex(2);
+    setTransport("playing");
+    await dropWavsToXmInstrumentView([makeWavFile("kick.wav")]);
+    expect(currentXmSampleIndex()).toBe(2);
+    expect(canUndo()).toBe(false);
+    expect(error()).toMatch(/Follow/);
+  });
+
+  it("the pattern-view drop doesn't jump to the slot it couldn't fill", async () => {
+    seedEmptySong();
+    setCurrentXmInstrument(5);
+    setTransport("playing");
+    await dropWavsToXmPatternView([makeWavFile("kick.wav")]);
+    expect(currentXmInstrument()).toBe(5);
+    expect(canUndo()).toBe(false);
+    expect(error()).toMatch(/Follow/);
+  });
+
+  it("with Follow off the drop goes through mid-playback", async () => {
+    seedPopulatedSlot1();
+    setFollowPlayback(false);
+    setTransport("playing");
+    await dropWavsToXmInstrumentView([makeWavFile("a.wav")]);
+    expect(xm2Song()!.instruments[0]!.samples.length).toBe(2);
+    expect(error()).toBeNull();
+    setFollowPlayback(true);
   });
 });

@@ -12,6 +12,8 @@ import { speedTempoAt } from "../mod/flatten";
 import { speedTempoAtXm } from "../xm/flatten";
 import type { Song } from "../song";
 import { channelCount as channelCountOf } from "../song";
+import { resizeMuteFlags, withMuteFlag } from "./channelMuteBuffer";
+import type { XmInterpolation } from "./types";
 import { makeReplayer, type Replayer } from "./replayerCommon";
 import type { Pt2Replayer } from "./replayer";
 import type { AmigaModel } from "./paula";
@@ -25,6 +27,7 @@ export type WorkletMessage =
   | { type: "setChannelMuted"; channel: number; muted: boolean }
   | { type: "setAmigaModel"; model: AmigaModel }
   | { type: "setStereoSeparation"; sep: number }
+  | { type: "setXmMixer"; interpolation: XmInterpolation; ramping: boolean }
   | { type: "setSampleData"; slot: number; sample: Sample }
   | { type: "replaceSong"; song: Song }
   | { type: "setLoopPattern"; on: boolean };
@@ -58,6 +61,9 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
   private amigaModel: AmigaModel = "A1200";
   /** Cached stereo separation (PT-only — XmReplayer ignores). */
   private stereoSeparation = 20;
+  /** Cached FT2 mixer settings (XM-only — Pt2Replayer ignores). */
+  private xmInterpolation: XmInterpolation = "linear";
+  private xmRamping = true;
   /**
    * VU-level throttle state. We accumulate frames since the last `level`
    * post and fire one when we cross the update interval — keeps the
@@ -86,13 +92,7 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
    * from 2..32. Idempotent.
    */
   private applyChannelCount(n: number): void {
-    if (this.channelMuted.length !== n) {
-      const next = new Array(n).fill(false) as boolean[];
-      for (let i = 0; i < Math.min(n, this.channelMuted.length); i++) {
-        next[i] = this.channelMuted[i] ?? false;
-      }
-      this.channelMuted = next;
-    }
+    this.channelMuted = resizeMuteFlags(this.channelMuted, n);
     if (this.peakBuf.length !== n) {
       this.peakBuf = new Float32Array(n);
     }
@@ -123,6 +123,8 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
       loop: true,
       amigaModel: this.amigaModel,
       stereoSeparation: this.stereoSeparation,
+      xmInterpolation: this.xmInterpolation,
+      xmRamping: this.xmRamping,
       mutedChannels: this.channelMuted,
       ...extra,
     });
@@ -180,10 +182,22 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           }
           break;
         case "setChannelMuted":
-          if (msg.channel >= 0 && msg.channel < this.channelMuted.length) {
-            this.channelMuted[msg.channel] = msg.muted;
-            this.replayer?.setChannelMuted(msg.channel, msg.muted);
-          }
+          // Cache the flag even when the channel lies beyond the current
+          // song's count: the engine posts mutes before the first `load`
+          // sizes the cache, and `buildReplayer` hands the cached flags to
+          // every replayer it creates.
+          this.channelMuted = withMuteFlag(
+            this.channelMuted,
+            msg.channel,
+            msg.muted,
+          );
+          this.replayer?.setChannelMuted(msg.channel, msg.muted);
+          break;
+        case "setXmMixer":
+          this.xmInterpolation = msg.interpolation;
+          this.xmRamping = msg.ramping;
+          this.replayer?.setXmInterpolation?.(msg.interpolation);
+          this.replayer?.setXmRamping?.(msg.ramping);
           break;
         case "setAmigaModel":
           this.amigaModel = msg.model;

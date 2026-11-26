@@ -14,6 +14,7 @@ import { currentXmInstrument, currentXmSampleIndex } from "../state/xmEdit";
 import { xmPreviewFrame } from "../state/xmPreview";
 import { drawSampleWaveform } from "./waveformDraw";
 import { EnvelopeOverlay } from "./EnvelopeOverlay";
+import { beginDragEdit, endDragEdit } from "../state/song";
 
 /**
  * On-canvas envelope overlay payload for XM samples. Same shape as
@@ -261,6 +262,8 @@ export const XmWaveform: Component<Props> = (props) => {
     const x = clientToCanvasX(e.clientX);
     const handle = handleAt(x);
     if (handle && props.onPatch) {
+      // Coalesce the drag's commits into one undo entry (see Waveform.tsx).
+      beginDragEdit();
       setDrag({ kind: "loop", which: handle });
       e.preventDefault();
       return;
@@ -319,6 +322,7 @@ export const XmWaveform: Component<Props> = (props) => {
         const sel = props.selection;
         if (sel && sel.start === sel.end) props.onSelect(null);
       }
+      if (d?.kind === "loop") endDragEdit();
       setDrag(null);
     };
     window.addEventListener("mousemove", move);
@@ -327,6 +331,12 @@ export const XmWaveform: Component<Props> = (props) => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
     });
+  });
+
+  // Backstop: close an open loop-drag group if the component is disposed
+  // mid-drag, so the drag snapshot can't stay stuck.
+  onCleanup(() => {
+    if (drag()?.kind === "loop") endDragEdit();
   });
 
   const onResize = () => requestAnimationFrame(draw);

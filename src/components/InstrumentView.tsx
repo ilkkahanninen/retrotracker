@@ -136,6 +136,12 @@ export const InstrumentView: Component<Props> = (props) => {
     currentXmInstrument();
     currentXmSampleIndex();
     clearXmSampleSelection();
+    // The selected-effect index points into the PREVIOUS sample's chain;
+    // carried over, it highlights (and opens the envelope overlay for) an
+    // effect the user never picked on this one. PT's SampleView does the
+    // same on slot switch.
+    setXmSelectedEffectIndex(null);
+    setXmSelectedEffectParam(null);
   });
 
   // Clamp the sample index when the instrument's sample count shrinks.

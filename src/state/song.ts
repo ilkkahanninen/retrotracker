@@ -17,6 +17,7 @@ import {
   loadPatternNames,
 } from "./patternNames";
 import { settings } from "./settings";
+import { reconcileUiToSong } from "./reconcile";
 
 /**
  * Loaded song. Held as a signal so the UI reactively re-renders on swap;
@@ -157,7 +158,7 @@ export const canRedo = () => future().length > 0;
 export function beginDragEdit(): void {
   if (dragSnapshot) return;
   const cur = song();
-  if (!cur || cur.format !== "PT2") return;
+  if (!cur) return;
   dragSnapshot = {
     song: cur,
     workbenches: workbenchesSig(),
@@ -176,8 +177,11 @@ export function endDragEdit(): void {
   dragSnapshot = null;
   if (!snap) return;
   const cur = song();
-  if (!cur || cur.format !== "PT2") return;
-  if (snap.song.format !== "PT2") return;
+  // A load mid-drag never gets this far: every load goes through
+  // `applyLoadedSession` → `clearHistory`, which drops `dragSnapshot`, so
+  // `snap` is null above. The format check is a backstop for the one
+  // mismatch that would corrupt the stack outright.
+  if (!cur || cur.format !== snap.song.format) return;
   if (
     snap.song === cur &&
     snap.workbenches === workbenchesSig() &&
@@ -416,6 +420,9 @@ export function undo(): void {
   if (previous.patternNames !== currentNames)
     loadPatternNames(previous.patternNames);
   setDirty(true);
+  // The restored song can be shorter / narrower than the one the cursor,
+  // selection and mute arrays were positioned against.
+  reconcileUiToSong();
 }
 
 /** Replay the most recently undone edit. Same playback gate as `undo`. */
@@ -447,6 +454,57 @@ export function redo(): void {
     setXmWorkbenchesRaw(next.xmWorkbenches);
   if (next.patternNames !== currentNames) loadPatternNames(next.patternNames);
   setDirty(true);
+  reconcileUiToSong();
+}
+
+/**
+ * Attach workbenches that belong to the loaded project but arrived late
+ * (a restored session's source audio is read asynchronously) — to the
+ * live maps AND to every snapshot already in the undo / redo stacks.
+ *
+ * The history half is what matters: an edit made before the workbenches
+ * arrived pushed a snapshot without them, and undoing to it would drop
+ * them again — after which the next autosave no longer references their
+ * audio and sweeps it from the source store.
+ *
+ * Each amender also gets the song of the state it is amending, so it can
+ * check that a slot still holds what the workbench was saved for — the
+ * user may have removed, cleared or replaced samples in the meantime, and
+ * the live state and each snapshot can differ on that.
+ *
+ * `amendPt` / `amendXm` must be pure, return the map they were given when
+ * there is nothing to add, and return the SAME map for the same input map
+ * whenever the additions are the same (undo / redo compare maps by
+ * identity). Not an edit: no history entry, no dirty flag.
+ */
+export function attachLateWorkbenches(
+  amendPt: (map: WorkbenchMap, song: Song) => WorkbenchMap,
+  amendXm: (map: XmWorkbenchMap, song: Song) => XmWorkbenchMap,
+): void {
+  const amend = (entry: EditState): EditState => {
+    const workbenches = amendPt(entry.workbenches, entry.song);
+    const xmWorkbenches = amendXm(entry.xmWorkbenches, entry.song);
+    return workbenches === entry.workbenches &&
+      xmWorkbenches === entry.xmWorkbenches
+      ? entry
+      : { ...entry, workbenches, xmWorkbenches };
+  };
+  const amendStack = (stack: EditState[]): EditState[] => {
+    const next = stack.map(amend);
+    return next.some((e, i) => e !== stack[i]) ? next : stack;
+  };
+
+  const livePt = workbenchesSig();
+  const liveXm = xmWorkbenchesSig();
+  const liveSong = song();
+  if (!liveSong) return;
+  const nextPt = amendPt(livePt, liveSong);
+  const nextXm = amendXm(liveXm, liveSong);
+  if (nextPt !== livePt) setWorkbenchesRaw(nextPt);
+  if (nextXm !== liveXm) setXmWorkbenchesRaw(nextXm);
+  setPast(amendStack(past()));
+  setFuture(amendStack(future()));
+  if (dragSnapshot) dragSnapshot = amend(dragSnapshot);
 }
 
 /** Drop both stacks. Call after loading a new file. */

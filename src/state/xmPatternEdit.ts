@@ -1,3 +1,4 @@
+import { reconcileUiToSong } from "./reconcile";
 import {
   clearXmRange,
   pasteXmSlice,
@@ -266,6 +267,8 @@ export function setXmRowCountAtCursor(rowCount: number): void {
   if (c.row >= newRows && newRows > 0) {
     applyXmCursor({ ...c, row: newRows - 1 });
   }
+  // Also drops a selection that reaches past the new last row.
+  reconcileUiToSong();
 }
 
 export function setXmChannelCountAction(channelCount: number): void {
@@ -279,4 +282,7 @@ export function setXmChannelCountAction(channelCount: number): void {
   if (c.channel >= after.channelCount && after.channelCount > 0) {
     applyXmCursor({ ...c, channel: after.channelCount - 1 });
   }
+  // Resize the mute / solo arrays to the new channel count (and drop a
+  // selection that reaches into removed channels).
+  reconcileUiToSong();
 }

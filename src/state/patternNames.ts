@@ -25,14 +25,30 @@ export { patternNames };
  * runaway paste can't blow out the order-list layout.
  */
 export function setPatternName(patternIndex: number, name: string): void {
-  if (patternIndex < 0) return;
+  setPatternNamesRaw((prev) => withPatternName(prev, patternIndex, name));
+}
+
+/**
+ * Pure form of `setPatternName`: returns the map with `patternIndex`
+ * named (or un-named, for a blank string). Returns the SAME reference
+ * when nothing changes, so history commits can detect a no-op. Used by
+ * `renamePattern` to route renames through the undo history.
+ */
+export function withPatternName(
+  map: Record<number, string>,
+  patternIndex: number,
+  name: string,
+): Record<number, string> {
+  if (patternIndex < 0) return map;
   const trimmed = name.slice(0, PATTERN_NAME_MAX);
-  setPatternNamesRaw((prev) => {
-    const next = { ...prev };
-    if (trimmed.trim() === "") delete next[patternIndex];
-    else next[patternIndex] = trimmed;
-    return next;
-  });
+  const blank = trimmed.trim() === "";
+  if (blank ? !(patternIndex in map) : map[patternIndex] === trimmed) {
+    return map;
+  }
+  const next = { ...map };
+  if (blank) delete next[patternIndex];
+  else next[patternIndex] = trimmed;
+  return next;
 }
 
 /** Drop every pattern name. Called when the song is replaced (Open / New). */

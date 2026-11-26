@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js";
 import { fetchShare } from "./share";
-import { loadServerBytes } from "./session";
+import { loadServerBytes, setError } from "./session";
 
 /**
  * Token grammar — must match the regex enforced by the share route in
@@ -16,8 +16,8 @@ export interface SharedBanner {
 
 /**
  * Transient banner shown above the editor when a share link was just
- * opened. Cleared by `dismissSharedBanner()` (the close button) and
- * by `applyLoadedSession` indirectly — once the user navigates to a
+ * opened. Cleared by `dismissSharedBanner()` — from the close button,
+ * and from `applyLoadedSession` on every load: once the user opens a
  * different song, the banner is no longer about the loaded content.
  */
 const [sharedBanner, setSharedBanner] = createSignal<SharedBanner | null>(null);
@@ -46,7 +46,16 @@ export function dismissShareLoadError(): void {
  * Errors do NOT throw — they set `shareLoadError` for the UI to
  * surface. A failed share load shouldn't break the entire app boot.
  */
-export async function detectAndLoadShareLink(): Promise<void> {
+export async function detectAndLoadShareLink(
+  /**
+   * Asked once the shared bytes have arrived, right before they replace
+   * the editor's song. Return false to keep the current song. The App
+   * uses this to protect a session restored from autosave (or edited
+   * while the fetch was in flight) — a share link used to overwrite it,
+   * and the autosave slot 250 ms later, without a word.
+   */
+  confirmReplace: (filename: string) => boolean = () => true,
+): Promise<void> {
   if (typeof window === "undefined") return;
   const m = window.location.pathname.match(SHARE_PATH_RE);
   if (!m) return;
@@ -59,7 +68,19 @@ export async function detectAndLoadShareLink(): Promise<void> {
     // Recipients don't own the source song, so don't set cloudOrigin —
     // the "Share" menu item stays disabled until they save a copy to
     // their own cloud bucket.
-    await loadServerBytes(bytes, filename);
+    if (!confirmReplace(filename)) return;
+    const loaded = await loadServerBytes(bytes, filename);
+    // A rejected file leaves the previous song in place — claiming it was
+    // "opened from a share link" would mislabel that song.
+    if (!loaded) {
+      // `loadFile` already raised the generic error banner for this same
+      // failure; the share banner below replaces it rather than stacking.
+      setError(null);
+      setShareLoadError(
+        `Could not open shared song: ${filename} is not a file RetroTracker can read.`,
+      );
+      return;
+    }
     setSharedBanner({ filename });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
