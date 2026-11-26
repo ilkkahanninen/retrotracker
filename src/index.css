@@ -631,6 +631,11 @@ body {
   color: var(--bg);
   font-size: 13px;
 }
+.share-banner--warn {
+  background: var(--warn, #e6b800);
+  /* --warn is a bright yellow; dark text keeps it readable. */
+  color: #1c1e26;
+}
 .share-banner--error {
   background: var(--danger, #c0392b);
   color: #fff;

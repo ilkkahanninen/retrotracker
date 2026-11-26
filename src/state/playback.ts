@@ -89,7 +89,12 @@ export async function ensureEngine(): Promise<AudioEngine | null> {
   creating = (async () => {
     try {
       const eng = await AudioEngine.create();
-      eng.onPosition = (order, row) => setPlayPos({ order, row });
+      eng.onPosition = (order, row) => {
+        // A position report already in flight when the user stops (or a
+        // song loads) would otherwise overwrite the play position that
+        // stop just snapped back to the cursor.
+        if (positionsLive) setPlayPos({ order, row });
+      };
       eng.onLevels = (peaks) => setChannelLevels(peaks);
       setCurrentEngine(eng);
       return eng;
@@ -100,6 +105,29 @@ export async function ensureEngine(): Promise<AudioEngine | null> {
     }
   })();
   return creating;
+}
+
+/**
+ * Whether worklet position reports should move `playPos`. True from the
+ * moment a play request is issued until the engine is told to stop —
+ * NOT tied to the `transport` signal, which only flips to "playing"
+ * after the play request resolves and would drop the first rows.
+ */
+let positionsLive = false;
+
+/** Start (or re-route) playback, accepting position reports from here on. */
+function startEngineAt(
+  eng: AudioEngine,
+  ...args: Parameters<AudioEngine["playFrom"]>
+): ReturnType<AudioEngine["playFrom"]> {
+  positionsLive = true;
+  return eng.playFrom(...args);
+}
+
+/** Stop the engine and stop listening to its position reports. */
+function haltEngine(): void {
+  positionsLive = false;
+  currentEngine()?.stop();
 }
 
 /**
@@ -170,7 +198,7 @@ export function livePreviewSwap(
 }
 
 export function stopPlayback(): void {
-  currentEngine()?.stop();
+  haltEngine();
   setTransport("ready");
   setPlayMode(null);
   // Snap the playhead to the active (format-aware) cursor so the row
@@ -183,7 +211,7 @@ export function stopPlayback(): void {
 export async function playFromStart(): Promise<void> {
   const eng = await prepareEngine();
   if (!eng) return;
-  await eng.playFrom(0, 0);
+  await startEngineAt(eng, 0, 0);
   setTransport("playing");
   setPlayMode("song");
 }
@@ -192,7 +220,7 @@ export async function playFromCursor(): Promise<void> {
   const c = activeCursor();
   const eng = await prepareEngine();
   if (!eng) return;
-  await eng.playFrom(c.order, c.row);
+  await startEngineAt(eng, c.order, c.row);
   setTransport("playing");
   setPlayMode("song");
 }
@@ -201,7 +229,7 @@ export async function playPatternFromStart(): Promise<void> {
   const c = activeCursor();
   const eng = await prepareEngine();
   if (!eng) return;
-  await eng.playFrom(c.order, 0, { loopPattern: true });
+  await startEngineAt(eng, c.order, 0, { loopPattern: true });
   setTransport("playing");
   setPlayMode("pattern");
 }
@@ -210,7 +238,7 @@ export async function playPatternFromCursor(): Promise<void> {
   const c = activeCursor();
   const eng = await prepareEngine();
   if (!eng) return;
-  await eng.playFrom(c.order, c.row, { loopPattern: true });
+  await startEngineAt(eng, c.order, c.row, { loopPattern: true });
   setTransport("playing");
   setPlayMode("pattern");
 }
@@ -237,7 +265,7 @@ export async function jumpPlaybackToOrder(order: number): Promise<void> {
   setPlayPos({ order, row: 0 });
   const eng = currentEngine();
   if (!eng) return;
-  await eng.playFrom(order, 0, { loopPattern: playMode() === "pattern" });
+  await startEngineAt(eng, order, 0, { loopPattern: playMode() === "pattern" });
 }
 
 /**
@@ -290,7 +318,7 @@ export async function playFromCursorRespectingMode(): Promise<void> {
  */
 function pauseAndSnapCursorToPlayhead(): void {
   const pos = playPos();
-  currentEngine()?.stop();
+  haltEngine();
   setTransport("ready");
   setPlayMode(null);
   // The cursor is about to jump to the playhead. A selection made before
@@ -311,7 +339,7 @@ function pauseAndSnapCursorToPlayhead(): void {
 /** Halt the engine without touching transport state — used when swapping
  *  the loaded song so the worklet doesn't keep mixing the old one. */
 export function stopEngine(): void {
-  currentEngine()?.stop();
+  haltEngine();
 }
 
 /**

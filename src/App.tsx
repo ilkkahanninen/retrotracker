@@ -1066,6 +1066,27 @@ export const App: Component = () => {
     }).length;
   });
 
+  // Size level against the browser-storage budget. The header chip only
+  // tints; nothing used to SAY anything until an autosave had already
+  // failed. Warn once per level change so the user can shrink the
+  // project (or save it) while autosave still works.
+  const projectSizeLevel = createMemo<"ok" | "warn" | "over">(() => {
+    const n = projectByteSize();
+    if (n > PROJECT_SIZE_LIMIT_BYTES) return "over";
+    return n >= PROJECT_SIZE_WARN_BYTES ? "warn" : "ok";
+  });
+  const [sizeWarningDismissed, setSizeWarningDismissed] = createSignal(false);
+  createEffect(() => {
+    projectSizeLevel();
+    setSizeWarningDismissed(false);
+  });
+  // Once autosave has actually degraded or failed, its own banner is the
+  // accurate one — don't stack a second warning about the same thing.
+  const showSizeWarning = () =>
+    projectSizeLevel() !== "ok" &&
+    autosaveOutcome() === "ok" &&
+    !sizeWarningDismissed();
+
   return (
     <div
       class="app"
@@ -1145,6 +1166,24 @@ export const App: Component = () => {
             type="button"
             class="share-banner__dismiss"
             onClick={() => setAutosaveWarningDismissed(true)}
+            aria-label="Dismiss"
+            title="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      </Show>
+      <Show when={song() && showSizeWarning()}>
+        <div class="share-banner share-banner--warn" role="status">
+          <span class="share-banner__text">
+            {projectSizeLevel() === "over"
+              ? `This project is ${formatProjectSize(projectByteSize())}, over the ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)} browser-storage budget. Autosave may stop keeping sample sources and effect chains. Save the project, or shrink it with "Apply chain to source" on cropped samples.`
+              : `This project is ${formatProjectSize(projectByteSize())} of the ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)} browser-storage budget. Past it, autosave stops keeping sample sources and effect chains. "Apply chain to source" on cropped samples shrinks it.`}
+          </span>
+          <button
+            type="button"
+            class="share-banner__dismiss"
+            onClick={() => setSizeWarningDismissed(true)}
             aria-label="Dismiss"
             title="Dismiss"
           >
@@ -1283,7 +1322,7 @@ export const App: Component = () => {
                 projectByteSize() <= PROJECT_SIZE_LIMIT_BYTES,
               "filesize--err": projectByteSize() > PROJECT_SIZE_LIMIT_BYTES,
             }}
-            title={`.mod file size · estimated .retro project size — limit ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}`}
+            title={`.mod file size · estimated .retro project size — browser-storage budget ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}. Past it, autosave stops keeping sample sources and effect chains; saving to a file or the cloud is unaffected.`}
           >
             <span class="filesize__seg">
               .mod {formatProjectSize(modByteSize())}

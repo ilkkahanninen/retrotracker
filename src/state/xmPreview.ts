@@ -35,6 +35,7 @@ import {
   stopEnginePreview,
 } from "./playback";
 import { transport, xm2Song as song } from "./song";
+import { settings } from "./settings";
 import { currentXmInstrument, currentXmOctave } from "./xmEdit";
 
 /** Seconds of audio to pre-render per preview trigger. Long enough for
@@ -269,9 +270,13 @@ function renderPreviewBuffer(
   previewSong: XmSong,
   sampleRate: number,
 ): { left: Float32Array; right: Float32Array } {
+  // Audition through the same mixer settings as song playback, so a note
+  // previewed from the keyboard sounds like it will in the song.
   const replayer = new XmReplayer(previewSong, {
     sampleRate,
     loop: false,
+    xmInterpolation: settings().ft2Interpolation,
+    xmRamping: settings().ft2Ramping,
   });
   const frames = PREVIEW_SECONDS * sampleRate;
   const left = new Float32Array(frames);

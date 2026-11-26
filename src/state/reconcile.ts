@@ -3,7 +3,7 @@ import { channelCount, rowsOfPattern } from "../core/song";
 import { channelLevels, resetChannelLevels } from "./channelLevel";
 import {
   mutedChannels,
-  setChannelMuteState,
+  resizeChannelMute,
   soloedChannels,
 } from "./channelMute";
 import { cursor, setCursor } from "./cursor";
@@ -83,15 +83,15 @@ export function reconcileUiToSong(): void {
     if (order !== p.order || row !== p.row) setPlayPos({ order, row });
   }
 
-  // Mute / solo: keep the flags of channels that still exist, drop the
-  // rest, and give new channels a real (false) entry so they can be
-  // toggled. A solo on a removed channel would otherwise silence every
-  // remaining one with no button left to clear it.
+  // Mute / solo: expose exactly the song's channels. Flags of removed
+  // channels are hidden (not destroyed), so undoing a channel-count
+  // shrink brings them back; hidden flags never affect audibility, so a
+  // solo on a removed channel can't silence the remaining ones.
   if (
     mutedChannels().length !== channels ||
     soloedChannels().length !== channels
   ) {
-    setChannelMuteState(mutedChannels(), soloedChannels(), channels);
+    resizeChannelMute(channels);
   }
   if (channelLevels().length !== channels) resetChannelLevels(channels);
 }
