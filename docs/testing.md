@@ -53,7 +53,7 @@ tests/
     └── …
 ```
 
-`tests/ui/**` runs in jsdom; everything else runs on Node. The split is configured in [vitest.config.ts](../vitest.config.ts) via `environmentMatchGlobs`. UI test files use `.test.tsx`; non-UI tests use `.test.ts`. [tests/ui/setup.ts](../tests/ui/setup.ts) is registered as a vitest `setupFiles` and patches a few jsdom gaps: `Blob.prototype.arrayBuffer` / `text` (jsdom 26 ships without them, so file-input / drop tests would throw `f.arrayBuffer is not a function`) and a no-op `HTMLCanvasElement.prototype.getContext` 2D stub (so Waveform renders complete silently — none of the UI tests assert on pixels).
+`tests/ui/**` runs in jsdom; everything else runs on Node. The split is configured in [vitest.config.ts](../vitest.config.ts) as two `projects` (`node` and `ui`). UI test files use `.test.tsx`; non-UI tests use `.test.ts`. [tests/ui/setup.ts](../tests/ui/setup.ts) is registered as a vitest `setupFiles` and patches a few jsdom gaps: `Blob.prototype.arrayBuffer` / `text` (jsdom 26 ships without them, so file-input / drop tests would throw `f.arrayBuffer is not a function`) and a no-op `HTMLCanvasElement.prototype.getContext` 2D stub (so Waveform renders complete silently — none of the UI tests assert on pixels).
 
 ## Running
 
