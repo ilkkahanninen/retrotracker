@@ -22,15 +22,51 @@ import {
   setXmInstrumentSample as setXmInstrumentSampleMutation,
 } from "../core/xm/mutations";
 import { setCurrentXmSampleIndex } from "./xmEdit";
-import { commitEditXm, commitEditXmWithWorkbenches, xm2Song } from "./song";
+import {
+  commitEditXm,
+  commitEditXmWithWorkbenches,
+  transport,
+  xm2Song,
+  type XmEditState,
+} from "./song";
+import { settings } from "./settings";
 import { runXmPipeline } from "../core/audio/sampleWorkbench";
-import { getXmWorkbench } from "./xmSampleWorkbench";
+import {
+  getXmWorkbench,
+  withXmSampleRemoved,
+  withXmWorkbenchCopied,
+  withoutXmWorkbench,
+} from "./xmSampleWorkbench";
 import { runContextForXmSample } from "./xmSampleEdit";
 
 const XM_SAMPLE_NAME_MAX = 22;
 const XM_MAX_SAMPLES_PER_INSTRUMENT = 16;
 
 export type XmEnvelopeKind = "volume" | "panning";
+
+/**
+ * Commit a change to which sample bytes live in which `(instrument,
+ * sample)` slot, together with the matching workbench-map fix-up, as one
+ * undo entry. Every op that replaces / removes / copies sample data
+ * outside the pipeline goes through here: a workbench left behind under
+ * the slot's key would re-render its OLD source over the new audio on the
+ * next chain edit.
+ *
+ * Same playback gate as `commitEditXm` (no-op while playing with Follow
+ * on) — `commitEditXmWithWorkbenches` itself is ungated because the
+ * pipeline editors are allowed mid-playback; these structural ops aren't.
+ */
+export function commitXmSlotShape(
+  transform: (state: XmEditState) => XmEditState,
+): void {
+  if (transport() === "playing" && settings().followPlayback) return;
+  commitEditXmWithWorkbenches((state) => {
+    const next = transform(state);
+    // A rejected song mutation (out-of-range slot, cap reached, …) must
+    // not strand a workbench-only change.
+    return next.song === state.song ? state : next;
+  });
+}
 
 /** 1-based slot index — the instrument list's inline rename can target any slot. */
 export function renameXmInstrument(slot1Based: number, name: string): void {
@@ -147,21 +183,54 @@ export function setXmSample(
   sample: XmSample,
   sampleIndex = 0,
 ): void {
-  commitEditXm((s) =>
-    setXmInstrumentSampleMutation(s, slot1Based, sample, sampleIndex),
-  );
+  // The slot's previous workbench described the bytes being replaced —
+  // drop it so the pipeline lazily re-wraps the NEW sample.
+  commitXmSlotShape((state) => ({
+    song: setXmInstrumentSampleMutation(
+      state.song,
+      slot1Based,
+      sample,
+      sampleIndex,
+    ),
+    xmWorkbenches: withoutXmWorkbench(
+      state.xmWorkbenches,
+      slot1Based,
+      sampleIndex,
+    ),
+  }));
 }
 
 /** Append a fresh empty sample to the instrument's sample list (cap 16). */
 export function addXmSample(slot1Based: number): void {
-  commitEditXm((s) => addXmInstrumentSampleMutation(s, slot1Based));
+  commitXmSlotShape((state) => {
+    const song = addXmInstrumentSampleMutation(state.song, slot1Based);
+    const newIndex =
+      (song.instruments[slot1Based - 1]?.samples.length ?? 1) - 1;
+    // Defensive: an orphan key at the new index (e.g. from a project
+    // saved before removals re-keyed the map) must not attach itself to
+    // the fresh empty sample.
+    return {
+      song,
+      xmWorkbenches: withoutXmWorkbench(
+        state.xmWorkbenches,
+        slot1Based,
+        newIndex,
+      ),
+    };
+  });
 }
 
-/** Remove the sample at `sampleIndex`. KeyMap entries re-anchor to 0. */
+/** Remove the sample at `sampleIndex`. KeyMap entries re-anchor to 0.
+ *  Workbenches of the later samples shift down with them. */
 export function removeXmSample(slot1Based: number, sampleIndex: number): void {
-  commitEditXm((s) =>
-    removeXmInstrumentSampleMutation(s, slot1Based, sampleIndex),
-  );
+  commitXmSlotShape((state) => ({
+    song: removeXmInstrumentSampleMutation(state.song, slot1Based, sampleIndex),
+    xmWorkbenches: withXmSampleRemoved(
+      state.xmWorkbenches,
+      slot1Based,
+      sampleIndex,
+    ),
+  }));
 }
 
 /** Replace the instrument's 96-byte note → sample-index map. */
@@ -196,9 +265,18 @@ export function duplicateXmSample(
       : new Int16Array(src.data as Int16Array);
   const dup: XmSample = { ...src, name: copyName, data: copyData };
   const newIndex = inst.samples.length;
-  commitEditXm((song) =>
-    setXmInstrumentSampleMutation(song, slot1Based, dup, newIndex),
-  );
+  // The copy carries the source's workbench (same bytes, same pipeline),
+  // replacing whatever key might linger at the new index.
+  commitXmSlotShape((state) => ({
+    song: setXmInstrumentSampleMutation(state.song, slot1Based, dup, newIndex),
+    xmWorkbenches: withXmWorkbenchCopied(
+      state.xmWorkbenches,
+      slot1Based,
+      sampleIndex,
+      slot1Based,
+      newIndex,
+    ),
+  }));
   setCurrentXmSampleIndex(newIndex);
 }
 

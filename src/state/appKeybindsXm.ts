@@ -83,6 +83,10 @@ import {
 
 const isFt2Mode = () => song()?.format === "FT2";
 
+/** Pattern-cursor / pattern-edit / order-edit gate — see `isPt2Pattern`
+ *  in appKeybinds.ts. Keeps those keys off the hidden grid in other views. */
+const isFt2Pattern = () => isFt2Mode() && view() === "pattern";
+
 // Why: full FT2 effect-command alphabet. 0..9 + A..F are the base PT-shared
 // codes (arpeggio…set speed); G..X are XM extensions (skipping I, J, M, N,
 // O, Q, S, U, V, W which ft2-clone leaves unimplemented). Routed to
@@ -139,7 +143,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
     registerShortcut({
       key: "arrowleft",
       description: "Cursor left",
-      when: isFt2Mode,
+      when: isFt2Pattern,
       run: navStep(xmMoveLeft),
     }),
   );
@@ -147,7 +151,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
     registerShortcut({
       key: "arrowright",
       description: "Cursor right",
-      when: isFt2Mode,
+      when: isFt2Pattern,
       run: navStep(xmMoveRight),
     }),
   );
@@ -155,7 +159,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
     registerShortcut({
       key: "arrowup",
       description: "Cursor up",
-      when: isFt2Mode,
+      when: isFt2Pattern,
       run: navStep(xmMoveUp),
     }),
   );
@@ -163,7 +167,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
     registerShortcut({
       key: "arrowdown",
       description: "Cursor down",
-      when: isFt2Mode,
+      when: isFt2Pattern,
       run: navStep(xmMoveDown),
     }),
   );
@@ -171,7 +175,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
     registerShortcut({
       key: "tab",
       description: "Next channel",
-      when: isFt2Mode,
+      when: isFt2Pattern,
       run: navStep(xmTabNext),
     }),
   );
@@ -180,7 +184,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
       key: "tab",
       shift: true,
       description: "Previous channel",
-      when: isFt2Mode,
+      when: isFt2Pattern,
       run: navStep(xmTabPrev),
     }),
   );
@@ -188,7 +192,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
     registerShortcut({
       key: "pageup",
       description: "Page up",
-      when: isFt2Mode,
+      when: isFt2Pattern,
       run: () =>
         applyXmCursorWithSong((c, s) =>
           xmPageUp(c, s, rowsPerBeat() * beatsPerBar()),
@@ -199,7 +203,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
     registerShortcut({
       key: "pagedown",
       description: "Page down",
-      when: isFt2Mode,
+      when: isFt2Pattern,
       run: () =>
         applyXmCursorWithSong((c, s) =>
           xmPageDown(c, s, rowsPerBeat() * beatsPerBar()),
@@ -220,7 +224,8 @@ export function registerXmAppKeybinds(): Array<() => void> {
         when: () =>
           isFt2Mode() &&
           editsAllowed() &&
-          (view() === "sample" || xmCursor().field === "note"),
+          (view() === "sample" ||
+            (view() === "pattern" && xmCursor().field === "note")),
         run: () => onXmPianoKey(offset),
         runUp: () => {
           stopEnginePreview();
@@ -266,7 +271,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
       when: () =>
         isFt2Mode() &&
         editsAllowed() &&
-        view() !== "sample" &&
+        view() === "pattern" &&
         xmCursor().field === "note",
       run: enterXmKeyOff,
     }),
@@ -284,7 +289,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
         when: () =>
           isFt2Mode() &&
           editsAllowed() &&
-          view() !== "sample" &&
+          view() === "pattern" &&
           isXmHexField(),
         run: () => enterXmHexDigit(val),
       }),
@@ -301,7 +306,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
         when: () =>
           isFt2Mode() &&
           editsAllowed() &&
-          view() !== "sample" &&
+          view() === "pattern" &&
           isEffectCmdField(),
         run: () => enterXmEffectChar(ch),
       }),
@@ -335,7 +340,8 @@ export function registerXmAppKeybinds(): Array<() => void> {
         when: () =>
           isFt2Mode() &&
           editsAllowed() &&
-          (view() === "sample" || xmCursor().field === "note"),
+          (view() === "sample" ||
+            (view() === "pattern" && xmCursor().field === "note")),
         run: () => selectXmInstrument(n),
       }),
     );
@@ -373,7 +379,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
   // don't matter for a selection rectangle); up/down/page step rows.
   // All gated on FT2 + pattern view + transport idle.
   const selectionWhen = () =>
-    isFt2Mode() && editsAllowed() && view() !== "sample";
+    isFt2Mode() && editsAllowed() && view() === "pattern";
   cleanups.push(
     registerShortcut({
       key: "arrowleft",
@@ -449,7 +455,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
     registerShortcut({
       key: "delete",
       description: "Clear selected range",
-      when: () => isFt2Mode() && editsAllowed(),
+      when: () => isFt2Pattern() && editsAllowed(),
       run: deleteXmSelection,
     }),
   );
@@ -486,7 +492,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
       shift: true,
       position: true,
       description: "Previous pattern at slot",
-      when: isFt2Mode,
+      when: isFt2Pattern,
       run: stepXmPrevPattern,
     }),
   );
@@ -496,7 +502,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
       shift: true,
       position: true,
       description: "Next pattern at slot",
-      when: isFt2Mode,
+      when: isFt2Pattern,
       run: stepXmNextPattern,
     }),
   );
@@ -506,7 +512,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
       mod: true,
       position: true,
       description: "Insert order slot",
-      when: isFt2Mode,
+      when: isFt2Pattern,
       run: insertXmOrderSlot,
     }),
   );
@@ -516,7 +522,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
       mod: true,
       position: true,
       description: "Delete order slot",
-      when: isFt2Mode,
+      when: isFt2Pattern,
       run: deleteXmOrderSlot,
     }),
   );
@@ -526,7 +532,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
       alt: true,
       position: true,
       description: "New blank pattern at slot",
-      when: isFt2Mode,
+      when: isFt2Pattern,
       run: newXmBlankPatternAtOrder,
     }),
   );
@@ -536,7 +542,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
       alt: true,
       position: true,
       description: "Duplicate pattern at slot",
-      when: isFt2Mode,
+      when: isFt2Pattern,
       run: duplicateXmCurrentPattern,
     }),
   );
@@ -546,7 +552,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
     registerShortcut({
       key: ".",
       description: "Clear field under cursor",
-      when: isFt2Mode,
+      when: isFt2Pattern,
       run: clearXmAtCursor,
     }),
   );
@@ -554,7 +560,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
     registerShortcut({
       key: "backspace",
       description: "Clear selection / clear cell, step up",
-      when: isFt2Mode,
+      when: isFt2Pattern,
       run: backspaceXmCell,
     }),
   );
@@ -564,7 +570,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
       shift: true,
       description:
         "Clear selected rows / clear current row, step up (all channels)",
-      when: isFt2Mode,
+      when: isFt2Pattern,
       run: backspaceXmRow,
     }),
   );
@@ -572,7 +578,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
     registerShortcut({
       key: "enter",
       description: "Insert empty cell (push channel down)",
-      when: isFt2Mode,
+      when: isFt2Pattern,
       run: insertEmptyXmCell,
     }),
   );
@@ -581,7 +587,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
       key: "enter",
       shift: true,
       description: "Insert empty row (push all channels down)",
-      when: isFt2Mode,
+      when: isFt2Pattern,
       run: insertEmptyXmRow,
     }),
   );
@@ -643,7 +649,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
       key: "e",
       mod: true,
       description: "Bounce selection to new instrument",
-      when: () => isFt2Mode() && editsAllowed() && view() !== "sample",
+      when: () => isFt2Mode() && editsAllowed() && view() === "pattern",
       run: bounceXmSelectionToInstrument,
     }),
   );
@@ -656,7 +662,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
     registerShortcut({
       key: ",",
       description: "Repeat last effect from above on this channel",
-      when: () => isFt2Mode() && editsAllowed() && view() !== "sample",
+      when: () => isFt2Mode() && editsAllowed() && view() === "pattern",
       run: repeatLastXmEffectFromAbove,
     }),
   );
@@ -667,7 +673,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
   // selection when one exists, otherwise on the cell at the cursor —
   // mirrors PT2's behaviour exactly.
   const transposeWhen = () =>
-    isFt2Mode() && editsAllowed() && view() !== "sample";
+    isFt2Mode() && editsAllowed() && view() === "pattern";
   cleanups.push(
     registerShortcut({
       key: "-",

@@ -10,12 +10,7 @@ import {
   setXmInstrument as setXmInstrumentMutation,
   setXmInstrumentSample as setXmInstrumentSampleMutation,
 } from "../core/xm/mutations";
-import {
-  commitEditWithWorkbenches,
-  commitEditXm,
-  pt2Song as song,
-  xm2Song,
-} from "./song";
+import { commitEditWithWorkbenches, pt2Song as song, xm2Song } from "./song";
 import { currentSample, selectSample } from "./edit";
 import { view } from "./view";
 import { withWorkbench } from "./sampleWorkbench";
@@ -26,7 +21,11 @@ import {
   selectXmInstrument,
   setCurrentXmSampleIndex,
 } from "./xmEdit";
-import { setXmSample } from "./xmInstrumentEdit";
+import { commitXmSlotShape, setXmSample } from "./xmInstrumentEdit";
+import {
+  withoutXmInstrumentWorkbenches,
+  withoutXmWorkbench,
+} from "./xmSampleWorkbench";
 
 /**
  * Multi-WAV drop / picker path — `.mod` / `.xm` / `.retro` go through `loadFile`.
@@ -300,6 +299,22 @@ function buildXmInstrumentFromSamples(samples: XmSample[]): XmInstrument {
 }
 
 /**
+ * Write a whole new instrument into `slot1Based` and drop every workbench
+ * keyed on that slot. An "empty" slot can still own workbenches (a lazily
+ * created empty-source one, or a chiptune whose render was cleared); left
+ * in place they would re-render over the freshly imported samples.
+ */
+function replaceXmInstrument(slot1Based: number, next: XmInstrument): void {
+  commitXmSlotShape((state) => ({
+    song: setXmInstrumentMutation(state.song, slot1Based - 1, next),
+    xmWorkbenches: withoutXmInstrumentWorkbenches(
+      state.xmWorkbenches,
+      slot1Based,
+    ),
+  }));
+}
+
+/**
  * Drop handler for the FT2 InstrumentView. Behaviour depends on whether
  * the current slot already holds samples:
  *   - Empty slot: create a new instrument from the dropped WAVs (one
@@ -327,7 +342,7 @@ export async function dropWavsToXmInstrumentView(files: File[]): Promise<void> {
 
   if (!isPopulated) {
     const next = buildXmInstrumentFromSamples(samples);
-    commitEditXm((song) => setXmInstrumentMutation(song, slot1Based - 1, next));
+    replaceXmInstrument(slot1Based, next);
     selectXmInstrument(slot1Based);
     setCurrentXmSampleIndex(0);
     return;
@@ -339,9 +354,11 @@ export async function dropWavsToXmInstrumentView(files: File[]): Promise<void> {
   let nextIdx = existing.samples.length;
   for (const sample of samples) {
     if (nextIdx >= SAMPLE_CAP) break;
-    commitEditXm((song) =>
-      setXmInstrumentSampleMutation(song, slot1Based, sample, nextIdx),
-    );
+    const idx = nextIdx;
+    commitXmSlotShape((state) => ({
+      song: setXmInstrumentSampleMutation(state.song, slot1Based, sample, idx),
+      xmWorkbenches: withoutXmWorkbench(state.xmWorkbenches, slot1Based, idx),
+    }));
     nextIdx++;
     appended++;
   }
@@ -379,7 +396,7 @@ export async function dropWavsToXmPatternView(files: File[]): Promise<void> {
     return;
   }
   const next = buildXmInstrumentFromSamples(samples);
-  commitEditXm((song) => setXmInstrumentMutation(song, slot1Based - 1, next));
+  replaceXmInstrument(slot1Based, next);
   selectXmInstrument(slot1Based);
   setCurrentXmSampleIndex(0);
 }

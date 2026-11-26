@@ -50,8 +50,8 @@ import { SHAPER_MODES, type ShaperMode } from "../core/audio/shapers";
  *   - Sampler sources persist as 16-bit PCM WAV bytes (base64). 16-bit is
  *     well above the int8 PT quantizer downstream, so storing wider buys
  *     no audible quality. They're heavy — large enough that an autosave
- *     can blow the localStorage quota; saveSession swallows that silently
- *     and the user falls back to explicit Save.
+ *     can blow the localStorage quota; saveSession then stores the
+ *     session without them and reports "degraded" so the App can warn.
  *
  * Other things we don't persist:
  *   - History stacks — a fresh session starts with no undo, matching the
@@ -1080,19 +1080,58 @@ function parsePatternNames(raw: unknown): Record<number, string> {
   return out;
 }
 
-/** Persist the inputs to localStorage. Silent on quota / SecurityErrors. */
-export function saveSession(state: SessionInputs): void {
-  let payload: PersistedShape;
+/**
+ * Result of an autosave attempt:
+ *   - "ok": the full session (including sampler source audio) was stored.
+ *   - "degraded": the full payload didn't fit the storage quota, so the
+ *     session was stored WITHOUT sampler source audio. The song bytes still
+ *     carry every slot's rendered sample, so a reload restores the current
+ *     song — but those slots come back without their workbench (source +
+ *     effect chain).
+ *   - "failed": nothing could be stored. Whatever an earlier successful
+ *     save left under the key is still there, so a reload would roll back
+ *     to it — the caller must tell the user.
+ */
+export type SaveOutcome = "ok" | "degraded" | "failed";
+
+/**
+ * Persist the inputs to localStorage and report how it went.
+ *
+ * Sampler sources are full-resolution WAVs and routinely exceed the
+ * ~5 MB quota. A plain "swallow the error" policy left the PREVIOUS
+ * session under the key, so a reload silently rolled the user back to
+ * whatever state last fit. Instead we retry without the source audio,
+ * which keeps the persisted song current, and surface the outcome.
+ */
+export function saveSession(state: SessionInputs): SaveOutcome {
+  let json: string;
   try {
-    payload = buildPayload(state);
+    json = JSON.stringify(buildPayload(state));
   } catch {
-    return;
+    return "failed";
   }
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    localStorage.setItem(STORAGE_KEY, json);
+    return "ok";
   } catch {
-    // Quota exceeded, private browsing, etc. — silent. Persistence is a
-    // best-effort convenience; the user explicitly Save-As'es to keep work.
+    // Quota exceeded, private browsing, etc. — fall through to the
+    // reduced payload.
+  }
+  const hasSources =
+    (!!state.samplerSources && Object.keys(state.samplerSources).length > 0) ||
+    (!!state.xmSamplerSources &&
+      Object.keys(state.xmSamplerSources).length > 0);
+  if (!hasSources) return "failed";
+  try {
+    const lite = buildPayload({
+      ...state,
+      samplerSources: undefined,
+      xmSamplerSources: undefined,
+    });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(lite));
+    return "degraded";
+  } catch {
+    return "failed";
   }
 }
 

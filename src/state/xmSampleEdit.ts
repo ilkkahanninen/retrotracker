@@ -57,11 +57,14 @@ import {
   withXmWorkbench,
   xmWorkbenches,
   setXmWorkbenchesRaw,
+  withoutXmInstrumentWorkbenches,
+  withXmWorkbenchCopied,
   xmWorkbenchKey,
 } from "./xmSampleWorkbench";
 import {
   clearXmInstrument as clearXmInstrumentMutation,
   clearXmSampleData as clearXmSampleDataMutation,
+  commitXmSlotShape,
   duplicateXmSample as duplicateXmSampleMutation,
 } from "./xmInstrumentEdit";
 import { importWavXmSample } from "../core/xm/sampleImport";
@@ -785,9 +788,20 @@ export function duplicateCurrentXmInstrument(): void {
     setError("No free instrument slots — clear one and try again.");
     return;
   }
-  commitEditXm((song) =>
-    duplicateXmInstrumentMutation(song, sourceSlot, targetSlot0 + 1),
-  );
+  const targetSlot = targetSlot0 + 1;
+  // The "free" target can still own workbenches (lazily created on an
+  // empty slot); replace them with copies of the source instrument's so
+  // each duplicated sample keeps the pipeline that rendered it.
+  commitXmSlotShape((state) => {
+    let wbs = withoutXmInstrumentWorkbenches(state.xmWorkbenches, targetSlot);
+    for (let i = 0; i < src.samples.length; i++) {
+      wbs = withXmWorkbenchCopied(wbs, sourceSlot, i, targetSlot, i);
+    }
+    return {
+      song: duplicateXmInstrumentMutation(state.song, sourceSlot, targetSlot),
+      xmWorkbenches: wbs,
+    };
+  });
   setCurrentXmInstrument(targetSlot0 + 1);
   setCurrentXmSampleIndex(0);
 }

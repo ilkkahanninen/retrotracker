@@ -222,7 +222,12 @@ import {
   patternNames,
   setPatternName,
 } from "./state/patternNames";
-import { loadSession, projectToBytes, saveSession } from "./state/persistence";
+import {
+  loadSession,
+  projectToBytes,
+  saveSession,
+  type SaveOutcome,
+} from "./state/persistence";
 import {
   disposeEngine,
   jumpPlaybackToOrder,
@@ -286,6 +291,17 @@ export const App: Component = () => {
     title: string;
   } | null>(null);
   const [shareModalOpen, setShareModalOpen] = createSignal(false);
+  // Autosave health. `autosaveOutcome` is the last result; the warning
+  // banner shows whenever it isn't "ok" and re-appears (after a dismiss)
+  // only when the outcome changes, so it informs without nagging on
+  // every debounced save.
+  const [autosaveOutcome, setAutosaveOutcome] = createSignal<SaveOutcome>("ok");
+  const [autosaveWarningDismissed, setAutosaveWarningDismissed] =
+    createSignal(false);
+  const recordAutosaveOutcome = (outcome: SaveOutcome) => {
+    if (outcome !== autosaveOutcome()) setAutosaveWarningDismissed(false);
+    setAutosaveOutcome(outcome);
+  };
 
   const USER_MANUAL_URL =
     "https://github.com/ilkkahanninen/retrotracker/blob/main/docs/user-manual.md";
@@ -493,9 +509,10 @@ export const App: Component = () => {
       }
     }
     // Sampler workbenches restore only when the previous session fit in
-    // localStorage's quota — saveSession silently drops the write when
-    // it doesn't, in which case the slot's int8 still plays from the
-    // song bytes but the pipeline UI starts fresh.
+    // localStorage's quota — otherwise saveSession stored the session
+    // without source audio (and the autosave banner said so), in which
+    // case the slot's int8 still plays from the song bytes but the
+    // pipeline UI starts fresh.
     if (!song()) {
       const restored = loadSession();
       if (restored) {
@@ -599,7 +616,7 @@ export const App: Component = () => {
       const muted = mutedChannels();
       const soloed = soloedChannels();
       saveTimer = window.setTimeout(() => {
-        saveSession({
+        const outcome = saveSession({
           song: s,
           filename: fname,
           infoText: info,
@@ -617,6 +634,7 @@ export const App: Component = () => {
           xmSamplerSources: isXm ? xmSamplerSourcesSnapshot() : undefined,
           cloudOrigin: origin,
         });
+        recordAutosaveOutcome(outcome);
       }, 250);
     });
     cleanups.push(() => {
@@ -1111,6 +1129,24 @@ export const App: Component = () => {
             </button>
           </div>
         )}
+      </Show>
+      <Show when={autosaveOutcome() !== "ok" && !autosaveWarningDismissed()}>
+        <div class="share-banner share-banner--error" role="alert">
+          <span class="share-banner__text">
+            {autosaveOutcome() === "degraded"
+              ? "This project is too large for browser storage. Autosave now keeps the song and rendered samples only — sample sources and effect chains will be gone after a reload. Use Save to keep everything."
+              : "Autosave is off: this project no longer fits in browser storage, so a reload would bring back an older version. Use Save to keep your work."}
+          </span>
+          <button
+            type="button"
+            class="share-banner__dismiss"
+            onClick={() => setAutosaveWarningDismissed(true)}
+            aria-label="Dismiss"
+            title="Dismiss"
+          >
+            ×
+          </button>
+        </div>
       </Show>
       <header class="app__header">
         <div class="app__header-left">

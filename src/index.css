@@ -619,6 +619,9 @@ body {
 }
 
 .share-banner {
+  /* Banners are un-named children of the .app grid: span every column so
+   * auto-placement gives each one its own full-width row. */
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   justify-content: space-between;

@@ -206,8 +206,9 @@ function matchesKeyOnly(e: KeyboardEvent, s: Shortcut): boolean {
  *     jump-to-letter on type).
  *   - null: nothing focused or focus is on a non-form element.
  *
- * Mod-key shortcuts (⌘S, ⌘Z, …) always fire regardless, so global app
- * actions stay reachable.
+ * Mod-key shortcuts (⌘S, ⌘O, …) fire regardless so global app actions
+ * stay reachable — except the text-editing chords in TEXT_EDIT_MOD_KEYS,
+ * which a focused text field keeps.
  */
 type FocusKind = "text" | "range" | "select" | null;
 
@@ -235,6 +236,34 @@ const RANGE_NAV_KEYS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Mod-key shortcuts that collide with native text editing. While a text
+ * field has focus these belong to the field (cut / copy / paste / undo /
+ * redo / select-all of the *text*), not to the song — otherwise ⌘X in a
+ * sample-name input cuts the whole sample and ⌘Z in the info textarea
+ * undoes a pattern edit. Other mod shortcuts (⌘S, ⌘O, …) stay global.
+ */
+const TEXT_EDIT_MOD_KEYS: ReadonlySet<string> = new Set([
+  "a",
+  "c",
+  "x",
+  "v",
+  "z",
+  "y",
+]);
+
+/**
+ * True while a modal dialog is on screen. Every modal in the app renders
+ * with `aria-modal="true"`; while one is up the app behind it must be
+ * inert, so the dispatcher stands down entirely and the dialog's own
+ * handlers (Escape, Enter on the focused button, typing a filename) get
+ * the keys untouched.
+ */
+function modalOpen(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.querySelector('[aria-modal="true"]') !== null;
+}
+
+/**
  * Install window-level keydown + keyup listeners that run matching shortcuts.
  * Returns a cleanup function. We always call `preventDefault` on a match so
  * the browser's own action doesn't fight ours.
@@ -247,12 +276,20 @@ const RANGE_NAV_KEYS: ReadonlySet<string> = new Set([
 export function installShortcuts(target: Window = window): () => void {
   const downHandler = (ev: Event) => {
     const e = ev as KeyboardEvent;
+    if (modalOpen()) return;
     const kind = focusKind();
     for (const s of registered) {
       if (!matchesShortcut(e, s)) continue;
-      // Mod-key shortcuts (⌘S, ⌘Z, …) always fire — global actions reach
-      // the user even while a form control is focused.
-      if (!s.mod) {
+      // Mod-key shortcuts (⌘S, ⌘O, …) fire even while a form control is
+      // focused — except the text-editing ones, which a focused text field
+      // keeps for itself.
+      if (s.mod) {
+        // ⌘⇧Z is still redo; other shifted chords (⌘⇧A = Paula model)
+        // have no text meaning and stay global.
+        const textChord =
+          TEXT_EDIT_MOD_KEYS.has(s.key) && (!s.shift || s.key === "z");
+        if (kind === "text" && textChord) continue;
+      } else {
         // Text inputs / selects consume bare keystrokes; skip plain-key
         // shortcuts so typing into the field works.
         if (kind === "text" || kind === "select") continue;
@@ -269,6 +306,8 @@ export function installShortcuts(target: Window = window): () => void {
   };
   const upHandler = (ev: Event) => {
     const e = ev as KeyboardEvent;
+    // No modal gate here: a key held when a dialog opens must still get its
+    // release so a previewing note stops.
     for (const s of registered) {
       if (!s.runUp) continue;
       if (!matchesKeyOnly(e, s)) continue;
