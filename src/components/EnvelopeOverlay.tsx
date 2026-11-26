@@ -3,9 +3,11 @@ import {
   Show,
   createEffect,
   createSignal,
+  onCleanup,
   type Component,
 } from "solid-js";
 import { useWindowListener } from "./hooks";
+import { beginDragEdit, endDragEdit } from "../state/song";
 import {
   ENVELOPE_MIN_POINTS,
   type EnvelopePoint,
@@ -101,6 +103,24 @@ export const EnvelopeOverlay: Component<EnvelopeOverlayProps> = (props) => {
 
   const [drag, setDrag] = createSignal<Drag | null>(null);
 
+  // Every pointermove of a point / segment drag commits live, so without
+  // a coalesced group one drag pushed hundreds of undo entries — enough
+  // to evict the whole history. Open the group on grab, close it on
+  // release, and close it on unmount so a mid-drag disposal can't leave
+  // the module-level drag snapshot stuck.
+  const startDrag = (d: Drag) => {
+    beginDragEdit();
+    setDrag(d);
+  };
+  const stopDrag = () => {
+    if (!drag()) return;
+    setDrag(null);
+    endDragEdit();
+  };
+  onCleanup(() => {
+    if (drag()) endDragEdit();
+  });
+
   // Polyline path string — runs through every point, plus virtual horizontal
   // extensions at the endpoints to visualise the clamp-to-boundary semantics.
   const pathD = () => {
@@ -129,7 +149,7 @@ export const EnvelopeOverlay: Component<EnvelopeOverlayProps> = (props) => {
   const onPointPointerDown = (e: PointerEvent, index: number) => {
     e.stopPropagation();
     e.preventDefault();
-    setDrag({ kind: "point", index });
+    startDrag({ kind: "point", index });
   };
 
   const onPointDoubleClick = (e: MouseEvent, index: number) => {
@@ -142,7 +162,7 @@ export const EnvelopeOverlay: Component<EnvelopeOverlayProps> = (props) => {
   const onSegmentPointerDown = (e: PointerEvent, leftIndex: number) => {
     e.stopPropagation();
     e.preventDefault();
-    setDrag({
+    startDrag({
       kind: "segment",
       leftIndex,
       startValue: valueForY(
@@ -217,7 +237,7 @@ export const EnvelopeOverlay: Component<EnvelopeOverlayProps> = (props) => {
         }
       }
     };
-    const up = () => setDrag(null);
+    const up = () => stopDrag();
     useWindowListener("pointermove", move);
     useWindowListener("pointerup", up);
     useWindowListener("pointercancel", up);

@@ -15,6 +15,7 @@ import { xm2Song, playPos } from "./song";
 import { setChannelLevels } from "./channelLevel";
 import * as preview from "./preview";
 import { settings } from "./settings";
+import { clearSelection, clearXmSelection } from "./selection";
 
 /**
  * Active edit cursor for the loaded song. PT2 mode reads `cursor()`,
@@ -286,6 +287,12 @@ function pauseAndSnapCursorToPlayhead(): void {
   currentEngine()?.stop();
   setTransport("ready");
   setPlayMode(null);
+  // The cursor is about to jump to the playhead. A selection made before
+  // playback would stay behind (possibly on another order) and silently
+  // become the target of the next Backspace / Delete / cut / transpose —
+  // same rule as every other cursor move: moving drops the selection.
+  clearSelection();
+  clearXmSelection();
   if (xm2Song()) {
     const c = xmCursor();
     setXmCursor({ ...c, order: pos.order, row: pos.row });

@@ -17,6 +17,7 @@ import {
   loadPatternNames,
 } from "./patternNames";
 import { settings } from "./settings";
+import { reconcileUiToSong } from "./reconcile";
 
 /**
  * Loaded song. Held as a signal so the UI reactively re-renders on swap;
@@ -157,7 +158,7 @@ export const canRedo = () => future().length > 0;
 export function beginDragEdit(): void {
   if (dragSnapshot) return;
   const cur = song();
-  if (!cur || cur.format !== "PT2") return;
+  if (!cur) return;
   dragSnapshot = {
     song: cur,
     workbenches: workbenchesSig(),
@@ -176,8 +177,9 @@ export function endDragEdit(): void {
   dragSnapshot = null;
   if (!snap) return;
   const cur = song();
-  if (!cur || cur.format !== "PT2") return;
-  if (snap.song.format !== "PT2") return;
+  // A load / format switch mid-drag clears history; never push a snapshot
+  // of a different project onto the new one's stack.
+  if (!cur || cur.format !== snap.song.format) return;
   if (
     snap.song === cur &&
     snap.workbenches === workbenchesSig() &&
@@ -416,6 +418,9 @@ export function undo(): void {
   if (previous.patternNames !== currentNames)
     loadPatternNames(previous.patternNames);
   setDirty(true);
+  // The restored song can be shorter / narrower than the one the cursor,
+  // selection and mute arrays were positioned against.
+  reconcileUiToSong();
 }
 
 /** Replay the most recently undone edit. Same playback gate as `undo`. */
@@ -447,6 +452,7 @@ export function redo(): void {
     setXmWorkbenchesRaw(next.xmWorkbenches);
   if (next.patternNames !== currentNames) loadPatternNames(next.patternNames);
   setDirty(true);
+  reconcileUiToSong();
 }
 
 /** Drop both stacks. Call after loading a new file. */

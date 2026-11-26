@@ -35,6 +35,7 @@ import {
   getXmWorkbench,
   withXmSampleRemoved,
   withXmWorkbenchCopied,
+  withoutXmInstrumentWorkbenches,
   withoutXmWorkbench,
 } from "./xmSampleWorkbench";
 import { runContextForXmSample } from "./xmSampleEdit";
@@ -55,17 +56,31 @@ export type XmEnvelopeKind = "volume" | "panning";
  * Same playback gate as `commitEditXm` (no-op while playing with Follow
  * on) — `commitEditXmWithWorkbenches` itself is ungated because the
  * pipeline editors are allowed mid-playback; these structural ops aren't.
+ *
+ * Returns whether anything was committed. Callers that follow up with
+ * non-history UI changes (select the new instrument, clear the waveform
+ * selection, …) must skip them on `false` — otherwise a gated or rejected
+ * op still moves the UI as if it had happened.
+ *
+ * By default a transform that leaves the song untouched is treated as
+ * rejected (out-of-range slot, cap reached, …) so it can't strand a
+ * workbench-only change. Clear-style ops pass `allowWorkbenchOnly` — a
+ * slot can be empty in the song yet still own a workbench worth dropping.
  */
 export function commitXmSlotShape(
   transform: (state: XmEditState) => XmEditState,
-): void {
-  if (transport() === "playing" && settings().followPlayback) return;
+  opts: { allowWorkbenchOnly?: boolean } = {},
+): boolean {
+  if (transport() === "playing" && settings().followPlayback) return false;
+  let committed = false;
   commitEditXmWithWorkbenches((state) => {
     const next = transform(state);
-    // A rejected song mutation (out-of-range slot, cap reached, …) must
-    // not strand a workbench-only change.
-    return next.song === state.song ? state : next;
+    if (next.song === state.song && !opts.allowWorkbenchOnly) return state;
+    committed =
+      next.song !== state.song || next.xmWorkbenches !== state.xmWorkbenches;
+    return next;
   });
+  return committed;
 }
 
 /** 1-based slot index — the instrument list's inline rename can target any slot. */
@@ -285,8 +300,19 @@ export function duplicateXmSample(
  * autovibrato, keymap, name. The slot reads as empty afterwards. Used
  * by the "Clear instrument" header action.
  */
-export function clearXmInstrument(slot1Based: number): void {
-  commitEditXm((s) => clearXmInstrumentMutation(s, slot1Based));
+export function clearXmInstrument(slot1Based: number): boolean {
+  // Song + every workbench keyed on the slot go in one undo entry, so a
+  // gated call (Play + Follow) changes neither and undo restores both.
+  return commitXmSlotShape(
+    (state) => ({
+      song: clearXmInstrumentMutation(state.song, slot1Based),
+      xmWorkbenches: withoutXmInstrumentWorkbenches(
+        state.xmWorkbenches,
+        slot1Based,
+      ),
+    }),
+    { allowWorkbenchOnly: true },
+  );
 }
 
 /**
@@ -298,13 +324,13 @@ export function clearXmInstrument(slot1Based: number): void {
 export function clearXmSampleData(
   slot1Based: number,
   sampleIndex: number,
-): void {
+): boolean {
   const s = xm2Song();
-  if (!s) return;
+  if (!s) return false;
   const inst = s.instruments[slot1Based - 1];
-  if (!inst) return;
+  if (!inst) return false;
   const src = inst.samples[sampleIndex];
-  if (!src) return;
+  if (!src) return false;
   const emptyData: Int8Array | Int16Array =
     src.bits === 8 ? new Int8Array(0) : new Int16Array(0);
   const cleared: XmSample = {
@@ -314,7 +340,22 @@ export function clearXmSampleData(
     loopLength: 0,
     loopType: "none",
   };
-  commitEditXm((song) =>
-    setXmInstrumentSampleMutation(song, slot1Based, cleared, sampleIndex),
+  // Drop the workbench in the same commit: left behind, the next chain
+  // edit would re-render the cleared audio straight back into the slot.
+  return commitXmSlotShape(
+    (state) => ({
+      song: setXmInstrumentSampleMutation(
+        state.song,
+        slot1Based,
+        cleared,
+        sampleIndex,
+      ),
+      xmWorkbenches: withoutXmWorkbench(
+        state.xmWorkbenches,
+        slot1Based,
+        sampleIndex,
+      ),
+    }),
+    { allowWorkbenchOnly: true },
   );
 }

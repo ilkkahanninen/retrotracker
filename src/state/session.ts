@@ -37,7 +37,17 @@ import {
   clearHistory,
 } from "./song";
 import { cursor, setCursor, resetCursor, type Cursor } from "./cursor";
-import { resetXmCursor, setXmCursor } from "./cursorXm";
+import { resetXmCursor, setXmCursor, xmCursor } from "./cursorXm";
+import { clearSelection, clearXmSelection } from "./selection";
+import { setSampleSelection } from "./sampleSelection";
+import { setXmSampleSelection } from "./xmSampleSelection";
+import { clearSelectedEffect } from "./selectedEffect";
+import {
+  setXmSelectedEffectIndex,
+  setXmSelectedEffectParam,
+} from "./xmSampleEdit";
+import { setCurrentXmInstrument, setCurrentXmSampleIndex } from "./xmEdit";
+import { reconcileUiToSong } from "./reconcile";
 import { setView, view, type View } from "./view";
 import {
   setInfoText,
@@ -160,6 +170,20 @@ export function applyLoadedSession(loaded: LoadedSession): void {
   resetChannelMute(ch);
   resetChannelLevels(ch);
   resetPatternNames();
+  // Selections and "which thing is selected" markers index into the OLD
+  // song. Left alone they survive into the new one — the first Backspace /
+  // Delete / cut then hits the old range, a waveform selection gets
+  // adopted as a loop, and the instrument cursor sits on a slot the user
+  // never picked in this project.
+  clearSelection();
+  clearXmSelection();
+  setSampleSelection(null);
+  setXmSampleSelection(null);
+  clearSelectedEffect();
+  setXmSelectedEffectIndex(null);
+  setXmSelectedEffectParam(null);
+  setCurrentXmInstrument(1);
+  setCurrentXmSampleIndex(0);
   if (loaded.patternNames) loadPatternNames(loaded.patternNames);
   if (loaded.mutedChannels || loaded.soloedChannels) {
     setChannelMuteState(loaded.mutedChannels, loaded.soloedChannels, ch);
@@ -178,7 +202,7 @@ export function applyLoadedSession(loaded: LoadedSession): void {
       setXmCursor({
         order: loaded.cursor.order,
         row: loaded.cursor.row,
-        channel: 0,
+        channel: loaded.cursor.channel,
         field: "note",
       });
     }
@@ -237,7 +261,23 @@ export function applyLoadedSession(loaded: LoadedSession): void {
       });
     }
   }
+  // A persisted cursor / mute snapshot is only validated against the
+  // format's limits, not this song's actual order count, row counts and
+  // channel count — clamp against the real thing.
+  reconcileUiToSong();
   setDirty(false);
+}
+
+/**
+ * The cursor to persist for the loaded song. The on-disk shape is the PT
+ * `Cursor`; FT2 projects edit through `xmCursor`, so its position is
+ * mapped onto that shape (the field resets to "note" — PT and FT2 field
+ * names don't line up) instead of saving the dormant PT cursor.
+ */
+export function cursorForPersistence(): Cursor {
+  if (song()?.format !== "FT2") return cursor();
+  const c = xmCursor();
+  return { order: c.order, row: c.row, channel: c.channel, field: "note" };
 }
 
 /** Parse `"inst:sampleIdx"` back to a tuple; returns `[null, 0]` on
@@ -516,7 +556,7 @@ export function projectBytes(): Uint8Array | null {
     filename: filename(),
     infoText: infoText(),
     view: view(),
-    cursor: cursor(),
+    cursor: cursorForPersistence(),
     currentSample: currentSample(),
     currentOctave: currentOctave(),
     editStep: editStep(),

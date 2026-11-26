@@ -30,12 +30,6 @@ import { SlotList, type SlotDisplay } from "./components/SlotList";
 import { SettingsView } from "./components/SettingsView";
 import { bounceSelection } from "./core/audio/bounce";
 import type { ChiptuneParams } from "./core/audio/chiptune";
-import {
-  workbenchFromChiptune,
-  workbenchFromWavData,
-  xmWorkbenchFromChiptune,
-  xmWorkbenchFromWav,
-} from "./core/audio/sampleWorkbench";
 import { emptySong } from "./core/mod/format";
 import { writeModule } from "./core/mod/writer";
 import { registerAppKeybinds } from "./state/appKeybinds";
@@ -124,8 +118,10 @@ import {
   writeWorkbenchToSongPure,
 } from "./state/sampleEdit";
 import {
+  applyLoadedSession,
   chiptuneSourcesSnapshot,
   cloudOrigin,
+  cursorForPersistence,
   xmChiptuneSourcesSnapshot,
   xmSamplerSourcesSnapshot,
   error,
@@ -172,14 +168,10 @@ import {
   ServerBrowser,
   type ServerBrowserMode,
 } from "./components/ServerBrowser";
-import {
-  mutedChannels,
-  setChannelMuteState,
-  soloedChannels,
-} from "./state/channelMute";
+import { mutedChannels, soloedChannels } from "./state/channelMute";
 import { clipboardSlice } from "./state/clipboard";
 import { sampleClipboard } from "./state/sampleClipboard";
-import { cursor, requestJumpToTop, setCursor } from "./state/cursor";
+import { cursor, requestJumpToTop } from "./state/cursor";
 import { speedTempoAt } from "./core/mod/flatten";
 import {
   currentOctave,
@@ -188,9 +180,6 @@ import {
   editStep,
   incEditStep,
   selectSample,
-  setCurrentOctave,
-  setCurrentSample,
-  setEditStep,
 } from "./state/edit";
 import {
   currentXmInstrument,
@@ -218,7 +207,6 @@ import { SAMPLE_NAME_MAX } from "./core/mod/sampleImport";
 import { infoText, setInfoText } from "./state/info";
 import {
   PATTERN_NAME_MAX,
-  loadPatternNames,
   patternNames,
   setPatternName,
 } from "./state/patternNames";
@@ -234,12 +222,8 @@ import {
   toggleTransport,
 } from "./state/playback";
 import * as preview from "./state/preview";
-import {
-  setWorkbench,
-  withWorkbench,
-  workbenches,
-} from "./state/sampleWorkbench";
-import { setXmWorkbench, xmWorkbenches } from "./state/xmSampleWorkbench";
+import { withWorkbench, workbenches } from "./state/sampleWorkbench";
+import { xmWorkbenches } from "./state/xmSampleWorkbench";
 import { selection } from "./state/selection";
 import {
   settings,
@@ -256,7 +240,6 @@ import {
   playPos,
   pt2Song,
   redo,
-  setPlayPos,
   setSong,
   setTransport,
   song,
@@ -472,17 +455,6 @@ export const App: Component = () => {
     );
   };
 
-  /** Parse `"inst:sampleIdx"` (the in-memory XM workbench key shape)
-   *  into a tuple, returning `[null, 0]` when the key is malformed. */
-  const parseXmKey = (k: string): [number | null, number] => {
-    const parts = k.split(":");
-    if (parts.length !== 2) return [null, 0];
-    const inst = parseInt(parts[0]!, 10);
-    const idx = parseInt(parts[1]!, 10);
-    if (!Number.isFinite(inst) || !Number.isFinite(idx)) return [null, 0];
-    return [inst, idx];
-  };
-
   const cleanups: Array<() => void> = [];
   onMount(() => {
     // Optional backend: one-shot probe so the File menu can grow
@@ -516,60 +488,15 @@ export const App: Component = () => {
     if (!song()) {
       const restored = loadSession();
       if (restored) {
-        setSong(restored.song);
-        setFilename(restored.filename);
-        setInfoText(restored.infoText);
-        setView(restored.view);
-        setCursor(restored.cursor);
-        setPlayPos({ order: restored.cursor.order, row: restored.cursor.row });
-        setCurrentSample(restored.currentSample);
-        setCurrentOctave(restored.currentOctave);
-        setEditStep(restored.editStep);
-        for (const [slotStr, params] of Object.entries(
-          restored.chiptuneSources,
-        )) {
-          const slot = parseInt(slotStr, 10);
-          if (Number.isFinite(slot))
-            setWorkbench(slot, workbenchFromChiptune(params));
-        }
-        for (const [slotStr, src] of Object.entries(restored.samplerSources)) {
-          const slot = parseInt(slotStr, 10);
-          if (!Number.isFinite(slot)) continue;
-          setWorkbench(slot, {
-            ...workbenchFromWavData(src.wav, src.sourceName),
-            chain: src.chain,
-            pt: src.pt,
-          });
-        }
-        // XM workbenches keyed by "inst1Based:sampleIdx". Restored so a
-        // refresh / autosave-reload keeps each instrument's source kind
-        // (Sampler vs. Chiptune), chain, and transformer params.
-        for (const [key, src] of Object.entries(restored.xmChiptuneSources)) {
-          const [inst, idx] = parseXmKey(key);
-          if (inst === null) continue;
-          setXmWorkbench(inst, idx, {
-            ...xmWorkbenchFromChiptune(src.params),
-            chain: src.chain,
-            xm: src.xm,
-          });
-        }
-        for (const [key, src] of Object.entries(restored.xmSamplerSources)) {
-          const [inst, idx] = parseXmKey(key);
-          if (inst === null) continue;
-          setXmWorkbench(inst, idx, {
-            ...xmWorkbenchFromWav(src.wav, src.sourceName),
-            chain: src.chain,
-            xm: src.xm,
-          });
-        }
-        loadPatternNames(restored.patternNames);
-        setChannelMuteState(restored.mutedChannels, restored.soloedChannels);
+        // Same path as every other load, so the restored session gets the
+        // same sizing / clamping / reset treatment (mute arrays sized to
+        // the song's channel count, XM cursor seeded, selections cleared).
+        // A hand-rolled copy of this used to live here and had drifted.
+        applyLoadedSession(restored);
         // Restore the cloud origin so "Share this song" stays available
-        // after a page reload — without this, a refresh wipes the in-
-        // memory signal and the menu item silently disables itself even
-        // though the file is still in the user's cloud.
+        // after a page reload — `applyLoadedSession` clears it on every
+        // load, so it has to be re-set afterwards.
         setCloudOrigin(restored.cloudOrigin);
-        setTransport("ready");
       } else {
         setSong(emptySong());
         setTransport("ready");
@@ -595,7 +522,8 @@ export const App: Component = () => {
       const fname = filename();
       const info = infoText();
       const v = view();
-      const c = cursor();
+      // Tracks cursor() or xmCursor() depending on the song's format.
+      const c = cursorForPersistence();
       const samp = currentSample();
       const oct = currentOctave();
       const step = editStep();

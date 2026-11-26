@@ -435,11 +435,23 @@ function buildPayload(state: SessionInputs): PersistedShape {
   };
 }
 
-/** Coerce a possibly-undefined mute/solo array to a 4-element boolean
- *  array. Used at write time so the payload never contains stray
- *  undefineds; parsers do the same on read for symmetry. */
+/** Hard ceiling on persisted channel flags / cursor channel — FT2's
+ *  channel cap. Local constant rather than an XM import so the PT-era
+ *  validators below stay format-agnostic. */
+const MAX_PERSISTED_CHANNELS = 32;
+/** FT2's per-pattern row cap; PT patterns are always 64 rows. */
+const MAX_PERSISTED_ROWS = 256;
+
+/** Coerce a possibly-undefined mute/solo array to a clean boolean array.
+ *  At least 4 entries (the PT shape older readers expect), and as many
+ *  as the input carries up to the FT2 channel cap — a fixed 4 used to
+ *  drop the flags of channels 5+ on every FT2 save. Used at write time
+ *  so the payload never contains stray undefineds; parsers do the same
+ *  on read for symmetry. */
 function muteSnapshot(xs: readonly boolean[] | undefined): boolean[] {
-  return Array.from({ length: 4 }, (_, i) => xs?.[i] === true);
+  const n = Array.isArray(xs) ? xs.length : 0;
+  const length = Math.max(4, Math.min(MAX_PERSISTED_CHANNELS, n));
+  return Array.from({ length }, (_, i) => xs?.[i] === true);
 }
 
 /** Encode each sampler source's WavData as 16-bit PCM bytes → base64,
@@ -524,7 +536,7 @@ function payloadToSession(parsed: unknown): LoadedSession | null {
           : parsed.view === "settings"
             ? "settings"
             : "pattern",
-    cursor: sanitiseCursor(parsed.cursor),
+    cursor: sanitiseCursor(parsed.cursor, format),
     currentSample: clamp(parsed.currentSample, 1, 31, 1),
     currentOctave: clamp(parsed.currentOctave, 1, 3, 2),
     editStep: clamp(parsed.editStep, 0, 16, 1),
@@ -1245,14 +1257,19 @@ function isPersistedShape(v: unknown): v is PersistedShape {
   );
 }
 
-function sanitiseCursor(c: Cursor): Cursor {
+/** Clamp a persisted cursor to the FORMAT's limits. The loader then
+ *  clamps against the actual song (`reconcileUiToSong`). PT's fixed
+ *  64 × 4 grid used to be applied to FT2 too, snapping the cursor back
+ *  on any pattern longer than 64 rows or wider than 4 channels. */
+function sanitiseCursor(c: Cursor, format: "PT2" | "FT2"): Cursor {
   const field: Field = (FIELDS as readonly string[]).includes(c.field)
     ? c.field
     : "note";
+  const ft2 = format === "FT2";
   return {
-    order: clamp(c.order, 0, 127, 0),
-    row: clamp(c.row, 0, 63, 0),
-    channel: clamp(c.channel, 0, 3, 0),
+    order: clamp(c.order, 0, ft2 ? 255 : 127, 0),
+    row: clamp(c.row, 0, ft2 ? MAX_PERSISTED_ROWS - 1 : 63, 0),
+    channel: clamp(c.channel, 0, ft2 ? MAX_PERSISTED_CHANNELS - 1 : 3, 0),
     field,
   };
 }

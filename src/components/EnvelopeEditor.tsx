@@ -1,4 +1,11 @@
-import { For, Show, createMemo, createSignal, type Component } from "solid-js";
+import {
+  For,
+  Show,
+  createMemo,
+  createSignal,
+  onCleanup,
+  type Component,
+} from "solid-js";
 
 import {
   XM_MAX_ENVELOPE_POINTS,
@@ -6,6 +13,7 @@ import {
   type XmEnvelopePoint,
 } from "../core/xm/types";
 import { useWindowListener } from "./hooks";
+import { beginDragEdit, endDragEdit } from "../state/song";
 
 /**
  * Generic XM envelope editor — a self-contained SVG widget for editing
@@ -127,6 +135,8 @@ export const EnvelopeEditor: Component<EnvelopeEditorProps> = (props) => {
     e.stopPropagation();
     e.preventDefault();
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    // One undo entry per drag, not one per pointermove.
+    beginDragEdit();
     setDrag({ kind: "point", index });
   };
 
@@ -179,8 +189,15 @@ export const EnvelopeEditor: Component<EnvelopeEditorProps> = (props) => {
     props.onSetPoint(d.index, { tick, value });
   });
 
-  useWindowListener("pointerup", () => {
-    if (drag()) setDrag(null);
+  const stopDrag = () => {
+    if (!drag()) return;
+    setDrag(null);
+    endDragEdit();
+  };
+  useWindowListener("pointerup", stopDrag);
+  useWindowListener("pointercancel", stopDrag);
+  onCleanup(() => {
+    if (drag()) endDragEdit();
   });
 
   const flag = (
