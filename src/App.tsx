@@ -123,6 +123,8 @@ import {
   chiptuneSourcesSnapshot,
   cloudOrigin,
   cursorForPersistence,
+  hydrateRestoredSources,
+  hydratingSources,
   xmChiptuneSourcesSnapshot,
   xmSamplerSourcesSnapshot,
   error,
@@ -219,9 +221,10 @@ import { PATTERN_NAME_MAX, patternNames } from "./state/patternNames";
 import {
   loadSession,
   projectToBytes,
-  saveSession,
+  queueSessionSave,
   type SaveOutcome,
 } from "./state/persistence";
+import { sourceStoreAvailable } from "./state/sourceStore";
 import {
   disposeEngine,
   jumpPlaybackToOrder,
@@ -539,6 +542,9 @@ export const App: Component = () => {
         // after a page reload — `applyLoadedSession` clears it on every
         // load, so it has to be re-set afterwards.
         setCloudOrigin(restored.cloudOrigin);
+        // Source audio kept in IndexedDB can't be read synchronously:
+        // the song is usable now, the sampler pipelines follow.
+        void hydrateRestoredSources(restored.pendingSources);
       } else {
         setSong(emptySong());
         setTransport("ready");
@@ -583,28 +589,34 @@ export const App: Component = () => {
       // without the origin, and a reload would still lose Share.
       const origin = cloudOrigin();
       if (saveTimer !== null) window.clearTimeout(saveTimer);
+      // Restored sources still loading: a save now would omit them and
+      // then sweep their audio out of the store. The effect re-runs when
+      // the flag clears.
+      if (hydratingSources()) return;
       const muted = mutedChannels();
       const soloed = soloedChannels();
       saveTimer = window.setTimeout(() => {
-        const outcome = saveSession({
-          song: s,
-          filename: fname,
-          infoText: info,
-          view: v,
-          cursor: c,
-          currentSample: samp,
-          currentOctave: oct,
-          editStep: step,
-          chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
-          samplerSources: isPt2 ? samplerSourcesSnapshot() : undefined,
-          patternNames: isPt2 ? names : undefined,
-          mutedChannels: muted,
-          soloedChannels: soloed,
-          xmChiptuneSources: isXm ? xmChiptuneSourcesSnapshot() : undefined,
-          xmSamplerSources: isXm ? xmSamplerSourcesSnapshot() : undefined,
-          cloudOrigin: origin,
-        });
-        recordAutosaveOutcome(outcome);
+        void queueSessionSave(
+          {
+            song: s,
+            filename: fname,
+            infoText: info,
+            view: v,
+            cursor: c,
+            currentSample: samp,
+            currentOctave: oct,
+            editStep: step,
+            chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
+            samplerSources: isPt2 ? samplerSourcesSnapshot() : undefined,
+            patternNames: isPt2 ? names : undefined,
+            mutedChannels: muted,
+            soloedChannels: soloed,
+            xmChiptuneSources: isXm ? xmChiptuneSourcesSnapshot() : undefined,
+            xmSamplerSources: isXm ? xmSamplerSourcesSnapshot() : undefined,
+            cloudOrigin: origin,
+          },
+          recordAutosaveOutcome,
+        );
       }, 250);
     });
     cleanups.push(() => {
@@ -1070,8 +1082,32 @@ export const App: Component = () => {
   // tints; nothing used to SAY anything until an autosave had already
   // failed. Warn once per level change so the user can shrink the
   // project (or save it) while autosave still works.
+  //
+  // What counts against the budget depends on where sources live. With
+  // the source store (IndexedDB) the localStorage payload is the song
+  // plus small metadata — sample sources don't count. Without it they
+  // are inline, so the whole `.retro`-sized payload has to fit.
+  const sessionStorageBytes = createMemo(() => {
+    if (!sourceStoreAvailable()) return projectByteSize();
+    const s = song();
+    if (!s) return 0;
+    const isPt2 = s.format === "PT2";
+    return projectToBytes({
+      song: s,
+      filename: filename(),
+      infoText: infoText(),
+      view: "pattern",
+      cursor: { order: 0, row: 0, channel: 0, field: "note" },
+      currentSample: 1,
+      currentOctave: 1,
+      editStep: 1,
+      chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
+      patternNames: isPt2 ? patternNames() : undefined,
+      xmChiptuneSources: isPt2 ? undefined : xmChiptuneSourcesSnapshot(),
+    }).length;
+  });
   const projectSizeLevel = createMemo<"ok" | "warn" | "over">(() => {
-    const n = projectByteSize();
+    const n = sessionStorageBytes();
     if (n > PROJECT_SIZE_LIMIT_BYTES) return "over";
     return n >= PROJECT_SIZE_WARN_BYTES ? "warn" : "ok";
   });
@@ -1082,6 +1118,21 @@ export const App: Component = () => {
   });
   // Once autosave has actually degraded or failed, its own banner is the
   // accurate one — don't stack a second warning about the same thing.
+  const sizeWarningText = () => {
+    const size = formatProjectSize(sessionStorageBytes());
+    const budget = formatProjectSize(PROJECT_SIZE_LIMIT_BYTES);
+    const over = projectSizeLevel() === "over";
+    if (sourceStoreAvailable()) {
+      // Sources are stored separately; it is the song itself (patterns
+      // plus rendered samples) that is filling the budget.
+      return over
+        ? `The song itself is ${size}, over the ${budget} browser-storage budget, so autosave may fail. Save the project to keep your work; shorter or fewer samples shrink it.`
+        : `The song itself is ${size} of the ${budget} browser-storage budget. Past it, autosave fails. Shorter or fewer samples shrink it.`;
+    }
+    return over
+      ? `This project is ${size}, over the ${budget} browser-storage budget. Autosave may stop keeping sample sources and effect chains. Save the project, or shrink it with "Apply chain to source" on cropped samples.`
+      : `This project is ${size} of the ${budget} browser-storage budget. Past it, autosave stops keeping sample sources and effect chains. "Apply chain to source" on cropped samples shrinks it.`;
+  };
   const showSizeWarning = () =>
     projectSizeLevel() !== "ok" &&
     autosaveOutcome() === "ok" &&
@@ -1175,11 +1226,7 @@ export const App: Component = () => {
       </Show>
       <Show when={song() && showSizeWarning()}>
         <div class="share-banner share-banner--warn" role="status">
-          <span class="share-banner__text">
-            {projectSizeLevel() === "over"
-              ? `This project is ${formatProjectSize(projectByteSize())}, over the ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)} browser-storage budget. Autosave may stop keeping sample sources and effect chains. Save the project, or shrink it with "Apply chain to source" on cropped samples.`
-              : `This project is ${formatProjectSize(projectByteSize())} of the ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)} browser-storage budget. Past it, autosave stops keeping sample sources and effect chains. "Apply chain to source" on cropped samples shrinks it.`}
-          </span>
+          <span class="share-banner__text">{sizeWarningText()}</span>
           <button
             type="button"
             class="share-banner__dismiss"
@@ -1317,20 +1364,27 @@ export const App: Component = () => {
           <span
             class="filesize"
             classList={{
-              "filesize--warn":
-                projectByteSize() >= PROJECT_SIZE_WARN_BYTES &&
-                projectByteSize() <= PROJECT_SIZE_LIMIT_BYTES,
-              "filesize--err": projectByteSize() > PROJECT_SIZE_LIMIT_BYTES,
+              "filesize--warn": projectSizeLevel() === "warn",
+              "filesize--err": projectSizeLevel() === "over",
             }}
-            title={`.mod file size · estimated .retro project size — browser-storage budget ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}. Past it, autosave stops keeping sample sources and effect chains; saving to a file or the cloud is unaffected.`}
+            title={
+              sourceStoreAvailable()
+                ? `.mod file size · estimated .retro project size. Autosave keeps sample sources in separate browser storage; the song itself is ${formatProjectSize(sessionStorageBytes())} of its ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)} budget.`
+                : `.mod file size · estimated .retro project size — browser-storage budget ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}. Past it, autosave stops keeping sample sources and effect chains; saving to a file or the cloud is unaffected.`
+            }
           >
             <span class="filesize__seg">
               .mod {formatProjectSize(modByteSize())}
             </span>
             <span class="filesize__sep">·</span>
             <span class="filesize__seg">
-              .retro {formatProjectSize(projectByteSize())} /{" "}
-              {formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}
+              .retro {formatProjectSize(projectByteSize())}
+              {/* The "/ budget" only means something when the whole
+                  project has to fit in localStorage. */}
+              <Show when={!sourceStoreAvailable()}>
+                {" "}
+                / {formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}
+              </Show>
             </span>
           </span>
         </Show>

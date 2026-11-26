@@ -48,6 +48,7 @@ import {
 } from "./xmSampleEdit";
 import { setCurrentXmInstrument, setCurrentXmSampleIndex } from "./xmEdit";
 import { reconcileUiToSong } from "./reconcile";
+import { getSourceStore } from "./sourceStore";
 import { dismissSharedBanner } from "./shareLoad";
 import { setView, view, type View } from "./view";
 import {
@@ -98,6 +99,8 @@ import {
   projectFromBytes,
   projectToBytes,
   deriveProjectFilename,
+  resolvePendingSources,
+  type PendingSource,
   type SamplerSourceInputs,
   type XmSamplerSourceInputs,
   type XmChiptuneSourceInputs,
@@ -150,8 +153,80 @@ export interface LoadedSession {
   xmChiptuneSources?: Record<string, XmChiptuneSourceInputs>;
 }
 
+/**
+ * Bumped by every load. Asynchronous follow-ups to a load (fetching the
+ * restored session's source audio) capture it and stand down if another
+ * song has been loaded in the meantime.
+ */
+let loadEpoch = 0;
+
+/**
+ * True while a restored session's sampler sources are still being read
+ * from the source store. Autosave waits for it: a save written in that
+ * window would not reference the sources yet, and its garbage sweep
+ * would then delete their audio.
+ */
+const [hydratingSources, setHydratingSources] = createSignal(false);
+export { hydratingSources };
+
+/**
+ * Fetch the source audio a restored session referenced by id and attach
+ * it to the matching slots as sampler workbenches — the asynchronous
+ * second half of a boot restore. The song itself (and each slot's
+ * rendered sample) is already in place from `applyLoadedSession`, so the
+ * editor is usable immediately; the pipeline UI for these slots appears
+ * when this resolves.
+ *
+ * A slot that already has a workbench by then (the user acted first) is
+ * left alone. Nothing here touches the undo history or the dirty flag.
+ */
+export async function hydrateRestoredSources(
+  pending: readonly PendingSource[],
+): Promise<void> {
+  const store = getSourceStore();
+  if (!store || pending.length === 0) return;
+  const epoch = loadEpoch;
+  setHydratingSources(true);
+  try {
+    const { samplerSources, xmSamplerSources } = await resolvePendingSources(
+      pending,
+      store,
+    );
+    if (epoch !== loadEpoch) return;
+    const s = song();
+    if (s?.format === "PT2") {
+      for (const [slotStr, src] of Object.entries(samplerSources)) {
+        const slot = parseInt(slotStr, 10);
+        if (workbenches().has(slot)) continue;
+        setWorkbench(slot, {
+          ...workbenchFromWavData(src.wav, src.sourceName),
+          chain: src.chain,
+          pt: src.pt,
+        });
+      }
+    } else if (s?.format === "FT2") {
+      for (const [key, src] of Object.entries(xmSamplerSources)) {
+        const [inst, idx] = parseXmKey(key);
+        if (inst === null) continue;
+        if (xmWorkbenches().has(xmWorkbenchKey(inst, idx))) continue;
+        setXmWorkbench(inst, idx, {
+          ...xmWorkbenchFromWav(src.wav, src.sourceName),
+          chain: src.chain,
+          xm: src.xm,
+        });
+      }
+    }
+  } catch {
+    // The store failed mid-read. The slots keep playing from the song
+    // bytes; they just come back without their workbenches.
+  } finally {
+    setHydratingSources(false);
+  }
+}
+
 export function applyLoadedSession(loaded: LoadedSession): void {
   if (!loaded.song) return;
+  loadEpoch++;
   // Every load — local, cloud, or share — starts with a clean origin.
   // Cloud paths re-set it explicitly after this call; local paths
   // (file picker / drag-drop / share-link recipient) leave it null.
@@ -413,8 +488,6 @@ export function xmSamplerSourcesSnapshot(): Record<
   }
   return out;
 }
-
-void xmWorkbenchKey;
 
 /**
  * Empty workbenches (placeholder created by toggling Sampler → Chiptune
