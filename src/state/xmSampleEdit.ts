@@ -428,7 +428,7 @@ void patchXmInstrumentSample;
 
 /** Find the lowest empty instrument slot (0-based, capped at
  *  XM_MAX_INSTRUMENTS). Returns null when all 128 are taken. */
-function nextFreeXmInstrumentSlot(): number | null {
+export function nextFreeXmInstrumentSlot(): number | null {
   const s = xm2Song();
   if (!s) return null;
   for (let i = 0; i < XM_MAX_INSTRUMENTS; i++) {

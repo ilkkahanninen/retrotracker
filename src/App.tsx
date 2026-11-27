@@ -66,9 +66,11 @@ import { XmOrderList } from "./components/XmOrderList";
 import { PatternHelp } from "./components/PatternHelp";
 import { XmPatternHelp } from "./components/XmPatternHelp";
 import {
+  bounceXmSelectionToInstrument,
   copyXmSampleRange,
   cutXmSampleRange,
   effectiveXmSampleRange,
+  nextFreeXmInstrumentSlot,
   pasteXmSampleBytes,
 } from "./state/xmSampleEdit";
 import { InstrumentView } from "./components/InstrumentView";
@@ -281,7 +283,7 @@ import {
 import * as preview from "./state/preview";
 import { withWorkbench, workbenches } from "./state/sampleWorkbench";
 import { xmWorkbenches } from "./state/xmSampleWorkbench";
-import { selection } from "./state/selection";
+import { selection, xmSelection } from "./state/selection";
 import {
   settings,
   setLoopPattern,
@@ -914,6 +916,7 @@ export const App: Component = () => {
 
   const editMenuItems = (): MenuItem[] => {
     const locked = transport() === "playing" && settings().followPlayback;
+    const ft2 = !!xm2Song();
     return [
       {
         icon: Undo2,
@@ -970,16 +973,24 @@ export const App: Component = () => {
       },
       { separator: true, label: "" },
       {
+        // FT2 lands the render in a new instrument, PT in a sample slot;
+        // each format has its own selection signal and free-slot rule.
+        // The FT2 action refuses while playing at all, so its gate is
+        // stricter than `locked`.
         icon: AudioWaveform,
-        label: "Bounce to sample",
+        label: ft2 ? "Bounce to instrument" : "Bounce to sample",
         hint: "⌘E",
-        onClick: bounceSelectionToSample,
-        disabled:
-          locked ||
-          view() === "sample" ||
-          !song() ||
-          !selection() ||
-          nextFreeSlot(pt2Song(), -1) === null,
+        onClick: ft2 ? bounceXmSelectionToInstrument : bounceSelectionToSample,
+        disabled: ft2
+          ? transport() === "playing" ||
+            view() !== "pattern" ||
+            !xmSelection() ||
+            nextFreeXmInstrumentSlot() === null
+          : locked ||
+            view() === "sample" ||
+            !song() ||
+            !selection() ||
+            nextFreeSlot(pt2Song(), -1) === null,
       },
       { separator: true, label: "" },
       {

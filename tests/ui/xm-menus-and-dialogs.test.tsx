@@ -20,7 +20,7 @@ import { setXmCell } from "../../src/core/xm/mutations";
 import { resetXmCursor, setXmCursor } from "../../src/state/cursorXm";
 import { clearSession, saveSession } from "../../src/state/persistence";
 import { disposeEngine, ensureEngine } from "../../src/state/playback";
-import { clearXmSelection } from "../../src/state/selection";
+import { clearXmSelection, setXmSelection } from "../../src/state/selection";
 import { setCloudOrigin, setError } from "../../src/state/session";
 import { setSettings } from "../../src/state/settings";
 import {
@@ -286,6 +286,50 @@ describe("menus with an FT2 song", () => {
     fireEvent.click(paste);
     const s = xm2Song()!;
     expect(s.patterns[s.orders[0]!]!.rows[8]![0]!.note).toBe(49);
+  });
+
+  it("Edit → Bounce to instrument needs a selection, then fills the next free instrument", () => {
+    seed();
+    clearXmSelection();
+    const { container } = render(() => <App />);
+    expect(
+      isDisabled(menuItem(container, "Edit", "Bounce to instrument")),
+    ).toBe(true);
+    fireEvent.click(
+      [...container.querySelectorAll<HTMLButtonElement>(".menu__button")].find(
+        (b) => b.textContent?.startsWith("Edit"),
+      )!,
+    );
+
+    setXmSelection({
+      order: 0,
+      startRow: 0,
+      endRow: 3,
+      startChannel: 0,
+      endChannel: 0,
+    });
+    const bounce = menuItem(container, "Edit", "Bounce to instrument");
+    expect(isDisabled(bounce)).toBe(false);
+    fireEvent.click(bounce);
+    const inst = xm2Song()!.instruments[0]!;
+    expect(inst.name.startsWith("Bnc")).toBe(true);
+    expect(inst.samples[0]!.data.length).toBeGreaterThan(0);
+  });
+
+  it("Edit → Bounce to instrument is disabled while playing", () => {
+    seed();
+    setXmSelection({
+      order: 0,
+      startRow: 0,
+      endRow: 3,
+      startChannel: 0,
+      endChannel: 0,
+    });
+    setTransport("playing");
+    const { container } = render(() => <App />);
+    expect(
+      isDisabled(menuItem(container, "Edit", "Bounce to instrument")),
+    ).toBe(true);
   });
 });
 
