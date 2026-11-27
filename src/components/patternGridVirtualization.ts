@@ -8,7 +8,7 @@
  * the two in sync.
  */
 
-export const PATTERN_ROW_HEIGHT = 19;
+export const PATTERN_ROW_HEIGHT = 16;
 
 /** Linear scan: find the first index where `predicate` holds, or -1. */
 export function flatIndexOf<T>(

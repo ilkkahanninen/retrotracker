@@ -36,6 +36,7 @@ import {
   buildGlyphAtlas,
   type GlyphAtlas,
   type GlyphPalette,
+  whenGridFontReady,
 } from "./grid/glyphAtlas";
 import {
   ROW_HEIGHT,

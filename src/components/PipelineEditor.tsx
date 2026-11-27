@@ -31,6 +31,8 @@ import {
   type ShaperMode,
 } from "../core/audio/shapers";
 import { Slider } from "./Slider";
+import { Icon } from "./Icon";
+import { ArrowDown, ArrowUp, Power, X } from "./icons";
 
 const NOTE_NAMES = [
   "C-",
@@ -168,7 +170,7 @@ export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
                       props.onSetEffectBypass(i, !isBypassed());
                     }}
                   >
-                    ⏻
+                    <Icon of={Power} />
                   </button>
                   <button
                     type="button"
@@ -180,7 +182,7 @@ export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
                       props.onMoveEffect(i, -1);
                     }}
                   >
-                    ↑
+                    <Icon of={ArrowUp} />
                   </button>
                   <button
                     type="button"
@@ -192,7 +194,7 @@ export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
                       props.onMoveEffect(i, 1);
                     }}
                   >
-                    ↓
+                    <Icon of={ArrowDown} />
                   </button>
                   <button
                     type="button"
@@ -203,7 +205,7 @@ export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
                       props.onRemoveEffect(i);
                     }}
                   >
-                    ×
+                    <Icon of={X} />
                   </button>
                 </div>
                 <div class="effect-node__body">

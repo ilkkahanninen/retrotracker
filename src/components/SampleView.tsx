@@ -1,3 +1,15 @@
+import { Icon } from "./Icon";
+import {
+  AudioWaveform,
+  ClipboardPaste,
+  Copy,
+  CopyPlus,
+  Crop,
+  Scissors,
+  SquareDashed,
+  Trash,
+  Upload,
+} from "./icons";
 import { For, Show, createEffect, createMemo, type Component } from "solid-js";
 import type { Sample, ModSong } from "../core/mod/types";
 import { currentSample } from "../state/edit";
@@ -388,6 +400,7 @@ export const SampleView: Component<Props> = (props) => {
               title="Load a WAV file into this sample slot"
               onClick={() => wavInput?.click()}
             >
+              <Icon of={Upload} />
               Load WAV…
             </button>
           </Show>
@@ -410,6 +423,7 @@ export const SampleView: Component<Props> = (props) => {
                   : props.onConvertToSampler
               }
             >
+              <Icon of={AudioWaveform} />
               Convert to sampler
             </button>
           </Show>
@@ -427,6 +441,7 @@ export const SampleView: Component<Props> = (props) => {
                   : "Copy this sample (and its workbench) into the next empty slot"
             }
           >
+            <Icon of={CopyPlus} />
             Duplicate sample
           </button>
           <button
@@ -434,6 +449,7 @@ export const SampleView: Component<Props> = (props) => {
             onClick={props.onClear}
             disabled={!sample() || sample()!.lengthWords === 0}
           >
+            <Icon of={Trash} />
             Clear sample
           </button>
         </div>
@@ -618,6 +634,7 @@ export const SampleView: Component<Props> = (props) => {
               disabled={(sample()?.data.length ?? 0) < 2}
               title="Select the whole waveform (⌘A)"
             >
+              <Icon of={SquareDashed} />
               Select all
             </button>
             {/* Resolve the byte range Copy / Cut act on: selection if
@@ -637,6 +654,7 @@ export const SampleView: Component<Props> = (props) => {
               disabled={(sample()?.data.length ?? 0) < 1}
               title="Copy the selection (or the whole sample) to the clipboard (⌘C)"
             >
+              <Icon of={Copy} />
               Copy
             </button>
             <button
@@ -653,6 +671,7 @@ export const SampleView: Component<Props> = (props) => {
               disabled={(sample()?.data.length ?? 0) < 1}
               title="Copy the selection (or the whole sample) to the clipboard, then remove it (⌘X)"
             >
+              <Icon of={Scissors} />
               Cut
             </button>
             <button
@@ -661,6 +680,7 @@ export const SampleView: Component<Props> = (props) => {
               disabled={!props.sampleClipboardHasData}
               title="Replace the slot's data with the sample clipboard contents (⌘V)"
             >
+              <Icon of={ClipboardPaste} />
               Paste
             </button>
             <button
@@ -676,6 +696,7 @@ export const SampleView: Component<Props> = (props) => {
               }
               title="Keep the selected range, discard the rest"
             >
+              <Icon of={Crop} />
               Crop
             </button>
             <For each={EFFECT_BUTTON_KINDS}>

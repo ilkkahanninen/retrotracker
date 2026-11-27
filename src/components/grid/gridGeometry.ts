@@ -7,7 +7,7 @@
 
 import { CHAR_W_CSS } from "./glyphAtlas";
 
-export const ROW_HEIGHT = 19;
+export const ROW_HEIGHT = 16;
 export const ROW_LABEL_W = 36;
 
 /** Per-cell padding so column separators sit just outside the text. */

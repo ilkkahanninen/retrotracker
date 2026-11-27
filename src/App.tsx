@@ -13,6 +13,46 @@ import { ModePicker } from "./components/ModePicker";
 import { ModeBadge } from "./components/ModeBadge";
 import { InfoView } from "./components/InfoView";
 import { Menu, type MenuItem } from "./components/Menu";
+import { Icon } from "./components/Icon";
+import {
+  AudioWaveform,
+  BookOpen,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardPaste,
+  CloudDownload,
+  CloudUpload,
+  Copy,
+  CopyPlus,
+  Eraser,
+  FileDown,
+  FilePlus,
+  FileVolume,
+  FolderOpen,
+  Info,
+  Lightbulb,
+  ListMusic,
+  LocateFixed,
+  LogIn,
+  LogOut,
+  Minus,
+  Play,
+  Plus,
+  Redo2,
+  Repeat,
+  Save,
+  Scissors,
+  Settings,
+  Share2,
+  Square,
+  Table2,
+  Trash,
+  Undo2,
+  Upload,
+  User,
+  WandSparkles,
+  X,
+} from "./components/icons";
 import { PatternGridCanvas as PatternGrid } from "./components/PatternGridCanvas";
 import { PatternGridXmCanvas as PatternGridXm } from "./components/PatternGridXmCanvas";
 import { XmOrderList } from "./components/XmOrderList";
@@ -751,9 +791,10 @@ export const App: Component = () => {
     const cloud = cloudVisibleFor(backend);
     const showSignIn = backend && needsAuth && !user;
     const items: MenuItem[] = [
-      { label: "New", onClick: () => setModePickerOpen(true) },
+      { icon: FilePlus, label: "New", onClick: () => setModePickerOpen(true) },
       { separator: true, label: "" },
       {
+        icon: FolderOpen,
         label: "Open from computer…",
         hint: cloud ? undefined : "⌘O",
         onClick: openFilePicker,
@@ -761,6 +802,7 @@ export const App: Component = () => {
     ];
     if (cloud) {
       items.push({
+        icon: CloudDownload,
         label: "Open from cloud…",
         hint: "⌘O",
         onClick: () =>
@@ -774,6 +816,7 @@ export const App: Component = () => {
     items.push(
       { separator: true, label: "" },
       {
+        icon: Save,
         label: "Save to computer…",
         hint: cloud ? undefined : "⌘S",
         onClick: saveProject,
@@ -782,6 +825,7 @@ export const App: Component = () => {
     );
     if (cloud) {
       items.push({
+        icon: CloudUpload,
         label: "Save to cloud…",
         hint: "⌘S",
         onClick: () =>
@@ -801,6 +845,7 @@ export const App: Component = () => {
     if (cloud && shareAvailable()) {
       const origin = cloudOrigin();
       items.push({
+        icon: Share2,
         label: "Share this song…",
         onClick: () => setShareModalOpen(true),
         disabled: !song() || origin === null,
@@ -809,35 +854,48 @@ export const App: Component = () => {
     if (showSignIn) {
       items.push(
         { separator: true, label: "" },
-        { label: "Sign in to cloud…", onClick: () => cloudLogin() },
+        {
+          icon: LogIn,
+          label: "Sign in to cloud…",
+          onClick: () => cloudLogin(),
+        },
       );
     } else if (backend && needsAuth && user) {
       const who = user.name || user.email || "Signed in";
       items.push(
         { separator: true, label: "" },
-        { label: `Signed in as ${who}`, onClick: () => {}, disabled: true },
-        { label: "Sign out", onClick: () => void cloudLogout() },
+        {
+          icon: User,
+          label: `Signed in as ${who}`,
+          onClick: () => {},
+          disabled: true,
+        },
+        { icon: LogOut, label: "Sign out", onClick: () => void cloudLogout() },
       );
     }
     items.push(
       { separator: true, label: "" },
       {
+        icon: FileDown,
         label: song()?.format === "FT2" ? "Export .xm…" : "Export .mod…",
         onClick: exportSong,
         disabled: !song(),
       },
       {
+        icon: FileVolume,
         label: "Export .wav…",
         onClick: exportWav,
         disabled: !song(),
       },
       {
+        icon: FileVolume,
         label: "Export .mp3…",
         onClick: () => void exportMp3(),
         disabled: !song(),
       },
       { separator: true, label: "" },
       {
+        icon: Info,
         label: "Song info",
         hint: "F4",
         onClick: () => setView("info"),
@@ -851,12 +909,14 @@ export const App: Component = () => {
     const locked = transport() === "playing" && settings().followPlayback;
     return [
       {
+        icon: Undo2,
         label: "Undo",
         hint: "⌘Z",
         onClick: undo,
         disabled: !canUndo() || locked,
       },
       {
+        icon: Redo2,
         label: "Redo",
         hint: "⇧⌘Z",
         onClick: redo,
@@ -872,6 +932,7 @@ export const App: Component = () => {
       // than a selection — the action's range-resolution falls back
       // to the whole sample when nothing is selected.
       {
+        icon: Scissors,
         label: "Cut",
         hint: "⌘X",
         onClick: cutClipboardForActiveView,
@@ -881,6 +942,7 @@ export const App: Component = () => {
             : locked || !song(),
       },
       {
+        icon: Copy,
         label: "Copy",
         hint: "⌘C",
         onClick: copyClipboardForActiveView,
@@ -888,6 +950,7 @@ export const App: Component = () => {
           view() === "sample" ? !song() || !currentSampleHasData() : !song(),
       },
       {
+        icon: ClipboardPaste,
         label: "Paste",
         hint: "⌘V",
         onClick: pasteClipboardForActiveView,
@@ -900,6 +963,7 @@ export const App: Component = () => {
       },
       { separator: true, label: "" },
       {
+        icon: AudioWaveform,
         label: "Bounce to sample",
         hint: "⌘E",
         onClick: bounceSelectionToSample,
@@ -911,7 +975,12 @@ export const App: Component = () => {
           nextFreeSlot(pt2Song(), -1) === null,
       },
       { separator: true, label: "" },
-      { label: "Settings", hint: "F5", onClick: () => setView("settings") },
+      {
+        icon: Settings,
+        label: "Settings",
+        hint: "F5",
+        onClick: () => setView("settings"),
+      },
     ];
   };
 
@@ -921,23 +990,27 @@ export const App: Component = () => {
     const hasSong = !!s;
     return [
       {
+        icon: Upload,
         label: "Load WAV…",
         onClick: () => wavInput?.click(),
         disabled: !hasSong,
       },
       {
+        icon: CopyPlus,
         label: "Duplicate",
         onClick: duplicateCurrentSample,
         disabled:
           !hasSong || nextFreeSlot(s, currentSample() - 1) === null || playing,
       },
       {
+        icon: WandSparkles,
         label: "Apply chain to source",
         onClick: applyChainToSource,
         disabled: !hasSong,
       },
       { separator: true, label: "" },
       {
+        icon: Trash,
         label: "Clear",
         onClick: clearCurrentSample,
         disabled: !hasSong || playing,
@@ -958,12 +1031,14 @@ export const App: Component = () => {
     const slotPat = s ? (s.orders[activeIdx] ?? 0) : 0;
     return [
       {
+        icon: ChevronLeft,
         label: "Previous pattern",
         hint: "⇧[",
         onClick: xm ? stepXmPrevPattern : stepPrevPattern,
         disabled: !hasSong || slotPat <= 0,
       },
       {
+        icon: ChevronRight,
         label: "Next pattern",
         hint: "⇧]",
         onClick: xm ? stepXmNextPattern : stepNextPattern,
@@ -971,12 +1046,14 @@ export const App: Component = () => {
       },
       { separator: true, label: "" },
       {
+        icon: Plus,
         label: "Insert slot",
         hint: "⌘]",
         onClick: xm ? insertXmOrderSlot : insertOrderSlot,
         disabled: !hasSong || (s ? s.songLength >= s.orders.length : true),
       },
       {
+        icon: Minus,
         label: "Delete slot",
         hint: "⌘[",
         onClick: xm ? deleteXmOrderSlot : deleteOrderSlot,
@@ -984,12 +1061,14 @@ export const App: Component = () => {
       },
       { separator: true, label: "" },
       {
+        icon: FilePlus,
         label: "New blank pattern",
         hint: "⌥[",
         onClick: xm ? newXmBlankPatternAtOrder : newBlankPatternAtOrder,
         disabled: !hasSong,
       },
       {
+        icon: CopyPlus,
         label: "Duplicate pattern",
         hint: "⌥]",
         onClick: xm ? duplicateXmCurrentPattern : duplicateCurrentPattern,
@@ -1002,6 +1081,7 @@ export const App: Component = () => {
         // pre-cleanup pattern indices — same reason the toolbar button
         // disables. PT-only: there is no FT2 clean-up yet, so the item is
         // disabled rather than silently inert.
+        icon: Eraser,
         label: "Clean up",
         onClick: cleanupOrderList,
         disabled: !hasSong || playing || xm,
@@ -1011,17 +1091,19 @@ export const App: Component = () => {
 
   const helpMenuItems = (): MenuItem[] => [
     {
+      icon: BookOpen,
       label: "User manual",
       onClick: () =>
         window.open(USER_MANUAL_URL, "_blank", "noopener,noreferrer"),
     },
     {
+      icon: Lightbulb,
       label: "Show tips",
       checked: settings().showPatternHelp,
       onClick: toggleShowPatternHelp,
     },
     { separator: true, label: "" },
-    { label: "About…", onClick: () => setAboutOpen(true) },
+    { icon: Info, label: "About…", onClick: () => setAboutOpen(true) },
   ];
 
   const sampleCount = createMemo(() => {
@@ -1184,7 +1266,7 @@ export const App: Component = () => {
               aria-label="Dismiss"
               title="Dismiss"
             >
-              ×
+              <Icon of={X} />
             </button>
           </div>
         )}
@@ -1200,7 +1282,7 @@ export const App: Component = () => {
               aria-label="Dismiss"
               title="Dismiss"
             >
-              ×
+              <Icon of={X} />
             </button>
           </div>
         )}
@@ -1219,7 +1301,7 @@ export const App: Component = () => {
               aria-label="Dismiss"
               title="Dismiss"
             >
-              ×
+              <Icon of={X} />
             </button>
           </div>
         )}
@@ -1238,7 +1320,7 @@ export const App: Component = () => {
             aria-label="Dismiss"
             title="Dismiss"
           >
-            ×
+            <Icon of={X} />
           </button>
         </div>
       </Show>
@@ -1252,7 +1334,7 @@ export const App: Component = () => {
             aria-label="Dismiss"
             title="Dismiss"
           >
-            ×
+            <Icon of={X} />
           </button>
         </div>
       </Show>
@@ -1293,6 +1375,7 @@ export const App: Component = () => {
               onClick={() => setView("pattern")}
               title="Pattern view (F2)"
             >
+              <Icon of={Table2} />
               Pattern
             </button>
             <button
@@ -1303,6 +1386,7 @@ export const App: Component = () => {
               onClick={() => setView("sample")}
               title="Sample view (F3)"
             >
+              <Icon of={AudioWaveform} />
               Sample
             </button>
           </div>
@@ -1325,7 +1409,12 @@ export const App: Component = () => {
               aria-label={transport() === "playing" ? "Stop" : "Play"}
               aria-pressed={transport() === "playing"}
             >
-              {transport() === "playing" ? "■" : "▶"}
+              <Show
+                when={transport() === "playing"}
+                fallback={<Icon of={Play} />}
+              >
+                <Icon of={Square} />
+              </Show>
             </button>
             <div
               class="transport__group"
@@ -1342,6 +1431,7 @@ export const App: Component = () => {
                 title="Play the whole song"
                 aria-pressed={!settings().loopPattern}
               >
+                <Icon of={ListMusic} />
                 Song
               </button>
               <button
@@ -1354,6 +1444,7 @@ export const App: Component = () => {
                 title="Loop the cursor's pattern"
                 aria-pressed={settings().loopPattern}
               >
+                <Icon of={Repeat} />
                 Pattern
               </button>
             </div>
@@ -1371,6 +1462,7 @@ export const App: Component = () => {
               }
               aria-pressed={settings().followPlayback}
             >
+              <Icon of={LocateFixed} />
               Follow
             </button>
           </div>
@@ -1674,7 +1766,7 @@ export const App: Component = () => {
                       title="Decrease edit step ([)"
                       aria-label="Decrease edit step"
                     >
-                      −
+                      <Icon of={Minus} />
                     </button>
                     <span
                       class="patternpane__editstep-value"
@@ -1690,7 +1782,7 @@ export const App: Component = () => {
                       title="Increase edit step (])"
                       aria-label="Increase edit step"
                     >
-                      +
+                      <Icon of={Plus} />
                     </button>
                   </span>
                 </div>
@@ -1817,7 +1909,7 @@ export const App: Component = () => {
                       title="Previous pattern at slot (⇧[)"
                       aria-label="Previous pattern at slot"
                     >
-                      ‹
+                      <Icon of={ChevronLeft} />
                     </button>
                     <button
                       type="button"
@@ -1826,7 +1918,7 @@ export const App: Component = () => {
                       title="Next pattern at slot (⇧])"
                       aria-label="Next pattern at slot"
                     >
-                      ›
+                      <Icon of={ChevronRight} />
                     </button>
                     <button
                       type="button"
@@ -1835,7 +1927,7 @@ export const App: Component = () => {
                       title="Insert slot at cursor (⌘])"
                       aria-label="Insert slot"
                     >
-                      +
+                      <Icon of={Plus} />
                     </button>
                     <button
                       type="button"
@@ -1844,7 +1936,7 @@ export const App: Component = () => {
                       title="Delete slot at cursor (⌘[)"
                       aria-label="Delete slot"
                     >
-                      −
+                      <Icon of={Minus} />
                     </button>
                     <button
                       type="button"

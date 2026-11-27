@@ -7,6 +7,8 @@ import {
   type JSX,
 } from "solid-js";
 import { useWindowListener } from "./hooks";
+import { Icon, type IconType } from "./Icon";
+import { Check, ChevronDown } from "./icons";
 
 export interface MenuItem {
   /** Visible label. Ignored when `separator: true`. */
@@ -21,15 +23,16 @@ export interface MenuItem {
   onClick?: () => void;
   /** Greyed-out + non-clickable. */
   disabled?: boolean;
-  /** Render a leading checkmark when truthy. Used for stateful toggle
-   *  items (e.g. "Show tips"). The check column is reserved for every
-   *  item in the menu so labels stay aligned even when only one item is
-   *  a toggle. */
+  /** Leading icon. Purely decorative — the label names the item. */
+  icon?: IconType;
+  /** Render a leading checkmark when truthy (it takes the icon's place).
+   *  Used for stateful toggle items (e.g. "Show tips"). The leading column
+   *  is reserved for every item so labels stay aligned. */
   checked?: boolean;
 }
 
 interface MenuProps {
-  /** Trigger button label (a `▾` arrow is appended automatically). */
+  /** Trigger button label (a chevron is appended automatically). */
   label: string;
   /** Items to render. Solid re-evaluates this prop on access, so the parent
    *  can return a fresh array each render and the disabled / label fields
@@ -98,7 +101,14 @@ export const Menu: Component<MenuProps> = (props) => {
         onClick={() => onItemClick(item)}
       >
         <span class="menu__check" aria-hidden="true">
-          {item.checked ? "✓" : ""}
+          <Show
+            when={item.checked}
+            fallback={
+              <Show when={item.icon}>{(icon) => <Icon of={icon()} />}</Show>
+            }
+          >
+            <Icon of={Check} />
+          </Show>
         </span>
         <span class="menu__label">{item.label}</span>
         <Show when={item.hint}>
@@ -121,6 +131,7 @@ export const Menu: Component<MenuProps> = (props) => {
         }}
       >
         {props.label}
+        <Icon of={ChevronDown} size={12} />
       </button>
       <Show when={open()}>
         <ul class="menu__list" role="menu">

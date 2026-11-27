@@ -1,3 +1,5 @@
+import { Icon } from "./Icon";
+import { X } from "./icons";
 import {
   createMemo,
   createSignal,
@@ -88,7 +90,7 @@ export const PlayLengthCalculator: Component<Props> = (props) => {
             aria-label="Close"
             title="Close (Esc)"
           >
-            ×
+            <Icon of={X} size={16} />
           </button>
         </div>
         <div class="modal__body">

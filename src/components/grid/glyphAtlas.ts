@@ -1,6 +1,6 @@
 /**
  * Pre-rasterised glyph atlas for the canvas-based pattern grids. Both
- * PT and FT2 modes draw monospace text at 13px / 19px line height; the
+ * PT and FT2 modes draw Departure Mono at 11px / 16px line height; the
  * full set of characters that ever appears in a cell is small (~95
  * printable ASCII plus `·`). Building one atlas per (color, DPR) means
  * the per-cell drawing turns into a handful of `drawImage` calls,
@@ -16,8 +16,18 @@
  * palette changes.
  */
 
-export const CHAR_W_CSS = 8; // ui-monospace 13px ≈ 7.8px advance; round up.
-export const CHAR_H_CSS = 19; // matches CSS var --pat-row-height.
+/** Grid font. Departure Mono is a pixel font drawn on an 11px em — keep the
+ *  size at 11 (or an integer multiple) or the glyphs land off the pixel grid.
+ *  The family must match `--font-mono` in index.css. */
+export const GRID_FONT_PX = 11;
+export const GRID_FONT_FAMILY =
+  '"Departure Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace';
+
+export const CHAR_W_CSS = 7; // Departure Mono advance at 11px is exactly 7px.
+export const CHAR_H_CSS = 16; // matches CSS var --pat-row-height.
+/** Baseline offset inside a cell: the 8px cap height is centred in the 16px
+ *  row (4px above), leaving room for the 2px descenders below. */
+const BASELINE_CSS = 12;
 
 /** Every glyph the grid can possibly render. Printable ASCII + `·`. */
 const GLYPHS = (() => {
@@ -84,9 +94,8 @@ export function buildGlyphAtlas(
   const ctx = canvas.getContext("2d") as CanvasRenderingContext2D | null;
   if (!ctx) throw new Error("glyphAtlas: 2D context unavailable");
 
-  // Font must be set BEFORE measureText for accurate width. We use the
-  // same family / size as the CSS so visually the canvas matches DOM.
-  ctx.font = `${Math.round(13 * dpr)}px ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace`;
+  // Same family / size as the CSS so the canvas matches the DOM header.
+  ctx.font = `${Math.round(GRID_FONT_PX * dpr)}px ${GRID_FONT_FAMILY}`;
   ctx.textBaseline = "alphabetic";
 
   for (let r = 0; r < COLOR_ROWS.length; r++) {
@@ -94,11 +103,8 @@ export function buildGlyphAtlas(
     ctx.fillStyle = color;
     for (let g = 0; g < GLYPHS.length; g++) {
       const ch = GLYPHS[g]!;
-      // Glyph baseline sits 4/5 of the way down — empirically tuned
-      // for ui-monospace at 13/19. Centre-aligning by descent would
-      // need per-font metrics; this is close enough.
       const x = g * charW;
-      const yBaseline = r * charH + Math.round(charH * 0.78);
+      const yBaseline = r * charH + Math.round(BASELINE_CSS * dpr);
       ctx.fillText(ch, x, yBaseline);
     }
   }
@@ -156,4 +162,20 @@ export function drawString(
   for (let i = 0; i < s.length; i++) {
     drawGlyph(ctx, atlas, s[i]!, color, dxCss + i * CHAR_W_CSS, dyCss);
   }
+}
+
+/**
+ * Run `cb` once the grid webfont is usable. `document.fonts.ready` alone can
+ * resolve before a not-yet-requested face has loaded, which would leave the
+ * atlas baked with the fallback family — so the face is requested explicitly.
+ * No-op where the Font Loading API is missing (jsdom).
+ */
+export function whenGridFontReady(cb: () => void): void {
+  if (typeof document === "undefined" || !document.fonts) return;
+  const fonts = document.fonts;
+  fonts
+    .load(`${GRID_FONT_PX}px ${GRID_FONT_FAMILY}`)
+    .catch(() => undefined)
+    .then(() => fonts.ready)
+    .then(cb);
 }

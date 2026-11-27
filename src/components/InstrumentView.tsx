@@ -1,3 +1,20 @@
+import { Icon } from "./Icon";
+import {
+  AudioWaveform,
+  ChevronDown,
+  ChevronRight,
+  ClipboardPaste,
+  Copy,
+  CopyPlus,
+  Crop,
+  Minus,
+  Plus,
+  RotateCcw,
+  Scissors,
+  SquareDashed,
+  Trash,
+  Upload,
+} from "./icons";
 import {
   For,
   Show,
@@ -366,6 +383,7 @@ export const InstrumentView: Component<Props> = (props) => {
                       title="Load a WAV file into this sample"
                       onClick={() => wavInput?.click()}
                     >
+                      <Icon of={Upload} />
                       Load WAV…
                     </button>
                   </Show>
@@ -375,6 +393,7 @@ export const InstrumentView: Component<Props> = (props) => {
                       onClick={convertXmChiptuneToSampler}
                       title="Bake the chiptune cycle into a WAV and switch to sampler mode"
                     >
+                      <Icon of={AudioWaveform} />
                       Convert to sampler
                     </button>
                     <button
@@ -382,6 +401,7 @@ export const InstrumentView: Component<Props> = (props) => {
                       onClick={newXmChiptune}
                       title="Reset chiptune to default params"
                     >
+                      <Icon of={RotateCcw} />
                       Reset
                     </button>
                   </Show>
@@ -397,6 +417,7 @@ export const InstrumentView: Component<Props> = (props) => {
                           : "Copy this instrument into the next free song slot"
                     }
                   >
+                    <Icon of={CopyPlus} />
                     Duplicate instrument
                   </button>
                   <button
@@ -404,6 +425,7 @@ export const InstrumentView: Component<Props> = (props) => {
                     onClick={clearCurrentXmInstrument}
                     title="Wipe the whole instrument (samples, envelopes, autovibrato, keymap)"
                   >
+                    <Icon of={Trash} />
                     Clear instrument
                   </button>
                 </div>
@@ -626,7 +648,7 @@ export const InstrumentView: Component<Props> = (props) => {
                           title={`Add sample (max ${XM_MAX_SAMPLES_PER_INSTRUMENT})`}
                           aria-label="Add sample"
                         >
-                          +
+                          <Icon of={Plus} />
                         </button>
                         <button
                           type="button"
@@ -637,7 +659,7 @@ export const InstrumentView: Component<Props> = (props) => {
                           title="Remove current sample"
                           aria-label="Remove sample"
                         >
-                          −
+                          <Icon of={Minus} />
                         </button>
                       </div>
                     </div>
@@ -698,6 +720,7 @@ export const InstrumentView: Component<Props> = (props) => {
                                   })
                                 }
                               >
+                                <Icon of={SquareDashed} />
                                 Select all
                               </button>
                               <button
@@ -710,6 +733,7 @@ export const InstrumentView: Component<Props> = (props) => {
                                   copyXmSampleRange(r.start, r.end);
                                 }}
                               >
+                                <Icon of={Copy} />
                                 Copy
                               </button>
                               <button
@@ -723,6 +747,7 @@ export const InstrumentView: Component<Props> = (props) => {
                                   setXmSampleSelection(null);
                                 }}
                               >
+                                <Icon of={Scissors} />
                                 Cut
                               </button>
                               <button
@@ -731,6 +756,7 @@ export const InstrumentView: Component<Props> = (props) => {
                                 title="Replace the sample with the clipboard contents (⌘V)"
                                 onClick={pasteXmSampleBytes}
                               >
+                                <Icon of={ClipboardPaste} />
                                 Paste
                               </button>
                               <button
@@ -748,6 +774,7 @@ export const InstrumentView: Component<Props> = (props) => {
                                   );
                                 }}
                               >
+                                <Icon of={Crop} />
                                 Crop
                               </button>
                               <For each={EFFECT_BUTTON_KINDS}>
@@ -872,7 +899,9 @@ export const InstrumentView: Component<Props> = (props) => {
                 }
               >
                 <span class="instrument-view__rightcol-toggle-icon">
-                  {xmRightPanelCollapsed() ? "▸" : "▾"}
+                  <Icon
+                    of={xmRightPanelCollapsed() ? ChevronRight : ChevronDown}
+                  />
                 </span>
                 <span class="instrument-view__rightcol-toggle-label">
                   Instrument

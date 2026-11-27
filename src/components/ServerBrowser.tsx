@@ -1,3 +1,5 @@
+import { Icon } from "./Icon";
+import { FileMusic, FileVolume, Trash, X } from "./icons";
 import {
   createSignal,
   createResource,
@@ -188,7 +190,7 @@ export const ServerBrowser: Component<Props> = (props) => {
             aria-label="Close"
             title="Close (Esc)"
           >
-            ×
+            <Icon of={X} size={16} />
           </button>
         </div>
         <div class="modal__body server-browser__body">
@@ -213,7 +215,16 @@ export const ServerBrowser: Component<Props> = (props) => {
                   aria-selected={name() === entry.name}
                   onClick={() => void pickRow(entry)}
                 >
-                  <span class="server-browser__name">{entry.name}</span>
+                  <span class="server-browser__name">
+                    <Icon
+                      of={
+                        entry.name.toLowerCase().endsWith(".wav")
+                          ? FileVolume
+                          : FileMusic
+                      }
+                    />
+                    {entry.name}
+                  </span>
                   <span class="server-browser__meta">
                     {formatSize(entry.size)} · {formatTime(entry.mtime)}
                   </span>
@@ -224,7 +235,7 @@ export const ServerBrowser: Component<Props> = (props) => {
                     aria-label={`Delete ${entry.name}`}
                     onClick={(e) => void removeRow(entry, e)}
                   >
-                    ×
+                    <Icon of={Trash} />
                   </button>
                 </div>
               )}

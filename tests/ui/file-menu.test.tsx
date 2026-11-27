@@ -479,7 +479,9 @@ describe("Header: Play/Stop, Song↔Pattern toggle, Follow toggle", () => {
       'button[aria-label="Play"]',
     )!;
     expect(btn).not.toBeNull();
-    expect(btn.textContent).toBe("▶");
+    // Icon-only button: the name comes from aria-label, the glyph is an SVG.
+    expect(btn.textContent).toBe("");
+    expect(btn.querySelector("svg.lucide-play")).not.toBeNull();
     expect(btn.classList.contains("transport__btn--active")).toBe(false);
   });
 
@@ -491,7 +493,8 @@ describe("Header: Play/Stop, Song↔Pattern toggle, Follow toggle", () => {
       'button[aria-label="Stop"]',
     )!;
     expect(btn).not.toBeNull();
-    expect(btn.textContent).toBe("■");
+    expect(btn.textContent).toBe("");
+    expect(btn.querySelector("svg.lucide-square")).not.toBeNull();
     expect(btn.classList.contains("transport__btn--active")).toBe(true);
     expect(btn.getAttribute("aria-pressed")).toBe("true");
   });

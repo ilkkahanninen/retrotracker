@@ -43,6 +43,7 @@ import {
   buildGlyphAtlas,
   type GlyphAtlas,
   type GlyphPalette,
+  whenGridFontReady,
 } from "./grid/glyphAtlas";
 import {
   ROW_HEIGHT,
@@ -262,14 +263,12 @@ export const PatternGridCanvas: Component<PatternGridProps> = (props) => {
       mq.addEventListener?.("change", onDprChange);
       onCleanup(() => mq.removeEventListener?.("change", onDprChange));
     }
-    // Rebuild the atlas once web fonts settle — the initial build runs
+    // Rebuild the atlas once the webfont is in — the initial build runs
     // with the fallback otherwise.
-    if (typeof document !== "undefined" && document.fonts) {
-      document.fonts.ready.then(() => {
-        invalidateAtlas();
-        scheduleDraw();
-      });
-    }
+    whenGridFontReady(() => {
+      invalidateAtlas();
+      scheduleDraw();
+    });
   });
 
   // ── Scroll-into-view effects ──────────────────────────────────────────

@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "Departure Mono";
+  src: url("./assets/fonts/DepartureMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
 :root {
   --bg: #14151a;
   --panel: #1c1e26;
@@ -14,14 +22,56 @@
    * contrast bar. Near-black tuned against #5ec8ff for AA. */
   --text-on-accent: #0a1118;
   --waveform-height: 160px;
-  --pat-row-height: 19px;
+  --pat-row-height: 16px;
   --slider-min-width: 220px;
-  font-family: "Inter", system-ui, sans-serif;
+  /* Departure Mono is a pixel font: it is only crisp at 11px and integer
+   * multiples, and ships a single weight. Keep every size on --fs / --fs-lg
+   * and never synthesise bold or italic. */
+  --font-mono:
+    "Departure Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --fs: 11px;
+  --fs-lg: 22px;
+  font-family: var(--font-mono);
+  font-synthesis: none;
+  font-variant-ligatures: none;
+  -webkit-font-smoothing: none;
   color-scheme: dark;
 }
 
 * {
   box-sizing: border-box;
+}
+
+/* Single-weight pixel font: no synthesised bold or italic, so emphasis is
+ * carried by colour instead. */
+strong,
+b {
+  font-weight: 400;
+  color: var(--accent);
+}
+em,
+i {
+  font-style: normal;
+  color: var(--muted);
+}
+
+/* Lucide icons (see components/Icon.tsx). Any button holding one lays out
+ * as a centred flex row so icon and label share a baseline-free centre line
+ * and get a consistent gap; icon-only buttons are unaffected by the gap. */
+.icon {
+  flex: none;
+  display: block;
+}
+button:has(> .icon):not([hidden]) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.server-browser__name:has(> .icon) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 html,
@@ -34,7 +84,7 @@ body,
 body {
   background: var(--bg);
   color: var(--fg);
-  font-size: 13px;
+  font-size: var(--fs);
 }
 
 .app {
@@ -109,16 +159,17 @@ body {
 }
 
 .app__header h1 {
-  font-size: 14px;
+  font-size: var(--fs-lg);
   margin: 0;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  white-space: nowrap;
+  font-weight: 400;
+  letter-spacing: 1px;
 }
 .app__version {
   margin-left: 6px;
   font-weight: 400;
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  font-size: var(--fs);
+  letter-spacing: 1px;
   color: var(--muted);
 }
 
@@ -170,8 +221,8 @@ body {
 .transport__label {
   color: var(--muted);
   text-transform: uppercase;
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  font-size: var(--fs);
+  letter-spacing: 1px;
 }
 
 /* Left-aligned title + dropdowns group. The dropdown menus (File, Edit)
@@ -195,6 +246,9 @@ body {
  * `.file-button` keeps the older button look for in-pane file pickers
  * (sample view) — it's not a menu trigger. */
 .menu__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   background: transparent;
   color: var(--fg);
   border: none;
@@ -241,7 +295,7 @@ body {
   min-width: 180px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   z-index: 10;
-  font-family: "Inter", system-ui, sans-serif;
+  font-family: var(--font-mono);
 }
 .menu__item {
   display: flex;
@@ -260,13 +314,15 @@ body {
  * when the menu has no toggle items. The label expands to push the
  * shortcut hint to the right edge. */
 .menu__check {
-  display: inline-block;
-  width: 12px;
-  flex: 0 0 12px;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  flex: 0 0 14px;
+  color: var(--muted);
+}
+.menu__item[aria-checked="true"] .menu__check {
   color: var(--accent);
-  font-family: ui-monospace, "SFMono-Regular", monospace;
-  font-size: 11px;
 }
 .menu__label {
   flex: 1 1 auto;
@@ -283,8 +339,8 @@ body {
 }
 .menu__hint {
   color: var(--muted);
-  font-family: ui-monospace, "SFMono-Regular", monospace;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: var(--fs);
 }
 .menu__separator {
   height: 1px;
@@ -309,7 +365,7 @@ body {
   border: 1px solid var(--grid-line);
   border-radius: 8px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
-  font-family: "Inter", system-ui, sans-serif;
+  font-family: var(--font-mono);
   width: min(560px, calc(100vw - 32px));
   max-height: calc(100vh - 64px);
   display: flex;
@@ -324,20 +380,20 @@ body {
 }
 .modal__head h2 {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: var(--fs-lg);
+  font-weight: 400;
 }
 .modal__version {
   margin-left: 6px;
   font-weight: 400;
-  font-size: 12px;
+  font-size: var(--fs);
   color: var(--muted);
 }
 .modal__close {
   background: transparent;
   border: none;
   color: var(--muted);
-  font-size: 22px;
+  font-size: var(--fs-lg);
   line-height: 1;
   width: 28px;
   height: 28px;
@@ -360,8 +416,8 @@ body {
   margin-bottom: 0;
 }
 .modal__body code {
-  font-family: ui-monospace, "SFMono-Regular", monospace;
-  font-size: 90%;
+  font-family: var(--font-mono);
+  font-size: var(--fs);
   padding: 1px 4px;
   background: var(--panel);
   border-radius: 3px;
@@ -370,17 +426,17 @@ body {
   color: var(--accent);
 }
 .modal__links {
-  font-size: 90%;
+  font-size: var(--fs);
 }
 .modal__credit {
   color: var(--muted);
-  font-size: 85%;
+  font-size: var(--fs);
   margin-top: 16px;
 }
 .modal__section {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: var(--fs);
+  font-weight: 400;
+  letter-spacing: 1px;
   text-transform: uppercase;
   color: var(--muted);
   margin: 18px 0 8px;
@@ -415,7 +471,7 @@ body {
   color: var(--muted);
   padding: 12px;
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs);
 }
 .server-browser__row {
   display: grid;
@@ -425,7 +481,7 @@ body {
   padding: 6px 10px;
   cursor: pointer;
   border-bottom: 1px solid var(--grid-line);
-  font-size: 13px;
+  font-size: var(--fs);
 }
 .server-browser__row:last-child {
   border-bottom: none;
@@ -437,14 +493,14 @@ body {
   background: var(--accent-dim);
 }
 .server-browser__name {
-  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-family: var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .server-browser__meta {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs);
   white-space: nowrap;
 }
 .server-browser__delete {
@@ -455,7 +511,7 @@ body {
   height: 24px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 16px;
+  font-size: var(--fs-lg);
 }
 .server-browser__delete:hover {
   background: var(--panel-2);
@@ -470,12 +526,12 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--fs);
   color: var(--muted);
 }
 .server-browser__input {
-  font-family: ui-monospace, "SFMono-Regular", monospace;
-  font-size: 13px;
+  font-family: var(--font-mono);
+  font-size: var(--fs);
   padding: 6px 8px;
   border-radius: 4px;
   border: 1px solid var(--grid-line);
@@ -484,12 +540,12 @@ body {
 }
 .server-browser__warn {
   color: var(--accent);
-  font-size: 12px;
+  font-size: var(--fs);
   margin: 0;
 }
 .server-browser__error {
   color: var(--danger, #d66);
-  font-size: 12px;
+  font-size: var(--fs);
   margin: 0;
 }
 .server-browser__actions {
@@ -499,7 +555,7 @@ body {
 }
 .server-browser__btn {
   padding: 6px 14px;
-  font-size: 13px;
+  font-size: var(--fs);
   border-radius: 4px;
   border: 1px solid var(--grid-line);
   background: var(--panel);
@@ -535,14 +591,14 @@ body {
 }
 .share-modal__section-title {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 1px;
   color: var(--fg-dim);
 }
 .share-modal__hint {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs);
   color: var(--fg-dim);
 }
 .share-modal__url-row {
@@ -552,7 +608,7 @@ body {
 }
 .share-modal__url {
   flex: 1;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
 }
 .share-modal__list {
   display: flex;
@@ -576,7 +632,7 @@ body {
   white-space: nowrap;
 }
 .share-modal__row-meta {
-  font-size: 11px;
+  font-size: var(--fs);
   color: var(--fg-dim);
   white-space: nowrap;
 }
@@ -589,7 +645,7 @@ body {
 }
 .mp3-export__phase {
   margin: 0 0 12px;
-  font-size: 13px;
+  font-size: var(--fs);
   color: var(--muted);
 }
 .mp3-export__bar {
@@ -629,7 +685,7 @@ body {
   padding: 8px 14px;
   background: var(--accent);
   color: var(--bg);
-  font-size: 13px;
+  font-size: var(--fs);
 }
 .share-banner--warn {
   background: var(--warn, #e6b800);
@@ -647,7 +703,7 @@ body {
   background: transparent;
   border: none;
   color: inherit;
-  font-size: 18px;
+  font-size: var(--fs-lg);
   cursor: pointer;
   line-height: 1;
   padding: 0 4px;
@@ -687,17 +743,17 @@ body {
   outline-offset: 2px;
 }
 .mode-picker__name {
-  font-weight: 600;
-  font-size: 1.05em;
+  font-weight: 400;
+  font-size: var(--fs);
 }
 .mode-picker__ext {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   color: var(--accent, #4a90e2);
   margin-top: 2px;
 }
 .mode-picker__hint {
   margin-top: 6px;
-  font-size: 0.85em;
+  font-size: var(--fs);
   opacity: 0.75;
 }
 
@@ -706,9 +762,9 @@ body {
   padding: 1px 6px;
   margin-left: 8px;
   border-radius: 3px;
-  font-size: 0.75em;
-  font-weight: 600;
-  letter-spacing: 0.05em;
+  font-size: var(--fs);
+  font-weight: 400;
+  letter-spacing: 1px;
   vertical-align: middle;
   user-select: none;
 }
@@ -743,8 +799,8 @@ body {
   margin: 0;
 }
 .play-length-calc__result strong {
-  font-family: ui-monospace, "SFMono-Regular", monospace;
-  font-size: 110%;
+  font-family: var(--font-mono);
+  font-size: var(--fs);
 }
 .play-length-calc__footer {
   display: flex;
@@ -763,8 +819,8 @@ body {
   align-items: center;
   gap: 6px;
   color: var(--muted);
-  font-family: ui-monospace, "SFMono-Regular", monospace;
-  font-size: 70%;
+  font-family: var(--font-mono);
+  font-size: var(--fs);
   padding: 4px 10px;
   border: 1px solid var(--grid-line);
   border-radius: 6px;
@@ -842,7 +898,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--fs);
   line-height: 1;
 }
 
@@ -889,9 +945,9 @@ body {
   color: var(--fg);
   border: 1px solid var(--grid-line);
   border-radius: 4px;
-  padding: 2px 8px;
+  padding: 2px 5px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs);
   line-height: 1;
   min-width: 24px;
   cursor: pointer;
@@ -919,7 +975,7 @@ body {
   border-radius: 4px;
   padding: 4px 8px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs);
   line-height: 1;
   cursor: pointer;
   user-select: none;
@@ -962,9 +1018,9 @@ body {
 }
 
 h2 {
-  font-size: 11px;
+  font-size: var(--fs);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 1px;
   color: var(--muted);
   margin: 0 0 8px;
 }
@@ -974,7 +1030,7 @@ h2 {
   list-style: none;
   padding: 0;
   margin: 0;
-  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-family: var(--font-mono);
 }
 .app__samples li,
 .orderlist li {
@@ -1093,7 +1149,7 @@ h2 {
   background: var(--panel);
   padding: 2px 6px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: var(--fs);
 }
 .dropzone .error {
   color: var(--error);
@@ -1101,7 +1157,7 @@ h2 {
 }
 
 .songinfo {
-  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-family: var(--font-mono);
   background: var(--panel);
   padding: 24px;
   border-radius: 12px;
@@ -1122,7 +1178,7 @@ h2 {
 .songinfo .hint {
   color: var(--muted);
   margin: 0;
-  font-family: "Inter", system-ui, sans-serif;
+  font-family: var(--font-mono);
 }
 
 .dropzone-wrap {
@@ -1146,20 +1202,20 @@ h2 {
   padding: 8px 16px;
   background: var(--panel);
   border-bottom: 1px solid var(--grid-line);
-  font-family: ui-monospace, "SFMono-Regular", monospace;
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--fs);
   color: var(--muted);
 }
 .patternpane__title {
   color: var(--fg);
-  font-weight: 600;
+  font-weight: 400;
   cursor: text;
 }
 /* Inline title editor — inherits the metapane's font so swapping in the
  * input on double-click doesn't shift the row's height. */
 .patternpane__title-input {
   font: inherit;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--accent);
@@ -1275,8 +1331,8 @@ h2 {
   background: var(--panel);
   border-top: 1px solid var(--grid-line);
   padding: 6px 16px;
-  font-family: ui-monospace, "SFMono-Regular", monospace;
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--fs);
   color: var(--muted);
   flex-shrink: 0;
 }
@@ -1297,8 +1353,8 @@ h2 {
 }
 .patternhelp__label {
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 10px;
+  letter-spacing: 1px;
+  font-size: var(--fs);
   color: var(--muted);
 }
 .patternhelp__value {
@@ -1329,7 +1385,7 @@ h2 {
   border-radius: 4px;
   padding: 1px 8px;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--fs);
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
@@ -1353,17 +1409,17 @@ h2 {
   padding: 10px 16px 12px;
   border-top: 1px solid var(--grid-line);
   background: var(--panel);
-  font-family: "Inter", system-ui, sans-serif;
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--fs);
   max-height: 50vh;
   overflow-y: auto;
 }
 .patternhelp__tip-title {
   margin: 0 0 4px;
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--fs);
+  font-weight: 400;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 1px;
   color: var(--muted);
 }
 .patternhelp__tip-list {
@@ -1383,8 +1439,8 @@ h2 {
   color: var(--fg);
 }
 .patternhelp__kbd {
-  font-family: ui-monospace, "SFMono-Regular", monospace;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: var(--fs);
   background: var(--panel-2);
   border: 1px solid var(--grid-line);
   border-bottom-width: 2px;
@@ -1412,8 +1468,8 @@ h2 {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  font-family: ui-monospace, "SFMono-Regular", monospace;
-  font-size: 13px;
+  font-family: var(--font-mono);
+  font-size: var(--fs);
   line-height: 1.4;
 }
 .patgrid__header {
@@ -1425,9 +1481,9 @@ h2 {
   padding: 6px 0;
   background: var(--panel);
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 1px;
   border-bottom: 1px solid var(--grid-line);
   flex-shrink: 0;
 }
@@ -1503,7 +1559,7 @@ h2 {
   border: 1px solid var(--grid-line);
   color: var(--muted);
   font: inherit;
-  font-size: 10px;
+  font-size: var(--fs);
   letter-spacing: 0;
   padding: 0 5px;
   height: 14px;
@@ -1603,7 +1659,7 @@ h2 {
   display: flex;
   gap: 10px;
   padding: 2px 6px;
-  font: 11px / 1.4 var(--mono, ui-monospace, "SF Mono", Menlo, monospace);
+  font: var(--fs) / 1.4 var(--font-mono);
   color: var(--fg);
   background: var(--panel);
   border: 1px solid var(--grid-line);
@@ -1671,10 +1727,7 @@ h2 {
 }
 .envelope__tooltip-text {
   fill: var(--fg);
-  font:
-    11px / 1.2 ui-monospace,
-    "SFMono-Regular",
-    monospace;
+  font: var(--fs) / 1.2 var(--font-mono);
   dominant-baseline: alphabetic;
 }
 
@@ -1695,7 +1748,7 @@ h2 {
 .envelope-editor__toolbar {
   display: flex;
   gap: 12px;
-  font-size: 11px;
+  font-size: var(--fs);
   color: var(--muted);
 }
 .envelope-editor__flag {
@@ -1772,7 +1825,7 @@ h2 {
 .envelope-editor__indices {
   display: flex;
   gap: 12px;
-  font-size: 11px;
+  font-size: var(--fs);
   color: var(--muted);
 }
 .envelope-editor__indices label {
@@ -1847,9 +1900,9 @@ h2 {
   border: none;
   border-bottom: 1px solid var(--grid-line);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--fs);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 1px;
   cursor: pointer;
   text-align: left;
 }
@@ -1879,9 +1932,9 @@ h2 {
 }
 .instrument-view__heading {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--fs);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 1px;
   color: var(--muted);
 }
 .instrument-view__row {
@@ -1889,7 +1942,7 @@ h2 {
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-  font-size: 12px;
+  font-size: var(--fs);
 }
 .instrument-view__row label {
   display: inline-flex;
@@ -1919,7 +1972,7 @@ h2 {
   font: inherit;
 }
 .instrument-view__readout {
-  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-family: var(--font-mono);
   color: var(--fg);
 }
 .instrument-view__placeholder {
@@ -2011,7 +2064,7 @@ h2 {
   border: 1px solid var(--grid-line);
   border-radius: 3px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs);
   cursor: pointer;
 }
 .instrument-view__sample-chip:hover {
@@ -2022,9 +2075,9 @@ h2 {
   box-shadow: 0 0 0 1px var(--accent);
 }
 .instrument-view__sample-chip-idx {
-  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-family: var(--font-mono);
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs);
 }
 .instrument-view__sample-chip-name {
   max-width: 14ch;
@@ -2042,7 +2095,7 @@ h2 {
   border-radius: 3px;
   padding: 1px 4px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs);
   width: 12ch;
   outline: none;
 }
@@ -2068,7 +2121,7 @@ h2 {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--fs);
   color: var(--muted);
 }
 .instrument-view__sample-name input {
@@ -2104,9 +2157,9 @@ h2 {
 .xm-keymap__col-label {
   width: 22px;
   text-align: center;
-  font-size: 10px;
+  font-size: var(--fs);
   color: var(--muted);
-  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-family: var(--font-mono);
 }
 .xm-keymap__col-label--sharp {
   color: color-mix(in srgb, var(--muted) 60%, transparent);
@@ -2119,9 +2172,9 @@ h2 {
 .xm-keymap__row-label {
   display: inline-block;
   width: 44px;
-  font-size: 10px;
+  font-size: var(--fs);
   color: var(--muted);
-  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-family: var(--font-mono);
   background: transparent;
   border: 0;
   padding: 0;
@@ -2143,8 +2196,8 @@ h2 {
   color: var(--fg);
   border: 1px solid var(--grid-line);
   border-radius: 2px;
-  font-family: ui-monospace, "SFMono-Regular", monospace;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: var(--fs);
   cursor: pointer;
   padding: 0;
 }
@@ -2153,7 +2206,7 @@ h2 {
 }
 .xm-keymap__help {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--fs);
   color: var(--muted);
   line-height: 1.4;
 }
@@ -2164,8 +2217,8 @@ h2 {
   align-items: center;
   gap: 8px 12px;
   margin: 8px 0;
-  font-family: ui-monospace, "SFMono-Regular", monospace;
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--fs);
 }
 .sampleview__selection-info {
   color: var(--muted);
@@ -2197,7 +2250,7 @@ h2 {
   align-items: center;
   gap: 8px;
   padding: 4px 0;
-  font-size: 13px;
+  font-size: var(--fs);
   user-select: none;
 }
 .samplemeta__check input[type="checkbox"] {
@@ -2210,24 +2263,24 @@ h2 {
   align-items: flex-end;
   gap: 8px 16px;
   margin: 8px 0;
-  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-family: var(--font-mono);
 }
 .samplemeta label {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--fs);
 }
 .samplemeta__label {
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 10px;
+  letter-spacing: 1px;
+  font-size: var(--fs);
 }
 .samplemeta__static {
   color: var(--fg);
   padding: 4px 0;
-  font-size: 13px;
+  font-size: var(--fs);
   white-space: nowrap;
 }
 .samplemeta input[type="text"],
@@ -2239,7 +2292,7 @@ h2 {
   border-radius: 4px;
   padding: 4px 8px;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs);
   /* Widths chosen so the row reads like a horizontal form: wide enough for
      the longest plausible value, tight enough that all five fields fit on
      one line at typical viewport widths. */
@@ -2267,7 +2320,7 @@ h2 {
 .samplemeta__hint {
   flex-basis: 100%;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs);
   margin: 0;
 }
 /* Zero-height flex-break: forces subsequent items onto a new row inside
@@ -2298,15 +2351,15 @@ h2 {
   gap: 8px;
 }
 .pipeline__header h3 {
-  font-size: 11px;
+  font-size: var(--fs);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 1px;
   color: var(--muted);
   margin: 0;
 }
 .pipeline__source {
-  font-family: ui-monospace, "SFMono-Regular", monospace;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: var(--fs);
   color: var(--muted);
 }
 .pipeline__chain {
@@ -2343,7 +2396,7 @@ h2 {
 /* Bypass toggle: borderless little power icon that lights up cyan when
    the effect is bypassed (active toggle state = effect is OFF). */
 .effect-node__bypass {
-  font-size: 13px;
+  font-size: var(--fs);
   line-height: 1;
 }
 .effect-node__bypass--on {
@@ -2362,7 +2415,7 @@ h2 {
   border-radius: 3px;
   padding: 2px 6px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs);
   line-height: 1;
   cursor: pointer;
 }
@@ -2382,13 +2435,13 @@ h2 {
   flex: 1;
 }
 .effect-node__kind {
-  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-family: var(--font-mono);
   color: var(--accent);
   min-width: 80px;
 }
 .effect-node__hint {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs);
 }
 .effect-node__param {
   /* Row layout so label sits left of its select, and the whole label +
@@ -2399,7 +2452,7 @@ h2 {
   flex-direction: row;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--fs);
 }
 .effect-node__param input {
   background: var(--bg);
@@ -2408,7 +2461,7 @@ h2 {
   border-radius: 3px;
   padding: 2px 6px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs);
   width: 100px;
 }
 .effect-node__param input:focus {
@@ -2427,7 +2480,7 @@ h2 {
   border-radius: 3px;
   padding: 2px 8px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs);
   line-height: 1;
   cursor: pointer;
 }
@@ -2449,7 +2502,7 @@ h2 {
   border-radius: 3px;
   padding: 4px 8px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs);
   cursor: pointer;
 }
 .pipeline__add select:focus,
@@ -2477,7 +2530,7 @@ h2 {
   border-radius: 3px;
   padding: 4px 10px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs);
   cursor: pointer;
 }
 .pipeline__add-effect > button:hover {
@@ -2504,7 +2557,7 @@ h2 {
   text-align: left;
   padding: 6px 10px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs);
   cursor: pointer;
 }
 .pipeline__add-menu button:hover {
@@ -2521,17 +2574,17 @@ h2 {
   margin-top: 4px;
 }
 .pipeline__transformer-label {
-  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-family: var(--font-mono);
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 1px;
 }
 .pipeline__transformer label {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 12px;
+  font-size: var(--fs);
 }
 .pipeline__length-row {
   display: flex;
@@ -2562,9 +2615,9 @@ h2 {
   gap: 6px;
 }
 .infoview__label {
-  font-size: 11px;
+  font-size: var(--fs);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 1px;
   color: var(--muted);
 }
 .infoview__input,
@@ -2587,8 +2640,8 @@ h2 {
   cursor: not-allowed;
 }
 .infoview__textarea {
-  font-family: ui-monospace, "SFMono-Regular", monospace;
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--fs);
   line-height: 1.4;
   resize: vertical;
   min-height: 200px;
@@ -2598,7 +2651,7 @@ h2 {
   max-width: calc(22ch + 24px);
 }
 .infoview__hint {
-  font-size: 11px;
+  font-size: var(--fs);
   color: var(--muted);
 }
 
@@ -2618,8 +2671,8 @@ h2 {
 }
 .settingsview h2 {
   margin: 0;
-  font-size: 20px;
-  font-weight: 600;
+  font-size: var(--fs-lg);
+  font-weight: 400;
   color: var(--fg);
 }
 .settingsview__group {
@@ -2632,9 +2685,9 @@ h2 {
   border-radius: 4px;
 }
 .settingsview__group-label {
-  font-size: 10px;
+  font-size: var(--fs);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 1px;
   color: var(--muted);
 }
 .settingsview__field {
@@ -2653,9 +2706,9 @@ h2 {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  font-size: 10px;
+  font-size: var(--fs);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 1px;
   color: var(--muted);
 }
 .settingsview__radios {
@@ -2669,13 +2722,13 @@ h2 {
   gap: 10px;
   cursor: pointer;
   padding: 2px 0;
-  font-size: 13px;
+  font-size: var(--fs);
 }
 .settingsview__radio input {
   margin: 0;
 }
 .settingsview__radio-label {
-  font-weight: 600;
+  font-weight: 400;
 }
 .settingsview__select {
   background: var(--bg);
@@ -2684,7 +2737,7 @@ h2 {
   border-radius: 3px;
   padding: 4px 8px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs);
   width: var(--settingsview-control-width);
   cursor: pointer;
 }
@@ -2704,7 +2757,7 @@ h2 {
   border-radius: 3px;
   padding: 1px 8px;
   font: inherit;
-  font-size: 10px;
+  font-size: var(--fs);
   cursor: pointer;
   text-transform: none;
   letter-spacing: 0;
@@ -2720,16 +2773,16 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
-  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: var(--fs);
+  font-family: var(--font-mono);
   min-width: var(--slider-min-width);
   flex: 1 1 var(--slider-min-width);
 }
 .slider__label {
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 10px;
+  letter-spacing: 1px;
+  font-size: var(--fs);
 }
 .slider__row {
   display: flex;
@@ -2746,12 +2799,12 @@ h2 {
   color: var(--fg);
   min-width: 56px;
   text-align: right;
-  font-size: 12px;
+  font-size: var(--fs);
   white-space: nowrap;
 }
 .slider__hint {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--fs);
 }
 /* Inline shape-name buttons inside the Shape slider's hint — clicking
    one snaps shapeIndex to that integer. Styled to read as text with a
@@ -2771,7 +2824,7 @@ h2 {
 }
 .slider__hint-link.is-active {
   color: var(--fg);
-  font-weight: 600;
+  font-weight: 400;
 }
 .slider__hint-link:disabled {
   cursor: not-allowed;
@@ -2811,7 +2864,7 @@ h2 {
   border: 0;
   padding: 4px 14px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs);
   cursor: pointer;
 }
 .source-picker button + button {
@@ -2884,9 +2937,9 @@ h2 {
   border-radius: 4px;
 }
 .chiptune__group-label {
-  font-size: 10px;
+  font-size: var(--fs);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 1px;
   color: var(--muted);
 }
 /* One slider per row, full width — makes the synth panel readable at a
@@ -2942,7 +2995,7 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-family: var(--font-mono);
 }
 .chiptune__select select {
   width: 100%;
@@ -2952,7 +3005,7 @@ h2 {
   border-radius: 3px;
   padding: 4px 8px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs);
   cursor: pointer;
 }
 .chiptune__select select:focus {

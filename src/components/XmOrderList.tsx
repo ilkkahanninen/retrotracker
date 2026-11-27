@@ -3,6 +3,8 @@ import { For, type Component } from "solid-js";
 import type { XmSong } from "../core/xm/types";
 import { XM_MAX_ORDERS } from "../core/xm/types";
 import { xmCursor } from "../state/cursorXm";
+import { Icon } from "./Icon";
+import { ChevronLeft, ChevronRight, Minus, Plus } from "./icons";
 import { playPos, transport } from "../state/song";
 import {
   deleteXmOrderSlot,
@@ -53,7 +55,7 @@ export const XmOrderList: Component<Props> = (props) => {
           title="Previous pattern at slot (⇧[)"
           aria-label="Previous pattern at slot"
         >
-          ‹
+          <Icon of={ChevronLeft} />
         </button>
         <button
           type="button"
@@ -61,7 +63,7 @@ export const XmOrderList: Component<Props> = (props) => {
           title="Next pattern at slot (⇧])"
           aria-label="Next pattern at slot"
         >
-          ›
+          <Icon of={ChevronRight} />
         </button>
         <button
           type="button"
@@ -70,7 +72,7 @@ export const XmOrderList: Component<Props> = (props) => {
           title="Insert slot at cursor (⌘])"
           aria-label="Insert slot"
         >
-          +
+          <Icon of={Plus} />
         </button>
         <button
           type="button"
@@ -79,7 +81,7 @@ export const XmOrderList: Component<Props> = (props) => {
           title="Delete slot at cursor (⌘[)"
           aria-label="Delete slot"
         >
-          −
+          <Icon of={Minus} />
         </button>
         <button
           type="button"

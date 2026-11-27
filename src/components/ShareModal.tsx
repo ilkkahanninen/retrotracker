@@ -1,3 +1,5 @@
+import { Icon } from "./Icon";
+import { Copy, Link, Trash, X } from "./icons";
 import {
   createSignal,
   createResource,
@@ -132,7 +134,7 @@ export const ShareModal: Component<Props> = (props) => {
             aria-label="Close"
             title="Close (Esc)"
           >
-            ×
+            <Icon of={X} size={16} />
           </button>
         </div>
         <div class="modal__body share-modal__body">
@@ -158,6 +160,7 @@ export const ShareModal: Component<Props> = (props) => {
                       onClick={() => void onCreate()}
                       disabled={busy()}
                     >
+                      <Icon of={Link} />
                       Create share link
                     </button>
                   }
@@ -176,6 +179,7 @@ export const ShareModal: Component<Props> = (props) => {
                         class="server-browser__btn"
                         onClick={() => void onCopy(cs().url)}
                       >
+                        <Icon of={Copy} />
                         Copy
                       </button>
                     </div>
@@ -214,6 +218,7 @@ export const ShareModal: Component<Props> = (props) => {
                       onClick={() => void onCopy(s.url)}
                       title="Copy link"
                     >
+                      <Icon of={Copy} />
                       Copy
                     </button>
                     <button
@@ -222,6 +227,7 @@ export const ShareModal: Component<Props> = (props) => {
                       onClick={() => void onRevoke(s.token)}
                       title="Revoke this share"
                     >
+                      <Icon of={Trash} />
                       Revoke
                     </button>
                   </div>

@@ -11,6 +11,8 @@ import {
   type XmSampleWorkbench,
 } from "../core/audio/sampleWorkbench";
 import { EffectParams } from "./PipelineEditor";
+import { Icon } from "./Icon";
+import { ArrowDown, ArrowUp, Power, X } from "./icons";
 
 export interface XmPipelineEditorProps {
   wb: XmSampleWorkbench;
@@ -74,6 +76,11 @@ export const XmPipelineEditor: Component<XmPipelineEditorProps> = (props) => {
                   <button
                     type="button"
                     title={isBypassed() ? "Enable effect" : "Bypass effect"}
+                    aria-label={
+                      isBypassed()
+                        ? `Enable effect ${i + 1}`
+                        : `Bypass effect ${i + 1}`
+                    }
                     aria-pressed={isBypassed() ? "true" : "false"}
                     classList={{
                       "effect-node__bypass": true,
@@ -84,39 +91,42 @@ export const XmPipelineEditor: Component<XmPipelineEditorProps> = (props) => {
                       props.onSetEffectBypass(i, !isBypassed());
                     }}
                   >
-                    ⏻
+                    <Icon of={Power} />
                   </button>
                   <button
                     type="button"
                     title="Move up"
+                    aria-label={`Move effect ${i + 1} up`}
                     disabled={i === 0}
                     onClick={(e) => {
                       e.stopPropagation();
                       props.onMoveEffect(i, -1);
                     }}
                   >
-                    ↑
+                    <Icon of={ArrowUp} />
                   </button>
                   <button
                     type="button"
                     title="Move down"
+                    aria-label={`Move effect ${i + 1} down`}
                     disabled={i === props.wb.chain.length - 1}
                     onClick={(e) => {
                       e.stopPropagation();
                       props.onMoveEffect(i, 1);
                     }}
                   >
-                    ↓
+                    <Icon of={ArrowDown} />
                   </button>
                   <button
                     type="button"
                     title="Remove effect"
+                    aria-label={`Remove effect ${i + 1}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       props.onRemoveEffect(i);
                     }}
                   >
-                    ×
+                    <Icon of={X} />
                   </button>
                 </div>
                 <div class="effect-node__body">

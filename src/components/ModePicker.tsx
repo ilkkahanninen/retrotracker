@@ -1,3 +1,5 @@
+import { Icon } from "./Icon";
+import { X } from "./icons";
 import { onCleanup, onMount, type Component } from "solid-js";
 
 import type { ProjectFormat } from "../core/song";
@@ -47,7 +49,7 @@ export const ModePicker: Component<Props> = (props) => {
             aria-label="Close"
             title="Close (Esc)"
           >
-            ×
+            <Icon of={X} size={16} />
           </button>
         </div>
         <div class="modal__body">

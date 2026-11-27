@@ -1,3 +1,5 @@
+import { Icon } from "./Icon";
+import { X } from "./icons";
 import { onCleanup, onMount, type Component } from "solid-js";
 import { APP_VERSION } from "../version";
 
@@ -55,7 +57,7 @@ export const AboutModal: Component<Props> = (props) => {
             aria-label="Close"
             title="Close (Esc)"
           >
-            ×
+            <Icon of={X} size={16} />
           </button>
         </div>
         <div class="modal__body">
