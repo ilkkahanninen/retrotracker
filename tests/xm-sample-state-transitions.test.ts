@@ -687,11 +687,25 @@ describe("Playback gates", () => {
     expect(getXmWorkbench(1, 0)).toBe(wbBefore);
   });
 
-  it("addXmEffect is a no-op while transport is playing", () => {
+  it("pipeline edits apply while transport is playing, as in PT mode", () => {
+    // The chain is audible live: sync.ts forwards the changed instrument
+    // to the worklet. Only wholesale source swaps stay gated.
+    loadXmWavIntoCurrentSample(makeWavBytes(400), "src.wav");
+    const dataBefore = curSample()!.data;
+    setTransport("playing");
+    addXmEffect("reverse");
+    expect(getXmWorkbench(1, 0)!.chain.map((e) => e.kind)).toEqual(["reverse"]);
+    expect(curSample()!.data).not.toBe(dataBefore);
+    expect(Array.from(curSample()!.data)).toEqual(
+      Array.from(dataBefore).reverse(),
+    );
+  });
+
+  it("newXmChiptune is a no-op while transport is playing", () => {
     loadXmWavIntoCurrentSample(makeWavBytes(400), "src.wav");
     const wbBefore = getXmWorkbench(1, 0);
     setTransport("playing");
-    addXmEffect("volume");
+    newXmChiptune();
     expect(getXmWorkbench(1, 0)).toBe(wbBefore);
   });
 

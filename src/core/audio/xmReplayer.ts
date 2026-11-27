@@ -739,10 +739,39 @@ export class XmReplayer {
     }
   }
 
-  // PT-only methods — kept as no-ops so the interface check stays uniform.
-  replaceSampleSlot(_slot: number, _sample: Sample): void {
-    // FT2 uses instruments, not flat sample slots — the Phase 4 sample
-    // editor will plumb XM-flavoured hot-swap.
+  // PT-only — kept as a no-op so the interface check stays uniform. FT2
+  // uses instruments, not flat sample slots: see `replaceInstrument`.
+  replaceSampleSlot(_slot: number, _sample: Sample): void {}
+
+  /**
+   * Hot-swap the instrument at a 0-based `index` mid-playback — the FT2
+   * counterpart of `Pt2Replayer.replaceSampleSlot`. Mutates the cached
+   * song so the next note trigger reads the new instrument, and re-points
+   * any voice currently sounding one of its samples at the replacement
+   * (matched by position in the instrument's sample list). Such a voice
+   * keeps its read position, so a sample-pipeline tweak is heard on the
+   * running note; the mixer bounds every read by the sample it is handed,
+   * so a shorter buffer simply ends or wraps early.
+   *
+   * Envelopes, fadeout and auto-vibrato stay latched from the trigger
+   * (`envInstrument`) and change with the next note — swapping them under
+   * a running envelope could leave its point index past the new list.
+   *
+   * No-op for an index outside the current instrument list; a song whose
+   * list changed length goes through `replaceSong` instead.
+   */
+  replaceInstrument(index: number, instrument: XmInstrument): void {
+    const instruments = this.song.instruments;
+    if (index < 0 || index >= instruments.length) return;
+    const old = instruments[index]!;
+    instruments[index] = instrument;
+    for (const v of this.voices) {
+      if (!v.sample) continue;
+      const sampleIdx = old.samples.indexOf(v.sample);
+      if (sampleIdx < 0) continue;
+      const next = instrument.samples[sampleIdx];
+      if (next && next.data.length > 0) v.sample = next;
+    }
   }
 
   // ── Tick scheduling ──────────────────────────────────────────────────

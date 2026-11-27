@@ -166,7 +166,10 @@ function updateCurrentXmWorkbench(
     loopType: XmSample["loopType"];
   },
 ): void {
-  if (transport() === "playing") return;
+  // Ungated, like PT's `updateCurrentWorkbench`: sync.ts forwards the
+  // changed instrument to the worklet, so pipeline edits are heard while
+  // the song plays. Callers that must not run mid-playback gate
+  // themselves.
   const ctx = getOrInitCurrentXmWorkbench();
   if (!ctx) return;
   const { inst1Based, sampleIdx, sample } = ctx;
@@ -332,6 +335,7 @@ function ensureCurrentXmSampleExists(): void {
 }
 
 export function setXmSourceKind(kind: SourceKind): void {
+  if (transport() === "playing") return;
   // Why: lazy-create so empty instruments flip into chiptune instead of
   // silently no-opping; sampler workbench built here becomes the alt stash.
   ensureCurrentXmSampleExists();
@@ -386,6 +390,7 @@ export function updateXmChiptune(patch: Partial<ChiptuneParams>): void {
 /** Convert the current slot from chiptune → sampler by realising the
  *  chiptune cycle as the sampler's WAV. */
 export function convertXmChiptuneToSampler(): void {
+  if (transport() === "playing") return;
   const ctx = getOrInitCurrentXmWorkbench();
   if (!ctx) return;
   const { wb } = ctx;
@@ -411,6 +416,7 @@ export function convertXmChiptuneToSampler(): void {
 /** Reset the current slot to a fresh chiptune workbench, keeping the
  *  XM transformer settings the user already picked. */
 export function newXmChiptune(): void {
+  if (transport() === "playing") return;
   const ctx = getOrInitCurrentXmWorkbench();
   if (!ctx) return;
   const { wb } = ctx;

@@ -11,6 +11,7 @@ import { CHANNELS } from "../mod/types";
 import { speedTempoAt } from "../mod/flatten";
 import { speedTempoAtXm } from "../xm/flatten";
 import type { Song } from "../song";
+import type { XmInstrument } from "../xm/types";
 import { channelCount as channelCountOf } from "../song";
 import { resizeMuteFlags, withMuteFlag } from "./channelMuteBuffer";
 import type { XmInterpolation } from "./types";
@@ -29,6 +30,7 @@ export type WorkletMessage =
   | { type: "setStereoSeparation"; sep: number }
   | { type: "setXmMixer"; interpolation: XmInterpolation; ramping: boolean }
   | { type: "setSampleData"; slot: number; sample: Sample }
+  | { type: "setXmInstrument"; index: number; instrument: XmInstrument }
   | { type: "replaceSong"; song: Song }
   | { type: "setLoopPattern"; on: boolean };
 
@@ -208,12 +210,20 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           this.applyStereoSeparation();
           break;
         case "setSampleData":
-          // Hot-swap a single sample slot during playback (PT-only; the
-          // FT2 path uses instruments and lands in a later slice). The
-          // optional chain on the Replayer interface makes this a no-op
-          // when the active replayer is XmReplayer.
+          // Hot-swap a single sample slot during playback (PT-only; FT2
+          // uses `setXmInstrument` below). The optional chain on the
+          // Replayer interface makes this a no-op when the active
+          // replayer is XmReplayer.
           if (this.song && this.replayer) {
             this.replayer.replaceSampleSlot?.(msg.slot, msg.sample);
+          }
+          break;
+        case "setXmInstrument":
+          // FT2 counterpart: hot-swap one instrument. The replayer
+          // mutates the song it shares with `this.song`, so a later
+          // recreate from the cached song sees the swap too.
+          if (this.song && this.replayer) {
+            this.replayer.replaceInstrument?.(msg.index, msg.instrument);
           }
           break;
         case "replaceSong":

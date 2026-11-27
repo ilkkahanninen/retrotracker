@@ -3,6 +3,7 @@ import previewWorkletUrl from "./preview-worklet?worker&url";
 import xmPreviewWorkletUrl from "./xm-preview-worklet?worker&url";
 import type { Sample } from "../mod/types";
 import type { Song } from "../song";
+import type { XmInstrument } from "../xm/types";
 import { songForPlayback, truncateSampleAtLoopEnd } from "./loopTruncate";
 import type { WorkletEvent, WorkletMessage } from "./worklet";
 import type { PreviewMsg } from "./preview-worklet-types";
@@ -161,6 +162,17 @@ export class AudioEngine {
       slot,
       sample: truncateSampleAtLoopEnd(sample),
     };
+    this.node.port.postMessage(msg);
+  }
+
+  /**
+   * FT2 counterpart of `setSampleData`: hot-swap the instrument at a
+   * 0-based `index` during playback. Sends just that instrument rather
+   * than the whole song, so a dragged effect slider doesn't make the
+   * audio thread deserialise every pattern on each step.
+   */
+  setXmInstrument(index: number, instrument: XmInstrument): void {
+    const msg: WorkletMessage = { type: "setXmInstrument", index, instrument };
     this.node.port.postMessage(msg);
   }
 
