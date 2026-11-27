@@ -14,6 +14,7 @@ import {
 } from "./cursor";
 import { song } from "./song";
 import { setView, view } from "./view";
+import { clearOrderSelection, orderSelection } from "./orderSelection";
 import {
   togglePaulaModel,
   toggleLoopPattern,
@@ -197,6 +198,16 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
       mod: true,
       description: "Paste clipboard",
       run: h.pasteAtCursor,
+    }),
+  );
+  // Escape drops an order-list multi-selection (shift-click). Only bound
+  // while there is one, so Escape stays free for everything else.
+  cleanups.push(
+    registerShortcut({
+      key: "escape",
+      description: "Clear order-list selection",
+      when: () => orderSelection() !== null && view() === "pattern",
+      run: clearOrderSelection,
     }),
   );
   // Cmd+E — render the current selection through the clean offline mixer

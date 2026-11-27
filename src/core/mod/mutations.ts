@@ -284,6 +284,11 @@ export function insertOrder(song: ModSong, order: number): ModSong {
  */
 export const deleteOrder = orderOps.deleteOrder;
 
+/** Range versions for an order-list multi-selection — see `OrderOps`. */
+export const repeatOrderRange = orderOps.repeatOrderRange;
+export const duplicatePatternsInRange = orderOps.duplicatePatternsInRange;
+export const deleteOrderRange = orderOps.deleteOrderRange;
+
 /**
  * Append a fresh empty pattern and point `song.orders[order]` at it. Lets the
  * user blank out a slot without having to step through pattern numbers, and

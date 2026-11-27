@@ -421,6 +421,11 @@ export const insertXmOrder = orderOps.insertOrderAt;
 /** Delete the order slot, pulling subsequent orders back by one. */
 export const deleteXmOrder = orderOps.deleteOrder;
 
+/** Range versions for an order-list multi-selection — see `OrderOps`. */
+export const repeatXmOrderRange = orderOps.repeatOrderRange;
+export const duplicateXmPatternsInRange = orderOps.duplicatePatternsInRange;
+export const deleteXmOrderRange = orderOps.deleteOrderRange;
+
 /**
  * Renumber patterns by first appearance in the order list and drop the
  * unused ones (see `OrderOps.cleanupOrders`). Each pattern keeps its own

@@ -2,11 +2,14 @@ import type { ModSong } from "../core/mod/types";
 import {
   cleanupOrders,
   deleteOrder,
+  deleteOrderRange,
   duplicatePatternAtOrder,
+  duplicatePatternsInRange,
   insertOrder,
   newPatternAtOrder,
   nextPatternAtOrder,
   prevPatternAtOrder,
+  repeatOrderRange,
 } from "../core/mod/mutations";
 import { commitEditWithWorkbenches, playPos, pt2Song, transport } from "./song";
 import { cursor, requestJumpToTop } from "./cursor";
@@ -45,10 +48,14 @@ const ops = createOrderEdit<ModSong>({
     prevPattern: prevPatternAtOrder,
     newPattern: newPatternAtOrder,
     duplicatePattern: duplicatePatternAtOrder,
+    repeatRange: repeatOrderRange,
+    duplicatePatternsInRange,
+    deleteRange: deleteOrderRange,
   },
 });
 
 export const jumpToOrder = ops.jumpToOrder;
+export const selectOrdersTo = ops.selectTo;
 export const jumpPrevOrder = ops.jumpPrev;
 export const jumpNextOrder = ops.jumpNext;
 export const stepNextPattern = ops.stepNext;

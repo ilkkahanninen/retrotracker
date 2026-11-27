@@ -1071,6 +1071,22 @@ h2 {
 .orderlist li.orderlist__item--active .orderlist__name {
   color: var(--text-on-accent);
 }
+/* Shift-click multi-selection: a run of slots the toolbar acts on as a
+ * block. A tint plus a bar down the left edge, so the run reads as one
+ * shape and stays visible on the cursor / playhead row, whose own
+ * background wins. */
+.orderlist li.orderlist__item--selected {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+  border-radius: 0;
+}
+.orderlist li.orderlist__item--selected.orderlist__item--cursor {
+  background: var(--accent-dim);
+}
+.orderlist li.orderlist__item--selected.orderlist__item--active {
+  background: var(--accent);
+  box-shadow: inset 3px 0 0 var(--text-on-accent);
+}
 /* Pattern name (project-only, doesn't survive .mod export). Truncates so
  * a long name can't push the row past the order-list aside's width. */
 .orderlist__name {
