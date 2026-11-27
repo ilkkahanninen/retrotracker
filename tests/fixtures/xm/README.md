@@ -68,9 +68,9 @@ Default: RMS ≤ 0.002, peak ≤ 0.01 — bit-perfect against libxmp modulo floa
 | `22-key-off`                  | note 97 + Kxx        | 0.00225 | 0.0855 | Voice silence with no envelope; ramp diff; rms ≤ 0.003.                                                                     |
 | `23-fadeout`                  | key-off, no envelope | 0.00159 | 0.0855 | Without a volume envelope key-off cuts the voice; ramp-shape transient, peak ≤ 0.1.                                         |
 | `24-volume-envelope`          | vol env + sustain    | 0.00035 | 0.0031 | Attack → sustain envelope.                                                                                                  |
-| `25-pan-envelope`             | pan env sweep        | 0.00151 | 0.0114 | Full-left to full-right pan ramp; peak ≤ 0.02.                                                                              |
+| `25-pan-envelope`             | pan env sweep        | 0.00126 | 0.0099 | Full-left to full-right pan ramp.                                                                                           |
 | `26-auto-vibrato`             | instrument vib       | —       | —      | Not compared: libxmp plays XM auto-vibrato differently from FT2 (see Tolerances).                                           |
-| `27-set-env-pos`              | Lxx                  | 0.00163 | 0.0126 | Jump vol-env to mid-decay; peak ≤ 0.02.                                                                                     |
+| `27-set-env-pos`              | Lxx                  | 0.00164 | 0.0127 | Jump vol-env to mid-decay. FT2 lands on the tick named, libxmp one later; peak ≤ 0.02.                                      |
 | `28-relative-note`            | sample.relative      | 0.00001 | 0.0007 | relativeNote = 12 → C-4 plays as C-5.                                                                                       |
 | `29-amiga-freq`               | Amiga period         | 0.00002 | 0.0008 | `flags.linearFreq = false`.                                                                                                 |
 | `30-ping-pong-loop`           | bidir loop           | 0.00002 | 0.0009 | 64-sample sine with ping-pong reflection.                                                                                   |

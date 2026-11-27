@@ -43,6 +43,15 @@ import {
   periodForNote,
 } from "./xmFreqTable";
 import {
+  ENVELOPE_FULL,
+  newEnvelopeState,
+  releaseEnvelope,
+  resetEnvelope,
+  setEnvelopePosition,
+  stepEnvelope,
+  type EnvelopeState,
+} from "./xmEnvelope";
+import {
   newAutoVibratoState,
   resetAutoVibrato,
   stepAutoVibrato,
@@ -266,14 +275,13 @@ interface XmVoice {
   autoVib: AutoVibratoState;
   /** Period offset auto-vibrato produced for the current tick. */
   autoVibOffset: number;
-  /**
-   * Tick position into the volume envelope (X-coordinate of the point
-   * array). Resets to 0 on instrument retrigger. Advances by 1 per tick
-   * (subject to sustain hold + loop wrap).
-   */
-  volEnvPos: number;
-  /** Same shape as volEnvPos, for the panning envelope. */
-  panEnvPos: number;
+  /** Volume / panning envelope playback state (see xmEnvelope.ts). */
+  volEnv: EnvelopeState;
+  panEnv: EnvelopeState;
+  /** Envelope values for the current tick, 8.8 fixed point. Only
+   *  meaningful while the instrument has that envelope enabled. */
+  volEnvValue: number;
+  panEnvValue: number;
   /**
    * 16-bit fadeout counter (ft2-clone uses 32768 as the "full" value).
    * Sits at 32768 while key is on; after keyOff each tick subtracts
@@ -385,8 +393,10 @@ function newVoice(): XmVoice {
     keyOff: false,
     autoVib: newAutoVibratoState(),
     autoVibOffset: 0,
-    volEnvPos: 0,
-    panEnvPos: 0,
+    volEnv: newEnvelopeState(),
+    panEnv: newEnvelopeState(),
+    volEnvValue: ENVELOPE_FULL,
+    panEnvValue: ENVELOPE_FULL / 2,
     fadeoutVol: 32768,
     envInstrument: null,
     currentLGain: 0,
@@ -443,72 +453,6 @@ interface XmSongState {
   globalVolume: number;
   /** Memory for Hxy global vol slide. */
   globalVolSlideLast: number;
-}
-
-/**
- * Linear-interpolate an envelope value at tick position `pos`. Points
- * are sorted by tick; we walk to the bracketing pair and interpolate.
- * Out-of-range positions clamp to the first/last value.
- */
-function envelopeValue(
-  env: { points: { tick: number; value: number }[] },
-  pos: number,
-): number {
-  const pts = env.points;
-  if (pts.length === 0) return 64;
-  if (pos <= pts[0]!.tick) return pts[0]!.value;
-  if (pos >= pts[pts.length - 1]!.tick) return pts[pts.length - 1]!.value;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const a = pts[i]!;
-    const b = pts[i + 1]!;
-    if (pos >= a.tick && pos <= b.tick) {
-      const span = b.tick - a.tick;
-      if (span <= 0) return a.value;
-      const t = (pos - a.tick) / span;
-      return a.value + (b.value - a.value) * t;
-    }
-  }
-  return pts[pts.length - 1]!.value;
-}
-
-/**
- * Advance one envelope position by 1 tick. Respects sustain (holds at
- * the sustain point's tick while key is on) and loop (wraps from
- * loopEnd's tick back to loopStart's tick). Returns the new position.
- */
-function stepEnvelope(
-  env: {
-    points: { tick: number; value: number }[];
-    sustainEnabled: boolean;
-    sustainPoint: number;
-    loopEnabled: boolean;
-    loopStart: number;
-    loopEnd: number;
-  },
-  pos: number,
-  keyOff: boolean,
-): number {
-  const pts = env.points;
-  if (pts.length === 0) return pos;
-  let next = pos + 1;
-  // Sustain hold: stop advancing once we reach the sustain point's tick,
-  // until the user releases the key.
-  if (env.sustainEnabled && !keyOff) {
-    const sustain = pts[env.sustainPoint]?.tick;
-    if (sustain !== undefined && pos >= sustain) return sustain;
-  }
-  // Loop wrap: when we step PAST loopEnd's tick, jump back to loopStart's.
-  if (env.loopEnabled) {
-    const loopEnd = pts[env.loopEnd]?.tick;
-    const loopStart = pts[env.loopStart]?.tick;
-    if (loopEnd !== undefined && loopStart !== undefined && next >= loopEnd) {
-      next = loopStart;
-    }
-  }
-  // Clamp at the final point so we don't run away into infinity.
-  const lastTick = pts[pts.length - 1]!.tick;
-  if (next > lastTick) next = lastTick;
-  return next;
 }
 
 /** Clamp `period` to the playable range. */
@@ -673,6 +617,11 @@ export class XmReplayer {
     this.currentTickSamples = this.samplesPerTick();
     this.samplesUntilTick = this.currentTickSamples;
     this.processRow();
+    // The first row's first tick is a tick like any other: envelopes and
+    // auto-vibrato take their first step, exactly as they do when a note
+    // is triggered mid-song.
+    this.advanceEnvelopes();
+    this.syncVoiceSteps();
     // Seed anti-click ramp targets from the freshly-processed row so the
     // first chunk's mix ramps in from silence (currentGain = 0) over the
     // anti-click window. Without this the very first sample would be at
@@ -858,7 +807,38 @@ export class XmReplayer {
    */
   private applyKeyOff(v: XmVoice): void {
     v.keyOff = true;
-    if (!v.envInstrument?.volumeEnvelope.enabled) v.volume = 0;
+    const inst = v.envInstrument;
+    if (!inst) {
+      v.volume = 0;
+      return;
+    }
+    if (inst.volumeEnvelope.enabled) {
+      releaseEnvelope(v.volEnv, inst.volumeEnvelope);
+    } else {
+      v.volume = 0;
+    }
+    // FT2 logic bug: the panning envelope is only released when it is
+    // *disabled*, where it has no effect. An enabled panning envelope
+    // therefore never leaves its sustain point.
+    if (!inst.panningEnvelope.enabled) {
+      releaseEnvelope(v.panEnv, inst.panningEnvelope);
+    }
+  }
+
+  /**
+   * Lxx (ft2-clone `setEnvelopePos`). FT2 logic bug: the panning envelope
+   * is moved when the *volume* envelope has sustain on, whatever the
+   * panning envelope's own flags say.
+   */
+  private setEnvelopePositions(v: XmVoice, param: number): void {
+    const inst = v.envInstrument;
+    if (!inst) return;
+    if (inst.volumeEnvelope.enabled) {
+      setEnvelopePosition(v.volEnv, inst.volumeEnvelope, param);
+    }
+    if (inst.volumeEnvelope.sustainEnabled) {
+      setEnvelopePosition(v.panEnv, inst.panningEnvelope, param);
+    }
   }
 
   /** An instrument number on a row: back to the playing sample's default
@@ -880,10 +860,10 @@ export class XmReplayer {
     if ((v.tremWaveform & 4) === 0) v.tremPos = 0;
     v.tremorPos = 0;
     v.keyOff = false;
-    v.volEnvPos = 0;
-    v.panEnvPos = 0;
-    v.fadeoutVol = 32768;
     const inst = v.envInstrument;
+    if (inst?.volumeEnvelope.enabled) resetEnvelope(v.volEnv);
+    if (inst?.panningEnvelope.enabled) resetEnvelope(v.panEnv);
+    v.fadeoutVol = 32768;
     v.fadeoutSpeed = inst?.fadeout ?? 0;
     v.autoVibOffset = 0;
     if (inst) resetAutoVibrato(v.autoVib, inst.vibratoDepth, inst.vibratoSweep);
@@ -899,11 +879,11 @@ export class XmReplayer {
       }
       // Volume envelope.
       if (inst.volumeEnvelope.enabled) {
-        v.volEnvPos = stepEnvelope(inst.volumeEnvelope, v.volEnvPos, v.keyOff);
+        v.volEnvValue = stepEnvelope(v.volEnv, inst.volumeEnvelope, v.keyOff);
       }
       // Panning envelope.
       if (inst.panningEnvelope.enabled) {
-        v.panEnvPos = stepEnvelope(inst.panningEnvelope, v.panEnvPos, v.keyOff);
+        v.panEnvValue = stepEnvelope(v.panEnv, inst.panningEnvelope, v.keyOff);
       }
       // Auto-vibrato: one LFO step per tick; `syncVoiceSteps` folds the
       // resulting offset into the pitch.
@@ -942,10 +922,27 @@ export class XmReplayer {
     if (this.channelMuted[channelIdx]) return [0, 0];
     const voiceVol =
       v.effectiveVolume >= 0 ? v.effectiveVolume : v.tremorMuted ? 0 : v.volume;
-    const volEnvFactor = this.volEnvelopeFactor(v);
+    const inst = v.envInstrument;
+    // FT2 reads the envelope value as unsigned and caps the factor at 1.
+    const volEnvFactor = inst?.volumeEnvelope.enabled
+      ? Math.min(1, (v.volEnvValue & 0xffff) / ENVELOPE_FULL)
+      : 1;
     const fadeFactor = v.fadeoutVol / 32768;
-    const panOffset = this.panEnvelopeOffset(v);
-    const pan = Math.max(0, Math.min(255, v.panning + panOffset * 4));
+    let pan = v.panning;
+    if (inst?.panningEnvelope.enabled) {
+      // The envelope swings the panning around its base value, scaled by
+      // how far the base is from the nearer edge — a hard-panned voice
+      // has no room to move.
+      //
+      // Deliberate deviation: ft2-clone stores the offset as a signed
+      // byte, so an envelope at exactly 64 on a centred voice (+128)
+      // wraps to hard *left*. OpenMPT and libxmp both clamp instead, and
+      // no module can be relying on full-right meaning full-left, so the
+      // result is clamped here too.
+      const room = (128 - Math.abs(v.panning - 128)) << 3;
+      const offset = ((v.panEnvValue - ENVELOPE_FULL / 2) * room) >> 16;
+      pan = Math.max(0, Math.min(255, v.panning + offset));
+    }
     // libxmp's mixer (mixer.c MIX_OUT) splits the 0..255 byte over a
     // /256 denominator: L = (256 - pan) / 256, R = pan / 256. /255
     // produces an asymmetric centre and a 0.4% L/R imbalance which
@@ -992,21 +989,6 @@ export class XmReplayer {
         v.rampLeft = rampSize;
       }
     }
-  }
-
-  /** Sample the volume envelope (0..1, where 1 == 64/64 unit gain). */
-  private volEnvelopeFactor(v: XmVoice): number {
-    const inst = v.envInstrument;
-    if (!inst || !inst.volumeEnvelope.enabled) return 1;
-    return envelopeValue(inst.volumeEnvelope, v.volEnvPos) / 64;
-  }
-
-  /** Sample the panning envelope as a signed offset (-32..+32). */
-  private panEnvelopeOffset(v: XmVoice): number {
-    const inst = v.envInstrument;
-    if (!inst || !inst.panningEnvelope.enabled) return 0;
-    // XM panning envelope is 0..64 centred at 32 — convert to ±32 offset.
-    return envelopeValue(inst.panningEnvelope, v.panEnvPos) - 32;
   }
 
   /** Re-derive each voice's `step` from its current `period`. */
@@ -1496,8 +1478,7 @@ export class XmReplayer {
           this.state.globalVolSlideLast = cell.effectParam;
         break;
       case 0x15: // Lxx — set envelope position to xx.
-        v.volEnvPos = cell.effectParam;
-        v.panEnvPos = cell.effectParam;
+        this.setEnvelopePositions(v, cell.effectParam);
         break;
       case 0x19: // Pxy — pan slide memory
         if (cell.effectParam !== 0) v.panSlideLast = cell.effectParam;

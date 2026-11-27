@@ -95,7 +95,7 @@ const FIXTURE_TOLERANCES: Record<string, Tolerance> = {
   // as the note cut above. The gating itself matches tick for tick.
   "57-tremor": { rms: 0.003, peak: 0.1 },
   "58-tremor-hold": { rms: 0.003, peak: 0.1 },
-  "25-pan-envelope": { rms: 0.002, peak: 0.02 },
+  // Lxx: FT2 lands on the tick named, libxmp one tick later.
   "27-set-env-pos": { rms: 0.002, peak: 0.02 },
   "44-pan-env-loop": { rms: 0.005, peak: 0.02 },
   "49-multi-sample-meta": { rms: 0.002, peak: 0.02 },
