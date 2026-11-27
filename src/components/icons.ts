@@ -26,6 +26,8 @@ export { default as FileVolume } from "lucide-solid/icons/file-volume";
 export { default as Folder } from "lucide-solid/icons/folder";
 export { default as FolderOpen } from "lucide-solid/icons/folder-open";
 export { default as Info } from "lucide-solid/icons/info";
+export { default as Maximize } from "lucide-solid/icons/maximize";
+export { default as Minimize } from "lucide-solid/icons/minimize";
 export { default as Lightbulb } from "lucide-solid/icons/lightbulb";
 export { default as Link } from "lucide-solid/icons/link";
 export { default as ListMusic } from "lucide-solid/icons/list-music";

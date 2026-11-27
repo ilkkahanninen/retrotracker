@@ -360,7 +360,7 @@ describe("Open: file-input sniff routes by extension", () => {
 });
 
 describe("EditMenu: dropdown contents and actions", () => {
-  it("lists Undo, Redo, Cut, Copy, Paste, Bounce, Settings in order with a separator after Redo", () => {
+  it("lists Undo, Redo, Cut, Copy, Paste, Bounce, Fullscreen, Settings in order with a separator after Redo", () => {
     setSong(emptySong());
     const { container } = render(() => <App />);
     fireEvent.click(menuTrigger(container, "Edit"));
@@ -374,6 +374,7 @@ describe("EditMenu: dropdown contents and actions", () => {
       "Copy",
       "Paste",
       "Bounce to sample",
+      "Fullscreen",
       "Settings",
     ]);
     // Separator is the third <li> in the list (after Undo and Redo).

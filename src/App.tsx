@@ -13,6 +13,11 @@ import { ModePicker } from "./components/ModePicker";
 import { ModeBadge } from "./components/ModeBadge";
 import { InfoView } from "./components/InfoView";
 import { Menu, type MenuItem } from "./components/Menu";
+import {
+  fullscreenSupported,
+  isFullscreen,
+  toggleFullscreen,
+} from "./state/fullscreen";
 import { Icon } from "./components/Icon";
 import {
   AudioWaveform,
@@ -32,6 +37,8 @@ import {
   Info,
   Lightbulb,
   ListMusic,
+  Maximize,
+  Minimize,
   LocateFixed,
   LogIn,
   LogOut,
@@ -975,6 +982,14 @@ export const App: Component = () => {
           nextFreeSlot(pt2Song(), -1) === null,
       },
       { separator: true, label: "" },
+      {
+        // No shortcut: F11 belongs to the browser, and its own fullscreen
+        // is invisible to the Fullscreen API anyway.
+        icon: isFullscreen() ? Minimize : Maximize,
+        label: isFullscreen() ? "Exit fullscreen" : "Fullscreen",
+        onClick: toggleFullscreen,
+        disabled: !fullscreenSupported,
+      },
       {
         icon: Settings,
         label: "Settings",
