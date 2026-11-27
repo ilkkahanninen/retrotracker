@@ -152,7 +152,10 @@ describe("Amiga-mode effects use FT2's period units", () => {
       effect: 0x00,
       effectParam: 0x7c,
     });
-    expect(rateAt(s, 1) / XM_BASE_HZ).toBeCloseTo(Math.pow(2, 7 / 12), 2);
-    expect(rateAt(s, 2) / XM_BASE_HZ).toBeCloseTo(2, 2);
+    // FT2 step order at speed 6: +y on tick 1, +x on tick 2. The steps
+    // come from the Amiga table, so they are FT2's semitones, a few cents
+    // off equal temperament.
+    expect(rateAt(s, 1) / XM_BASE_HZ).toBeCloseTo(2, 2);
+    expect(rateAt(s, 2) / XM_BASE_HZ).toBeCloseTo(Math.pow(2, 7 / 12), 2);
   });
 });

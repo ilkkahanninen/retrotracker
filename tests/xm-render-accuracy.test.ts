@@ -78,8 +78,6 @@ const DEFAULT_TOLERANCE: Tolerance = { rms: 0.002, peak: 0.01 };
 //    EDy) and pan changes. The transient is ~50 samples; peak diff
 //    lives in that window.
 //
-//  - **Fadeout / finetune**: per-tick float / integer rounding drifts
-//    by a few units of period over a multi-row hold.
 const FIXTURE_TOLERANCES: Record<string, Tolerance> = {
   // Vibrato / tremolo tick-0 hold (see above).
   "07-vibrato": { rms: 0.01, peak: 0.03 },
@@ -99,7 +97,6 @@ const FIXTURE_TOLERANCES: Record<string, Tolerance> = {
   "58-tremor-hold": { rms: 0.003, peak: 0.1 },
   "25-pan-envelope": { rms: 0.002, peak: 0.02 },
   "27-set-env-pos": { rms: 0.002, peak: 0.02 },
-  "37-volcol-set-pan": { rms: 0.02, peak: 0.05 },
   "44-pan-env-loop": { rms: 0.005, peak: 0.02 },
   "49-multi-sample-meta": { rms: 0.002, peak: 0.02 },
   // No-loop fixture cuts the voice when the sample ends; libxmp anti-
@@ -107,15 +104,16 @@ const FIXTURE_TOLERANCES: Record<string, Tolerance> = {
   // The transient diff is bounded by the sample's amplitude at end-of-
   // data (here ≈ ±99/127 ≈ 0.78); the running RMS stays small.
   "50-no-loop": { rms: 0.005, peak: 0.5 },
-  // Fadeout / finetune slow drift.
-  "11-set-finetune": { rms: 0.01, peak: 0.05 },
+  // Key-off without a volume envelope cuts the voice; same ramp-shape
+  // transient as the note cut.
   "22-key-off": { rms: 0.003, peak: 0.1 },
-  "23-fadeout": { rms: 0.04, peak: 0.4 },
+  "23-fadeout": { rms: 0.003, peak: 0.1 },
 };
 /**
  * Fixtures the bed does not compare, with the reason. libxmp is the
- * reference only where it agrees with FT2; for instrument auto-vibrato it
- * does not: it plays the sine inverted (pitch down first, where FT2's table
+ * reference only where it agrees with FT2 (the fixtures carry the tracker
+ * name "FastTracker v2.00", which switches libxmp's FT2 quirks on). For
+ * instrument auto-vibrato it does not: it plays the sine inverted (pitch down first, where FT2's table
  * goes up first) and numbers the other waveforms as E4x does (1 = ramp,
  * 2 = square, 3 = random) instead of FT2's 1 = square, 2 / 3 = ramps.
  * These used to "pass" only because their tolerances were loose enough to
@@ -127,6 +125,12 @@ const NOT_COMPARABLE: Record<string, string> = {
   "45-autovib-square": "libxmp plays XM auto-vibrato type 1 as a ramp",
   "46-autovib-ramp-down": "libxmp plays XM auto-vibrato type 2 as a square",
   "47-autovib-ramp-up": "libxmp plays XM auto-vibrato type 3 as random",
+  // EEx combined with a jump or a note delay: libxmp takes the jump after
+  // the delay and fires the delayed note once. FT2 (ft2-clone
+  // `getNextPos` / `noteDelay`) skips the jump's target row and fires the
+  // note on every repeat. tests/xm-pattern-loop-delay.test.ts pins those.
+  "55-pattern-delay-break": "libxmp does not skip the jump target after EEx",
+  "56-pattern-delay-note-delay": "libxmp fires EDx once on a row held by EEx",
 };
 
 function toleranceFor(name: string): Tolerance {

@@ -79,7 +79,16 @@ function songWithPatterns(
   channelCount = 4,
 ): XmSong {
   let s = emptyXmSong();
-  s = { ...s, channelCount, songLength: patterns.length };
+  s = {
+    ...s,
+    channelCount,
+    songLength: patterns.length,
+    // libxmp only plays with its FT2 quirks on (arpeggio step order, the
+    // E60 carry-over, …) for modules that claim to come from FT2. Under
+    // our own "RetroTracker" name it falls back to generic behaviour and
+    // stops being a reference for FT2.
+    trackerName: "FastTracker v2.00",
+  };
   // Resize the patterns to the requested channel count.
   const resized = patterns.map((p) => ({
     rowCount: p.rowCount,
@@ -194,7 +203,8 @@ function buildVolSlide(): XmSong {
 }
 
 /**
- * 02-arpeggio: held note + 0xy arpeggio (major triad).
+ * 02-arpeggio: held note + 0xy arpeggio (major triad). At speed 6 FT2
+ * plays the steps base, +y, +x — its tick counter runs downwards.
  */
 function buildArpeggio(): XmSong {
   const samp = newSample(triangleSample(512), "tri");
@@ -979,9 +989,6 @@ function buildPatternLoopCarry(): XmSong {
   let s = songWithPatterns([pat0, pat1], 4);
   s = setXmInstrument(s, 0, inst);
   s.title = "pattern-loop-carry";
-  // libxmp only emulates FT2's quirks for modules that claim to come from
-  // FT2; with the default "RetroTracker" name it starts pattern 1 on row 0.
-  s.trackerName = "FastTracker v2.00";
   return s;
 }
 

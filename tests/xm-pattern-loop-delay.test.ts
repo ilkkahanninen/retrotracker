@@ -150,17 +150,75 @@ describe("EEx pattern delay", () => {
     expect(rows(s)).toEqual([0, 1, 1, 2, 3, 4, 5, 6, 7]);
   });
 
-  it("holds the row for whole rows at speed > 1 and applies a pending Dxx afterwards", () => {
+  it("a Dxx on a delayed row is taken after the delay and skips its target row", () => {
+    // FT2 moves the position on the row's first tick but keeps replaying
+    // the row from channel state, then steps on from the target — so the
+    // target row itself (1:4) never plays.
     let s: XmSong = { ...song(2), defaultTempo: 3 };
     s = fx(s, 0, 1, 0, 0xe1);
     s = setXmCell(s, 0, 1, 1, { effect: 0x0d, effectParam: 0x04 });
     const t = trace(s, 12);
-    // row 0 ×3 ticks, row 1 ×6 ticks (3 + one 3-tick repeat), then 1:4.
+    // row 0 ×3 ticks, row 1 ×6 ticks (3 + one 3-tick repeat), then 1:5.
     expect(t).toEqual([
       ...Array(3).fill("0:0"),
       ...Array(6).fill("0:1"),
-      ...Array(3).fill("1:4"),
+      ...Array(3).fill("1:5"),
     ]);
+  });
+
+  it("an E6x loop-back on a delayed row also lands one row past its start", () => {
+    let s = song();
+    s = fx(s, 0, 1, 0, 0x60);
+    s = fx(s, 0, 3, 0, 0x61);
+    s = fx(s, 0, 3, 1, 0xe1);
+    // Row 3 is held once, loops back to row 1 but resumes at row 2; the
+    // second time round the loop is spent and only the delay applies.
+    expect(rows(s)).toEqual([0, 1, 2, 3, 3, 2, 3, 3, 4, 5, 6, 7]);
+  });
+
+  it("EDx fires again on every repeat of a row held by EEx", () => {
+    // One-shot blip: it sounds once per trigger, so count the ticks that
+    // have audio in them.
+    let s: XmSong = { ...song(), defaultTempo: 4 };
+    s = {
+      ...s,
+      instruments: [
+        {
+          ...emptyXmInstrument(),
+          samples: [
+            {
+              name: "blip",
+              data: new Int8Array(64).fill(100),
+              bits: 8,
+              loopStart: 0,
+              loopLength: 0,
+              loopType: "none",
+              volume: 64,
+              finetune: 0,
+              panning: 128,
+              relativeNote: 0,
+            },
+          ],
+        },
+      ],
+    };
+    s = setXmCell(s, 0, 0, 0, {
+      note: 49,
+      instrument: 1,
+      effect: E,
+      effectParam: 0xd2,
+    });
+    s = fx(s, 0, 0, 1, 0xe2);
+    const r = new XmReplayer(s, { sampleRate: SR });
+    const audible: number[] = [];
+    const l = new Float32Array(TICK);
+    const rr = new Float32Array(TICK);
+    for (let t = 0; t < 12; t++) {
+      r.process(l, rr, TICK);
+      if (l.some((x) => x !== 0)) audible.push(t);
+    }
+    // Tick 2 of the first pass and of both repeats (4 ticks per pass).
+    expect(audible).toEqual([2, 6, 10]);
   });
 
   it("runs continuous effects on the first tick of each repeat (FT2)", () => {

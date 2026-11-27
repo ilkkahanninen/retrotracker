@@ -36,7 +36,12 @@ import type { Song } from "../song";
 import type { Sample } from "../mod/types";
 import type { XmInstrument, XmNote, XmSample, XmSong } from "../xm/types";
 import type { ReplayerOptions, XmInterpolation } from "./types";
-import { hzForNote, hzForPeriod, periodForNote } from "./xmFreqTable";
+import {
+  hzForNote,
+  hzForPeriod,
+  periodAtIndex,
+  periodForNote,
+} from "./xmFreqTable";
 import {
   newAutoVibratoState,
   resetAutoVibrato,
@@ -57,6 +62,22 @@ const MAX_LOOP_JUMPS_PER_ORDER = 4096;
 const XM_VIBRATO_TABLE = new Uint8Array([
     0,  24,  49,  74,  97, 120, 141, 161, 180, 197, 212, 224, 235, 244, 250, 253,
   255, 253, 250, 244, 235, 224, 212, 197, 180, 161, 141, 120,  97,  74,  49,  24,
+]);
+
+/**
+ * Which arpeggio step a tick plays (ft2-clone `arpeggioTab`): 0 = base note,
+ * 1 = +x semitones, 2 = +y. It is indexed by FT2's tick counter, which
+ * counts *down* from the speed, so the x / y order depends on the speed —
+ * at the default speed 6 a row plays base, y, x, base, y, x. The table is
+ * too short in FT2; the last 16 entries are whatever followed it in the
+ * binary (the start of the vibrato table), and any non-zero value other
+ * than 1 plays +y.
+ */
+// prettier-ignore
+const ARPEGGIO_TAB = new Uint8Array([
+  0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0,
+  0x00, 0x18, 0x31, 0x4a, 0x61, 0x78, 0x8d, 0xa1,
+  0xb4, 0xc5, 0xd4, 0xe0, 0xeb, 0xf4, 0xfa, 0xfd,
 ]);
 
 /**
@@ -153,6 +174,18 @@ interface XmVoice {
   note: number;
   /** Effective note after relativeNote applied. */
   effectiveNote: number;
+  /** relativeNote of the sample the last note trigger selected. */
+  relativeNote: number;
+  /**
+   * Default volume / panning of the sample the last note trigger selected
+   * (FT2's `oldVol` / `oldPan`). An instrument number on a row restores
+   * these — the *playing* sample's defaults, not those of the instrument
+   * the row names.
+   */
+  defaultVolume: number;
+  defaultPanning: number;
+  /** Fadeout per tick, latched from the instrument when it is triggered. */
+  fadeoutSpeed: number;
   /** Instrument number 1..128 that produced the voice, 0 when silent. */
   instrument: number;
   /** Current pitch period (signed; smaller = higher pitch). */
@@ -168,9 +201,17 @@ interface XmVoice {
    * Like FT2's `outPeriod` it persists after the porta row, until another
    * effect writes the pitch (note trigger, slides, vibrato, arpeggio).
    */
-  glissPeriod: number;
+  snapPeriod: number;
   /** Tone-porta target period. */
   portaTarget: number;
+  /**
+   * FT2's `portamentoDirection`: 0 = idle, 1 = period rising towards the
+   * target, 2 = falling. Set when a porta row names a note and never
+   * cleared by a plain note trigger, so a later 300 resumes towards the
+   * old target — and overshooting in the "wrong" direction snaps straight
+   * to it.
+   */
+  portaDirection: number;
   /** Last seen porta speed (3xx memory; persists across rows). */
   portaSpeed: number;
   /** Vibrato speed (phase steps per tick), depth, and phase 0..63. */
@@ -185,9 +226,11 @@ interface XmVoice {
   tremDepth: number;
   tremPos: number;
   tremWaveform: number;
-  /** Effect number of the row before the current one — a row that follows
-   *  vibrato without continuing it drops the vibrato offset (FT2). */
+  /** Effect number and parameter of the row before the current one. A row
+   *  that follows an arpeggio, or follows vibrato without continuing it,
+   *  puts the output pitch back on the real period (FT2). */
   lastEffect: number;
+  lastEffectParam: number;
   /** Memory for 1xx / 2xx slides. */
   slideUpLast: number;
   slideDownLast: number;
@@ -197,18 +240,6 @@ interface XmVoice {
   panSlideLast: number;
   /** Memory for 9xx sample offset. */
   sampleOffsetLast: number;
-  /** Arpeggio param (last 0xy). */
-  arpParam: number;
-  /**
-   * Arpeggio pitch offset in semitones, set by the per-tick handler
-   * each tick and reset to 0 every advanceTick. Mirrors libxmp's
-   * architecture: `xc->period` is the slide-modified period, and the
-   * arpeggio offset is added at mixer time as a separate value rather
-   * than mutating the persistent period. This way a non-arp row that
-   * follows an arp row reverts to base pitch on tick 0 without
-   * disrupting any in-flight slide.
-   */
-  arpOffset: number;
   /**
    * Per-tick vibrato period offset (4xy / 6xy / vol-col Bx). Reset to 0
    * every advanceTick and re-applied by `runVibrato` on per-tick effects.
@@ -226,12 +257,6 @@ interface XmVoice {
   patLoopStartRow: number;
   /** E6x: loop passes still to go; 0 when no loop is in progress. */
   patLoopCounter: number;
-  /** ECy: tick to cut at, or -1. */
-  noteCutAt: number;
-  /** EDy: tick to trigger at, or -1. Stored note/instrument fire on that tick. */
-  noteDelayAt: number;
-  noteDelayNote: number;
-  noteDelayInst: number;
   /**
    * True after note 97 / Kxx — envelopes advance past the sustain point
    * and the fadeout-counter starts decrementing.
@@ -325,14 +350,20 @@ function newVoice(): XmVoice {
     effectiveVolume: -1,
     note: 0,
     effectiveNote: 0,
+    relativeNote: 0,
+    defaultVolume: 0,
+    defaultPanning: 128,
+    fadeoutSpeed: 0,
     instrument: 0,
     period: 0,
     finetune: 0,
     glissando: false,
-    glissPeriod: 0,
+    snapPeriod: 0,
     portaTarget: 0,
+    portaDirection: 0,
     portaSpeed: 0,
     lastEffect: 0,
+    lastEffectParam: 0,
     vibSpeed: 0,
     vibDepth: 0,
     vibPos: 0,
@@ -346,17 +377,11 @@ function newVoice(): XmVoice {
     volSlideLast: 0,
     panSlideLast: 0,
     sampleOffsetLast: 0,
-    arpParam: 0,
-    arpOffset: 0,
     vibOffset: 0,
     retrigInterval: 0,
     retrigVolChange: 0,
     patLoopStartRow: 0,
     patLoopCounter: 0,
-    noteCutAt: -1,
-    noteDelayAt: -1,
-    noteDelayNote: 0,
-    noteDelayInst: 0,
     keyOff: false,
     autoVib: newAutoVibratoState(),
     autoVibOffset: 0,
@@ -409,6 +434,8 @@ interface XmSongState {
   loopJumpsInOrder: number;
   /** EEx: how many more times the current row repeats before advancing. */
   patternDelayRepeats: number;
+  /** True from an EEx (x > 0) until that row finally ends. */
+  rowWasDelayed: boolean;
   ended: boolean;
   /** (order << 16 | row) revisit set — drives song-end detection. */
   visited: Set<number>;
@@ -635,6 +662,7 @@ export class XmReplayer {
       nextPatternStartRow: 0,
       loopJumpsInOrder: 0,
       patternDelayRepeats: 0,
+      rowWasDelayed: false,
       ended: false,
       visited: new Set(),
       globalVolume: 64,
@@ -781,11 +809,8 @@ export class XmReplayer {
   private advanceTick(): void {
     this.state.tickInRow++;
     this.state.framesElapsed++;
-    // The arpeggio offset is per tick: the handler sets it again on an
-    // arp row, otherwise the mixer plays the unmodified period. Vibrato
-    // and tremolo are not cleared here — FT2 holds their last output
-    // through tick 0 (see `vibOffset` / `effectiveVolume`).
-    for (const v of this.voices) v.arpOffset = 0;
+    // Nothing is cleared per tick: vibrato, tremolo and arpeggio output
+    // all hold their last value through tick 0, as in FT2.
     if (this.state.tickInRow >= this.state.speed) {
       this.state.tickInRow = 0;
       if (this.state.patternDelayRepeats > 0) {
@@ -794,8 +819,22 @@ export class XmReplayer {
         this.state.patternDelayRepeats--;
         this.runContinuousEffects();
       } else {
+        // FT2 takes a jump on the first tick of a delayed row but keeps
+        // replaying that row from its channel state, then steps on from
+        // the jump target — which therefore never plays. So: a Bxx / Dxx /
+        // E6x loop-back on a row with EEx lands one row past its target.
+        const skipTarget =
+          this.state.rowWasDelayed &&
+          (this.state.jumpToOrder !== -1 ||
+            this.state.jumpToRow !== -1 ||
+            this.state.loopJumpRow !== -1);
+        this.state.rowWasDelayed = false;
         this.advanceRow();
         if (this.state.ended) return;
+        if (skipTarget) {
+          this.advanceRow();
+          if (this.state.ended) return;
+        }
         this.processRow();
       }
     } else {
@@ -812,32 +851,51 @@ export class XmReplayer {
 
   // ── Envelopes + fadeout ──────────────────────────────────────────────
 
+  /**
+   * Key off (note 97, K00, Kxx): the envelopes leave their sustain and the
+   * fadeout starts. With no volume envelope there is nothing to release,
+   * so FT2 simply sets the volume to 0 — the fadeout value is irrelevant.
+   */
   private applyKeyOff(v: XmVoice): void {
     v.keyOff = true;
-    // ft2-clone: if the volume envelope isn't enabled, the voice's
-    // amplitude must be driven to silence purely by fadeout — so we
-    // need a guarantee that fadeoutVol drops. The fadeout value lives
-    // on the instrument; if it's zero, ft2-clone snaps the voice to
-    // silence at the next tick (otherwise it would ring forever).
+    if (!v.envInstrument?.volumeEnvelope.enabled) v.volume = 0;
+  }
+
+  /** An instrument number on a row: back to the playing sample's default
+   *  volume and panning (FT2 `resetVolumes`). */
+  private resetVolumes(v: XmVoice): void {
+    v.volume = v.defaultVolume;
+    v.panning = v.defaultPanning;
+  }
+
+  /**
+   * Restart the instrument-level state (FT2 `triggerInstrument`): LFO
+   * phases, tremor, key-off, envelopes, fadeout, auto-vibrato. Runs only
+   * when a row carries an instrument number (and on EDx / E9x), which is
+   * why a bare note after a key-off keeps fading in FT2.
+   */
+  private triggerInstrument(v: XmVoice): void {
+    // Bit 2 of the E4y / E7y value keeps that LFO's phase running.
+    if ((v.vibWaveform & 4) === 0) v.vibPos = 0;
+    if ((v.tremWaveform & 4) === 0) v.tremPos = 0;
+    v.tremorPos = 0;
+    v.keyOff = false;
+    v.volEnvPos = 0;
+    v.panEnvPos = 0;
+    v.fadeoutVol = 32768;
     const inst = v.envInstrument;
-    const hasVolEnv = !!inst?.volumeEnvelope?.enabled;
-    if (!hasVolEnv && (inst?.fadeout ?? 0) === 0) {
-      v.volume = 0;
-    }
+    v.fadeoutSpeed = inst?.fadeout ?? 0;
+    v.autoVibOffset = 0;
+    if (inst) resetAutoVibrato(v.autoVib, inst.vibratoDepth, inst.vibratoSweep);
   }
 
   private advanceEnvelopes(): void {
     for (const v of this.voices) {
       if (!v.playing || !v.envInstrument) continue;
       const inst = v.envInstrument;
-      // Fadeout: only ticks down once the key has released.
-      if (v.keyOff && inst.fadeout > 0) {
-        v.fadeoutVol = Math.max(0, v.fadeoutVol - inst.fadeout);
-        if (v.fadeoutVol === 0) {
-          // Sample silenced — don't bother mixing, but keep the voice
-          // marked playing so a follow-up trigger picks up cleanly.
-          v.volume = 0;
-        }
+      // Fadeout runs from key-off, at the speed latched on trigger.
+      if (v.keyOff) {
+        v.fadeoutVol = Math.max(0, v.fadeoutVol - v.fadeoutSpeed);
       }
       // Volume envelope.
       if (inst.volumeEnvelope.enabled) {
@@ -959,18 +1017,10 @@ export class XmReplayer {
       // Auto-vibrato overlays a per-tick pitch offset; the base period
       // (`v.period`) is unchanged, so slides keep working.
       const autoVibOffset = v.autoVibOffset;
-      // Arpeggio offset (semitones). Linear periods are 64 units per
-      // semitone, so it is a plain subtraction; Amiga periods are
-      // inversely proportional to frequency, so the base period is
-      // scaled by the semitone ratio instead.
-      const base = v.glissPeriod || v.period;
-      const arpBase = this.linearFreq
-        ? base - v.arpOffset * 64
-        : v.arpOffset === 0
-          ? base
-          : base * Math.pow(2, -v.arpOffset / 12);
+      // `snapPeriod` stands in for the real period while arpeggio or
+      // glissando has the output on a semitone-rounded pitch.
       const effectivePeriod = clampPeriod(
-        arpBase + autoVibOffset + v.vibOffset,
+        (v.snapPeriod || v.period) + autoVibOffset + v.vibOffset,
         this.linearFreq,
       );
       const hz = hzForPeriod(effectivePeriod, this.linearFreq);
@@ -1089,85 +1139,107 @@ export class XmReplayer {
 
   // ── Row trigger (tick 0) ────────────────────────────────────────────
 
+  /**
+   * Tick 0 of a row for one channel — a port of ft2-clone's `getNewNote`.
+   * The branches matter: a note restarts the sample, an instrument number
+   * restarts the instrument-level state, and FT2 keeps the two separate.
+   */
   private processCell(channel: number, cell: XmNote): void {
     const v = this.voices[channel]!;
-    const hadVibrato = v.lastEffect === 0x04 || v.lastEffect === 0x06;
+    // A row after an arpeggio, or after vibrato that it does not continue,
+    // starts back on the real pitch.
     const hasVibrato = cell.effect === 0x04 || cell.effect === 0x06;
-    if (hadVibrato && !hasVibrato) v.vibOffset = 0;
-    v.lastEffect = cell.effect;
-    // Reset one-shot deferred-trigger state from the previous row.
-    v.noteCutAt = -1;
-    v.noteDelayAt = -1;
-    v.noteDelayNote = 0;
-    v.noteDelayInst = 0;
-    // Cache whether this row carries an EDy "note delay" — the note +
-    // instrument fire on tick `y` instead of tick 0.
-    const isNoteDelay =
-      cell.effect === 0x0e && (cell.effectParam & 0xf0) === 0xd0;
-    const delayTick = isNoteDelay ? cell.effectParam & 0x0f : -1;
-    // Tone porta: note doesn't retrigger, just sets the porta target.
-    const isTonePorta =
-      cell.effect === 0x03 ||
-      cell.effect === 0x05 ||
-      (cell.volumeColumn & 0xf0) === 0xf0;
-    if (isNoteDelay && delayTick > 0) {
-      // Stash the trigger for the tick handler.
-      v.noteDelayAt = delayTick;
-      v.noteDelayNote = cell.note;
-      v.noteDelayInst = cell.instrument;
-    } else {
-      this.applyNoteInstrument(channel, cell, isTonePorta);
+    const endsArpeggio = v.lastEffect === 0 && v.lastEffectParam > 0;
+    const endsVibrato =
+      (v.lastEffect === 0x04 || v.lastEffect === 0x06) && !hasVibrato;
+    if (endsArpeggio || endsVibrato) {
+      v.snapPeriod = 0;
+      v.vibOffset = 0;
     }
-    // Volume column (tick-0 half).
+    v.lastEffect = cell.effect;
+    v.lastEffectParam = cell.effectParam;
+
+    let inst = cell.instrument;
+    if (inst > 0) {
+      if (inst <= 128) v.instrument = inst;
+      else inst = 0;
+    }
+
+    const isE = cell.effect === 0x0e;
+    // ED1..EDF: the whole row waits — no note, no volume column, no
+    // effects — until `runNoteDelay` fires on tick x.
+    if (isE && cell.effectParam >= 0xd1 && cell.effectParam <= 0xdf) return;
+
+    // E90 skips the special cases below and retriggers at tick 0.
+    if (!(isE && cell.effectParam === 0x90)) {
+      const volPorta = (cell.volumeColumn & 0xf0) === 0xf0;
+      if (volPorta || cell.effect === 0x03 || cell.effect === 0x05) {
+        this.preparePortamento(v, cell, inst);
+        this.applyRowEffects(channel, cell);
+        return;
+      }
+      if (cell.effect === 0x14 && cell.effectParam === 0) {
+        // K00: key off on tick 0.
+        this.applyKeyOff(v);
+        if (inst > 0) this.resetVolumes(v);
+        this.applyRowEffects(channel, cell);
+        return;
+      }
+      if (cell.note === 0) {
+        if (inst > 0) {
+          this.resetVolumes(v);
+          this.triggerInstrument(v);
+        }
+        this.applyRowEffects(channel, cell);
+        return;
+      }
+    }
+
+    if (cell.note === 97) {
+      this.applyKeyOff(v);
+    } else {
+      // E5y only means anything here: it replaces the sample's finetune
+      // for the note this row starts.
+      const e5 = isE && (cell.effectParam & 0xf0) === 0x50;
+      this.triggerNote(
+        v,
+        cell.note,
+        e5 ? (cell.effectParam & 0x0f) * 16 - 128 : undefined,
+      );
+    }
+    if (inst > 0) {
+      this.resetVolumes(v);
+      if (cell.note !== 97) this.triggerInstrument(v);
+    }
+    this.applyRowEffects(channel, cell);
+  }
+
+  /** Tick-0 halves of the volume column and the effect column. */
+  private applyRowEffects(channel: number, cell: XmNote): void {
     this.applyVolumeColumnTick0(channel, cell.volumeColumn);
-    // Effect column (tick-0 half).
     this.applyEffectColumnTick0(channel, cell);
   }
 
   /**
-   * Apply the note + instrument trigger semantics. Tone-porta rows
-   * (3xx, 5xy, or vol-column F) don't restart the sample — they set
-   * the porta target instead.
+   * A row with tone portamento (3xx, 5xy or volume-column Fx): the note
+   * names a slide target instead of restarting the sample. The target is
+   * computed with the *playing* sample's relative note and finetune.
    */
-  private applyNoteInstrument(
-    channel: number,
-    cell: XmNote,
-    isTonePorta: boolean,
-  ): void {
-    const v = this.voices[channel]!;
-    if (cell.note > 0 && cell.note <= 96) {
-      if (isTonePorta) {
-        // Stash the target period; the porta tick handler walks toward it.
-        const inst = this.instrumentFor(cell.instrument || v.instrument);
-        const samp = inst ? this.sampleForNote(inst, cell.note) : undefined;
-        if (samp) {
-          const effectiveNote = cell.note + samp.relativeNote;
-          if (effectiveNote >= 1 && effectiveNote <= 96) {
-            v.portaTarget = periodForNote(
-              effectiveNote,
-              samp.finetune,
-              this.linearFreq,
-            );
-          }
-        }
-      } else {
-        this.triggerNote(channel, cell.note, cell.instrument);
-      }
-    } else if (cell.note === 97) {
-      // Key off — envelopes advance past sustain and fadeout starts
-      // decrementing. The voice stays playing until either an envelope
-      // hits zero, fadeout reaches zero, or the sample ends.
+  private preparePortamento(v: XmVoice, cell: XmNote, inst: number): void {
+    if (cell.note === 97) {
       this.applyKeyOff(v);
-    } else if (cell.instrument > 0) {
-      // Instrument-only row — XM "reset volume / pan to sample default".
-      // Use the voice's last-played note for the keyMap lookup so a
-      // drum-kit instrument resolves to the right sample's defaults.
-      const inst = this.instrumentFor(cell.instrument);
-      const samp = inst ? this.sampleForNote(inst, v.note || 49) : undefined;
-      if (samp) {
-        v.volume = samp.volume;
-        v.panning = samp.panning;
+    } else if (cell.note > 0) {
+      const index =
+        (cell.note - 1 + v.relativeNote) * 16 + ((v.finetune >> 3) + 16);
+      if (index >= 0 && index < 1936) {
+        v.portaTarget = periodAtIndex(index, this.linearFreq);
+        v.portaDirection =
+          v.portaTarget === v.period ? 0 : v.portaTarget > v.period ? 1 : 2;
       }
+    }
+    if (inst > 0) {
+      this.resetVolumes(v);
+      if (cell.note !== 97) this.triggerInstrument(v);
     }
   }
 
@@ -1192,77 +1264,70 @@ export class XmReplayer {
     return inst.samples[idx] ?? inst.samples[0];
   }
 
-  private triggerNote(
-    channel: number,
-    note: number,
-    instrumentNumber: number,
-  ): void {
-    const v = this.voices[channel]!;
-    const inst = this.instrumentFor(instrumentNumber || v.instrument);
-    if (!inst) {
+  /**
+   * Start a note (FT2 `triggerNote`): pick the sample, set the pitch and
+   * restart playback. `note` 0 replays the channel's last note (E9x, EDx
+   * on a row without one). Volume, panning, envelopes and LFOs are *not*
+   * touched here — see `resetVolumes` / `triggerInstrument`.
+   */
+  private triggerNote(v: XmVoice, note: number, finetune?: number): void {
+    if (note === 0) {
+      note = v.note;
+      if (note === 0) return;
+    }
+    v.note = note;
+    const inst = this.instrumentFor(v.instrument);
+    const samp = inst ? this.sampleForNote(inst, note) : undefined;
+    if (!inst || !samp || samp.data.length === 0) {
+      // FT2 plays its empty placeholder instrument: the channel goes quiet.
       v.playing = false;
       return;
     }
-    const samp = this.sampleForNote(inst, note);
-    if (!samp || samp.data.length === 0) {
-      v.playing = false;
-      return;
-    }
+    const effectiveNote = note + samp.relativeNote;
+    // Out of range: FT2 leaves the channel exactly as it was.
+    if (effectiveNote < 1 || effectiveNote >= 120) return;
     // Re-trigger over a still-playing voice → queue an anti-click
     // discharge of the previous voice's last sample over the next
     // ramp window, AND reset the voice's current gain to 0 so the
     // new voice ramps in from 0 while the discharge decays out.
-    // libxmp's `anticlick` does the same: it sets vi->old_vl = 0 +
-    // adds the ANTICLICK flag, so the next snapshotTickGains seeds
-    // the ramp from 0 to the new target.
     if (v.playing) {
       v.pendingDischarge = true;
       v.currentLGain = 0;
       v.currentRGain = 0;
     }
-    const effectiveNote = note + samp.relativeNote;
-    if (effectiveNote < 1 || effectiveNote > 96) {
-      v.playing = false;
-      return;
-    }
+    v.envInstrument = inst;
     v.sample = samp;
     v.pos = 0;
     v.direction = 1;
     v.looped = false;
     v.playing = true;
-    v.note = note;
     v.effectiveNote = effectiveNote;
-    v.instrument = instrumentNumber || v.instrument;
-    if (instrumentNumber > 0) {
-      v.volume = samp.volume;
-      v.panning = samp.panning;
-    }
-    v.period = periodForNote(effectiveNote, samp.finetune, this.linearFreq);
-    v.finetune = samp.finetune;
-    v.glissPeriod = 0;
+    v.relativeNote = samp.relativeNote;
+    v.defaultVolume = samp.volume;
+    v.defaultPanning = samp.panning;
+    v.finetune = finetune ?? samp.finetune;
+    v.period = periodForNote(effectiveNote, v.finetune, this.linearFreq);
+    v.snapPeriod = 0;
     v.vibOffset = 0;
-    v.tremorPos = 0;
-    v.portaTarget = v.period;
-    // A note trigger restarts the vibrato / tremolo phase unless bit 2 of
-    // the E4y / E7y value asks to keep it running (values 4..7).
-    if ((v.vibWaveform & 4) === 0) v.vibPos = 0;
-    if ((v.tremWaveform & 4) === 0) v.tremPos = 0;
     v.step = hzForPeriod(v.period, this.linearFreq) / this.sampleRate;
     v.stepFixed = (v.step * 65536) | 0;
-    // Envelope reset on retrigger: volume + panning envelopes go back to
-    // tick 0, key-off flag clears, fadeout counter goes back to full.
-    // Cache the instrument reference so the per-tick env advance doesn't
-    // have to re-resolve it.
-    v.envInstrument = inst;
-    v.volEnvPos = 0;
-    v.panEnvPos = 0;
-    v.keyOff = false;
-    v.fadeoutVol = 32768;
-    // Auto-vibrato restarts (phase and sweep) on every retrigger.
-    v.autoVibOffset = 0;
-    if (inst) {
-      resetAutoVibrato(v.autoVib, inst.vibratoDepth, inst.vibratoSweep);
-    }
+  }
+
+  /**
+   * EDx on tick x (FT2 `noteDelay`): play the row's note, restore the
+   * defaults if it names an instrument, and restart the instrument state
+   * either way. Only "set volume" and "set panning" from the volume column
+   * are honoured. Because it is keyed on the tick number it fires again on
+   * every repeat of a row held by EEx.
+   */
+  private runNoteDelay(v: XmVoice, cell: XmNote): void {
+    if (cell.note === 97) this.applyKeyOff(v);
+    else this.triggerNote(v, cell.note);
+    if (cell.instrument > 0) this.resetVolumes(v);
+    this.triggerInstrument(v);
+    const vc = cell.volumeColumn;
+    if (vc >= 0x10 && vc <= 0x50) v.volume = vc - 0x10;
+    else if (vc >= 0xc0 && vc <= 0xcf) v.panning = (vc & 0x0f) << 4;
   }
 
   // ── Volume column ────────────────────────────────────────────────────
@@ -1294,8 +1359,8 @@ export class XmReplayer {
       case 0xb: // Vibrato w/ depth
         if (lo !== 0) v.vibDepth = lo;
         break;
-      case 0xc: // Set panning (0..F maps to 0..255 in steps of 0x11).
-        v.panning = lo * 17;
+      case 0xc: // Set panning: the nibble becomes the high nibble (FT2).
+        v.panning = lo << 4;
         break;
       case 0xf: // Tone portamento (param * 16; no memory)
         if (lo !== 0) v.portaSpeed = lo * 16;
@@ -1347,15 +1412,6 @@ export class XmReplayer {
     const x = (cell.effectParam >>> 4) & 0xf;
     const y = cell.effectParam & 0xf;
     switch (cell.effect) {
-      case 0x00:
-        // Arpeggio. XM has no QUIRK_ARPMEM — every empty cell (effect
-        // 0 + param 0) clears the arp memory. So `v.arpParam` is
-        // unconditionally seeded from this row's cell.effectParam,
-        // wiping any prior arpeggio when the song moves to a non-arp
-        // row. The actual pitch offset goes onto `v.arpOffset` in the
-        // per-tick handler; period stays untouched here.
-        v.arpParam = cell.effectParam;
-        break;
       case 0x01:
         // Slide up — memory.
         if (cell.effectParam !== 0) v.slideUpLast = cell.effectParam;
@@ -1439,9 +1495,6 @@ export class XmReplayer {
         if (cell.effectParam !== 0)
           this.state.globalVolSlideLast = cell.effectParam;
         break;
-      case 0x14: // Kxx — same as note 97.
-        this.applyKeyOff(v);
-        break;
       case 0x15: // Lxx — set envelope position to xx.
         v.volEnvPos = cell.effectParam;
         v.panEnvPos = cell.effectParam;
@@ -1467,12 +1520,12 @@ export class XmReplayer {
       case 0x1:
         // Fine slide up — period decreases (pitch up).
         v.period = clampPeriod(v.period - y * 4, this.linearFreq);
-        v.glissPeriod = 0;
+        v.snapPeriod = 0;
         v.vibOffset = 0;
         break;
       case 0x2:
         v.period = clampPeriod(v.period + y * 4, this.linearFreq);
-        v.glissPeriod = 0;
+        v.snapPeriod = 0;
         v.vibOffset = 0;
         break;
       case 0x3:
@@ -1482,18 +1535,6 @@ export class XmReplayer {
       case 0x4:
         v.vibWaveform = y;
         break;
-      case 0x5: {
-        // Set finetune — rewrite the voice period from the current
-        // effective note + new finetune.
-        const ft = (y - 8) * 16;
-        if (v.effectiveNote > 0) {
-          v.period = periodForNote(v.effectiveNote, ft, this.linearFreq);
-          v.finetune = ft;
-          v.glissPeriod = 0;
-          v.vibOffset = 0;
-        }
-        break;
-      }
       case 0x6:
         // Pattern loop (ft2-clone `patternLoop`). E60 marks the start row;
         // E6y loops back y times. The counter is per channel, so loops on
@@ -1520,17 +1561,15 @@ export class XmReplayer {
         v.volume = Math.max(0, v.volume - y);
         break;
       case 0xc:
-        v.noteCutAt = y;
+        // EC0 cuts right away; ECy is handled on tick y.
         if (y === 0) v.volume = 0;
-        break;
-      case 0xd:
-        // Note delay (Slice handled in processCell where we know the cell).
         break;
       case 0xe:
         // Pattern delay: play this row y more times. Tick-0 effects only run
         // on the first pass, so a repeat can never re-arm the delay; with
         // EEy on several channels the last one wins, as in FT2.
         this.state.patternDelayRepeats = y;
+        if (y > 0) this.state.rowWasDelayed = true;
         break;
       default:
         break;
@@ -1542,12 +1581,12 @@ export class XmReplayer {
     switch (sub) {
       case 0x1: // Extra-fine slide up
         v.period = clampPeriod(v.period - y, this.linearFreq);
-        v.glissPeriod = 0;
+        v.snapPeriod = 0;
         v.vibOffset = 0;
         break;
       case 0x2:
         v.period = clampPeriod(v.period + y, this.linearFreq);
-        v.glissPeriod = 0;
+        v.snapPeriod = 0;
         v.vibOffset = 0;
         break;
       default:
@@ -1567,18 +1606,6 @@ export class XmReplayer {
     for (let c = 0; c < this.voices.length && c < row.length; c++) {
       const cell = row[c]!;
       const v = this.voices[c]!;
-      // Deferred-trigger handlers (note delay / note cut).
-      if (v.noteDelayAt === tick) {
-        this.applyNoteInstrument(
-          c,
-          { ...cell, note: v.noteDelayNote, instrument: v.noteDelayInst },
-          false,
-        );
-        // Also re-apply the volume column on the trigger tick.
-        this.applyVolumeColumnTick0(c, cell.volumeColumn);
-        v.noteDelayAt = -1;
-      }
-      if (v.noteCutAt === tick && tick > 0) v.volume = 0;
       // Volume column per-tick.
       this.applyVolumeColumnPerTick(c, cell.volumeColumn);
       // Effect column per-tick.
@@ -1592,29 +1619,24 @@ export class XmReplayer {
     const y = cell.effectParam & 0xf;
     switch (cell.effect) {
       case 0x00: {
-        // Arpeggio: tick%3 cycles between base / +x / +y semitones.
-        // We write to `v.arpOffset` (a semitone offset, reset to 0 at
-        // the top of each tick); the period stays unchanged. The
-        // arpOffset is folded into the mixer period in
-        // `syncVoiceSteps`, mirroring libxmp's "arp is an additive
-        // pitch offset, not a write into xc->period" architecture.
-        if (v.arpParam === 0 || v.effectiveNote === 0) break;
-        const phase = this.state.tickInRow % 3;
-        const ax = (v.arpParam >>> 4) & 0xf;
-        const ay = v.arpParam & 0xf;
-        v.arpOffset = phase === 1 ? ax : phase === 2 ? ay : 0;
-        v.glissPeriod = 0;
+        // Arpeggio (no memory: 000 is "no effect").
+        if (cell.effectParam === 0) break;
+        // FT2's tick counter runs down from the speed.
+        const step =
+          ARPEGGIO_TAB[(this.state.speed - this.state.tickInRow) & 31]!;
+        v.snapPeriod =
+          step === 0 ? 0 : this.semitonePeriod(v, step === 1 ? x : y);
         v.vibOffset = 0;
         break;
       }
       case 0x01:
         v.period = clampPeriod(v.period - v.slideUpLast * 4, this.linearFreq);
-        v.glissPeriod = 0;
+        v.snapPeriod = 0;
         v.vibOffset = 0;
         break;
       case 0x02:
         v.period = clampPeriod(v.period + v.slideDownLast * 4, this.linearFreq);
-        v.glissPeriod = 0;
+        v.snapPeriod = 0;
         v.vibOffset = 0;
         break;
       case 0x03:
@@ -1637,17 +1659,27 @@ export class XmReplayer {
       case 0x0a:
         this.runVolSlide(v, v.volSlideLast);
         break;
-      case 0x0e:
-        // E-extended per-tick: E9y retrigger, ECy/EDy land via the
-        // deferred-trigger handlers above. Nothing else fires per-tick.
-        if (((cell.effectParam >>> 4) & 0xf) === 0x9 && y !== 0) {
-          if (this.state.tickInRow % y === 0 && this.state.tickInRow > 0) {
-            // Retrigger: rewind sample position, keep volume.
-            if (v.sample) {
-              v.pos = 0;
-              v.looped = false;
-            }
+      case 0x0e: {
+        // E9y / ECy / EDy are keyed on the tick number, so on a row held
+        // by EEx they fire again on every repeat.
+        const tick = this.state.tickInRow;
+        if (x === 0x9) {
+          // Retrigger every y ticks (E90 is handled at tick 0).
+          if (y !== 0 && tick % y === 0) {
+            this.triggerNote(v, 0);
+            this.triggerInstrument(v);
           }
+        } else if (x === 0xc) {
+          if (tick === y) v.volume = 0;
+        } else if (x === 0xd) {
+          if (tick === y) this.runNoteDelay(v, cell);
+        }
+        break;
+      }
+      case 0x14:
+        // Kxx: key off on tick xx (K00 was taken at tick 0).
+        if (this.state.tickInRow === (cell.effectParam & 31)) {
+          this.applyKeyOff(v);
         }
         break;
       case 0x11: {
@@ -1754,38 +1786,53 @@ export class XmReplayer {
     }
   }
 
+  /** One tone-portamento step (ft2-clone `portamento`). */
   private runTonePorta(v: XmVoice): void {
-    if (v.portaTarget === 0 || v.portaSpeed === 0) return;
+    if (v.portaDirection === 0) return;
     const step = v.portaSpeed * 4;
-    if (v.period < v.portaTarget) {
-      v.period = Math.min(v.portaTarget, v.period + step);
-    } else if (v.period > v.portaTarget) {
-      v.period = Math.max(v.portaTarget, v.period - step);
+    if (v.portaDirection > 1) {
+      v.period -= step;
+      if (v.period <= v.portaTarget) {
+        v.portaDirection = 1;
+        v.period = v.portaTarget;
+      }
+    } else {
+      v.period += step;
+      if (v.period >= v.portaTarget) {
+        v.portaDirection = 1;
+        v.period = v.portaTarget;
+      }
     }
-    v.glissPeriod = v.glissando ? this.semitonePeriod(v) : 0;
+    v.snapPeriod = v.glissando ? this.semitonePeriod(v, 0) : 0;
     v.vibOffset = 0;
   }
 
   /**
-   * Round the voice's period to a whole semitone for glissando — a port of
-   * ft2-clone's `period2NotePeriod`. It binary-searches the notes for the
-   * highest one whose half-semitone-below boundary is still above the
-   * period, so the pitch snaps to the nearest note, and an exact halfway
-   * tie goes to the lower note. Finetune is honoured at FT2's 1/16-semitone
-   * resolution so the steps land on the sample's own tuning.
+   * The voice's period rounded to a whole semitone, then raised by
+   * `noteOffset` semitones — a port of ft2-clone's `period2NotePeriod`,
+   * used by arpeggio and glissando. It binary-searches FT2's period table
+   * in 16-step (one semitone) strides for the note whose half-semitone
+   * boundary the period has not yet crossed, so the pitch snaps to the
+   * nearest note of the sample's own tuning and an exact halfway tie goes
+   * to the lower note.
+   *
+   * Two FT2 bugs are kept: only 8 of the table's 10 octaves are searched,
+   * and the result is capped just under B-7, so an arpeggio near the top
+   * of the range flattens out instead of going higher.
    */
-  private semitonePeriod(v: XmVoice): number {
-    const finetune = (v.finetune >> 3) * 8;
+  private semitonePeriod(v: XmVoice, noteOffset: number): number {
+    const fineTune = (v.finetune >> 3) + 16;
+    let hi = 8 * 12 * 16;
     let lo = 0;
-    let hi = 8 * 12; // FT2 searches 8 octaves, not the full 10.
     for (let i = 0; i < 8; i++) {
-      const mid = (lo + hi) >> 1;
-      // 64 finetune units = half a semitone.
-      const boundary = periodForNote(mid + 1, finetune - 64, this.linearFreq);
-      if (v.period >= boundary) hi = mid;
-      else lo = mid;
+      const mid = (((lo + hi) >> 1) & ~15) + fineTune;
+      const boundary = periodAtIndex(Math.max(0, mid - 8), this.linearFreq);
+      if (v.period >= boundary) hi = (mid - fineTune) & ~15;
+      else lo = (mid - fineTune) & ~15;
     }
-    return periodForNote(lo + 1, finetune, this.linearFreq);
+    let index = lo + fineTune + (noteOffset << 4);
+    if (index >= 8 * 12 * 16 + 15 - 1) index = 8 * 12 * 16 + 16 - 1;
+    return periodAtIndex(index, this.linearFreq);
   }
 
   /**
@@ -1818,7 +1865,7 @@ export class XmReplayer {
     const delta =
       (lfoMagnitude(v.vibPos, v.vibWaveform, secondHalf) * v.vibDepth) >> 5;
     v.vibOffset = secondHalf ? -delta : delta;
-    v.glissPeriod = 0;
+    v.snapPeriod = 0;
     v.vibPos = (v.vibPos + v.vibSpeed) & 0x3f;
   }
 

@@ -55,6 +55,15 @@ export function periodForNoteAmiga(note: number, finetune: number): number {
   return AMIGA_PERIOD_LUT[periodIndex(note, finetune)]!;
 }
 
+/**
+ * Period at a raw table index (0..1935, clamped). FT2's semitone rounding
+ * for arpeggio and glissando works in table indices rather than notes.
+ */
+export function periodAtIndex(index: number, linear: boolean): number {
+  const i = Math.max(0, Math.min(PERIOD_LUT_SIZE - 1, index));
+  return linear ? (PERIOD_LUT_SIZE - i) * 4 : AMIGA_PERIOD_LUT[i]!;
+}
+
 /** Period (linear or Amiga) for the active mode. */
 export function periodForNote(
   note: number,
