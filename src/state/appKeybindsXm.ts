@@ -575,7 +575,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
   cleanups.push(
     registerShortcut({
       key: "backspace",
-      description: "Clear selection / clear cell, step up",
+      description: "Clear selection / pull cell up",
       when: isFt2Pattern,
       run: backspaceXmCell,
     }),
@@ -584,8 +584,7 @@ export function registerXmAppKeybinds(): Array<() => void> {
     registerShortcut({
       key: "backspace",
       shift: true,
-      description:
-        "Clear selected rows / clear current row, step up (all channels)",
+      description: "Clear selected rows / pull row up (all channels)",
       when: isFt2Pattern,
       run: backspaceXmRow,
     }),

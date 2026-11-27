@@ -335,7 +335,7 @@ export function duplicateXmSample(
       newIndex,
     ),
   }));
-  // Gated (Play + Follow): nothing was added, so don't select it.
+  // Rejected (cap reached): nothing was added, so don't select it.
   if (!committed) return;
   setCurrentXmSampleIndex(newIndex);
 }

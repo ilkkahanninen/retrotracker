@@ -518,7 +518,7 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
                     "patgrid__chbtn--active": mutedChannels()[c] === true,
                   }}
                   onClick={() => toggleMute(c)}
-                  title={`Mute channel ${c + 1}`}
+                  title={`Mute channel ${c + 1}${muteKeyHint(c, false)}`}
                 >
                   M
                 </button>
@@ -530,7 +530,7 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
                     "patgrid__chbtn--active": soloedChannels()[c] === true,
                   }}
                   onClick={() => toggleSolo(c)}
-                  title={`Solo channel ${c + 1}`}
+                  title={`Solo channel ${c + 1}${muteKeyHint(c, true)}`}
                 >
                   S
                 </button>
@@ -578,3 +578,11 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
     </div>
   );
 };
+
+/** Shortcut hint for a channel's mute / solo button. Alt + digit covers
+ *  the first ten channels (0 is the tenth); the rest have no key. */
+function muteKeyHint(channel: number, solo: boolean): string {
+  if (channel >= 10) return "";
+  const digit = (channel + 1) % 10;
+  return ` (Alt+${solo ? "Shift+" : ""}${digit})`;
+}

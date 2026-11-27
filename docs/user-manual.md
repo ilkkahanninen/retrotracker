@@ -98,7 +98,7 @@ Top of the window, switchable by tabs or function keys:
 
 - **Pattern** (F2) — the main editor. Pattern grid in the centre, sample list on the left, order list on the right.
 - **Sample** (F3) — sample editor. Same sample list on the left; the centre swaps to a waveform view + chain editor.
-- **Info** (F4) — song title, file name, and free-form info text. Anything you type in info text is stamped into the sample-name slots on `.mod` export so it travels with the song.
+- **Info** (F4) — song title, file name, and free-form info text. Anything you type in info text is stamped into the sample-name slots on `.mod` export — or the instrument-name slots on `.xm` export — so it travels with the song. Leave it empty to export the names as they are.
 - **Settings** (F5) — preferences (Paula model, color scheme, UI scale, stereo separation).
 
 Sample selection (which slot is current) is shared across views. Switching from Sample to Pattern keeps your slot selected so the next note you type uses it.
@@ -232,6 +232,16 @@ Add a crossfade effect to soften loop boundaries. Its length parameter is in fra
 - **Reverse** — flips the sample byte-wise.
 - **Bounce selection to sample** (Edit menu, `Cmd+E`) — see Pattern editing.
 
+### FT2 mode: instruments
+
+In FT2 mode the left rail lists up to 128 **instruments**, and the Sample view becomes the instrument editor. An instrument holds up to 16 samples (the chips above the waveform; `+` / `−` add and remove, and the two buttons next to them duplicate or clear just the current sample), a key map that routes notes to samples, volume / panning envelopes, auto-vibrato and fadeout. The waveform, selection tools, effect chain and chiptune source work as described above, with these differences:
+
+- **Dropping WAVs.** On an instrument in the list: the first file replaces that instrument and the rest go to the next free slots, each named after its file. On the instrument editor: an empty instrument is built from the files (one sample each); an instrument that already has samples gets them **appended**. To replace the sample you are editing, use **Load WAV**.
+- **Tuning.** An `.xm` sample has no sample rate of its own — **Rel. note** and **Finetune** set how fast it plays. Imports set them so that C-4 plays the WAV at its original speed.
+- **The terminal node** is the XM transformer: mono mix, 8- or 16-bit, dither, and **Fit length**.
+- **Fit length** locks a loop to the song's tempo. Enter a length in song ticks at a BPM — or press **Calc** and give it rows × speed, pre-filled from the cursor's row — and the sample is resampled so that, played at C-4, it lasts exactly that long. Clear the field to turn it off. This is the FT2 counterpart of PT mode's **Length (ticks)**.
+- **Piano keys** in the instrument editor audition the sample you are editing; a held key sustains for as long as you hold it.
+
 ## Chiptune synth
 
 A second source kind for any sample slot. Switch the slot's source from "sampler" to "chiptune" via the source-kind toggle in the pipeline editor, and the upper half swaps to a synth panel.
@@ -261,8 +271,8 @@ Both toggles persist across sessions.
 | -------------- | ------------------------------------------------------------------------------------------------------------ |
 | Space          | Play / Stop (from row 0 of the song or cursor's pattern, depending on the Song / Pattern toggle)             |
 | Option + Space | Play from cursor row, or — when already playing — pause and snap the editing cursor to the playhead position |
-| C              | Toggle Song / Pattern mode (PT2: note column only; FT2: note column only)                                    |
-| V              | Toggle Follow playhead (FT2: anywhere except the effect-cmd column)                                          |
+| Option + N     | Toggle Song / Pattern mode                                                                                   |
+| Option + M     | Toggle Follow playhead                                                                                       |
 
 The **playhead** row is highlighted in the grid; per-channel VU meters above each column track real-time peaks.
 
@@ -272,7 +282,7 @@ With **Follow off**, pattern-cell edits, transpose, clipboard ops, and undo / re
 
 The following stay live regardless of the Follow toggle:
 
-- **Sample / synth edits** — chiptune sliders, sampler chain effects, crop, loop adjust, sample-meta tweaks. Changes are pushed to the worklet's voice latches and audibly snap into the next loop wrap.
+- **Sample / synth edits** — chiptune sliders, sampler chain effects, crop, loop adjust, sample-meta tweaks, and in FT2 mode the instrument's envelopes, fadeout and auto-vibrato. Changes are pushed to the worklet's voice latches and audibly snap into the next loop wrap. (In FT2 mode a note that is already sounding picks up new sample data straight away, and new envelope / fadeout settings from its next trigger.)
 - **Order edits** — slot stepping, insert / delete, new / duplicate pattern. Audible on the next row tick.
 - **Order list jump** — clicking a slot or pressing `[` / `]` retargets playback to that slot's row 0 without stopping.
 - **Song title / file name / info text** — metadata only, instantly editable.
@@ -356,8 +366,8 @@ The full list lives in the Pattern view's right rail (PatternHelp pane), localis
 | ----------- | ------------------------------------------- |
 | Space       | Play / Stop (from row 0)                    |
 | Alt + Space | Play from cursor / pause and snap cursor    |
-| `C`         | Toggle Song / Pattern mode (note column)    |
-| `V`         | Toggle Follow playhead (off ⇒ live editing) |
+| Alt + N     | Toggle Song / Pattern mode                  |
+| Alt + M     | Toggle Follow playhead (off ⇒ live editing) |
 
 ### Channels
 

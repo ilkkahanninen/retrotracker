@@ -969,8 +969,8 @@ export function duplicateCurrentXmInstrument(): void {
       xmWorkbenches: wbs,
     };
   });
-  // Gated (Play + Follow): nothing was copied, so don't jump to the
-  // still-empty target slot.
+  // Rejected (out-of-range slot, cap): nothing was copied, so don't
+  // jump to the still-empty target slot.
   if (!committed) return;
   setCurrentXmInstrument(targetSlot0 + 1);
   setCurrentXmSampleIndex(0);

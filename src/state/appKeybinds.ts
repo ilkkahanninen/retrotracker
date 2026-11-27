@@ -385,8 +385,8 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   // address a pattern cell there.
   const shiftNav = (mover: (c: Cursor) => Cursor) => () =>
     h.extendSelection(mover(cursor()));
-  // Shift+arrow selection: PT-mode-only (FT2 hasn't grown a selection model
-  // yet — that lands when a Phase 3 follow-up adds clipboard support).
+  // Shift+arrow selection: PT-mode-only — FT2 has its own selection
+  // signal and registers the same keys in appKeybindsXm.ts.
   const shiftSelectionWhen = () =>
     isPt2Mode() && editsAllowed() && view() === "pattern";
   cleanups.push(
@@ -836,8 +836,8 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
 
   // Per-channel mute / solo. Option/Alt + digit to keep digits without a
   // modifier free for sample selection. Channels are 1..4 in the UI but
-  // 0..3 in the API. PT-only — XmKeybinds wires its own mute/solo over
-  // the FT2 channel-count range when channel-mute lands for FT2.
+  // 0..3 in the API. PT-only — appKeybindsXm.ts wires mute/solo for the
+  // first ten FT2 channels.
   for (let i = 0; i < 4; i++) {
     const channel = i;
     cleanups.push(
