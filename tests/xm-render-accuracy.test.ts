@@ -73,9 +73,6 @@ const DEFAULT_TOLERANCE: Tolerance = { rms: 0.002, peak: 0.01 };
 //    step, which is what the remaining RMS is. Sharp-edged waveforms
 //    (ramp, square) make that step larger.
 //
-//  - **Auto-vibrato LFO**: instrument vibrato uses a different table
-//    and scaling from libxmp's; see the per-fixture notes below.
-//
 //  - **Volume / pan anti-click ramp shape**: libxmp and XmReplayer use
 //    slightly different ramp lengths for mid-tick volume cuts (ECy /
 //    EDy) and pan changes. The transient is ~50 samples; peak diff
@@ -92,15 +89,6 @@ const FIXTURE_TOLERANCES: Record<string, Tolerance> = {
   "60-vibrato-ramp": { rms: 0.03, peak: 0.08 },
   "61-vibrato-square": { rms: 0.03, peak: 0.06 },
   "62-tremolo-square": { rms: 0.012, peak: 0.2 },
-  // Sine autovibrato.
-  "26-auto-vibrato": { rms: 0.02, peak: 0.05 },
-  // Non-sine autovibrato waveform shape differences. Our autovibrato
-  // table is ported from ft2-clone (256-entry LFO); libxmp uses 64-entry
-  // tables and a different sawtooth formula. The audible swing magnitude
-  // matches; the bit-exact shape doesn't.
-  "45-autovib-square": { rms: 0.05, peak: 0.15 },
-  "46-autovib-ramp-down": { rms: 0.12, peak: 0.3 },
-  "47-autovib-ramp-up": { rms: 0.06, peak: 0.2 },
   // Anti-click ramp shape on volume / pan transitions.
   "12-set-volume": { rms: 0.002, peak: 0.02 },
   "17-note-cut": { rms: 0.002, peak: 0.1 },
@@ -124,6 +112,23 @@ const FIXTURE_TOLERANCES: Record<string, Tolerance> = {
   "22-key-off": { rms: 0.003, peak: 0.1 },
   "23-fadeout": { rms: 0.04, peak: 0.4 },
 };
+/**
+ * Fixtures the bed does not compare, with the reason. libxmp is the
+ * reference only where it agrees with FT2; for instrument auto-vibrato it
+ * does not: it plays the sine inverted (pitch down first, where FT2's table
+ * goes up first) and numbers the other waveforms as E4x does (1 = ramp,
+ * 2 = square, 3 = random) instead of FT2's 1 = square, 2 / 3 = ramps.
+ * These used to "pass" only because their tolerances were loose enough to
+ * absorb a mismatched waveform. tests/xm-autovibrato.test.ts pins the
+ * behaviour against ft2-clone instead.
+ */
+const NOT_COMPARABLE: Record<string, string> = {
+  "26-auto-vibrato": "libxmp inverts FT2's auto-vibrato sine",
+  "45-autovib-square": "libxmp plays XM auto-vibrato type 1 as a ramp",
+  "46-autovib-ramp-down": "libxmp plays XM auto-vibrato type 2 as a square",
+  "47-autovib-ramp-up": "libxmp plays XM auto-vibrato type 3 as random",
+};
+
 function toleranceFor(name: string): Tolerance {
   return FIXTURE_TOLERANCES[name] ?? DEFAULT_TOLERANCE;
 }
@@ -200,10 +205,17 @@ describe("XmReplayer accuracy vs libxmp", () => {
   }
 
   beforeAll(() => {
-    for (const fx of fixtures) ensureReferenceWav(fx);
+    for (const fx of fixtures) {
+      if (NOT_COMPARABLE[fx.name] === undefined) ensureReferenceWav(fx);
+    }
   });
 
   for (const fx of fixtures) {
+    const why = NOT_COMPARABLE[fx.name];
+    if (why !== undefined) {
+      it.skip(`${fx.name}.xm — not comparable: ${why}`, () => {});
+      continue;
+    }
     it(`${fx.name}.xm matches reference`, () => {
       const xm = parseXm(new Uint8Array(readFileSync(fx.xmPath)));
       const ref = readWav(readFileSync(fx.wavPath));

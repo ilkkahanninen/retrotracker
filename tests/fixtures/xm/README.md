@@ -34,7 +34,7 @@ The script produces deterministic `.xm` bytes from `generate.ts`. Commit any cha
 Default: RMS ≤ 0.002, peak ≤ 0.01 — bit-perfect against libxmp modulo float quantisation noise. A handful of fixtures get per-fixture overrides in `xm-render-accuracy.test.ts`:
 
 - **Vibrato / tremolo on tick 0**: every other tick matches libxmp, but on the first tick of a row FT2 (which we follow) holds the previous tick's pitch or volume while libxmp already shows the next LFO step. That one-tick-in-six difference is the remaining RMS. Things libxmp does differently from FT2 are kept out of the fixtures and pinned by unit tests instead: the E44–E47 / E74–E77 "keep phase across notes" bit (libxmp ignores it), the tremolo ramp shape, and the pitch / volume FT2 leaves in place after the last effect row.
-- **Auto-vibrato**: instrument vibrato uses a different LFO table and scaling from libxmp's.
+- **Auto-vibrato is not compared.** libxmp plays the instrument auto-vibrato sine inverted relative to FT2 and numbers the other waveforms differently (type 1 as a ramp, 2 as a square, 3 as random; FT2 has 1 = square, 2 and 3 = ramps). The four auto-vibrato fixtures stay in the directory but the bed skips them; [tests/xm-autovibrato.test.ts](../../xm-autovibrato.test.ts) checks the behaviour against ft2-clone's `updateVolPanAutoVib` instead.
 - **Anti-click ramp shape**: libxmp and XmReplayer use slightly different ramp lengths for mid-tick volume cuts (ECy, EDy) and pan changes. Transient diff lives in a ~50-sample window around the change.
 - **Fadeout / finetune slow drift**: per-tick float / integer rounding differs by a few period units over a multi-row hold.
 
@@ -68,7 +68,7 @@ Default: RMS ≤ 0.002, peak ≤ 0.01 — bit-perfect against libxmp modulo floa
 | `23-fadeout`                  | fadeout countdown | 0.02520 | 0.3415 | Linear decay after key-off; rms ≤ 0.04, peak ≤ 0.4.                                                                         |
 | `24-volume-envelope`          | vol env + sustain | 0.00035 | 0.0031 | Attack → sustain envelope.                                                                                                  |
 | `25-pan-envelope`             | pan env sweep     | 0.00151 | 0.0114 | Full-left to full-right pan ramp; peak ≤ 0.02.                                                                              |
-| `26-auto-vibrato`             | instrument vib    | 0.01885 | 0.0347 | Sine + sweep; LFO drift; rms ≤ 0.02.                                                                                        |
+| `26-auto-vibrato`             | instrument vib    | —       | —      | Not compared: libxmp plays XM auto-vibrato differently from FT2 (see Tolerances).                                           |
 | `27-set-env-pos`              | Lxx               | 0.00163 | 0.0126 | Jump vol-env to mid-decay; peak ≤ 0.02.                                                                                     |
 | `28-relative-note`            | sample.relative   | 0.00001 | 0.0007 | relativeNote = 12 → C-4 plays as C-5.                                                                                       |
 | `29-amiga-freq`               | Amiga period      | 0.00002 | 0.0008 | `flags.linearFreq = false`.                                                                                                 |
@@ -87,9 +87,9 @@ Default: RMS ≤ 0.002, peak ≤ 0.01 — bit-perfect against libxmp modulo floa
 | `42-vol-env-disabled`         | env.enabled=false | <0.002  | <0.01  | Configured vol env with `enabled: false` — flat volume.                                                                     |
 | `43-pan-env-sustain`          | pan env sustain   | <0.002  | <0.01  | Pan env holds at sustain point while key is on.                                                                             |
 | `44-pan-env-loop`             | pan env loop      | <0.005  | <0.02  | Pan env cycles loopStart..loopEnd forever.                                                                                  |
-| `45-autovib-square`           | autovib type 2    | 0.042   | 0.13   | Shape diff (ft2-clone 256 LFO vs libxmp 64); rms ≤ 0.05.                                                                    |
-| `46-autovib-ramp-down`        | autovib type 1    | 0.096   | 0.25   | Shape diff; ft2-clone triangle vs libxmp sawtooth.                                                                          |
-| `47-autovib-ramp-up`          | autovib type 3    | 0.045   | 0.18   | Shape diff; rms ≤ 0.06.                                                                                                     |
+| `45-autovib-square`           | autovib type 2    | —       | —      | Not compared: libxmp plays XM auto-vibrato differently from FT2 (see Tolerances).                                           |
+| `46-autovib-ramp-down`        | autovib type 1    | —       | —      | Not compared: libxmp plays XM auto-vibrato differently from FT2 (see Tolerances).                                           |
+| `47-autovib-ramp-up`          | autovib type 3    | —       | —      | Not compared: libxmp plays XM auto-vibrato differently from FT2 (see Tolerances).                                           |
 | `48-multi-sample`             | keyMap routing    | <0.002  | <0.01  | Notes split across two samples via the 96-byte keyMap.                                                                      |
 | `49-multi-sample-meta`        | per-sample meta   | <0.002  | <0.02  | Each keyMap-selected sample brings its own vol/pan/finetune.                                                                |
 | `50-no-loop`                  | loopType "none"   | 0.004   | 0.4    | Voice silences after sample end; anti-click peak ≤ 0.5.                                                                     |

@@ -1,6 +1,11 @@
 import { createEffect, onCleanup, type Component } from "solid-js";
 
 import type { XmAutoVibratoType } from "../core/xm/types";
+import {
+  newAutoVibratoState,
+  resetAutoVibrato,
+  stepAutoVibrato,
+} from "../core/audio/xmAutoVibrato";
 
 interface Props {
   vibratoType: XmAutoVibratoType;
@@ -66,43 +71,31 @@ export const XmAutoVibratoPreview: Component<Props> = (props) => {
       return;
     }
 
-    // Sweep is the number of ticks the depth ramps from 0 → full.
-    // sweep=0 means no ramp (instant full depth).
-    const sweep = props.vibratoSweep;
-    // Rate translates to radians per tick. The exact factor matches
-    // FT2's `phase += rate` with 256 = full cycle.
-    const radPerTick = (props.vibratoRate / 256) * Math.PI * 2;
+    // Step the same LFO the replayer runs, one tick per sample point, so
+    // the curve is what will actually play: waveform direction, the
+    // sweep's stepped ramp-in, and a rate of 0 all included.
+    const lfo = newAutoVibratoState();
+    resetAutoVibrato(lfo, depth, props.vibratoSweep);
 
     ctx.strokeStyle = fg;
     ctx.lineWidth = 1.5;
     ctx.lineJoin = "round";
     ctx.beginPath();
 
+    // Largest offset the LFO can produce: 64 * (15 << 8) >> 14 = 15 units.
+    const FULL_SCALE = 15;
     for (let i = 0; i < TICKS; i++) {
       const x = (i / (TICKS - 1)) * cssWidth;
-      // Linear ramp from 0..1 over `sweep` ticks; saturates at 1 after.
-      const ramp = sweep > 0 ? Math.min(1, i / sweep) : 1;
-      // Phase in radians at this tick.
-      const phase = i * radPerTick;
-      let shape: number;
-      switch (props.vibratoType) {
-        case "sine":
-          shape = Math.sin(phase);
-          break;
-        case "square":
-          shape = Math.sin(phase) >= 0 ? 1 : -1;
-          break;
-        case "ramp-down":
-          // Falling sawtooth: +1 → -1 across a cycle.
-          shape = 1 - 2 * ((phase / (Math.PI * 2)) % 1);
-          break;
-        case "ramp-up":
-          shape = 2 * ((phase / (Math.PI * 2)) % 1) - 1;
-          break;
-      }
-      // depth 0..15 covers ~half the canvas height at full ramp.
-      const amplitude = (depth / 15) * (cssHeight / 2 - 4) * ramp;
-      const y = cssHeight / 2 - shape * amplitude;
+      const offset = stepAutoVibrato(
+        lfo,
+        props.vibratoType,
+        depth,
+        props.vibratoRate,
+        false,
+      );
+      // The offset is in period units, where positive means lower pitch;
+      // draw pitch, so up on screen is up in pitch.
+      const y = cssHeight / 2 + (offset / FULL_SCALE) * (cssHeight / 2 - 4);
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }

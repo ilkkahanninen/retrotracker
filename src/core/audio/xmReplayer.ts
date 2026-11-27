@@ -37,6 +37,12 @@ import type { Sample } from "../mod/types";
 import type { XmInstrument, XmNote, XmSample, XmSong } from "../xm/types";
 import type { ReplayerOptions, XmInterpolation } from "./types";
 import { hzForNote, hzForPeriod, periodForNote } from "./xmFreqTable";
+import {
+  newAutoVibratoState,
+  resetAutoVibrato,
+  stepAutoVibrato,
+  type AutoVibratoState,
+} from "./xmAutoVibrato";
 
 /**
  * Upper bound on E6x loop-backs within one order position before a
@@ -76,31 +82,6 @@ function lfoMagnitude(
     }
     default:
       return 255;
-  }
-}
-
-/**
- * Autovibrato waveform sampler. Phase is a full byte (0..255) and the
- * waveform enum mirrors ft2-clone's `vibtab` layout: 0 = sine, 1 = ramp
- * down, 2 = square, 3 = ramp up. Returns a signed -64..63 value.
- */
-function autoVibratoWaveform(
-  pos: number,
-  type: import("../xm/types").XmAutoVibratoType,
-): number {
-  const p = pos & 0xff;
-  switch (type) {
-    case "sine":
-      return Math.round(64 * Math.sin((p * 2 * Math.PI) / 256));
-    case "ramp-down":
-      // Linear -64 → 63 across the period.
-      return ((p < 128 ? -p : 256 - p) * 64) >> 7;
-    case "ramp-up":
-      return ((p < 128 ? p : p - 256) * 64) >> 7;
-    case "square":
-      return p < 128 ? 64 : -64;
-    default:
-      return 0;
   }
 }
 
@@ -256,17 +237,10 @@ interface XmVoice {
    * and the fadeout-counter starts decrementing.
    */
   keyOff: boolean;
-  /**
-   * Autovibrato LFO phase (0..255). Advances by `instrument.vibratoRate`
-   * each tick. Independent of the 4xy effect column vibrato.
-   */
-  autoVibPos: number;
-  /**
-   * Sweep ramp-in counter. Counts up from 0 to `instrument.vibratoSweep`;
-   * the effective depth scales linearly across this range so a fresh note
-   * eases into its autovibrato instead of starting at full depth.
-   */
-  autoVibSweepPos: number;
+  /** Instrument auto-vibrato LFO; independent of the 4xy vibrato. */
+  autoVib: AutoVibratoState;
+  /** Period offset auto-vibrato produced for the current tick. */
+  autoVibOffset: number;
   /**
    * Tick position into the volume envelope (X-coordinate of the point
    * array). Resets to 0 on instrument retrigger. Advances by 1 per tick
@@ -384,8 +358,8 @@ function newVoice(): XmVoice {
     noteDelayNote: 0,
     noteDelayInst: 0,
     keyOff: false,
-    autoVibPos: 0,
-    autoVibSweepPos: 0,
+    autoVib: newAutoVibratoState(),
+    autoVibOffset: 0,
     volEnvPos: 0,
     panEnvPos: 0,
     fadeoutVol: 32768,
@@ -873,13 +847,15 @@ export class XmReplayer {
       if (inst.panningEnvelope.enabled) {
         v.panEnvPos = stepEnvelope(inst.panningEnvelope, v.panEnvPos, v.keyOff);
       }
-      // Autovibrato: advance phase + sweep counter so the offset
-      // computed in syncVoiceSteps reflects the new tick. Only counts
-      // when the instrument actually has autovibrato configured.
-      if (inst.vibratoRate > 0 && inst.vibratoDepth > 0) {
-        v.autoVibPos = (v.autoVibPos + inst.vibratoRate) & 0xff;
-        if (v.autoVibSweepPos < inst.vibratoSweep) v.autoVibSweepPos++;
-      }
+      // Auto-vibrato: one LFO step per tick; `syncVoiceSteps` folds the
+      // resulting offset into the pitch.
+      v.autoVibOffset = stepAutoVibrato(
+        v.autoVib,
+        inst.vibratoType,
+        inst.vibratoDepth,
+        inst.vibratoRate,
+        v.keyOff,
+      );
     }
   }
 
@@ -980,10 +956,9 @@ export class XmReplayer {
     for (const v of this.voices) {
       if (!v.playing || !v.sample) continue;
       if (v.period <= 0) continue;
-      // Overlay autovibrato as a per-tick pitch offset. The base period
-      // (`v.period`) is unchanged — slides keep working — and the offset
-      // is recomputed at every tick so it tracks the LFO phase.
-      const autoVibOffset = this.autoVibratoOffset(v);
+      // Auto-vibrato overlays a per-tick pitch offset; the base period
+      // (`v.period`) is unchanged, so slides keep working.
+      const autoVibOffset = v.autoVibOffset;
       // Arpeggio offset (semitones). Linear periods are 64 units per
       // semitone, so it is a plain subtraction; Amiga periods are
       // inversely proportional to frequency, so the base period is
@@ -1010,28 +985,6 @@ export class XmReplayer {
       v.step = hz / this.sampleRate;
       v.stepFixed = (v.step * 65536) | 0;
     }
-  }
-
-  /**
-   * Per-tick autovibrato: depth ramps in over `vibratoSweep` ticks, then
-   * holds at full depth. Phase advances by `vibratoRate` each tick.
-   * Returns a signed period offset (small numbers; in linear-mode period
-   * units, ±a few semitones at full depth).
-   */
-  private autoVibratoOffset(v: XmVoice): number {
-    const inst = v.envInstrument;
-    if (!inst) return 0;
-    if (inst.vibratoDepth === 0 || inst.vibratoRate === 0) return 0;
-    // Sweep-scaled depth. When sweep === 0 the depth is full from tick 0.
-    const sweep = inst.vibratoSweep;
-    const scaledDepth =
-      sweep > 0
-        ? (inst.vibratoDepth * Math.min(v.autoVibSweepPos, sweep)) / sweep
-        : inst.vibratoDepth;
-    const raw = autoVibratoWaveform(v.autoVibPos, inst.vibratoType);
-    // ft2-clone scales the LFO output by depth / 64. The result is in
-    // period units — at full depth (15) the swing is ~±a semitone.
-    return (raw * scaledDepth) >> 6;
   }
 
   // ── Row / pattern advance ────────────────────────────────────────────
@@ -1305,9 +1258,11 @@ export class XmReplayer {
     v.panEnvPos = 0;
     v.keyOff = false;
     v.fadeoutVol = 32768;
-    // Autovibrato: phase + sweep ramp restart on every retrigger.
-    v.autoVibPos = 0;
-    v.autoVibSweepPos = 0;
+    // Auto-vibrato restarts (phase and sweep) on every retrigger.
+    v.autoVibOffset = 0;
+    if (inst) {
+      resetAutoVibrato(v.autoVib, inst.vibratoDepth, inst.vibratoSweep);
+    }
   }
 
   // ── Volume column ────────────────────────────────────────────────────

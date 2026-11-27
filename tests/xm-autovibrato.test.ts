@@ -4,6 +4,12 @@ import { emptyXmInstrument, emptyXmSong } from "~/core/xm/format";
 import { setXmCell, setXmInstrument } from "~/core/xm/mutations";
 import type { XmInstrument, XmSong } from "~/core/xm/types";
 import { XmReplayer } from "~/core/audio/xmReplayer";
+import {
+  autoVibratoValue,
+  newAutoVibratoState,
+  resetAutoVibrato,
+  stepAutoVibrato,
+} from "~/core/audio/xmAutoVibrato";
 
 const SR = 44100;
 const SAMPLES_PER_TICK = Math.ceil(SR / 50);
@@ -148,5 +154,119 @@ describe("Autovibrato", () => {
       peak = Math.max(peak, Math.abs(left[i]!));
     }
     expect(peak).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Pinned against ft2-clone's `updateVolPanAutoVib`. libxmp cannot referee
+ * this effect (see NOT_COMPARABLE in xm-render-accuracy.test.ts).
+ */
+describe("auto-vibrato LFO (FT2)", () => {
+  const at = (type: Parameters<typeof autoVibratoValue>[1]) => (p: number) =>
+    autoVibratoValue(p, type);
+
+  it("sine opens negative: pitch goes up first", () => {
+    const sine = at("sine");
+    expect([0, 1, 2, 64, 128, 192].map(sine)).toEqual([0, -2, -3, -64, 0, 64]);
+  });
+
+  it("square is -64 for the first half-cycle, +64 for the second", () => {
+    const sq = at("square");
+    expect([0, 127, 128, 255].map(sq)).toEqual([-64, -64, 64, 64]);
+  });
+
+  it("file type 2 (ramp-down) climbs 0..63 then -64..-1 — pitch falls", () => {
+    const r = at("ramp-down");
+    expect([0, 2, 126, 128, 254].map(r)).toEqual([0, 1, 63, -64, -1]);
+  });
+
+  it("file type 3 (ramp-up) falls 0..-63 then 64..1 — pitch rises", () => {
+    const r = at("ramp-up");
+    expect([0, 2, 126, 128, 130, 254].map(r)).toEqual([0, -1, -63, -64, 63, 1]);
+  });
+
+  it("without sweep the offset is value × depth >> 6 from the first tick", () => {
+    const st = newAutoVibratoState();
+    resetAutoVibrato(st, 15, 0);
+    // Rate 64: phases 64, 128, 192, 0 → sine -64, 0, 64, 0.
+    const out = [0, 1, 2, 3].map(() =>
+      stepAutoVibrato(st, "sine", 15, 64, false),
+    );
+    expect(out).toEqual([-15, 0, 15, 0]);
+  });
+
+  it("sweep adds (depth << 8) / sweep per tick until the depth is reached", () => {
+    const st = newAutoVibratoState();
+    resetAutoVibrato(st, 8, 4);
+    expect(st.sweepStep).toBe(512);
+    // Square, rate 0: value is a constant -64, so the offset is -amp >> 8.
+    const out = [0, 1, 2, 3, 4, 5].map(() =>
+      stepAutoVibrato(st, "square", 8, 0, false),
+    );
+    // amp: 512, 1024, 1536, 2048, then 2560 >> 8 = 10 > 8 → clamps to 8.
+    expect(out).toEqual([-2, -4, -6, -8, -8, -8]);
+    expect(st.sweepStep).toBe(0);
+  });
+
+  it("key-off during the sweep freezes it at the per-tick step (FT2 quirk)", () => {
+    const st = newAutoVibratoState();
+    resetAutoVibrato(st, 8, 4);
+    stepAutoVibrato(st, "square", 8, 0, false);
+    stepAutoVibrato(st, "square", 8, 0, false); // amp 1024 → -4
+    // Released: only the step (512) is used, not the 1024 reached so far.
+    expect(stepAutoVibrato(st, "square", 8, 0, true)).toBe(-2);
+    expect(stepAutoVibrato(st, "square", 8, 0, true)).toBe(-2);
+  });
+
+  it("depth 0 does nothing and leaves a running LFO alone on reset", () => {
+    const st = newAutoVibratoState();
+    resetAutoVibrato(st, 8, 0);
+    stepAutoVibrato(st, "sine", 8, 10, false);
+    const before = { ...st };
+    resetAutoVibrato(st, 0, 0);
+    expect(st).toEqual(before);
+    expect(stepAutoVibrato(st, "sine", 0, 10, false)).toBe(0);
+  });
+
+  it("a rate of 0 still applies the waveform's value at phase 0", () => {
+    const st = newAutoVibratoState();
+    resetAutoVibrato(st, 15, 0);
+    expect(stepAutoVibrato(st, "square", 15, 0, false)).toBe(-15);
+    expect(stepAutoVibrato(st, "sine", 15, 0, false)).toBe(0);
+  });
+
+  it("in the replayer a square auto-vibrato raises the pitch first", () => {
+    // Short loop so each tick holds several cycles and pitch is readable.
+    const LEN = 32;
+    const data = new Int8Array(LEN);
+    for (let i = 0; i < LEN; i++) data[i] = i < LEN / 2 ? 100 : -100;
+    const inst: XmInstrument = {
+      ...loudSaw(),
+      vibratoType: "square",
+      vibratoSweep: 0,
+      vibratoDepth: 15,
+      vibratoRate: 16,
+    };
+    inst.samples[0] = { ...inst.samples[0]!, data, loopLength: LEN };
+    const r = new XmReplayer(songWith(inst), { sampleRate: SR });
+    const TICK = 882;
+    const buf = new Float32Array(TICK * 12);
+    r.process(buf, new Float32Array(buf.length), buf.length);
+    const semitones = (t: number) => {
+      let first = -1;
+      let last = -1;
+      let cycles = 0;
+      for (let i = t * TICK + 1; i < (t + 1) * TICK; i++) {
+        if (buf[i - 1]! <= 0 && buf[i]! > 0) {
+          if (first < 0) first = i;
+          else cycles++;
+          last = i;
+        }
+      }
+      return 12 * Math.log2((SR * cycles) / (last - first) / (8363 / LEN));
+    };
+    // 15 period units = 15/64 semitone. Phase passes 128 after 8 ticks.
+    expect(semitones(3)).toBeCloseTo(15 / 64, 1);
+    expect(semitones(10)).toBeCloseTo(-15 / 64, 1);
   });
 });
