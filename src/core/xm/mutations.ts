@@ -394,6 +394,15 @@ export const insertXmOrder = orderOps.insertOrderAt;
 /** Delete the order slot, pulling subsequent orders back by one. */
 export const deleteXmOrder = orderOps.deleteOrder;
 
+/**
+ * Renumber patterns by first appearance in the order list and drop the
+ * unused ones (see `OrderOps.cleanupOrders`). Each pattern keeps its own
+ * row count. Nothing else in an XM refers to a pattern by number —
+ * `restartPosition` and Bxx are order indices — so only the order list
+ * needs rewriting.
+ */
+export const cleanupXmOrders = orderOps.cleanupOrders;
+
 /** Set the pattern number stored at the given order slot. */
 export function setXmOrderPattern(
   song: XmSong,

@@ -313,46 +313,7 @@ export const newPatternAtOrder = orderOps.newPatternAtOrder;
  * Returns the same ModSong reference when nothing would change (orders already
  * canonical and no unused patterns to drop).
  */
-export function cleanupOrders(song: ModSong): {
-  song: ModSong;
-  remap: (number | undefined)[];
-} {
-  const remap: (number | undefined)[] = new Array(song.patterns.length).fill(
-    undefined,
-  );
-  const newPatterns: Pattern[] = [];
-  for (let i = 0; i < song.songLength; i++) {
-    const pat = song.orders[i] ?? 0;
-    if (pat < 0 || pat >= song.patterns.length) continue;
-    if (remap[pat] === undefined) {
-      remap[pat] = newPatterns.length;
-      newPatterns.push(song.patterns[pat]!);
-    }
-  }
-
-  const newOrders = new Array<number>(song.orders.length).fill(0);
-  for (let i = 0; i < song.songLength; i++) {
-    const pat = song.orders[i] ?? 0;
-    const mapped = remap[pat];
-    newOrders[i] = mapped ?? 0;
-  }
-
-  let changed = newPatterns.length !== song.patterns.length;
-  if (!changed) {
-    for (let i = 0; i < song.orders.length; i++) {
-      if (newOrders[i] !== (song.orders[i] ?? 0)) {
-        changed = true;
-        break;
-      }
-    }
-  }
-  if (!changed) return { song, remap };
-
-  return {
-    song: { ...song, orders: newOrders, patterns: newPatterns },
-    remap,
-  };
-}
+export const cleanupOrders = orderOps.cleanupOrders;
 
 /**
  * Append a copy of the pattern under `order` and point the slot at the copy.

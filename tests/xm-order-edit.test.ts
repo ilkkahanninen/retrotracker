@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emptyXmSong } from "~/core/xm/format";
-import { setXmOrderPattern } from "~/core/xm/mutations";
+import { emptyXmPattern, emptyXmSong } from "~/core/xm/format";
+import { cleanupXmOrders, setXmOrderPattern } from "~/core/xm/mutations";
 import { resetXmCursor, setXmCursor, xmCursor } from "~/state/cursorXm";
 import { clearHistory, setSong, setTransport, xm2Song } from "~/state/song";
 import {
@@ -127,5 +127,34 @@ describe("transport gating", () => {
     setXmCursor({ order: 0, row: 0, channel: 0, field: "note" });
     insertXmOrderSlot();
     expect(xm2Song()!.songLength).toBe(3);
+  });
+});
+
+describe("cleanupXmOrders", () => {
+  it("renumbers by first appearance, drops unused, keeps per-pattern row counts", () => {
+    let s = emptyXmSong();
+    s = {
+      ...s,
+      patterns: [16, 32, 48, 64].map((rows) =>
+        emptyXmPattern(rows, s.channelCount),
+      ),
+      songLength: 4,
+      orders: Object.assign(s.orders.slice(), [3, 1, 3, 0]),
+      restartPosition: 2,
+    };
+    // A stale reference past songLength must not survive.
+    s.orders[10] = 2;
+    const { song: next, remap } = cleanupXmOrders(s);
+    expect(next.patterns.map((p) => p.rowCount)).toEqual([64, 32, 16]);
+    expect(next.orders.slice(0, 4)).toEqual([0, 1, 0, 2]);
+    expect(next.orders[10]).toBe(0);
+    expect(next.orders.length).toBe(s.orders.length);
+    expect(remap).toEqual([2, 1, undefined, 0]);
+    expect(next.restartPosition).toBe(2);
+  });
+
+  it("returns the same song when already tidy", () => {
+    const s = emptyXmSong();
+    expect(cleanupXmOrders(s).song).toBe(s);
   });
 });

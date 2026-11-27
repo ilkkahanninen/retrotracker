@@ -34,6 +34,7 @@ import {
   setSong,
   setTransport,
   song,
+  undo,
   xm2Song,
 } from "../../src/state/song";
 import { setView } from "../../src/state/view";
@@ -261,8 +262,38 @@ describe("menus with an FT2 song", () => {
     expect(xm2Song()!.patterns.length).toBe(before + 1);
   });
 
-  it("Order → Clean up is disabled (no FT2 implementation)", () => {
+  it("Order → Clean up renumbers by first use, drops unused patterns, and undoes", () => {
     seed();
+    const { container } = render(() => <App />);
+    // Patterns 0 (has the seeded note), 1 and 2; order list plays 2 then 0.
+    fireEvent.click(menuItem(container, "Order", "New blank pattern"));
+    fireEvent.click(menuItem(container, "Order", "Insert slot"));
+    fireEvent.click(menuItem(container, "Order", "New blank pattern"));
+    fireEvent.click(menuItem(container, "Order", "Previous pattern"));
+    const before = xm2Song()!;
+    expect(before.patterns.length).toBe(3);
+    const played = before.orders.slice(0, before.songLength);
+    const expectPatterns = [...new Set(played)].map((p) => before.patterns[p]);
+
+    fireEvent.click(menuItem(container, "Order", "Clean up"));
+    const after = xm2Song()!;
+    expect(after.patterns).toEqual(expectPatterns);
+    expect(after.patterns.length).toBeLessThan(3);
+    // Same music: every slot still points at the same pattern object.
+    for (let i = 0; i < after.songLength; i++) {
+      expect(after.patterns[after.orders[i]!]).toBe(
+        before.patterns[before.orders[i]!],
+      );
+    }
+    expect(after.orders[0]).toBe(0);
+
+    undo();
+    expect(xm2Song()!.patterns.length).toBe(3);
+  });
+
+  it("Order → Clean up is disabled while playing", () => {
+    seed();
+    setTransport("playing");
     const { container } = render(() => <App />);
     expect(isDisabled(menuItem(container, "Order", "Clean up"))).toBe(true);
   });

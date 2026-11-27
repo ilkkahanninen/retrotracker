@@ -12,8 +12,6 @@
  * - `insertOrder` — PT's signature has no `patternNumber` (it duplicates
  *   the slot's current pattern); XM takes one. Different surfaces,
  *   kept per-format. PT can build its variant on `insertOrderAt`.
- * - `cleanupOrders` — only PT uses this today; if XM grows the same
- *   need, lift then.
  */
 
 interface SongShape<TPattern> {
@@ -46,6 +44,23 @@ export interface OrderOps<TSong, TPattern> {
   /** Delete the slot at `at`, pulling subsequent slots left. The freed
    *  trailing slot is zeroed. Refuses to drop song length below 1. */
   deleteOrder: (song: TSong, at: number) => TSong;
+  /**
+   * Tidy the order list and pattern bank: renumber patterns in order of
+   * first appearance in the order list and drop the ones no slot
+   * references.
+   *
+   *   orders [4,5,0,0,1] over patterns [p0..p5]
+   *        → [0,1,2,2,3] over patterns [p4,p5,p0,p1]
+   *
+   * `remap[oldIndex]` is the pattern's new index, or `undefined` if it was
+   * dropped — side-tables keyed by pattern index re-key through it. Slots
+   * beyond `songLength` are zeroed so nothing written to disk points past
+   * the trimmed bank. Returns the same song reference when already tidy.
+   */
+  cleanupOrders: (song: TSong) => {
+    song: TSong;
+    remap: (number | undefined)[];
+  };
 }
 
 export function makeOrderOps<TPattern, TSong extends SongShape<TPattern>>(
@@ -126,7 +141,48 @@ export function makeOrderOps<TPattern, TSong extends SongShape<TPattern>>(
     return { ...song, orders: newOrders, songLength: song.songLength - 1 };
   }
 
+  function cleanupOrders(song: TSong): {
+    song: TSong;
+    remap: (number | undefined)[];
+  } {
+    const remap: (number | undefined)[] = new Array(song.patterns.length).fill(
+      undefined,
+    );
+    const newPatterns: TPattern[] = [];
+    for (let i = 0; i < song.songLength; i++) {
+      const pat = song.orders[i] ?? 0;
+      if (pat < 0 || pat >= song.patterns.length) continue;
+      if (remap[pat] === undefined) {
+        remap[pat] = newPatterns.length;
+        newPatterns.push(song.patterns[pat]!);
+      }
+    }
+
+    const newOrders = new Array<number>(song.orders.length).fill(0);
+    for (let i = 0; i < song.songLength; i++) {
+      const pat = song.orders[i] ?? 0;
+      newOrders[i] = remap[pat] ?? 0;
+    }
+
+    let changed = newPatterns.length !== song.patterns.length;
+    if (!changed) {
+      for (let i = 0; i < song.orders.length; i++) {
+        if (newOrders[i] !== (song.orders[i] ?? 0)) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (!changed) return { song, remap };
+
+    return {
+      song: { ...song, orders: newOrders, patterns: newPatterns },
+      remap,
+    };
+  }
+
   return {
+    cleanupOrders,
     nextPatternAtOrder,
     prevPatternAtOrder,
     newPatternAtOrder,

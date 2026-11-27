@@ -1,5 +1,6 @@
 import type { XmSong } from "../core/xm/types";
 import {
+  cleanupXmOrders,
   deleteXmOrder,
   duplicateXmPatternAtOrder,
   insertXmOrderAtCursor,
@@ -48,3 +49,13 @@ export const insertXmOrderSlot = ops.insertSlot;
 export const deleteXmOrderSlot = ops.deleteSlot;
 export const newXmBlankPatternAtOrder = ops.newBlankPattern;
 export const duplicateXmCurrentPattern = ops.duplicatePattern;
+
+/**
+ * Order → Clean up for FT2 songs. Refused during any playback, like the PT
+ * one: the worklet's song snapshot still uses the old pattern numbers.
+ * Pattern names are a PT-only side-table, so there is nothing to re-key.
+ */
+export function cleanupXmOrderList(): void {
+  if (transport() === "playing") return;
+  commitEditXm((s) => cleanupXmOrders(s).song);
+}

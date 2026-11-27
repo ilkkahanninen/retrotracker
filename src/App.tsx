@@ -242,6 +242,7 @@ import {
 } from "./state/xmEdit";
 import { setXmSampleSelection } from "./state/xmSampleSelection";
 import {
+  cleanupXmOrderList,
   deleteXmOrderSlot,
   duplicateXmCurrentPattern,
   insertXmOrderSlot,
@@ -1104,13 +1105,11 @@ export const App: Component = () => {
       {
         // Renumbers patterns by appearance and discards unused. Gated on
         // playing because the worklet's snapshot still references the
-        // pre-cleanup pattern indices — same reason the toolbar button
-        // disables. PT-only: there is no FT2 clean-up yet, so the item is
-        // disabled rather than silently inert.
+        // pre-cleanup pattern indices.
         icon: Eraser,
         label: "Clean up",
-        onClick: cleanupOrderList,
-        disabled: !hasSong || playing || xm,
+        onClick: xm ? cleanupXmOrderList : cleanupOrderList,
+        disabled: !hasSong || playing,
       },
     ];
   };
