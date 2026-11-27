@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, render } from "@solidjs/testing-library";
 
 import { App } from "../../src/App";
-import { emptyXmSong } from "../../src/core/xm/format";
+import { emptyXmInstrument, emptyXmSong } from "../../src/core/xm/format";
 import {
   setXmChannelCount,
   setXmPatternRowCount,
@@ -32,6 +32,13 @@ import {
   xm2Song,
 } from "../../src/state/song";
 import { setView } from "../../src/state/view";
+import {
+  currentXmInstrument,
+  currentXmOctave,
+  currentXmSampleIndex,
+  setCurrentXmInstrument,
+  setCurrentXmOctave,
+} from "../../src/state/xmEdit";
 
 function reset() {
   setSong(null);
@@ -41,6 +48,8 @@ function reset() {
   resetXmCursor();
   setCloudOrigin(null);
   setView("pattern");
+  setCurrentXmInstrument(1);
+  setCurrentXmOctave(4);
   localStorage.clear();
 }
 beforeEach(reset);
@@ -89,5 +98,47 @@ describe("boot restore of an FT2 session", () => {
     expect(cloudOrigin()).toEqual({ resource: "modules", name: "eight.xm" });
     expect(transport()).toBe("ready");
     expect(dirty()).toBe(false);
+  });
+});
+
+describe("boot restore of FT2 editing state", () => {
+  // It used to come back on instrument 1, sample 0, octave 4 and the note
+  // column every time: none of it was saved, and the PT-shaped fields
+  // that were (31 samples, octaves 1..3) couldn't carry it.
+  beforeEach(() => {
+    const song = emptyXmSong();
+    const three = emptyXmInstrument();
+    three.samples = [three.samples[0]!, three.samples[0]!, three.samples[0]!];
+    song.instruments = [emptyXmInstrument(), emptyXmInstrument(), three];
+    saveSession({
+      song,
+      filename: "edit.xm",
+      view: "sample",
+      cursor: { order: 0, row: 12, channel: 2, field: "note" },
+      currentSample: 1,
+      currentOctave: 2,
+      editStep: 1,
+      xmEdit: { instrument: 3, sampleIndex: 2, octave: 6, field: "effectHi" },
+    });
+  });
+
+  it("restores instrument, sample, octave and cursor field — with the editor mounted", () => {
+    // The instrument view used to zero the sample index from an effect
+    // that also ran on mount; the restored index has to survive that.
+    render(() => <App />);
+    expect(currentXmInstrument()).toBe(3);
+    expect(currentXmSampleIndex()).toBe(2);
+    expect(currentXmOctave()).toBe(6);
+    expect(xmCursor()).toMatchObject({
+      row: 12,
+      channel: 2,
+      field: "effectHi",
+    });
+  });
+
+  it("switching instrument afterwards still goes to its first sample", () => {
+    render(() => <App />);
+    setCurrentXmInstrument(1);
+    expect(currentXmSampleIndex()).toBe(0);
   });
 });

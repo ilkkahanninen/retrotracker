@@ -6,7 +6,13 @@ import {
   type Song,
 } from "../core/song";
 import { emptySong } from "../core/mod/format";
-import { emptyXmSong } from "../core/xm/format";
+import { emptyXmInstrument, emptyXmSong } from "../core/xm/format";
+import {
+  XM_INSTRUMENT_NAME_MAX,
+  XM_MAX_INSTRUMENTS,
+  type XmInstrument,
+  type XmSong,
+} from "../core/xm/types";
 import { parseModule } from "../core/mod/parser";
 import { writeModule } from "../core/mod/writer";
 import { parseXm } from "../core/xm/parser";
@@ -49,7 +55,14 @@ import {
   setXmSelectedEffectIndex,
   setXmSelectedEffectParam,
 } from "./xmSampleEdit";
-import { setCurrentXmInstrument, setCurrentXmSampleIndex } from "./xmEdit";
+import {
+  currentXmInstrument,
+  currentXmOctave,
+  currentXmSampleIndex,
+  setCurrentXmInstrument,
+  setCurrentXmOctave,
+  setCurrentXmSampleIndex,
+} from "./xmEdit";
 import { reconcileUiToSong } from "./reconcile";
 import { getSourceStore } from "./sourceStore";
 import { dismissSharedBanner } from "./shareLoad";
@@ -109,6 +122,7 @@ import {
   resolvePendingSources,
   type PendingSource,
   type SamplerSourceInputs,
+  type XmEditSnapshot,
   type XmSamplerSourceInputs,
   type XmChiptuneSourceInputs,
 } from "./persistence";
@@ -150,6 +164,8 @@ export interface LoadedSession {
   currentSample?: number;
   currentOctave?: number;
   editStep?: number;
+  /** FT2 editing state — see `SessionInputs.xmEdit`. */
+  xmEdit?: XmEditSnapshot;
   chiptuneSources?: Record<number, ChiptuneParams>;
   samplerSources?: Record<number, SamplerSourceInputs>;
   patternNames?: Record<number, string>;
@@ -442,6 +458,21 @@ export function applyLoadedSession(loaded: LoadedSession): void {
     resetXmCursor();
     setPlayPos({ order: 0, row: 0 });
   }
+  // FT2: put the editor back where it was. After `setSong` and the
+  // cursor seed above, and in this order — picking the instrument resets
+  // the sample index, so the index goes last, clamped to the samples
+  // the instrument really has.
+  if (loaded.xmEdit && loaded.song.format === "FT2") {
+    const edit = loaded.xmEdit;
+    setXmCursor({ ...xmCursor(), field: edit.field });
+    setCurrentXmOctave(edit.octave);
+    setCurrentXmInstrument(edit.instrument);
+    const samples =
+      loaded.song.instruments[edit.instrument - 1]?.samples.length ?? 0;
+    setCurrentXmSampleIndex(
+      Math.max(0, Math.min(samples - 1, edit.sampleIndex)),
+    );
+  }
   if (typeof loaded.currentSample === "number")
     setCurrentSample(loaded.currentSample);
   if (typeof loaded.currentOctave === "number")
@@ -502,13 +533,27 @@ export function applyLoadedSession(loaded: LoadedSession): void {
 /**
  * The cursor to persist for the loaded song. The on-disk shape is the PT
  * `Cursor`; FT2 projects edit through `xmCursor`, so its position is
- * mapped onto that shape (the field resets to "note" — PT and FT2 field
- * names don't line up) instead of saving the dormant PT cursor.
+ * mapped onto that shape instead of saving the dormant PT cursor. The
+ * field can't be (PT and FT2 field names don't line up) — it travels in
+ * `xmEditSnapshot` instead.
  */
 export function cursorForPersistence(): Cursor {
   if (song()?.format !== "FT2") return cursor();
   const c = xmCursor();
   return { order: c.order, row: c.row, channel: c.channel, field: "note" };
+}
+
+/** FT2 editing state to persist alongside the song, or undefined for a
+ *  PT project. Reads the signals, so calling it inside an effect makes
+ *  the effect follow them. */
+export function xmEditSnapshot(): XmEditSnapshot | undefined {
+  if (song()?.format !== "FT2") return undefined;
+  return {
+    instrument: currentXmInstrument(),
+    sampleIndex: currentXmSampleIndex(),
+    octave: currentXmOctave(),
+    field: xmCursor().field,
+  };
 }
 
 /** Parse `"inst:sampleIdx"` back to a tuple; returns `[null, 0]` on
@@ -587,6 +632,29 @@ export function withInfoTextAsSampleNames(s: ModSong, text: string): ModSong {
     name: lines[i] ?? "",
   }));
   return { ...s, samples };
+}
+
+/**
+ * FT2 counterpart of `withInfoTextAsSampleNames`: stamp the info-text
+ * lines into the instrument names, the slot an `.xm` has for a message
+ * (and where loading one reads the info text back from). Same rule as
+ * PT — a no-op on empty text; otherwise every instrument's name becomes
+ * its line, or blank past the end of the text. Instruments are appended
+ * when the text has more lines than the song has instruments, up to the
+ * format's 128.
+ */
+export function withInfoTextAsInstrumentNames(s: XmSong, text: string): XmSong {
+  if (text.length === 0) return s;
+  const lines = wrapInfoText(text, XM_INSTRUMENT_NAME_MAX, XM_MAX_INSTRUMENTS);
+  const count = Math.max(s.instruments.length, lines.length);
+  const instruments: XmInstrument[] = [];
+  for (let i = 0; i < count; i++) {
+    instruments.push({
+      ...(s.instruments[i] ?? emptyXmInstrument()),
+      name: lines[i] ?? "",
+    });
+  }
+  return { ...s, instruments };
 }
 
 export function chiptuneSourcesSnapshot(): Record<number, ChiptuneParams> {
@@ -682,7 +750,7 @@ export function exportMod(): void {
 export function exportXm(): void {
   const s = song();
   if (!s || s.format !== "FT2") return;
-  const bytes = writeXm(s);
+  const bytes = writeXm(withInfoTextAsInstrumentNames(s, infoText()));
   io.download(
     deriveExportFilename(filename(), s.title, "xm"),
     bytes,
@@ -803,6 +871,7 @@ export function projectBytes(): Uint8Array | null {
     currentSample: currentSample(),
     currentOctave: currentOctave(),
     editStep: editStep(),
+    xmEdit: xmEditSnapshot(),
     chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
     samplerSources: isPt2 ? samplerSourcesSnapshot() : undefined,
     patternNames: patternNames(),
@@ -836,7 +905,7 @@ export function moduleBytes(): Uint8Array | null {
   if (s.format === "PT2") {
     return writeModule(withInfoTextAsSampleNames(s, infoText()));
   }
-  return writeXm(s);
+  return writeXm(withInfoTextAsInstrumentNames(s, infoText()));
 }
 
 /**

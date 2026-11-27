@@ -235,6 +235,54 @@ describe("FT2 .retro persistence", () => {
     expect(projectFromBytes(bytes)!.patternNames).toEqual({ 0: "intro" });
   });
 
+  it("round-trips the FT2 editing state", () => {
+    const xmEdit = {
+      instrument: 17,
+      sampleIndex: 3,
+      octave: 6,
+      field: "volLo",
+    } as const;
+    const loaded = projectFromBytes(projectToBytes(baseInputs({ xmEdit })));
+    expect(loaded!.xmEdit).toEqual(xmEdit);
+  });
+
+  it("an FT2 project saved without editing state loads without one", () => {
+    const loaded = projectFromBytes(projectToBytes(baseInputs()));
+    expect(loaded!.xmEdit).toBeUndefined();
+  });
+
+  it("clamps each field of a tampered editing state on its own", () => {
+    const json = JSON.parse(
+      new TextDecoder().decode(projectToBytes(baseInputs())),
+    );
+    json.xmEdit = {
+      instrument: 9999,
+      sampleIndex: -4,
+      octave: 42,
+      field: "nope",
+    };
+    const loaded = projectFromBytes(
+      new TextEncoder().encode(JSON.stringify(json)),
+    );
+    expect(loaded!.xmEdit).toEqual({
+      instrument: 128,
+      sampleIndex: 0,
+      octave: 7,
+      field: "note",
+    });
+  });
+
+  it("a PT project never carries FT2 editing state", async () => {
+    const { emptySong } = await import("~/core/mod/format");
+    const bytes = projectToBytes({
+      ...baseInputs(),
+      song: emptySong(),
+      xmEdit: { instrument: 5, sampleIndex: 1, octave: 3, field: "note" },
+    });
+    expect(new TextDecoder().decode(bytes)).not.toContain("xmEdit");
+    expect(projectFromBytes(bytes)!.xmEdit).toBeUndefined();
+  });
+
   it("PT2 payload still round-trips (regression)", async () => {
     // The widening of SessionInputs.song to Song must not break the PT2 path.
     const { emptySong } = await import("~/core/mod/format");

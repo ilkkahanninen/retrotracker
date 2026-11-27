@@ -152,12 +152,6 @@ export const InstrumentView: Component<Props> = (props) => {
   const instrument = (): XmInstrument | undefined =>
     props.song.instruments[slot1Based() - 1];
 
-  // Reset to the first sample whenever the instrument switches.
-  createEffect(() => {
-    currentXmInstrument();
-    setCurrentXmSampleIndex(0);
-  });
-
   // Selections are bound to a specific buffer — drop them when the
   // active (instrument, sample) pair changes.
   createEffect(() => {

@@ -182,6 +182,7 @@ import {
   chiptuneSourcesSnapshot,
   cloudOrigin,
   cursorForPersistence,
+  xmEditSnapshot,
   hydrateRestoredSources,
   hydratingSources,
   unreadSourcesSnapshot,
@@ -647,6 +648,9 @@ export const App: Component = () => {
       const samp = currentSample();
       const oct = currentOctave();
       const step = editStep();
+      // FT2: current instrument / sample / octave / cursor field. Read
+      // here so a change to any of them schedules a save.
+      const xmEdit = xmEditSnapshot();
       workbenches();
       const names = patternNames();
       if (!s) return;
@@ -678,6 +682,7 @@ export const App: Component = () => {
             currentSample: samp,
             currentOctave: oct,
             editStep: step,
+            xmEdit,
             chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
             samplerSources: isPt2 ? samplerSourcesSnapshot() : undefined,
             patternNames: names,

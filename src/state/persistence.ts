@@ -12,12 +12,15 @@ import { writeXm } from "../core/xm/writer";
 import {
   XM_MAX_BPM,
   XM_MAX_CHANNELS,
+  XM_MAX_INSTRUMENTS,
   XM_MAX_ORDERS,
   XM_MAX_PATTERN_ROWS,
   XM_MIN_BPM,
   type XmSong,
 } from "../core/xm/types";
 import { FIELDS, type Cursor, type Field } from "./cursor";
+import { XM_FIELDS, type XmField } from "./cursorXm";
+import { XM_MAX_OCTAVE, XM_MIN_OCTAVE } from "./xmEdit";
 import type { View } from "./view";
 import type { ChiptuneParams } from "../core/audio/chiptune";
 import { chiptuneFromJson } from "../core/audio/chiptune";
@@ -165,6 +168,9 @@ interface PersistedShape {
   currentSample: number;
   currentOctave: number;
   editStep: number;
+  /** FT2 projects only: where the FT2 editor was. Optional, so payloads
+   *  written before it existed still validate. */
+  xmEdit?: XmEditSnapshot;
   /**
    * v≥2 only: per-slot chiptune source params. Slot index → params.
    * Optional so v=1 payloads still validate.
@@ -242,6 +248,15 @@ export interface XmChiptuneSourceInputs {
   xm: XmTransformerParams;
 }
 
+/** Where the FT2 editor is: current instrument (1-based), sample within
+ *  it, octave, and the cursor's field. */
+export interface XmEditSnapshot {
+  instrument: number;
+  sampleIndex: number;
+  octave: number;
+  field: XmField;
+}
+
 export interface SessionInputs {
   /**
    * Song to persist. The `format` discriminator picks the right writer:
@@ -257,6 +272,13 @@ export interface SessionInputs {
   currentSample: number;
   currentOctave: number;
   editStep: number;
+  /**
+   * FT2 editing state. `currentSample` / `currentOctave` and the cursor's
+   * field are PT-shaped (31 samples, octaves 1..3, PT field names) and
+   * can't carry it, so an FT2 project keeps its own: without this a
+   * reload always came back on instrument 1, sample 0, the note column.
+   */
+  xmEdit?: XmEditSnapshot;
   /** Per-slot chiptune source params (slot index → params). Optional. */
   chiptuneSources?: Record<number, ChiptuneParams>;
   /** Per-slot sampler source WAVs (slot index → source). Optional. */
@@ -482,6 +504,9 @@ function buildPayload(
     currentSample: state.currentSample,
     currentOctave: state.currentOctave,
     editStep: state.editStep,
+    ...(state.song.format === "FT2" && state.xmEdit
+      ? { xmEdit: state.xmEdit }
+      : {}),
     ...(hasChiptune ? { chiptuneSources: state.chiptuneSources } : {}),
     ...(hasSampler
       ? {
@@ -636,6 +661,7 @@ function payloadToSession(parsed: unknown): LoadedSession | null {
     currentSample: clamp(parsed.currentSample, 1, 31, 1),
     currentOctave: clamp(parsed.currentOctave, 1, 3, 2),
     editStep: clamp(parsed.editStep, 0, 16, 1),
+    ...(format === "FT2" ? parseXmEdit(parsed.xmEdit) : {}),
     chiptuneSources: parseChiptuneSources(parsed.chiptuneSources),
     samplerSources: parseSamplerSources(parsed.samplerSources),
     patternNames: parsePatternNames(parsed.patternNames, song.patterns.length),
@@ -1703,6 +1729,27 @@ function isPersistedShape(v: unknown): v is PersistedShape {
  *  clamps against the actual song (`reconcileUiToSong`). PT's fixed
  *  64 × 4 grid used to be applied to FT2 too, snapping the cursor back
  *  on any pattern longer than 64 rows or wider than 4 channels. */
+/** Validate the FT2 editing state. Returns `{}` when absent or not an
+ *  object, so the session restores the defaults; a present one has each
+ *  field clamped into range on its own. The sample index is clamped to
+ *  the format's cap here and to the instrument's real sample count when
+ *  it is applied. */
+function parseXmEdit(raw: unknown): { xmEdit?: XmEditSnapshot } {
+  if (!raw || typeof raw !== "object") return {};
+  const x = raw as Record<string, unknown>;
+  const field = x["field"];
+  return {
+    xmEdit: {
+      instrument: clamp(x["instrument"], 1, XM_MAX_INSTRUMENTS, 1),
+      sampleIndex: clamp(x["sampleIndex"], 0, 15, 0),
+      octave: clamp(x["octave"], XM_MIN_OCTAVE, XM_MAX_OCTAVE, 4),
+      field: (XM_FIELDS as readonly unknown[]).includes(field)
+        ? (field as XmField)
+        : "note",
+    },
+  };
+}
+
 function sanitiseCursor(c: Cursor, format: "PT2" | "FT2"): Cursor {
   const field: Field = (FIELDS as readonly string[]).includes(c.field)
     ? c.field
