@@ -1182,6 +1182,42 @@ const buildTremoloSquare = () =>
   buildLfoWaveform("tremolo-square", 0x72, 0x07, 0x48);
 
 /**
+ * 63-multi-retrig (Rxy): R83 retriggers every 3 ticks and keeps its rhythm
+ * across rows.
+ *
+ * Only the timing is compared, and only in the one arrangement where FT2
+ * and libxmp agree on it:
+ *   - the first row carries a "set volume" in the volume column. FT2
+ *     counts tick 0 of an Rxy row only when the volume column leaves 0
+ *     behind, so a bare Rxy fires one tick early; libxmp always counts
+ *     from the note.
+ *   - the volume change is 8 ("none"). FT2 re-applies the row's "set
+ *     volume" after every retrigger and uses its own formulas for R6y /
+ *     REy; libxmp does neither.
+ * Those cases, and the counter surviving a note without an instrument, are
+ * unit-tested against ft2-clone.
+ */
+function buildMultiRetrig(): XmSong {
+  const samp = newSample(triangleSample(512), "tri");
+  const inst = newInstrument(samp, "tri");
+  const pat = { rowCount: 16, rows: emptyRows(16, 4) };
+  pat.rows[0]![0] = cell({
+    note: 49,
+    instrument: 1,
+    volumeColumn: 0x40,
+    effect: 0x1b,
+    effectParam: 0x83,
+  });
+  for (let r = 1; r <= 4; r++) {
+    pat.rows[r]![0] = cell({ effect: 0x1b, effectParam: 0x00 });
+  }
+  let s = songWithPatterns([pat], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "multi-retrig";
+  return s;
+}
+
+/**
  * 34-volcol-set-vol (high nibble 1..5).
  */
 function buildVolColSetVol(): XmSong {
@@ -1697,6 +1733,7 @@ const FIXTURES: { name: string; build: () => XmSong }[] = [
   { name: "60-vibrato-ramp", build: buildVibratoRamp },
   { name: "61-vibrato-square", build: buildVibratoSquare },
   { name: "62-tremolo-square", build: buildTremoloSquare },
+  { name: "63-multi-retrig", build: buildMultiRetrig },
 ];
 
 const OUT_DIR = fileURLToPath(new URL("./", import.meta.url));

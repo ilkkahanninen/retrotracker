@@ -258,9 +258,12 @@ interface XmVoice {
    * row follows 4xy / 6xy without continuing the vibrato.
    */
   vibOffset: number;
-  /** Multi-retrigger Rxy memory. */
-  retrigInterval: number;
-  retrigVolChange: number;
+  /** Rxy memory: ticks between retriggers (y) and volume change (x). */
+  retrigSpeed: number;
+  retrigVol: number;
+  /** Rxy tick counter (FT2 `noteRetrigCounter`). It runs across rows and
+   *  is only reset when an instrument is triggered. */
+  retrigCounter: number;
   /** E60: row the next E6x on this channel loops back to. Persists across
    *  patterns (FT2 never resets it), so it defaults to row 0. */
   patLoopStartRow: number;
@@ -386,8 +389,9 @@ function newVoice(): XmVoice {
     panSlideLast: 0,
     sampleOffsetLast: 0,
     vibOffset: 0,
-    retrigInterval: 0,
-    retrigVolChange: 0,
+    retrigSpeed: 0,
+    retrigVol: 0,
+    retrigCounter: 0,
     patLoopStartRow: 0,
     patLoopCounter: 0,
     keyOff: false,
@@ -859,6 +863,7 @@ export class XmReplayer {
     if ((v.vibWaveform & 4) === 0) v.vibPos = 0;
     if ((v.tremWaveform & 4) === 0) v.tremPos = 0;
     v.tremorPos = 0;
+    v.retrigCounter = 0;
     v.keyOff = false;
     const inst = v.envInstrument;
     if (inst?.volumeEnvelope.enabled) resetEnvelope(v.volEnv);
@@ -1483,9 +1488,17 @@ export class XmReplayer {
       case 0x19: // Pxy — pan slide memory
         if (cell.effectParam !== 0) v.panSlideLast = cell.effectParam;
         break;
-      case 0x1b: // Rxy — multi-retrigger setup
-        if (x !== 0) v.retrigVolChange = x;
-        if (y !== 0) v.retrigInterval = y;
+      case 0x1b:
+        // Rxy multi-retrigger: store the parameters, then take the first
+        // step on tick 0 — but only if the volume column "is 0". FT2
+        // tests the value its tick-0 volume-column handler left behind,
+        // not the column itself, so a column that sets volume, vibrato
+        // speed or panning to 0 also lets the step through.
+        if (y !== 0) v.retrigSpeed = y;
+        if (x !== 0) v.retrigVol = x;
+        if (this.retrigVolumeColumnValue(v, cell.volumeColumn) === 0) {
+          this.runMultiRetrig(v, cell);
+        }
         break;
       case 0x21:
         this.applyXExtendedTick0(channel, x, y);
@@ -1688,17 +1701,7 @@ export class XmReplayer {
         this.runTremor(v, cell.effectParam);
         break;
       case 0x1b:
-        // Rxy multi-retrigger.
-        if (
-          v.retrigInterval > 0 &&
-          this.state.tickInRow % v.retrigInterval === 0
-        ) {
-          if (v.sample) {
-            v.pos = 0;
-            v.looped = false;
-          }
-          this.applyRetrigVolChange(v);
-        }
+        this.runMultiRetrig(v, cell);
         break;
       default:
         break;
@@ -1710,61 +1713,104 @@ export class XmReplayer {
     void x;
   }
 
-  private applyRetrigVolChange(v: XmVoice): void {
-    // ft2-clone uses a 16-entry table here; the four common values are:
-    //   1 = -1, 2 = -2, 3 = -4, 4 = -8, 5 = -16
-    //   6 = ×2/3, 7 = ×1/2
-    //   9..D = +1, +2, +4, +8, +16
-    //   E = ×3/2, F = ×2
-    const code = v.retrigVolChange;
-    switch (code) {
-      case 0:
-        break;
+  /**
+   * What FT2's tick-0 volume-column handler leaves in its scratch byte,
+   * which Rxy then tests against 0: the new volume for "set volume" and
+   * the fine slides, speed × 4 for "set vibrato speed", the shifted
+   * nibble for "set panning", and the untouched column for everything
+   * else. Call after the volume column's tick-0 half has been applied.
+   */
+  private retrigVolumeColumnValue(v: XmVoice, byte: number): number {
+    const lo = byte & 0x0f;
+    switch (byte >>> 4) {
       case 1:
-        v.volume = Math.max(0, v.volume - 1);
-        break;
       case 2:
-        v.volume = Math.max(0, v.volume - 2);
-        break;
       case 3:
-        v.volume = Math.max(0, v.volume - 4);
-        break;
       case 4:
-        v.volume = Math.max(0, v.volume - 8);
-        break;
       case 5:
-        v.volume = Math.max(0, v.volume - 16);
+        return Math.min(64, byte - 0x10);
+      case 0x8:
+      case 0x9:
+        return v.volume;
+      case 0xa:
+        return lo * 4;
+      case 0xc:
+        return (lo << 4) & 0xff;
+      default:
+        return byte;
+    }
+  }
+
+  /**
+   * One Rxy step (ft2-clone `doMultiNoteRetrig`), called on tick 0 when the
+   * volume column allows it and on every later tick. A counter — not the
+   * tick number — decides when to fire, so the rhythm carries across rows
+   * and only an instrument trigger restarts it. On firing: apply the
+   * volume change, let a "set volume" or "set panning" volume column
+   * override it, and replay the note.
+   */
+  private runMultiRetrig(v: XmVoice, cell: XmNote): void {
+    const count = v.retrigCounter + 1;
+    if (count < v.retrigSpeed) {
+      v.retrigCounter = count;
+      return;
+    }
+    v.retrigCounter = 0;
+
+    let vol = v.volume;
+    switch (v.retrigVol) {
+      case 0x1:
+        vol -= 1;
         break;
-      case 6:
-        v.volume = Math.floor((v.volume * 2) / 3);
+      case 0x2:
+        vol -= 2;
         break;
-      case 7:
-        v.volume = Math.floor(v.volume / 2);
+      case 0x3:
+        vol -= 4;
         break;
-      case 9:
-        v.volume = Math.min(64, v.volume + 1);
+      case 0x4:
+        vol -= 8;
+        break;
+      case 0x5:
+        vol -= 16;
+        break;
+      case 0x6:
+        vol = (vol >> 1) + (vol >> 3) + (vol >> 4);
+        break;
+      case 0x7:
+        vol >>= 1;
+        break;
+      case 0x9:
+        vol += 1;
         break;
       case 0xa:
-        v.volume = Math.min(64, v.volume + 2);
+        vol += 2;
         break;
       case 0xb:
-        v.volume = Math.min(64, v.volume + 4);
+        vol += 4;
         break;
       case 0xc:
-        v.volume = Math.min(64, v.volume + 8);
+        vol += 8;
         break;
       case 0xd:
-        v.volume = Math.min(64, v.volume + 16);
+        vol += 16;
         break;
       case 0xe:
-        v.volume = Math.min(64, Math.floor((v.volume * 3) / 2));
+        vol = (vol >> 1) + vol;
         break;
       case 0xf:
-        v.volume = Math.min(64, v.volume * 2);
+        vol += vol;
         break;
       default:
-        break;
+        break; // 0 and 8 leave the volume alone
     }
+    v.volume = Math.max(0, Math.min(64, vol));
+
+    const vc = cell.volumeColumn;
+    if (vc >= 0x10 && vc <= 0x50) v.volume = vc - 0x10;
+    else if (vc >= 0xc0 && vc <= 0xcf) v.panning = (vc & 0x0f) << 4;
+
+    this.triggerNote(v, 0);
   }
 
   /** One tone-portamento step (ft2-clone `portamento`). */

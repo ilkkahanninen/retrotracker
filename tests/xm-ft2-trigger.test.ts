@@ -251,3 +251,93 @@ describe("effects keyed on the tick number", () => {
     expect(pl).toBeCloseTo(pr, 5);
   });
 });
+
+describe("Rxy multi-retrigger", () => {
+  /** One-shot blip shorter than a tick: each trigger is one audible tick,
+   *  and its peak is the volume it was triggered at. */
+  function blip(): XmInstrument {
+    const inst = instrument(64);
+    inst.samples[0] = {
+      ...inst.samples[0]!,
+      data: new Int8Array(40).fill(100),
+      loopLength: 0,
+      loopType: "none",
+    };
+    return inst;
+  }
+
+  /** `[tick, volume]` for every tick that has audio in it. */
+  function triggers(rows: Rows): Array<[number, number]> {
+    const buf = render(rows, [blip()]);
+    const out: Array<[number, number]> = [];
+    for (let t = 0; t < rows.length * 6; t++) {
+      let p = 0;
+      // Past the anti-click ramp, where the blip is at its full level.
+      for (let i = t * TICK + 130; i < (t + 1) * TICK; i++) {
+        p = Math.max(p, Math.abs(buf[i]!));
+      }
+      // A centred voice puts half its level on each side.
+      if (p > 0) out.push([t, Math.round((p / (100 / 128 / 2)) * 64)]);
+    }
+    return out;
+  }
+  const R = (param: number, volumeColumn = 0): Partial<XmNote> => ({
+    effect: 0x1b,
+    effectParam: param,
+    volumeColumn,
+  });
+  const ticks = (rows: Rows) => triggers(rows).map(([t]) => t);
+
+  it("counts tick 0, so a bare Rxy first fires after y - 1 ticks, then every y", () => {
+    expect(ticks([{ ...NOTE, ...R(0x83) }, R(0)])).toEqual([0, 2, 5, 8, 11]);
+  });
+
+  it("does not count tick 0 when the volume column leaves a non-zero value", () => {
+    // Row 0 sets volume 48: tick 0 is skipped, so the first retrigger is a
+    // tick later. Row 1 has no volume column and counts its tick 0 again.
+    expect(ticks([{ ...NOTE, ...R(0x83, 0x40) }, R(0)])).toEqual([0, 3, 6, 9]);
+  });
+
+  it("a volume column that sets the volume to 0 still counts tick 0", () => {
+    // 0x10 = set volume 0 — the value FT2 tests is the result, 0.
+    const withZero = ticks([NOTE, { ...R(0x83, 0x10) }]);
+    const bare = ticks([NOTE, { ...R(0x83) }]);
+    expect(withZero.length).toBeGreaterThan(0);
+    // Silent (volume 0) but on the same schedule: nothing audible on row 1.
+    expect(withZero).toEqual([0]);
+    expect(bare).toEqual([0, 8, 11]);
+  });
+
+  it("the counter runs across rows and is restarted only by an instrument", () => {
+    // R84: fires on the 4th count. A bare note on row 1 does not reset it…
+    expect(
+      ticks([
+        { ...NOTE, ...R(0x84) },
+        { note: 49, ...R(0) },
+      ]),
+    ).toEqual([0, 3, 6, 7, 11]);
+    // …a note with an instrument number does.
+    expect(
+      ticks([
+        { ...NOTE, ...R(0x84) },
+        { ...NOTE, ...R(0) },
+      ]),
+    ).toEqual([0, 3, 6, 9]);
+  });
+
+  it("applies FT2's volume steps, including its 11/16 and 3/2 formulas", () => {
+    const vols = (param: number) =>
+      triggers([{ ...NOTE, ...R(param) }]).map(([, v]) => v);
+    expect(vols(0x22)).toEqual([64, 62, 60, 58]); // -2
+    // 6: (v >> 1) + (v >> 3) + (v >> 4), not 2/3.
+    expect(vols(0x62)).toEqual([64, 44, 29, 18]);
+    expect(vols(0x72)).toEqual([64, 32, 16, 8]); // halve
+    expect(vols(0x82)).toEqual([64, 64, 64, 64]); // none
+  });
+
+  it("re-applies the row's set-volume after every retrigger", () => {
+    // R2y would step the volume down, but the column pins it at 32.
+    const rows: Rows = [{ ...NOTE, ...R(0x22, 0x30) }];
+    expect(triggers(rows).map(([, v]) => v)).toEqual([32, 32, 32]);
+  });
+});
