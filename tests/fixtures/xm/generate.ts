@@ -928,6 +928,136 @@ function buildPositionJump(): XmSong {
 }
 
 /**
+ * 52-pattern-loop (E6x): E60 marks row 2, E62 on row 4 replays rows 2..4
+ * twice more before the song carries on.
+ */
+function buildPatternLoop(): XmSong {
+  const samp = newSample(triangleSample(512), "tri");
+  const inst = newInstrument(samp, "tri");
+  const pat = { rowCount: 16, rows: emptyRows(16, 4) };
+  pat.rows[0]![0] = cell({ note: 49, instrument: 1 });
+  pat.rows[2]![0] = cell({
+    note: 53,
+    instrument: 1,
+    effect: 0x0e,
+    effectParam: 0x60,
+  });
+  pat.rows[4]![0] = cell({
+    note: 56,
+    instrument: 1,
+    effect: 0x0e,
+    effectParam: 0x62,
+  });
+  pat.rows[6]![0] = cell({ note: 61, instrument: 1 });
+  let s = songWithPatterns([pat], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "pattern-loop";
+  return s;
+}
+
+/**
+ * 53-pattern-loop-carry (FT2 "E60 bug"): after a loop has jumped, the next
+ * pattern starts on the loop's start row. Pattern 1's row-0 note must not
+ * sound; playback enters at row 2.
+ */
+function buildPatternLoopCarry(): XmSong {
+  const samp = newSample(triangleSample(512), "tri");
+  const inst = newInstrument(samp, "tri");
+  const pat0 = { rowCount: 16, rows: emptyRows(16, 4) };
+  pat0.rows[0]![0] = cell({ note: 49, instrument: 1 });
+  pat0.rows[2]![0] = cell({ effect: 0x0e, effectParam: 0x60 });
+  pat0.rows[3]![0] = cell({
+    note: 53,
+    instrument: 1,
+    effect: 0x0e,
+    effectParam: 0x61,
+  });
+  const pat1 = { rowCount: 16, rows: emptyRows(16, 4) };
+  pat1.rows[0]![0] = cell({ note: 56, instrument: 1 });
+  pat1.rows[2]![0] = cell({ note: 61, instrument: 1 });
+  pat1.rows[4]![0] = cell({ note: 49, instrument: 1 });
+  let s = songWithPatterns([pat0, pat1], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "pattern-loop-carry";
+  // libxmp only emulates FT2's quirks for modules that claim to come from
+  // FT2; with the default "RetroTracker" name it starts pattern 1 on row 0.
+  s.trackerName = "FastTracker v2.00";
+  return s;
+}
+
+/**
+ * 54-pattern-delay (EEx): row 2 is held for 3 extra row-lengths and its
+ * note does not retrigger on the repeats. Deliberately no continuous effect
+ * on the held row: FT2 runs slides on the first tick of each repeat, libxmp
+ * does not, so that case is pinned by a unit test instead of this bed.
+ */
+function buildPatternDelay(): XmSong {
+  const samp = newSample(triangleSample(512), "tri");
+  const inst = newInstrument(samp, "tri");
+  const pat = { rowCount: 16, rows: emptyRows(16, 4) };
+  pat.rows[0]![0] = cell({ note: 49, instrument: 1 });
+  pat.rows[2]![0] = cell({
+    note: 53,
+    instrument: 1,
+    effect: 0x0e,
+    effectParam: 0xe3,
+  });
+  pat.rows[3]![0] = cell({ note: 56, instrument: 1 });
+  let s = songWithPatterns([pat], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "pattern-delay";
+  return s;
+}
+
+/**
+ * 55-pattern-delay-break (EEx + Dxx on one row): where the break lands
+ * relative to the delay.
+ */
+function buildPatternDelayBreak(): XmSong {
+  const samp = newSample(triangleSample(512), "tri");
+  const inst = newInstrument(samp, "tri");
+  const pat0 = { rowCount: 16, rows: emptyRows(16, 4) };
+  pat0.rows[0]![0] = cell({ note: 49, instrument: 1 });
+  pat0.rows[2]![0] = cell({
+    note: 53,
+    instrument: 1,
+    effect: 0x0e,
+    effectParam: 0xe2,
+  });
+  pat0.rows[2]![1] = cell({ effect: 0x0d, effectParam: 0x05 });
+  const pat1 = { rowCount: 16, rows: emptyRows(16, 4) };
+  pat1.rows[5]![0] = cell({ note: 56, instrument: 1 });
+  pat1.rows[6]![0] = cell({ note: 61, instrument: 1 });
+  let s = songWithPatterns([pat0, pat1], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "pattern-delay-break";
+  return s;
+}
+
+/**
+ * 56-pattern-delay-note-delay (EEx + EDx on one row): whether the delayed
+ * note fires once or on every repeat of the row.
+ */
+function buildPatternDelayNoteDelay(): XmSong {
+  const samp = newSample(triangleSample(512), "tri");
+  const inst = newInstrument(samp, "tri");
+  const pat = { rowCount: 16, rows: emptyRows(16, 4) };
+  pat.rows[0]![0] = cell({ note: 49, instrument: 1 });
+  pat.rows[2]![0] = cell({
+    note: 56,
+    instrument: 1,
+    effect: 0x0e,
+    effectParam: 0xd2,
+  });
+  pat.rows[2]![1] = cell({ effect: 0x0e, effectParam: 0xe2 });
+  pat.rows[4]![0] = cell({ note: 61, instrument: 1 });
+  let s = songWithPatterns([pat], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "pattern-delay-note-delay";
+  return s;
+}
+
+/**
  * 34-volcol-set-vol (high nibble 1..5).
  */
 function buildVolColSetVol(): XmSong {
@@ -1424,6 +1554,11 @@ const FIXTURES: { name: string; build: () => XmSong }[] = [
   { name: "49-multi-sample-meta", build: buildMultiSampleMeta },
   { name: "50-no-loop", build: buildNoLoop },
   { name: "51-partial-loop", build: buildPartialLoop },
+  { name: "52-pattern-loop", build: buildPatternLoop },
+  { name: "53-pattern-loop-carry", build: buildPatternLoopCarry },
+  { name: "54-pattern-delay", build: buildPatternDelay },
+  { name: "55-pattern-delay-break", build: buildPatternDelayBreak },
+  { name: "56-pattern-delay-note-delay", build: buildPatternDelayNoteDelay },
 ];
 
 const OUT_DIR = fileURLToPath(new URL("./", import.meta.url));

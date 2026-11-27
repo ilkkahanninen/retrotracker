@@ -17,20 +17,19 @@
  *   - Effect column: 0xy arp, 1xx slide up, 2xx slide down, 3xx tone
  *     porta, 4xy vibrato, 5xy / 6xy combos, 7xy tremolo, 8xx set pan,
  *     9xx sample offset, Axy vol slide, Exy E-extended (E1y, E2y, E4y,
- *     E5y, E7y, E8y, E9y, EAy, EBy, ECy, EDy), Gxx global vol, Hxy
- *     global vol slide, Kxx key off (silence for now — full envelope
- *     release lands in Slice 3), Pxy pan slide, Rxy multi-retrigger,
+ *     E5y, E6y pattern loop, E7y, E8y, E9y, EAy, EBy, ECy, EDy, EEy
+ *     pattern delay), Gxx global vol, Hxy global vol slide, Kxx key
+ *     off, Lxx set envelope position, Pxy pan slide, Rxy multi-retrigger,
  *     Xxy X-extended (X1y / X2y extra-fine slides).
  *   - Volume column: 6 (slide down), 7 (slide up), 8 (fine slide down),
  *     9 (fine slide up), A (set vib speed), B (vibrato), C (set pan),
  *     D (pan slide left), E (pan slide right), F (tone porta speed).
  *
- * Not yet wired (Slice 3+):
- *   - Volume / panning envelopes
- *   - Fadeout
- *   - Autovibrato
- *   - Multi-sample instruments (keyMap is read but always-zero in Phase 3)
- *   - Note 97 properly releasing the envelope (currently silences voice)
+ * Slice 3 coverage: volume / panning envelopes (sustain + loop), fadeout,
+ * autovibrato, multi-sample instruments via the keyMap, and note 97 / Kxx
+ * releasing the envelope.
+ *
+ * Not implemented: Txy tremor, E3y glissando control.
  *
  * Reference for behaviour: 8bitbubsy/ft2-clone (`src/ft2_replayer.c`).
  */
@@ -40,6 +39,13 @@ import type { Sample } from "../mod/types";
 import type { XmInstrument, XmNote, XmSample, XmSong } from "../xm/types";
 import type { ReplayerOptions, XmInterpolation } from "./types";
 import { hzForNote, periodForNote } from "./xmFreqTable";
+
+/**
+ * Upper bound on E6x loop-backs within one order position before a
+ * non-looping render gives up. A single E6F is 15 jumps; several of them in
+ * a 256-row pattern stay far below this.
+ */
+const MAX_LOOP_JUMPS_PER_ORDER = 4096;
 
 /** XM uses an 8-byte signed-ish sine table scaled to ±64 for vibrato/tremolo. */
 const XM_VIBRATO_TABLE = (() => {
@@ -195,6 +201,11 @@ interface XmVoice {
   /** Multi-retrigger Rxy memory. */
   retrigInterval: number;
   retrigVolChange: number;
+  /** E60: row the next E6x on this channel loops back to. Persists across
+   *  patterns (FT2 never resets it), so it defaults to row 0. */
+  patLoopStartRow: number;
+  /** E6x: loop passes still to go; 0 when no loop is in progress. */
+  patLoopCounter: number;
   /** ECy: tick to cut at, or -1. */
   noteCutAt: number;
   /** EDy: tick to trigger at, or -1. Stored note/instrument fire on that tick. */
@@ -312,6 +323,8 @@ function newVoice(): XmVoice {
     vibOffset: 0,
     retrigInterval: 0,
     retrigVolChange: 0,
+    patLoopStartRow: 0,
+    patLoopCounter: 0,
     noteCutAt: -1,
     noteDelayAt: -1,
     noteDelayNote: 0,
@@ -355,6 +368,19 @@ interface XmSongState {
   jumpToOrder: number;
   /** Dxx queued target. -1 when no jump pending. */
   jumpToRow: number;
+  /** E6x queued loop-back row (same order). -1 when no loop jump pending. */
+  loopJumpRow: number;
+  /**
+   * Row the next pattern starts on when the current one ends naturally.
+   * Normally 0; an E6x loop jump leaves its start row here and nothing
+   * clears it until the pattern changes — FT2's `pBreakPos` leftover,
+   * the well-known "E60 bug" that modules written in FT2 rely on.
+   */
+  nextPatternStartRow: number;
+  /** E6x jumps taken since the order last changed — runaway-loop guard. */
+  loopJumpsInOrder: number;
+  /** EEx: how many more times the current row repeats before advancing. */
+  patternDelayRepeats: number;
   ended: boolean;
   /** (order << 16 | row) revisit set — drives song-end detection. */
   visited: Set<number>;
@@ -576,6 +602,10 @@ export class XmReplayer {
       orderIndex: startOrder,
       jumpToOrder: -1,
       jumpToRow: -1,
+      loopJumpRow: -1,
+      nextPatternStartRow: 0,
+      loopJumpsInOrder: 0,
+      patternDelayRepeats: 0,
       ended: false,
       visited: new Set(),
       globalVolume: 64,
@@ -734,9 +764,16 @@ export class XmReplayer {
     }
     if (this.state.tickInRow >= this.state.speed) {
       this.state.tickInRow = 0;
-      this.advanceRow();
-      if (this.state.ended) return;
-      this.processRow();
+      if (this.state.patternDelayRepeats > 0) {
+        // EEx: hold the row. FT2 runs a repeat's first tick through the
+        // per-tick effect path — notes and tick-0 effects do not re-fire.
+        this.state.patternDelayRepeats--;
+        this.runContinuousEffects();
+      } else {
+        this.advanceRow();
+        if (this.state.ended) return;
+        this.processRow();
+      }
     } else {
       this.runContinuousEffects();
     }
@@ -967,10 +1004,37 @@ export class XmReplayer {
       nextRow = this.state.jumpToRow !== -1 ? this.state.jumpToRow : 0;
       this.state.jumpToOrder = -1;
       this.state.jumpToRow = -1;
+      // Bxx / Dxx name their target row outright and win over an E6x on
+      // the same row.
+      this.state.loopJumpRow = -1;
+      this.state.nextPatternStartRow = 0;
     } else if (this.state.jumpToRow !== -1) {
       nextOrder = this.state.orderIndex + 1;
       nextRow = this.state.jumpToRow;
       this.state.jumpToRow = -1;
+      this.state.loopJumpRow = -1;
+      this.state.nextPatternStartRow = 0;
+    } else if (this.state.loopJumpRow !== -1) {
+      // E6x loop-back inside the current order.
+      nextRow = this.state.loopJumpRow;
+      this.state.loopJumpRow = -1;
+      this.state.nextPatternStartRow = nextRow;
+      // The loop body is about to be replayed on purpose, so it must not
+      // trip the revisit-based song-end check below. A counter stands in
+      // for it: loops that feed each other across channels can spin
+      // forever in FT2, and an offline render has to terminate.
+      for (let r = nextRow; r <= this.state.row; r++) {
+        this.state.visited.delete((nextOrder << 16) | r);
+      }
+      this.state.loopJumpsInOrder++;
+      if (
+        this.state.loopJumpsInOrder > MAX_LOOP_JUMPS_PER_ORDER &&
+        !this.loop &&
+        !this.loopPattern
+      ) {
+        this.state.ended = true;
+        return;
+      }
     } else {
       const patIdx = this.song.orders[this.state.orderIndex] ?? 0;
       const pat = this.song.patterns[patIdx];
@@ -980,8 +1044,9 @@ export class XmReplayer {
           nextRow = 0;
         } else {
           nextOrder = this.state.orderIndex + 1;
-          nextRow = 0;
+          nextRow = this.nextPatternStartRowFor(nextOrder);
         }
+        this.state.nextPatternStartRow = 0;
       }
     }
     if (nextOrder >= this.song.songLength) {
@@ -1001,8 +1066,21 @@ export class XmReplayer {
       return;
     }
     this.state.visited.add(key);
+    if (nextOrder !== this.state.orderIndex) this.state.loopJumpsInOrder = 0;
     this.state.orderIndex = nextOrder;
     this.state.row = nextRow;
+  }
+
+  /**
+   * Start row for `order` when the previous pattern ran off its end: the
+   * E6x leftover (see `nextPatternStartRow`), or 0 when that row does not
+   * exist in the pattern being entered.
+   */
+  private nextPatternStartRowFor(order: number): number {
+    const row = this.state.nextPatternStartRow;
+    if (row === 0) return 0;
+    const pat = this.song.patterns[this.song.orders[order] ?? 0];
+    return row < (pat?.rowCount ?? 64) ? row : 0;
   }
 
   private processRow(): void {
@@ -1403,6 +1481,19 @@ export class XmReplayer {
         }
         break;
       }
+      case 0x6:
+        // Pattern loop (ft2-clone `patternLoop`). E60 marks the start row;
+        // E6y loops back y times. The counter is per channel, so loops on
+        // different channels run independently.
+        if (y === 0) {
+          v.patLoopStartRow = this.state.row;
+        } else if (v.patLoopCounter === 0) {
+          v.patLoopCounter = y;
+          this.state.loopJumpRow = v.patLoopStartRow;
+        } else if (--v.patLoopCounter > 0) {
+          this.state.loopJumpRow = v.patLoopStartRow;
+        }
+        break;
       case 0x7:
         v.tremWaveform = y;
         break;
@@ -1421,6 +1512,12 @@ export class XmReplayer {
         break;
       case 0xd:
         // Note delay (Slice handled in processCell where we know the cell).
+        break;
+      case 0xe:
+        // Pattern delay: play this row y more times. Tick-0 effects only run
+        // on the first pass, so a repeat can never re-arm the delay; with
+        // EEy on several channels the last one wins, as in FT2.
+        this.state.patternDelayRepeats = y;
         break;
       default:
         break;
