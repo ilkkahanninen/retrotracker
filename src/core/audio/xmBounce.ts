@@ -142,10 +142,16 @@ export function bounceXmSelection(
   if (exactFrames <= 0) return null;
   const renderFrames = exactFrames + tailFrames;
 
+  // Start at the speed / tempo the song has reached by the selection —
+  // the same ones `selectionFrameCount` measured the render length with.
+  // Without them a selection after an Fxx rendered at the song defaults.
+  const { speed, tempo } = speedTempoAtXm(song, sel.order, sel.startRow);
   const replayer = new XmReplayer(tempSong, {
     sampleRate,
     initialOrder: 0,
     initialRow: sel.startRow,
+    initialSpeed: speed,
+    initialTempo: tempo,
     loop: false,
   });
 

@@ -9,6 +9,7 @@ import {
   clearHistory,
   commitEditXm,
   redo,
+  setPlayPos,
   setSong,
   setTransport,
   undo,
@@ -134,12 +135,29 @@ describe("new / duplicate pattern at slot", () => {
   });
 });
 
-describe("transport gating", () => {
-  it("structural ops still go through commitEditXm — no-op while playing", () => {
+describe("order edits during playback (live, as in PT mode)", () => {
+  // They used to be refused while playing with Follow on, with the
+  // buttons and shortcuts still looking enabled.
+  it("insert / delete / step apply while playing with Follow on", () => {
     setTransport("playing");
-    setXmCursor({ order: 0, row: 0, channel: 0, field: "note" });
+    setPlayPos({ order: 0, row: 0 });
     insertXmOrderSlot();
+    expect(xm2Song()!.songLength).toBe(4);
+    stepXmNextPattern();
+    expect(xm2Song()!.orders[0]).toBe(1);
+    deleteXmOrderSlot();
     expect(xm2Song()!.songLength).toBe(3);
+  });
+
+  it("deleting slots from under the cursor pulls it back inside the song", () => {
+    // The cursor can't be moved by hand while Follow locks editing, so
+    // nothing but the reconcile step keeps it valid here.
+    setXmCursor({ order: 2, row: 0, channel: 0, field: "note" });
+    setTransport("playing");
+    setPlayPos({ order: 2, row: 0 });
+    deleteXmOrderSlot();
+    expect(xm2Song()!.songLength).toBe(2);
+    expect(xmCursor().order).toBeLessThan(2);
   });
 });
 

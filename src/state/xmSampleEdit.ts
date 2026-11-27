@@ -46,6 +46,7 @@ import {
 } from "./song";
 import { stopXmPreview, xmLivePreviewSwap } from "./xmPreview";
 import { setError, sourcePending } from "./session";
+import { settings } from "./settings";
 import {
   currentXmInstrument,
   currentXmSampleIndex,
@@ -525,7 +526,8 @@ export function nextFreeXmInstrumentSlot(): number | null {
  * Mirrors PT2's `bounceSelectionToSample`.
  */
 export function bounceXmSelectionToInstrument(): void {
-  if (transport() === "playing") return;
+  // Same gate as PT's bounce: refused only while Follow locks editing.
+  if (transport() === "playing" && settings().followPlayback) return;
   const s = xm2Song();
   const sel = xmSelection();
   if (!s || !sel) return;
@@ -676,7 +678,6 @@ function applyXmSelectionEdit(
   startFrame: number,
   endFrame: number,
 ): void {
-  if (transport() === "playing") return;
   const ctx = getOrInitCurrentXmWorkbench();
   if (!ctx) return;
   const { wb, sample } = ctx;
@@ -723,7 +724,6 @@ export function cutXmSampleRange(start: number, end: number): void {
  *  clipboard's bits so 16-bit copies survive a paste into an 8-bit
  *  slot. */
 export function pasteXmSampleBytes(): void {
-  if (transport() === "playing") return;
   const clip = xmSampleClipboard();
   if (!clip) return;
   const s = xm2Song();

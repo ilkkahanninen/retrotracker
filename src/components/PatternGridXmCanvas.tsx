@@ -20,6 +20,7 @@ import {
   toggleSolo,
 } from "../state/channelMute";
 import { setXmCursor, xmCursor, type XmField } from "../state/cursorXm";
+import { applyXmCursor } from "../state/xmPatternEdit";
 import { beatsPerBar, rowsPerBeat } from "../state/gridConfig";
 import { settings } from "../state/settings";
 import { setPlayPos, transport } from "../state/song";
@@ -376,20 +377,22 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
 
   const onCanvasMouseDown = (e: MouseEvent) => {
     if (e.button !== 0) return;
-    if (transport() === "playing") return;
     const hit = hitTestAt(e.clientX, e.clientY);
     if (!hit) return;
     const fr = flat()[hit.flatRowIndex];
     if (!fr) return;
-    setXmCursor({
+    // Through applyXmCursor, which refuses the move while Follow locks
+    // editing — so a click works during playback with Follow off, as it
+    // does in the PT grid.
+    applyXmCursor({
       order: fr.order,
       row: fr.rowIndex,
       channel: hit.channel,
       field: hit.field as XmField,
     });
-    setPlayPos({ order: fr.order, row: fr.rowIndex });
-    // Anchor a potential drag selection (selection rectangle only
-    // appears once the pointer moves to a different cell).
+    // Anchor a potential drag selection regardless (selection rectangle
+    // only appears once the pointer moves to a different cell): a drag
+    // still selects during playback, the cursor just stays put.
     dragAnchor = {
       flatRowIndex: hit.flatRowIndex,
       channel: hit.channel,

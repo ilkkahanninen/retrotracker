@@ -13,6 +13,7 @@ import { cursor, requestJumpToTop } from "./cursor";
 import { jumpPlaybackToOrder } from "./playback";
 import { applyCursor } from "./patternEdit";
 import { createOrderEdit } from "./orderEditCore";
+import { reconcileUiToSong } from "./reconcile";
 import { remapPatternNames, withPatternName } from "./patternNames";
 
 const ops = createOrderEdit<ModSong>({
@@ -36,6 +37,7 @@ const ops = createOrderEdit<ModSong>({
   jumpPlaybackToOrder: (order) => {
     void jumpPlaybackToOrder(order);
   },
+  reconcile: reconcileUiToSong,
   mutations: {
     insertOrder,
     deleteOrder,

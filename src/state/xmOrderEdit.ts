@@ -9,12 +9,13 @@ import {
   prevXmPatternAtOrder,
 } from "../core/xm/mutations";
 import {
-  commitEditXm,
+  commitEditXmLive,
   commitEditXmWithPatternNames,
   playPos,
-  setPlayPos,
   transport,
 } from "./song";
+import { jumpPlaybackToOrder } from "./playback";
+import { reconcileUiToSong } from "./reconcile";
 import { xm2Song as song } from "./song";
 import { applyXmCursor } from "./xmPatternEdit";
 import { xmCursor } from "./cursorXm";
@@ -30,13 +31,14 @@ const ops = createOrderEdit<XmSong>({
   applyCursorToOrder: (order) => {
     applyXmCursor({ ...xmCursor(), order, row: 0 });
   },
-  commitSong: (transform) => commitEditXm(transform),
+  // Ungated, like PT: order edits stay live during playback whatever
+  // Follow says, and sync.ts pushes the new song to the worklet.
+  commitSong: commitEditXmLive,
   isPlaying: () => transport() === "playing",
-  // Why: XM has no engine reroute yet (Phase 5); during playback we just
-  // move the visible playhead.
   jumpPlaybackToOrder: (order) => {
-    setPlayPos({ order, row: 0 });
+    void jumpPlaybackToOrder(order);
   },
+  reconcile: reconcileUiToSong,
   mutations: {
     insertOrder: insertXmOrderAtCursor,
     deleteOrder: deleteXmOrder,

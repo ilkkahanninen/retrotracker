@@ -1,10 +1,15 @@
 /**
- * Regression: XM sample-view actions (Load WAV, Clear sample, Clear
- * instrument, Duplicate instrument) committed the SONG through
- * `commitEditXm` — which no-ops while playing with Follow on — and then
- * unconditionally mutated the workbench map / UI signals. Under Play +
- * Follow that dropped workbenches and moved the UI while the song stayed
- * put. Both halves now move (or don't) together, in one undo entry.
+ * XM sample-view actions (Load WAV, Clear sample, Clear instrument,
+ * Duplicate instrument) move the song and the workbench map together,
+ * in one undo entry.
+ *
+ * History: they once committed the SONG through `commitEditXm` — which
+ * no-ops while playing with Follow on — and then unconditionally mutated
+ * the workbench map / UI signals, so under Play + Follow workbenches
+ * were dropped while the song stayed put. The fix made both halves
+ * gated; the gate itself is gone now (PT never had it, and sync.ts
+ * forwards the result to the worklet), but the "both or neither"
+ * invariant is what these tests keep.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -75,44 +80,46 @@ afterEach(() => {
   setSong(null);
 });
 
-describe("while playing with Follow on, gated actions change nothing", () => {
+describe("while playing with Follow on, the actions still apply — both halves", () => {
   beforeEach(() => setTransport("playing"));
 
-  it("Load WAV keeps the song AND the workbench (with its chain)", () => {
+  it("Load WAV replaces the bytes and the workbench in one undo entry", () => {
     const wbBefore = getXmWorkbench(1, 0);
-    const songBefore = xm2Song();
     loadXmWavIntoCurrentSample(wavBytes(500), "new.wav");
-    expect(xm2Song()).toBe(songBefore);
+    expect(frames(1, 0)).toBe(500);
+    expect(getXmWorkbench(1, 0)).not.toBe(wbBefore);
+    expect(getXmWorkbench(1, 0)!.chain).toHaveLength(0);
+    // Undo is itself locked while Follow is on, as in PT mode.
+    setTransport("idle");
+    undo();
+    expect(frames(1, 0)).toBe(100);
     expect(getXmWorkbench(1, 0)).toBe(wbBefore);
-    expect(getXmWorkbench(1, 0)!.chain).toHaveLength(1);
   });
 
-  it("Clear instrument keeps workbenches, sample index and selection", () => {
+  it("Clear instrument drops its workbenches and resets the sample index", () => {
     setCurrentXmSampleIndex(1);
     setXmSampleSelection({ start: 1, end: 5 });
-    const mapBefore = xmWorkbenches();
     clearCurrentXmInstrument();
-    expect(frames(1, 0)).toBe(100);
-    expect(xmWorkbenches()).toBe(mapBefore);
-    expect(currentXmSampleIndex()).toBe(1);
-    expect(xmSampleSelection()).toEqual({ start: 1, end: 5 });
+    expect(frames(1, 0)).toBe(0);
+    expect(getXmWorkbench(1, 0)).toBeUndefined();
+    expect(currentXmSampleIndex()).toBe(0);
+    expect(xmSampleSelection()).toBeNull();
   });
 
-  it("Clear sample keeps the workbench", () => {
-    const mapBefore = xmWorkbenches();
+  it("Clear sample empties the sample and drops its workbench", () => {
     clearCurrentXmSample();
-    expect(frames(1, 0)).toBe(100);
-    expect(xmWorkbenches()).toBe(mapBefore);
+    expect(frames(1, 0)).toBe(0);
+    expect(getXmWorkbench(1, 0)).toBeUndefined();
   });
 
-  it("Duplicate instrument does not jump to the empty target slot", () => {
+  it("Duplicate instrument fills the next slot and selects it", () => {
     duplicateCurrentXmInstrument();
-    expect(currentXmInstrument()).toBe(1);
-    expect(xm2Song()!.instruments).toHaveLength(1);
+    expect(currentXmInstrument()).toBe(2);
+    expect(frames(2, 0)).toBe(100);
   });
 });
 
-describe("when allowed, song and workbench move in one undo entry", () => {
+describe("when stopped, song and workbench move in one undo entry", () => {
   it("undoing Load WAV restores the old bytes and the old chain together", () => {
     const wbBefore = getXmWorkbench(1, 0);
     loadXmWavIntoCurrentSample(wavBytes(500), "new.wav");

@@ -23,13 +23,11 @@ import {
 } from "../core/xm/mutations";
 import { setCurrentXmSampleIndex } from "./xmEdit";
 import {
-  commitEditXm,
+  commitEditXmLive,
   commitEditXmWithWorkbenches,
-  transport,
   xm2Song,
   type XmEditState,
 } from "./song";
-import { settings } from "./settings";
 import {
   runXmPipeline,
   sourceWantsFullLoop,
@@ -57,14 +55,15 @@ export type XmEnvelopeKind = "volume" | "panning";
  * the slot's key would re-render its OLD source over the new audio on the
  * next chain edit.
  *
- * Same playback gate as `commitEditXm` (no-op while playing with Follow
- * on) — `commitEditXmWithWorkbenches` itself is ungated because the
- * pipeline editors are allowed mid-playback; these structural ops aren't.
+ * Not gated on playback, like the PT sample ops (Load WAV, Clear,
+ * Duplicate all work while a .mod plays): sync.ts forwards the changed
+ * instrument to the worklet, or the whole song when a sample list
+ * changes length.
  *
  * Returns whether anything was committed. Callers that follow up with
  * non-history UI changes (select the new instrument, clear the waveform
- * selection, …) must skip them on `false` — otherwise a gated or rejected
- * op still moves the UI as if it had happened.
+ * selection, …) must skip them on `false` — otherwise a rejected op
+ * still moves the UI as if it had happened.
  *
  * By default a transform that leaves the song untouched is treated as
  * rejected (out-of-range slot, cap reached, …) so it can't strand a
@@ -75,7 +74,6 @@ export function commitXmSlotShape(
   transform: (state: XmEditState) => XmEditState,
   opts: { allowWorkbenchOnly?: boolean } = {},
 ): boolean {
-  if (transport() === "playing" && settings().followPlayback) return false;
   let committed = false;
   commitEditXmWithWorkbenches((state) => {
     const next = transform(state);
@@ -89,7 +87,7 @@ export function commitXmSlotShape(
 
 /** 1-based slot index — the instrument list's inline rename can target any slot. */
 export function renameXmInstrument(slot1Based: number, name: string): void {
-  commitEditXm((s) => renameXmInstrumentMutation(s, slot1Based, name));
+  commitEditXmLive((s) => renameXmInstrumentMutation(s, slot1Based, name));
 }
 
 export function patchXmInstrumentEnvelope(
@@ -97,7 +95,7 @@ export function patchXmInstrumentEnvelope(
   kind: XmEnvelopeKind,
   patch: Partial<XmEnvelope>,
 ): void {
-  commitEditXm((s) =>
+  commitEditXmLive((s) =>
     patchXmInstrumentEnvelopeMutation(s, slot1Based, kind, patch),
   );
 }
@@ -108,7 +106,7 @@ export function setXmEnvelopePoint(
   pointIndex: number,
   point: XmEnvelopePoint,
 ): void {
-  commitEditXm((s) =>
+  commitEditXmLive((s) =>
     setXmEnvelopePointMutation(s, slot1Based, kind, pointIndex, point),
   );
 }
@@ -118,7 +116,9 @@ export function addXmEnvelopePoint(
   kind: XmEnvelopeKind,
   point: XmEnvelopePoint,
 ): void {
-  commitEditXm((s) => addXmEnvelopePointMutation(s, slot1Based, kind, point));
+  commitEditXmLive((s) =>
+    addXmEnvelopePointMutation(s, slot1Based, kind, point),
+  );
 }
 
 export function removeXmEnvelopePoint(
@@ -126,7 +126,7 @@ export function removeXmEnvelopePoint(
   kind: XmEnvelopeKind,
   pointIndex: number,
 ): void {
-  commitEditXm((s) =>
+  commitEditXmLive((s) =>
     removeXmEnvelopePointMutation(s, slot1Based, kind, pointIndex),
   );
 }
@@ -135,13 +135,15 @@ export function patchXmAutoVibrato(
   slot1Based: number,
   patch: Parameters<typeof patchXmInstrumentAutoVibratoMutation>[2],
 ): void {
-  commitEditXm((s) =>
+  commitEditXmLive((s) =>
     patchXmInstrumentAutoVibratoMutation(s, slot1Based, patch),
   );
 }
 
 export function setXmFadeout(slot1Based: number, fadeout: number): void {
-  commitEditXm((s) => setXmInstrumentFadeoutMutation(s, slot1Based, fadeout));
+  commitEditXmLive((s) =>
+    setXmInstrumentFadeoutMutation(s, slot1Based, fadeout),
+  );
 }
 
 export function patchXmSample(
@@ -169,7 +171,7 @@ export function patchXmSample(
     !!wb && !!wb.xm.playingLength && !sourceWantsFullLoop(wb.source);
   const needsRerun = (touchesLoop && hasCrossfade) || (touchesTuning && hasFit);
   if (!needsRerun || !wb) {
-    commitEditXm((s) =>
+    commitEditXmLive((s) =>
       patchXmInstrumentSampleMutation(s, slot1Based, patch, sampleIndex),
     );
     return;
@@ -291,7 +293,7 @@ export function removeXmSample(slot1Based: number, sampleIndex: number): void {
 
 /** Replace the instrument's 96-byte note → sample-index map. */
 export function setXmKeyMap(slot1Based: number, keyMap: Uint8Array): void {
-  commitEditXm((s) => setXmInstrumentKeyMapMutation(s, slot1Based, keyMap));
+  commitEditXmLive((s) => setXmInstrumentKeyMapMutation(s, slot1Based, keyMap));
 }
 
 /**

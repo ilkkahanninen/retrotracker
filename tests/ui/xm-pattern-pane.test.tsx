@@ -4,9 +4,10 @@ import userEvent from "@testing-library/user-event";
 
 import { App } from "../../src/App";
 import { emptySong } from "../../src/core/mod/format";
-import { emptyXmSong } from "../../src/core/xm/format";
+import { emptyXmInstrument, emptyXmSong } from "../../src/core/xm/format";
 import { writeXm } from "../../src/core/xm/writer";
 import { resetXmCursor } from "../../src/state/cursorXm";
+import { clearXmSelection, setXmSelection } from "../../src/state/selection";
 import { editStep, setEditStep } from "../../src/state/edit";
 import { patternNames, resetPatternNames } from "../../src/state/patternNames";
 import {
@@ -25,6 +26,7 @@ beforeEach(() => {
   clearHistory();
   setEditStep(1);
   resetPatternNames();
+  clearXmSelection();
 });
 afterEach(() => {
   cleanup();
@@ -211,5 +213,39 @@ describe("FT2 order list: pattern names", () => {
     await user.keyboard("nope{Escape}");
     expect(patternNames()[0]).toBeUndefined();
     expect(row.querySelector(".orderlist__name-input")).toBeNull();
+  });
+});
+
+describe("FT2 Cmd+E: bounce selection to a new instrument", () => {
+  it("runs the FT2 bounce (the PT binding used to swallow the key)", async () => {
+    const song = emptyXmSong();
+    const inst = emptyXmInstrument();
+    inst.samples[0] = {
+      ...inst.samples[0]!,
+      data: new Int8Array(64).fill(60),
+      bits: 8,
+      volume: 64,
+    };
+    song.instruments = [inst];
+    song.patterns[0]!.rows[0]![0] = {
+      ...song.patterns[0]!.rows[0]![0]!,
+      note: 49,
+      instrument: 1,
+    };
+    setSong(song);
+    render(() => <App />);
+    setXmSelection({
+      order: 0,
+      startRow: 0,
+      endRow: 3,
+      startChannel: 0,
+      endChannel: 0,
+    });
+    const user = userEvent.setup();
+    await user.keyboard("{Meta>}e{/Meta}");
+    expect(xm2Song()!.instruments).toHaveLength(2);
+    expect(xm2Song()!.instruments[1]!.samples[0]!.data.length).toBeGreaterThan(
+      0,
+    );
   });
 });

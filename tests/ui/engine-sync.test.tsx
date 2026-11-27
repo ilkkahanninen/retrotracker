@@ -24,6 +24,7 @@ import {
   stopPlayback,
 } from "../../src/state/playback";
 import { setCursor, INITIAL_CURSOR } from "../../src/state/cursor";
+import { jumpXmToOrder } from "../../src/state/xmOrderEdit";
 import { setView } from "../../src/state/view";
 import { resetChannelMute, toggleMute } from "../../src/state/channelMute";
 import { setSettings } from "../../src/state/settings";
@@ -303,6 +304,56 @@ describe("FT2 live-edit forwarder", () => {
 
     await waitFor(() => expect(fake.callsTo("replaceSong")).toHaveLength(1));
     expect(fake.callsTo("setXmInstrument")).toHaveLength(0);
+  });
+
+  it("an added sample goes out as replaceSong (voices can't be matched by index)", async () => {
+    await playTwoInstrumentSong();
+
+    const withExtra: XmInstrument = {
+      ...xm2Song()!.instruments[0]!,
+      samples: [
+        ...xm2Song()!.instruments[0]!.samples,
+        emptyXmInstrument().samples[0]!,
+      ],
+    };
+    setSong(setXmInstrument(xm2Song()!, 0, withExtra));
+
+    await waitFor(() => expect(fake.callsTo("replaceSong")).toHaveLength(1));
+    expect(fake.callsTo("setXmInstrument")).toHaveLength(0);
+  });
+
+  it("a rename alone sends nothing — it is inaudible", async () => {
+    await playTwoInstrumentSong();
+
+    setSong(
+      setXmInstrument(xm2Song()!, 0, {
+        ...xm2Song()!.instruments[0]!,
+        name: "renamed",
+      }),
+    );
+    // Then a real change, so there is something to wait for.
+    setSong(setXmInstrument(xm2Song()!, 1, instrumentNamed("b2")));
+
+    await waitFor(() =>
+      expect(fake.callsTo("setXmInstrument")).toHaveLength(1),
+    );
+    expect(fake.callsTo("setXmInstrument")[0]!.args[0]).toBe(1);
+    expect(fake.callsTo("replaceSong")).toHaveLength(0);
+  });
+
+  it("jumping to an order slot re-routes the engine, not just the playhead", async () => {
+    let s = emptyXmSong();
+    s = { ...s, songLength: 3 };
+    setSong(s);
+    render(() => <App />);
+    await playFromStart();
+    await waitFor(() => expect(transport()).toBe("playing"));
+    fake.reset();
+
+    jumpXmToOrder(2);
+
+    await waitFor(() => expect(fake.callsTo("playFrom")).toHaveLength(1));
+    expect(fake.callsTo("playFrom")[0]!.args.slice(0, 2)).toEqual([2, 0]);
   });
 
   it("does NOT push setXmInstrument when the transport is not playing", async () => {

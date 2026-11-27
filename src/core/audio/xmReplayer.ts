@@ -720,6 +720,27 @@ export class XmReplayer {
 
   replaceSong(song: Song): void {
     if (song.format !== "FT2") return;
+    // Re-point sounding voices at the new song's copy of their sample.
+    // Over the worklet's message port every `replaceSong` is a fresh
+    // structured clone, so a voice left on the old objects would no
+    // longer be found by `replaceInstrument` — a held note would stop
+    // following sample-pipeline edits after any order or pattern edit.
+    // Only when the instrument still has the same number of samples: if
+    // one was added or removed the index no longer names the same sound,
+    // and the voice just plays out what it has.
+    const old = this.song.instruments;
+    for (const v of this.voices) {
+      if (!v.sample) continue;
+      for (let i = 0; i < old.length; i++) {
+        const sampleIdx = old[i]!.samples.indexOf(v.sample);
+        if (sampleIdx < 0) continue;
+        const inst = song.instruments[i];
+        if (inst && inst.samples.length === old[i]!.samples.length) {
+          this.repointVoice(v, inst.samples[sampleIdx]);
+        }
+        break;
+      }
+    }
     this.song = song;
     this.linearFreq = song.flags.linearFreq;
     if (this.state.orderIndex >= song.songLength) {
@@ -769,9 +790,19 @@ export class XmReplayer {
       if (!v.sample) continue;
       const sampleIdx = old.samples.indexOf(v.sample);
       if (sampleIdx < 0) continue;
-      const next = instrument.samples[sampleIdx];
-      if (next && next.data.length > 0) v.sample = next;
+      this.repointVoice(v, instrument.samples[sampleIdx]);
     }
+  }
+
+  /** Hand a sounding voice new data for the sample it is playing. An
+   *  empty replacement is ignored — the voice plays out what it has. */
+  private repointVoice(v: XmVoice, next: XmSample | undefined): void {
+    if (!next || next.data.length === 0) return;
+    v.sample = next;
+    // A voice on the backward leg of a ping-pong loop would be cut by
+    // the mixer the moment the loop stops being ping-pong (running
+    // backwards past the loop start ends a voice). Turn it around.
+    if (next.loopType !== "ping-pong") v.direction = 1;
   }
 
   // ── Tick scheduling ──────────────────────────────────────────────────

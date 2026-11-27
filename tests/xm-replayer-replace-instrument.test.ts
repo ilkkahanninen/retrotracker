@@ -135,3 +135,74 @@ describe("XmReplayer.replaceInstrument", () => {
     expect(Array.from(silenced)).toEqual(Array.from(oneNote));
   });
 });
+
+describe("XmReplayer.replaceSong keeps sounding voices swappable", () => {
+  // Over the worklet's port every replaceSong is a structured clone: new
+  // objects for every instrument and sample.
+  const cloneSong = (s: XmSong): XmSong => structuredClone(s);
+  const silent = instrumentOf(loopedSample(() => 0));
+
+  it("a held note still follows replaceInstrument after a replaceSong", () => {
+    const swapped = render((r) => {
+      r.replaceSong(cloneSong(buildSong()));
+      r.replaceInstrument(0, silent);
+    });
+    expect(peak(swapped, SWAP_AT + 2048, TOTAL)).toBe(0);
+  });
+
+  it("a replaceSong alone leaves the held note sounding as before", () => {
+    const baseline = render();
+    const swapped = render((r) => r.replaceSong(cloneSong(buildSong())));
+    expect(Array.from(swapped)).toEqual(Array.from(baseline));
+  });
+
+  it("picks up the new song's data for the sample it is playing", () => {
+    const next = cloneSong(buildSong());
+    next.instruments[0] = silent;
+    const swapped = render((r) => r.replaceSong(next));
+    expect(peak(swapped, SWAP_AT + 2048, TOTAL)).toBe(0);
+  });
+
+  it("leaves the voice alone when the instrument gained a sample", () => {
+    // Index 0 may no longer be the same sound; the voice plays out.
+    const baseline = render();
+    const next = cloneSong(buildSong());
+    next.instruments[0] = {
+      ...silent,
+      samples: [silent.samples[0]!, silent.samples[0]!],
+    };
+    const swapped = render((r) => r.replaceSong(next));
+    expect(Array.from(swapped)).toEqual(Array.from(baseline));
+  });
+});
+
+describe("XmReplayer.replaceInstrument and ping-pong loops", () => {
+  it("a voice on the backward leg survives the loop turning forward", () => {
+    // A 64-frame ping-pong loop read at 8363 Hz takes ~675 output frames
+    // per there-and-back, so swap points a quarter-period apart are sure
+    // to catch the voice on a backward leg at least once.
+    const pingPong = (): XmSample => ({
+      ...loopedSample((i) => (i % 2 ? 90 : -90), 64),
+      loopType: "ping-pong",
+    });
+    for (const offset of [0, 170, 340, 510]) {
+      let s = emptyXmSong();
+      s = setXmInstrument(s, 0, instrumentOf(pingPong()));
+      s = setXmCell(s, 0, 0, 0, { note: 49, instrument: 1 });
+      const r = new XmReplayer(
+        { ...s, defaultTempo: 31 },
+        { sampleRate: SR, loop: false },
+      );
+      const L = new Float32Array(TOTAL);
+      const R = new Float32Array(TOTAL);
+      const at = SWAP_AT + offset;
+      r.process(L, R, at);
+      r.replaceInstrument(
+        0,
+        instrumentOf({ ...pingPong(), loopType: "forward" }),
+      );
+      r.process(L, R, TOTAL - at, at);
+      expect(peak(L, TOTAL - 4096, TOTAL)).toBeGreaterThan(0.05);
+    }
+  });
+});

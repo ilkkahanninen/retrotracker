@@ -368,6 +368,20 @@ export function commitEditXmWithWorkbenches(
   });
 }
 
+/**
+ * Song-only XM commit with no playback gate — for edits that stay live
+ * while the song plays, as their PT counterparts do through
+ * `commitEditWithWorkbenches`: instrument and sample settings, the order
+ * list. sync.ts forwards the result to the worklet. Pattern-cell edits
+ * keep using `commitEditXm`, which Follow locks.
+ */
+export function commitEditXmLive(transform: (song: XmSong) => XmSong): void {
+  commitEditXmWithWorkbenches((state) => {
+    const next = transform(state.song);
+    return next === state.song ? state : { ...state, song: next };
+  });
+}
+
 /** XM song plus the pattern-name side-table — see
  *  `commitEditXmWithPatternNames`. */
 export interface XmNamedEditState {

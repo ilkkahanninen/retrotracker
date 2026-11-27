@@ -202,13 +202,15 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   // Cmd+E — render the current selection through the clean offline mixer
   // and land it in the next free sample slot. The handler itself bails on
   // missing-selection / no-free-slot, so the gate here just covers playback
-  // and view; finer eligibility is the handler's concern.
+  // and view; finer eligibility is the handler's concern. PT-only: the
+  // dispatcher stops at the first match, so without the format check this
+  // entry swallowed the key before FT2's own Cmd+E binding could run.
   cleanups.push(
     registerShortcut({
       key: "e",
       mod: true,
       description: "Bounce selection to sample",
-      when: () => editsAllowed() && view() === "pattern",
+      when: () => isPt2Mode() && editsAllowed() && view() === "pattern",
       run: h.bounceSelectionToSample,
     }),
   );

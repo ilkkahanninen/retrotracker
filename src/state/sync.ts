@@ -136,8 +136,11 @@ export function installEngineSync(): void {
         s.patterns !== prevXmPatterns ||
         s.songLength !== prevXmSongLength ||
         s.channelCount !== prevXmChannelCount ||
-        // A list that grew or shrank can't be patched slot by slot.
-        s.instruments.length !== prevXmInstruments?.length) &&
+        // A list that grew or shrank can't be patched slot by slot, and
+        // neither can an instrument that gained or lost a sample: the
+        // replayer matches a sounding voice to its replacement by sample
+        // index, which would then name a different sound.
+        xmInstrumentShapeChanged(prevXmInstruments, s.instruments)) &&
       prevXmOrders !== null
     ) {
       // The whole song, instruments included.
@@ -149,7 +152,11 @@ export function installEngineSync(): void {
     ) {
       for (let i = 0; i < s.instruments.length; i++) {
         const cur = s.instruments[i]!;
-        if (cur !== prevXmInstruments[i]) eng.setXmInstrument(i, cur);
+        const prev = prevXmInstruments[i]!;
+        // A rename is inaudible; don't ship the sample data for it.
+        if (cur !== prev && !sameXmInstrumentAudio(cur, prev)) {
+          eng.setXmInstrument(i, cur);
+        }
       }
     }
     prevXmInstruments = s.instruments;
@@ -158,4 +165,27 @@ export function installEngineSync(): void {
     prevXmSongLength = s.songLength;
     prevXmChannelCount = s.channelCount;
   });
+}
+
+/** True when the instrument list, or any instrument's sample list,
+ *  changed length. */
+function xmInstrumentShapeChanged(
+  prev: XmInstrument[] | null,
+  cur: XmInstrument[],
+): boolean {
+  if (!prev || prev === cur) return false;
+  if (prev.length !== cur.length) return true;
+  for (let i = 0; i < cur.length; i++) {
+    if (prev[i]!.samples.length !== cur[i]!.samples.length) return true;
+  }
+  return false;
+}
+
+/** True when two versions of an instrument differ in nothing the replayer
+ *  reads — i.e. only the name moved. */
+function sameXmInstrumentAudio(a: XmInstrument, b: XmInstrument): boolean {
+  for (const key of Object.keys(a) as (keyof XmInstrument)[]) {
+    if (key !== "name" && a[key] !== b[key]) return false;
+  }
+  return true;
 }

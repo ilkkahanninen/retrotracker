@@ -324,14 +324,11 @@ function replaceXmInstrument(slot1Based: number, next: XmInstrument): boolean {
   }));
 }
 
-/** Tell the user why a dropped WAV went nowhere. The usual cause is the
- *  structural-edit gate (playing with Follow on). */
+/** Tell the user a dropped WAV went nowhere (the commit was rejected —
+ *  an out-of-range slot or a cap, since imports aren't gated on
+ *  playback). */
 function reportXmImportRejected(): void {
-  setError(
-    transport() === "playing" && settings().followPlayback
-      ? "Can't import samples while playing with Follow on — stop playback or turn Follow off, then drop again."
-      : "Couldn't import the dropped samples.",
-  );
+  setError("Couldn't import the dropped samples.");
 }
 
 /**

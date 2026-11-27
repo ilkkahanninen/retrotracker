@@ -978,14 +978,12 @@ export const App: Component = () => {
       {
         // FT2 lands the render in a new instrument, PT in a sample slot;
         // each format has its own selection signal and free-slot rule.
-        // The FT2 action refuses while playing at all, so its gate is
-        // stricter than `locked`.
         icon: AudioWaveform,
         label: ft2 ? "Bounce to instrument" : "Bounce to sample",
         hint: "⌘E",
         onClick: ft2 ? bounceXmSelectionToInstrument : bounceSelectionToSample,
         disabled: ft2
-          ? transport() === "playing" ||
+          ? locked ||
             view() !== "pattern" ||
             !xmSelection() ||
             nextFreeXmInstrumentSlot() === null

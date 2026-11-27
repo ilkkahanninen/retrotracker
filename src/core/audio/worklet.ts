@@ -235,6 +235,9 @@ class RetrotrackerProcessor extends AudioWorkletProcessor {
           // it here keeps the worklet's snapshot consistent with the
           // editor's state.
           this.song = msg.song;
+          // An FT2 channel-count change resizes the replayer's voices;
+          // the mute gates and VU peaks have to follow.
+          this.applyChannelCount(channelCountOf(msg.song));
           this.replayer?.replaceSong(msg.song);
           break;
         case "setLoopPattern":
