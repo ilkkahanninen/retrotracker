@@ -5,8 +5,9 @@ import userEvent from "@testing-library/user-event";
 import { App } from "../../src/App";
 import { emptySong } from "../../src/core/mod/format";
 import { emptyXmInstrument, emptyXmSong } from "../../src/core/xm/format";
+import { setXmChannelCount } from "../../src/core/xm/mutations";
 import { writeXm } from "../../src/core/xm/writer";
-import { resetXmCursor } from "../../src/state/cursorXm";
+import { resetXmCursor, setXmCursor } from "../../src/state/cursorXm";
 import { clearXmSelection, setXmSelection } from "../../src/state/selection";
 import { editStep, setEditStep } from "../../src/state/edit";
 import {
@@ -292,5 +293,58 @@ describe("FT2 pattern meta strip: live readouts", () => {
     setSong(song);
     const { container } = render(() => <App />);
     expect(stripText(container)).toContain("1 instruments");
+  });
+});
+
+describe("FT2 help pane and channel-header tooltips", () => {
+  function openTips(container: HTMLElement): string {
+    fireEvent.click(container.querySelector(".patternhelp__toggle")!);
+    return container.querySelector(".patternhelp__tips")!.textContent!;
+  }
+
+  it("lists the shortcuts that work in FT2 mode", () => {
+    const { container } = render(() => <App />);
+    const tips = openTips(container);
+    // Backspace pulls the channel up — it used to be labelled as a clear.
+    expect(tips).toContain("pull cell up");
+    expect(tips).not.toContain("clear cell, step up");
+    for (const action of [
+      "pull row up",
+      "push cell down",
+      "push row down",
+      "transpose −/+ semitone",
+      "transpose −/+ octave",
+      "bounce to next free instrument",
+    ]) {
+      expect(tips).toContain(action);
+    }
+  });
+
+  it("shows repeat-last-effect on the effect column", () => {
+    const { container } = render(() => <App />);
+    setXmCursor({ order: 0, row: 0, channel: 0, field: "effectCmd" });
+    expect(openTips(container)).toContain("repeat last effect");
+  });
+
+  it("names the real Song / Pattern and Follow shortcuts", () => {
+    const { container } = render(() => <App />);
+    const tips = openTips(container);
+    expect(tips).toMatch(/\+ N\s*toggle Song \/ Pattern mode/);
+    expect(tips).toMatch(/\+ M\s*toggle Follow playhead/);
+  });
+
+  it("mute / solo buttons carry their Alt+digit hint for the first ten channels", () => {
+    setSong(setXmChannelCount(emptyXmSong(), 12));
+    const { container } = render(() => <App />);
+    const titles = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        ".patgrid--xm .patgrid__chbtn",
+      ),
+    ).map((b) => b.title);
+    expect(titles[0]).toBe("Mute channel 1 (Alt+1)");
+    expect(titles[1]).toBe("Solo channel 1 (Alt+Shift+1)");
+    // The tenth channel is on the 0 key; the eleventh has none.
+    expect(titles[18]).toBe("Mute channel 10 (Alt+0)");
+    expect(titles[20]).toBe("Mute channel 11");
   });
 });
