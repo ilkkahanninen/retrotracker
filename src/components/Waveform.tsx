@@ -19,6 +19,11 @@ import {
   drawZoomIndicator,
 } from "./waveformDraw";
 import { createWaveformViewport } from "./waveformViewport";
+import {
+  waveformCursorInfoAt,
+  type WaveformCursorInfo,
+} from "./sampleEditorShared";
+import { WaveformCursorReadout } from "./WaveformCursorReadout";
 
 export type { SampleSelection };
 
@@ -106,55 +111,24 @@ export const Waveform: Component<WaveformProps> = (props) => {
    *  also want the cursor while the user is grabbing. */
   const [hover, setHover] = createSignal<"start" | "end" | null>(null);
   /**
-   * Pointer-anchored cursor tooltip showing the byte under the cursor and
-   * the equivalent `9xx` (Set Sample Offset) effect parameter. Updated on
-   * mouse move and cleared on mouse leave (unless a drag is in flight, so
-   * the readout stays useful while sweeping a selection or dragging a loop
-   * handle past the canvas edge). `flipLeft` toggles when the pointer is
-   * close to the right edge so the tooltip flips to the cursor's left side
-   * instead of clipping out of the .waveform overflow:hidden box.
+   * Pointer-anchored readout: the byte under the pointer and the `9xx`
+   * command that points there (see `WaveformCursorReadout`). Updated on
+   * mouse move and cleared on mouse leave — unless a drag is in flight,
+   * so it stays useful while sweeping a selection or dragging a loop
+   * handle past the canvas edge.
    */
-  const [cursorInfo, setCursorInfo] = createSignal<{
-    byte: number;
-    x: number;
-    y: number;
-    flipLeft: boolean;
-  } | null>(null);
-
-  /** Approximate tooltip width in CSS pixels — used by the edge-flip math. */
-  const TOOLTIP_FLIP_PX = 130;
-  /** Pixel offset between the cursor and the tooltip. Keeps the readout
-   *  visible without sitting directly under the pointer. */
-  const TOOLTIP_OFFSET_PX = 12;
+  const [cursorInfo, setCursorInfo] = createSignal<WaveformCursorInfo | null>(
+    null,
+  );
 
   const updateCursorInfo = (e: MouseEvent) => {
     if (!container || dataLen() === 0) {
       setCursorInfo(null);
       return;
     }
-    const rect = container.getBoundingClientRect();
-    if (rect.width <= 0) {
-      setCursorInfo(null);
-      return;
-    }
-    const localX = e.clientX - rect.left;
-    const localY = e.clientY - rect.top;
     const x = clientToCanvasX(e.clientX);
     const byte = Math.max(0, Math.min(dataLen() - 1, byteForX(x)));
-    setCursorInfo({
-      byte,
-      x: localX,
-      y: localY,
-      flipLeft: localX > rect.width - TOOLTIP_FLIP_PX,
-    });
-  };
-
-  /** `9xx` (SetSampleOffset) parameter that points closest to `byte`. PT's
-   *  param is byte-step 256, capped at 0xFF — anything past byte 65280 just
-   *  saturates to 9FF (the highest byte the effect can address in one go). */
-  const sampleOffsetParam = (byte: number): string => {
-    const v = Math.min(0xff, byte >> 8);
-    return `9${v.toString(16).toUpperCase().padStart(2, "0")}`;
+    setCursorInfo(waveformCursorInfoAt(e, container, byte));
   };
 
   // Viewport in BYTES — `[vp.start, vp.end)` is what gets drawn.
@@ -444,26 +418,7 @@ export const Waveform: Component<WaveformProps> = (props) => {
         )}
       </Show>
       <Show when={cursorInfo()}>
-        {(info) => (
-          <div
-            class="waveform__cursor-info"
-            // Pin to the pointer with a small offset; flip to the cursor's
-            // left side near the right edge so the readout doesn't get
-            // clipped by the .waveform overflow:hidden box.
-            style={{
-              left: `${
-                info().flipLeft
-                  ? info().x - TOOLTIP_OFFSET_PX
-                  : info().x + TOOLTIP_OFFSET_PX
-              }px`,
-              top: `${info().y + TOOLTIP_OFFSET_PX}px`,
-              transform: info().flipLeft ? "translateX(-100%)" : "",
-            }}
-          >
-            <span>Frame: {info().byte}</span>
-            <span>(cmd: {sampleOffsetParam(info().byte)})</span>
-          </div>
-        )}
+        {(info) => <WaveformCursorReadout info={info()} />}
       </Show>
     </div>
   );

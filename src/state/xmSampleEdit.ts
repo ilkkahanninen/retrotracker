@@ -282,9 +282,30 @@ const pipeline = makePipelineActions<XmSampleWorkbench>({
   defaultParamForKind,
 });
 
-export function addXmEffect(kind: EffectKind): void {
+/**
+ * Append an effect to the chain. Range-aware kinds (reverse, crop, cut)
+ * take the waveform `selection` as their range when there is one, as in
+ * PT mode; every other kind, and a range-aware one with no selection,
+ * gets its whole-sample defaults.
+ */
+export function addXmEffect(
+  kind: EffectKind,
+  selection: { start: number; end: number } | null = null,
+): void {
   const ctx = getOrInitCurrentXmWorkbench();
   if (!ctx) return;
+  const isRangeAware = kind === "reverse" || kind === "crop" || kind === "cut";
+  if (isRangeAware && selection && ctx.sample.data.length > 0) {
+    const range = selectionToXmChainFrames(
+      ctx.wb,
+      selection.start,
+      selection.end,
+      ctx.sample.data.length,
+    );
+    if (!range) return;
+    pipeline.appendEffect({ kind, params: range } as EffectNode);
+    return;
+  }
   const chainOut = runChain(materializeSource(ctx.wb.source), ctx.wb.chain);
   pipeline.appendEffect(defaultEffect(kind, chainOut));
 }

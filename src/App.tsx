@@ -299,7 +299,7 @@ import {
 } from "./state/playback";
 import * as preview from "./state/preview";
 import { withWorkbench, workbenches } from "./state/sampleWorkbench";
-import { xmWorkbenches } from "./state/xmSampleWorkbench";
+import { getXmWorkbench, xmWorkbenches } from "./state/xmSampleWorkbench";
 import { selection, xmSelection } from "./state/selection";
 import {
   settings,
@@ -703,6 +703,13 @@ export const App: Component = () => {
         const inst = s.instruments[currentXmInstrument() - 1];
         const sample = inst?.samples[currentXmSampleIndex()];
         if (!sample || sample.data.length < 2) return;
+        // No selecting a chiptune source — the synth re-renders the
+        // cycle on every edit, and the waveform doesn't draw one.
+        const wb = getXmWorkbench(
+          currentXmInstrument(),
+          currentXmSampleIndex(),
+        );
+        if (wb?.source.kind === "chiptune") return;
         setXmSampleSelection({ start: 0, end: sample.data.length });
         return;
       }

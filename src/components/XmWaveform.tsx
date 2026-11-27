@@ -18,6 +18,11 @@ import {
   drawZoomIndicator,
 } from "./waveformDraw";
 import { createWaveformViewport } from "./waveformViewport";
+import {
+  waveformCursorInfoAt,
+  type WaveformCursorInfo,
+} from "./sampleEditorShared";
+import { WaveformCursorReadout } from "./WaveformCursorReadout";
 import { EnvelopeOverlay } from "./EnvelopeOverlay";
 import { beginDragEdit, endDragEdit } from "../state/song";
 
@@ -57,6 +62,10 @@ interface Props {
    *  (InstrumentView) gates this on the user having selected a chain
    *  entry with an envelope param. */
   envelope?: XmWaveformEnvelopeOverlay | null;
+  /** When false, hide the loop band. The host turns it off for a
+   *  chiptune source: its loop is always the whole cycle, so the band
+   *  would just tint the entire waveform. Defaults to true. */
+  showLoop?: boolean;
 }
 
 /** Canvas-internal width — drawing target before DPR / CSS scaling. */
@@ -78,6 +87,12 @@ export const XmWaveform: Component<Props> = (props) => {
 
   const [drag, setDrag] = createSignal<DragState | null>(null);
   const [hover, setHover] = createSignal<"start" | "end" | null>(null);
+  /** Pointer readout — the frame under the pointer and its `9xx`
+   *  command, as on the PT waveform. Kept during a drag so it stays
+   *  useful while sweeping a selection past the canvas edge. */
+  const [cursorInfo, setCursorInfo] = createSignal<WaveformCursorInfo | null>(
+    null,
+  );
   // Why: bump on every observed resize. The draw effects bail when
   // canvas.clientWidth is 0 (display:none ancestor — pattern view hides
   // the sample editor), and re-running them on later visibility changes
@@ -197,7 +212,7 @@ export const XmWaveform: Component<Props> = (props) => {
     const cssXForFrame = (f: number): number => (vp.xFor(f) * cssWidth) / W;
 
     // Loop overlay — translucent band + 1-px edge bars, matching PT2.
-    if (loopActive()) {
+    if (loopActive() && props.showLoop !== false) {
       const s = props.sample;
       drawLoopBand(
         ctx,
@@ -241,6 +256,7 @@ export const XmWaveform: Component<Props> = (props) => {
     props.sample.loopStart;
     props.sample.loopLength;
     props.sample.loopType;
+    props.showLoop;
     props.selection;
     vp.start();
     vp.end();
@@ -301,8 +317,21 @@ export const XmWaveform: Component<Props> = (props) => {
     e.preventDefault();
   };
 
+  const updateCursorInfo = (e: MouseEvent) => {
+    if (!container || dataLen() === 0) {
+      setCursorInfo(null);
+      return;
+    }
+    const frame = Math.max(
+      0,
+      Math.min(dataLen() - 1, frameForCanvasX(clientToCanvasX(e.clientX))),
+    );
+    setCursorInfo(waveformCursorInfoAt(e, container, frame));
+  };
+
   const onMouseMove = (e: MouseEvent) => {
     const x = clientToCanvasX(e.clientX);
+    updateCursorInfo(e);
     const d = drag();
     if (!d) {
       setHover(handleAt(x));
@@ -333,7 +362,10 @@ export const XmWaveform: Component<Props> = (props) => {
   };
 
   const onMouseLeave = () => {
-    if (!drag()) setHover(null);
+    if (!drag()) {
+      setHover(null);
+      setCursorInfo(null);
+    }
   };
 
   const onWheel = (e: WheelEvent) => vp.wheel(e, clientToCanvasX(e.clientX));
@@ -437,6 +469,9 @@ export const XmWaveform: Component<Props> = (props) => {
             onNudgeSegment={env().onNudgeSegment}
           />
         )}
+      </Show>
+      <Show when={cursorInfo()}>
+        {(info) => <WaveformCursorReadout info={info()} />}
       </Show>
     </div>
   );
