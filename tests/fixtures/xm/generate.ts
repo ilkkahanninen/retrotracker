@@ -1058,6 +1058,81 @@ function buildPatternDelayNoteDelay(): XmSong {
 }
 
 /**
+ * 57-tremor (Txy): T21 gates the note 3 ticks on / 2 ticks off; T00 on the
+ * following rows keeps the same parameter and the phase runs on across
+ * row boundaries.
+ */
+function buildTremor(): XmSong {
+  const samp = newSample(triangleSample(512), "tri");
+  const inst = newInstrument(samp, "tri");
+  const pat = { rowCount: 16, rows: emptyRows(16, 4) };
+  pat.rows[0]![0] = cell({
+    note: 49,
+    instrument: 1,
+    effect: 0x1d,
+    effectParam: 0x21,
+  });
+  for (let r = 1; r < 6; r++) {
+    pat.rows[r]![0] = cell({ effect: 0x1d, effectParam: 0x00 });
+  }
+  pat.rows[8]![0] = cell({ note: 56, instrument: 1 });
+  let s = songWithPatterns([pat], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "tremor";
+  return s;
+}
+
+/**
+ * 58-tremor-hold: a tremor row that ends in its "off" half leaves the voice
+ * silent on the rows after it, until something sets the volume again (the
+ * C20 on row 4).
+ */
+function buildTremorHold(): XmSong {
+  const samp = newSample(triangleSample(512), "tri");
+  const inst = newInstrument(samp, "tri");
+  const pat = { rowCount: 16, rows: emptyRows(16, 4) };
+  pat.rows[0]![0] = cell({ note: 49, instrument: 1 });
+  pat.rows[1]![0] = cell({ effect: 0x1d, effectParam: 0x05 });
+  pat.rows[4]![0] = cell({ effect: 0x0c, effectParam: 0x20 });
+  let s = songWithPatterns([pat], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "tremor-hold";
+  return s;
+}
+
+/**
+ * 59-glissando (E3x): with E31 a tone portamento between C-4 and D-4 moves
+ * in semitone steps; after E30 the same slide is smooth again.
+ *
+ * Speed 5 over two semitones is chosen so no tick lands exactly halfway
+ * between two notes (FT2 rounds that tie down, libxmp up), and every slide
+ * runs to its target (FT2 keeps the rounded pitch after the porta row,
+ * libxmp drops back to the real one). Both are pinned by unit tests.
+ */
+function buildGlissando(): XmSong {
+  const samp = newSample(triangleSample(32), "tri");
+  const inst = newInstrument(samp, "tri");
+  const pat = { rowCount: 16, rows: emptyRows(16, 4) };
+  pat.rows[0]![0] = cell({
+    note: 49,
+    instrument: 1,
+    effect: 0x0e,
+    effectParam: 0x31,
+  });
+  pat.rows[2]![0] = cell({ note: 51, effect: 0x03, effectParam: 0x05 });
+  pat.rows[3]![0] = cell({ effect: 0x03, effectParam: 0x00 });
+  pat.rows[6]![0] = cell({ note: 49, effect: 0x03, effectParam: 0x05 });
+  pat.rows[7]![0] = cell({ effect: 0x03, effectParam: 0x00 });
+  pat.rows[10]![0] = cell({ effect: 0x0e, effectParam: 0x30 });
+  pat.rows[12]![0] = cell({ note: 51, effect: 0x03, effectParam: 0x05 });
+  pat.rows[13]![0] = cell({ effect: 0x03, effectParam: 0x00 });
+  let s = songWithPatterns([pat], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = "glissando";
+  return s;
+}
+
+/**
  * 34-volcol-set-vol (high nibble 1..5).
  */
 function buildVolColSetVol(): XmSong {
@@ -1559,6 +1634,9 @@ const FIXTURES: { name: string; build: () => XmSong }[] = [
   { name: "54-pattern-delay", build: buildPatternDelay },
   { name: "55-pattern-delay-break", build: buildPatternDelayBreak },
   { name: "56-pattern-delay-note-delay", build: buildPatternDelayNoteDelay },
+  { name: "57-tremor", build: buildTremor },
+  { name: "58-tremor-hold", build: buildTremorHold },
+  { name: "59-glissando", build: buildGlissando },
 ];
 
 const OUT_DIR = fileURLToPath(new URL("./", import.meta.url));

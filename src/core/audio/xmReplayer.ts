@@ -16,11 +16,11 @@
  * Slice 2 coverage (this file):
  *   - Effect column: 0xy arp, 1xx slide up, 2xx slide down, 3xx tone
  *     porta, 4xy vibrato, 5xy / 6xy combos, 7xy tremolo, 8xx set pan,
- *     9xx sample offset, Axy vol slide, Exy E-extended (E1y, E2y, E4y,
+ *     9xx sample offset, Axy vol slide, Exy E-extended (E1y, E2y, E3y glissando, E4y,
  *     E5y, E6y pattern loop, E7y, E8y, E9y, EAy, EBy, ECy, EDy, EEy
  *     pattern delay), Gxx global vol, Hxy global vol slide, Kxx key
  *     off, Lxx set envelope position, Pxy pan slide, Rxy multi-retrigger,
- *     Xxy X-extended (X1y / X2y extra-fine slides).
+ *     Txy tremor, Xxy X-extended (X1y / X2y extra-fine slides).
  *   - Volume column: 6 (slide down), 7 (slide up), 8 (fine slide down),
  *     9 (fine slide up), A (set vib speed), B (vibrato), C (set pan),
  *     D (pan slide left), E (pan slide right), F (tone porta speed).
@@ -28,8 +28,6 @@
  * Slice 3 coverage: volume / panning envelopes (sustain + loop), fadeout,
  * autovibrato, multi-sample instruments via the keyMap, and note 97 / Kxx
  * releasing the envelope.
- *
- * Not implemented: Txy tremor, E3y glissando control.
  *
  * Reference for behaviour: 8bitbubsy/ft2-clone (`src/ft2_replayer.c`).
  */
@@ -140,8 +138,27 @@ interface XmVoice {
    * loop's own tail.
    */
   looped: boolean;
-  /** Voice volume 0..64 (XM-native). Updated by Cxy, Axy, vol-col 1..5/6/7/8/9, EAy/EBy. */
+  /**
+   * Voice volume 0..64 (XM-native). Updated by Cxy, Axy, vol-col
+   * 1..5/6/7/8/9, EAy/EBy. An accessor over `volumeRaw` (see `newVoice`):
+   * every write also lifts a tremor mute, which is how FT2 behaves — any
+   * volume update copies `realVol` back over the `outVol` tremor zeroed.
+   */
   volume: number;
+  /** Backing store for `volume`. Don't write it directly. */
+  volumeRaw: number;
+  /** Txy memory (x = ticks on − 1, y = ticks off − 1). */
+  tremorParam: number;
+  /** Txy phase, ft2-clone's `tremorPos`: bit 7 = "on" half, low bits =
+   *  ticks left in the current half. Reset to 0 by a note trigger. */
+  tremorPos: number;
+  /**
+   * True while tremor's "off" half is silencing the voice. Deliberately
+   * outlives the Txy row: FT2 leaves the output volume at 0 until
+   * something sets the volume again (see `volume`), so a tremor row that
+   * ends mid-gap stays silent.
+   */
+  tremorMuted: boolean;
   /** Panning 0..255 (0 = left, 128 = center, 255 = right). */
   panning: number;
   /** Effective volume after tremolo (or -1 for "no override"). */
@@ -154,6 +171,18 @@ interface XmVoice {
   instrument: number;
   /** Current pitch period (signed; smaller = higher pitch). */
   period: number;
+  /** Finetune the voice was triggered with (or E5y's override), -128..127.
+   *  Glissando needs it to land on this sample's semitones. */
+  finetune: number;
+  /** E3y: tone portamento moves in semitone steps while true. */
+  glissando: boolean;
+  /**
+   * Semitone-rounded period that glissando puts on the output in place of
+   * `period`, or 0 for none. The slide itself keeps running on `period`.
+   * Like FT2's `outPeriod` it persists after the porta row, until another
+   * effect writes the pitch (note trigger, slides, vibrato, arpeggio).
+   */
+  glissPeriod: number;
   /** Tone-porta target period. */
   portaTarget: number;
   /** Last seen porta speed (3xx memory; persists across rows). */
@@ -296,13 +325,26 @@ function newVoice(): XmVoice {
     stepFixed: 0,
     direction: 1,
     looped: false,
-    volume: 0,
+    volumeRaw: 0,
+    get volume(): number {
+      return this.volumeRaw;
+    },
+    set volume(value: number) {
+      this.volumeRaw = value;
+      this.tremorMuted = false;
+    },
+    tremorParam: 0,
+    tremorPos: 0,
+    tremorMuted: false,
     panning: 128,
     effectiveVolume: -1,
     note: 0,
     effectiveNote: 0,
     instrument: 0,
     period: 0,
+    finetune: 0,
+    glissando: false,
+    glissPeriod: 0,
     portaTarget: 0,
     portaSpeed: 0,
     vibSpeed: 0,
@@ -856,7 +898,8 @@ export class XmReplayer {
   private computeVoiceGain(v: XmVoice, channelIdx: number): [number, number] {
     if (!v.playing || !v.sample) return [0, 0];
     if (this.channelMuted[channelIdx]) return [0, 0];
-    const voiceVol = v.effectiveVolume >= 0 ? v.effectiveVolume : v.volume;
+    const voiceVol =
+      v.effectiveVolume >= 0 ? v.effectiveVolume : v.tremorMuted ? 0 : v.volume;
     const volEnvFactor = this.volEnvelopeFactor(v);
     const fadeFactor = v.fadeoutVol / 32768;
     const panOffset = this.panEnvelopeOffset(v);
@@ -944,7 +987,10 @@ export class XmReplayer {
         ? -v.arpOffset * 16 * 4
         : -v.arpOffset * 16;
       const effectivePeriod = clampPeriod(
-        v.period + autoVibOffset + arpPeriodOffset + v.vibOffset,
+        (v.glissPeriod || v.period) +
+          autoVibOffset +
+          arpPeriodOffset +
+          v.vibOffset,
         this.linearFreq,
       );
       const hz = this.hzForPeriod(effectivePeriod);
@@ -1241,6 +1287,9 @@ export class XmReplayer {
       v.panning = samp.panning;
     }
     v.period = periodForNote(effectiveNote, samp.finetune, this.linearFreq);
+    v.finetune = samp.finetune;
+    v.glissPeriod = 0;
+    v.tremorPos = 0;
     v.portaTarget = v.period;
     // Vibrato / tremolo position reset behaviour: ft2-clone resets unless
     // the waveform's high bit is set (E4y / E7y values 4..7). We model the
@@ -1465,9 +1514,15 @@ export class XmReplayer {
       case 0x1:
         // Fine slide up — period decreases (pitch up).
         v.period = clampPeriod(v.period - y * 4, this.linearFreq);
+        v.glissPeriod = 0;
         break;
       case 0x2:
         v.period = clampPeriod(v.period + y * 4, this.linearFreq);
+        v.glissPeriod = 0;
+        break;
+      case 0x3:
+        // Glissando control: any non-zero value turns it on.
+        v.glissando = y !== 0;
         break;
       case 0x4:
         v.vibWaveform = y;
@@ -1478,6 +1533,8 @@ export class XmReplayer {
         const ft = (y - 8) * 16;
         if (v.effectiveNote > 0) {
           v.period = periodForNote(v.effectiveNote, ft, this.linearFreq);
+          v.finetune = ft;
+          v.glissPeriod = 0;
         }
         break;
       }
@@ -1529,9 +1586,11 @@ export class XmReplayer {
     switch (sub) {
       case 0x1: // Extra-fine slide up
         v.period = clampPeriod(v.period - y, this.linearFreq);
+        v.glissPeriod = 0;
         break;
       case 0x2:
         v.period = clampPeriod(v.period + y, this.linearFreq);
+        v.glissPeriod = 0;
         break;
       default:
         break;
@@ -1586,13 +1645,16 @@ export class XmReplayer {
         const ax = (v.arpParam >>> 4) & 0xf;
         const ay = v.arpParam & 0xf;
         v.arpOffset = phase === 1 ? ax : phase === 2 ? ay : 0;
+        v.glissPeriod = 0;
         break;
       }
       case 0x01:
         v.period = clampPeriod(v.period - v.slideUpLast * 4, this.linearFreq);
+        v.glissPeriod = 0;
         break;
       case 0x02:
         v.period = clampPeriod(v.period + v.slideDownLast * 4, this.linearFreq);
+        v.glissPeriod = 0;
         break;
       case 0x03:
         this.runTonePorta(v);
@@ -1648,6 +1710,9 @@ export class XmReplayer {
         v.panning = Math.max(0, Math.min(255, v.panning + sy - sx));
         break;
       }
+      case 0x1d:
+        this.runTremor(v, cell.effectParam);
+        break;
       case 0x1b:
         // Rxy multi-retrigger.
         if (
@@ -1736,6 +1801,48 @@ export class XmReplayer {
     } else if (v.period > v.portaTarget) {
       v.period = Math.max(v.portaTarget, v.period - step);
     }
+    v.glissPeriod = v.glissando ? this.semitonePeriod(v) : 0;
+  }
+
+  /**
+   * Round the voice's period to a whole semitone for glissando — a port of
+   * ft2-clone's `period2NotePeriod`. It binary-searches the notes for the
+   * highest one whose half-semitone-below boundary is still above the
+   * period, so the pitch snaps to the nearest note, and an exact halfway
+   * tie goes to the lower note. Finetune is honoured at FT2's 1/16-semitone
+   * resolution so the steps land on the sample's own tuning.
+   */
+  private semitonePeriod(v: XmVoice): number {
+    const finetune = (v.finetune >> 3) * 8;
+    let lo = 0;
+    let hi = 8 * 12; // FT2 searches 8 octaves, not the full 10.
+    for (let i = 0; i < 8; i++) {
+      const mid = (lo + hi) >> 1;
+      // 64 finetune units = half a semitone.
+      const boundary = periodForNote(mid + 1, finetune - 64, this.linearFreq);
+      if (v.period >= boundary) hi = mid;
+      else lo = mid;
+    }
+    return periodForNote(lo + 1, finetune, this.linearFreq);
+  }
+
+  /**
+   * Txy tremor, one call per non-zero tick (ft2-clone `tremor`): the voice
+   * sounds for x+1 ticks, then is silent for y+1, and so on. The phase
+   * carries across rows and is only reset by a note trigger. T00 reuses
+   * the last parameter.
+   */
+  private runTremor(v: XmVoice, param: number): void {
+    if (param === 0) param = v.tremorParam;
+    v.tremorParam = param;
+    let on = (v.tremorPos & 0x80) !== 0;
+    let left = (v.tremorPos & 0x7f) - 1;
+    if (left < 0) {
+      on = !on;
+      left = on ? param >>> 4 : param & 0x0f;
+    }
+    v.tremorPos = (on ? 0x80 : 0) | left;
+    v.tremorMuted = !on;
   }
 
   private runVibrato(v: XmVoice): void {
@@ -1747,6 +1854,7 @@ export class XmReplayer {
     // (note-1)*64`), so the absolute pitch swing matches when we
     // multiply by 4 — equivalent to `>> 5` on our ±64 table.
     v.vibOffset = (raw * v.vibDepth) >> 5;
+    v.glissPeriod = 0;
     // libxmp (player.c:1192): `lfo_update` runs every frame except
     // is_first_frame (frame === 0 for FT2 events). Mirrors `QUIRK_VIBALL`
     // unset for XM — phase advances on all but the song's very first
@@ -1762,6 +1870,7 @@ export class XmReplayer {
     const raw = vibValue(v.tremPos, v.tremWaveform);
     const offset = (raw * v.tremDepth) >> 6;
     v.effectiveVolume = Math.max(0, Math.min(64, v.volume + offset));
+    v.tremorMuted = false;
     v.tremPos = (v.tremPos + v.tremSpeed) & 0x3f;
   }
 

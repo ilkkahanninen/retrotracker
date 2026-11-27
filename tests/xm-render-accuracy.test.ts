@@ -98,6 +98,10 @@ const FIXTURE_TOLERANCES: Record<string, Tolerance> = {
   "12-set-volume": { rms: 0.002, peak: 0.02 },
   "17-note-cut": { rms: 0.002, peak: 0.1 },
   "18-note-delay": { rms: 0.002, peak: 0.04 },
+  // Tremor gates the voice on and off mid-note; same ramp-shape transient
+  // as the note cut above. The gating itself matches tick for tick.
+  "57-tremor": { rms: 0.003, peak: 0.1 },
+  "58-tremor-hold": { rms: 0.003, peak: 0.1 },
   "25-pan-envelope": { rms: 0.002, peak: 0.02 },
   "27-set-env-pos": { rms: 0.002, peak: 0.02 },
   "37-volcol-set-pan": { rms: 0.02, peak: 0.05 },
