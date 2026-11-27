@@ -13,6 +13,10 @@ export interface XmSampleClipboardData {
   bits: 8 | 16;
   /** Optional source name for downstream display. */
   name?: string;
+  /** Tuning of the sample the bytes were copied from. The bytes only
+   *  play at the right pitch with it, so paste carries it along. */
+  relativeNote?: number;
+  finetune?: number;
 }
 
 export const [xmSampleClipboard, setXmSampleClipboard] =

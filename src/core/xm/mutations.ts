@@ -486,6 +486,29 @@ export function renameXmInstrument(
   return setXmInstrument(song, slot, next);
 }
 
+/** An instrument slot with nothing to play: missing, no samples, or
+ *  only zero-length ones. What the editor shows greyed-out and what an
+ *  import may fill. */
+export function isXmInstrumentEmpty(inst: XmInstrument | undefined): boolean {
+  return (
+    !inst ||
+    inst.samples.length === 0 ||
+    inst.samples.every((sm) => sm.data.length === 0)
+  );
+}
+
+/** Lowest empty instrument slot at or after `from` (both 0-based), or
+ *  null when the rest of the 128 are taken. */
+export function nextFreeXmInstrumentIndex(
+  song: XmSong,
+  from = 0,
+): number | null {
+  for (let i = Math.max(0, from); i < XM_MAX_INSTRUMENTS; i++) {
+    if (isXmInstrumentEmpty(song.instruments[i])) return i;
+  }
+  return null;
+}
+
 /** Replace the instrument at a 0-based slot. Grows the array as needed. */
 /**
  * Wipe an instrument slot. Replaces the contents with a fresh-empty

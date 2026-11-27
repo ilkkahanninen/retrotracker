@@ -94,8 +94,9 @@ describe("XM workbench keys follow the samples", () => {
 
     await loadWavsIntoXmSlot(1, [wavFile("new.wav", 500)]);
     expect(frames(1, 0)).toBe(500);
-    // The workbench that described old.wav must be gone.
-    expect(getXmWorkbench(1, 0)).toBeUndefined();
+    // The workbench that described old.wav must be gone — replaced by
+    // one whose source is the dropped WAV.
+    expect(sourceName(1, 0)).toBe("new");
 
     // A pipeline edit now works on new.wav, not the stale source.
     addXmEffect("normalize");
@@ -195,7 +196,10 @@ describe("XM workbench keys follow the samples", () => {
 
     await dropWavsToXmInstrumentView([wavFile("new.wav", 400)]);
     expect(frames(1, 0)).toBe(400);
-    expect(getXmWorkbench(1, 0)).toBeUndefined();
+    // The leftover is replaced by the dropped WAV's own workbench, with
+    // the import's defaults rather than the leftover's settings.
+    expect(sourceName(1, 0)).toBe("new");
+    expect(getXmWorkbench(1, 0)!.chain).toEqual([]);
 
     addXmEffect("normalize");
     expect(frames(1, 0)).toBe(400);

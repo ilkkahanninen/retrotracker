@@ -315,28 +315,20 @@ describe("convertXmChiptuneToSampler: freeze chiptune render as sampler source",
     expect(curSample()!.data.length).toBe(lenBefore);
   });
 
-  it("preserves the sampler half's alt stash for re-toggling back to chiptune", () => {
-    // Lay down a sampler half first, then flip to chiptune (sampler
-    // lives in alt), then convert. The previous sampler must survive
-    // the convert so the user can flip back to it.
-    loadXmWavIntoCurrentSample(makeWavBytes(400), "src.wav");
-    const samplerSourceRef = getXmWorkbench(1, 0)!.source;
-    setXmSourceKind("chiptune");
-    expect(getXmWorkbench(1, 0)!.alt?.source.kind).toBe("sampler");
+  it("stashes the chiptune params so toggling back restores the synth", () => {
+    // As PT's convert does. (It used to drop the alt, so flipping back
+    // fell through to a fresh default chiptune.)
+    setXmWorkbench(1, 0, xmWorkbenchFromChiptune());
+    updateXmChiptune({ cycleFrames: 128 });
+    const chiptuneSource = getXmWorkbench(1, 0)!.source;
 
     convertXmChiptuneToSampler();
     const wb = getXmWorkbench(1, 0)!;
     expect(wb.source.kind).toBe("sampler");
-    // Either the stash points at the original sampler ref (PT2-style
-    // behaviour) OR a Chiptune source (XM's current behaviour). Lock
-    // the answer in so future drift is loud.
-    if (wb.alt?.source.kind === "sampler") {
-      expect(wb.alt.source).toBe(samplerSourceRef);
-    } else {
-      // Documents the current XM behaviour: alt is dropped, so flipping
-      // back will fall through to a fresh chiptune workbench.
-      expect(wb.alt).toBeNull();
-    }
+    expect(wb.alt?.source).toBe(chiptuneSource);
+
+    setXmSourceKind("chiptune");
+    expect(getXmWorkbench(1, 0)!.source).toBe(chiptuneSource);
   });
 
   it("is a no-op while transport is playing", () => {

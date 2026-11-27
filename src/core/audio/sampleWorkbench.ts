@@ -1515,6 +1515,14 @@ export interface XmWorkbenchAlt {
    * those simply inherit whatever loop is on the live sample.
    */
   loop?: { loopStart: number; loopLength: number; loopType: XmLoopType };
+  /**
+   * Snapshot of the sample's tuning when this half was stashed. A
+   * sampler's tuning encodes its WAV's sample rate and a chiptune's is
+   * 0 / 0 (its cycle length sets the pitch), so each half needs its own
+   * — sharing one made a chiptune play at the WAV's tuning after a
+   * toggle. Absent on older alts, which keep the live sample's tuning.
+   */
+  tuning?: { relativeNote: number; finetune: number };
 }
 
 export interface XmSampleWorkbench {
@@ -1613,11 +1621,13 @@ export function xmWorkbenchFromChiptune(
 export function xmWorkbenchToAlt(
   wb: XmSampleWorkbench,
   currentLoop?: { loopStart: number; loopLength: number; loopType: XmLoopType },
+  currentTuning?: { relativeNote: number; finetune: number },
 ): XmWorkbenchAlt {
   return {
     source: wb.source,
     chain: wb.chain,
     xm: wb.xm,
     ...(currentLoop ? { loop: currentLoop } : {}),
+    ...(currentTuning ? { tuning: currentTuning } : {}),
   };
 }
