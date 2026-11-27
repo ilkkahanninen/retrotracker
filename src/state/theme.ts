@@ -87,6 +87,26 @@ export const COLOR_SCHEMES: readonly ColorScheme[] = [
       "--text-on-accent": "#1a0d00",
     },
   },
+  {
+    // Jade carries the surfaces and text; gold is reserved for highlights
+    // (cursor, active tabs, selection). Warn is orange so it stays
+    // distinguishable from the gold accent.
+    id: "jade-gold",
+    label: "Jade & Gold",
+    vars: {
+      "--bg": "#06140f",
+      "--panel": "#0b1f18",
+      "--panel-2": "#122c22",
+      "--fg": "#a8e6cf",
+      "--muted": "#4f9a7e",
+      "--accent": "#f2c14e",
+      "--accent-dim": "#5c4612",
+      "--grid-line": "#1b3d30",
+      "--error": "#ff6b6b",
+      "--warn": "#ff9f43",
+      "--text-on-accent": "#141003",
+    },
+  },
 ];
 
 const FALLBACK_SCHEME = COLOR_SCHEMES[0]!;

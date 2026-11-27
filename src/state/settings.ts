@@ -13,7 +13,8 @@ import type { AmigaModel } from "../core/audio/paula";
 
 const STORAGE_KEY = "retrotracker:settings:v1";
 
-export type ColorSchemeId = "default" | "light" | "high-contrast" | "amber";
+export type ColorSchemeId =
+  "default" | "light" | "high-contrast" | "amber" | "jade-gold";
 
 /** UI scale slider range, expressed as a percentage of the natural size. */
 export const UI_SCALE_MIN = 75;
@@ -96,7 +97,11 @@ function isFt2Interpolation(v: unknown): v is Ft2InterpolationMode {
 
 function isColorSchemeId(v: unknown): v is ColorSchemeId {
   return (
-    v === "default" || v === "light" || v === "high-contrast" || v === "amber"
+    v === "default" ||
+    v === "light" ||
+    v === "high-contrast" ||
+    v === "amber" ||
+    v === "jade-gold"
   );
 }
 
