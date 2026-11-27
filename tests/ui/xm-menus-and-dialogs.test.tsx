@@ -15,8 +15,8 @@ import { App } from "../../src/App";
 import { ServerBrowser } from "../../src/components/ServerBrowser";
 import { emptySong } from "../../src/core/mod/format";
 import { writeModule } from "../../src/core/mod/writer";
-import { emptyXmSong } from "../../src/core/xm/format";
-import { setXmCell } from "../../src/core/xm/mutations";
+import { emptyXmInstrument, emptyXmSong } from "../../src/core/xm/format";
+import { setXmCell, setXmInstrument } from "../../src/core/xm/mutations";
 import { resetXmCursor, setXmCursor } from "../../src/state/cursorXm";
 import { clearSession, saveSession } from "../../src/state/persistence";
 import { disposeEngine, ensureEngine } from "../../src/state/playback";
@@ -296,6 +296,61 @@ describe("menus with an FT2 song", () => {
     setTransport("playing");
     const { container } = render(() => <App />);
     expect(isDisabled(menuItem(container, "Order", "Clean up"))).toBe(true);
+  });
+
+  it("the Samples menu becomes Instruments and acts on the current instrument", () => {
+    seed();
+    const { container } = render(() => <App />);
+    const triggers = () =>
+      [...container.querySelectorAll<HTMLButtonElement>(".menu__button")].map(
+        (b) => b.textContent,
+      );
+    expect(triggers()).toContain("Instruments");
+    expect(triggers()).not.toContain("Samples");
+
+    // Empty instrument: nothing to duplicate.
+    setCurrentXmInstrument(1);
+    expect(isDisabled(menuItem(container, "Instruments", "Duplicate"))).toBe(
+      true,
+    );
+    fireEvent.click(
+      [...container.querySelectorAll<HTMLButtonElement>(".menu__button")].find(
+        (b) => b.textContent?.startsWith("Instruments"),
+      )!,
+    );
+
+    const inst = emptyXmInstrument();
+    inst.name = "lead";
+    inst.samples[0] = {
+      ...inst.samples[0]!,
+      data: new Int8Array([1, 2, 3, 4]),
+      bits: 8,
+    };
+    setSong(setXmInstrument(xm2Song()!, 0, inst));
+
+    const dup = menuItem(container, "Instruments", "Duplicate");
+    expect(isDisabled(dup)).toBe(false);
+    fireEvent.click(dup);
+    const copy = xm2Song()!.instruments[1]!;
+    expect(Array.from(copy.samples[0]!.data)).toEqual([1, 2, 3, 4]);
+
+    setCurrentXmInstrument(1);
+    fireEvent.click(menuItem(container, "Instruments", "Clear"));
+    const cleared = xm2Song()!.instruments[0];
+    expect(cleared?.samples.every((sm) => sm.data.length === 0) ?? true).toBe(
+      true,
+    );
+    // The copy in slot 2 is untouched.
+    expect(xm2Song()!.instruments[1]!.samples[0]!.data.length).toBe(4);
+  });
+
+  it("the Samples menu keeps its name for a ProTracker song", () => {
+    setSong(emptySong());
+    const { container } = render(() => <App />);
+    const labels = [
+      ...container.querySelectorAll<HTMLButtonElement>(".menu__button"),
+    ].map((b) => b.textContent);
+    expect(labels).toContain("Samples");
   });
 
   it("Edit → Paste enables after an FT2 copy and pastes", () => {

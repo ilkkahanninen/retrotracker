@@ -66,10 +66,14 @@ import { XmOrderList } from "./components/XmOrderList";
 import { PatternHelp } from "./components/PatternHelp";
 import { XmPatternHelp } from "./components/XmPatternHelp";
 import {
+  applyXmChainToSource,
   bounceXmSelectionToInstrument,
+  clearCurrentXmInstrument,
   copyXmSampleRange,
   cutXmSampleRange,
+  duplicateCurrentXmInstrument,
   effectiveXmSampleRange,
+  loadXmWavIntoCurrentSample,
   nextFreeXmInstrumentSlot,
   pasteXmSampleBytes,
 } from "./state/xmSampleEdit";
@@ -434,7 +438,8 @@ export const App: Component = () => {
     input.value = "";
     if (!file) return;
     const buf = new Uint8Array(await file.arrayBuffer());
-    loadWavIntoCurrentSample(buf, file.name);
+    if (xm2Song()) loadXmWavIntoCurrentSample(buf, file.name);
+    else loadWavIntoCurrentSample(buf, file.name);
   };
 
   const openFilePicker = () => fileInput?.click();
@@ -1012,6 +1017,38 @@ export const App: Component = () => {
   };
 
   const samplesMenuItems = (): MenuItem[] => {
+    const xm = xm2Song();
+    if (xm) {
+      // FT2: the same four actions, acting on the current instrument. The
+      // gates mirror the buttons in InstrumentView — these actions are
+      // allowed during playback there, so they are here too.
+      const inst = xm.instruments[currentXmInstrument() - 1];
+      const hasData = !!inst?.samples.some((sm) => sm.data.length > 0);
+      return [
+        {
+          icon: Upload,
+          label: "Load WAV…",
+          onClick: () => wavInput?.click(),
+        },
+        {
+          icon: CopyPlus,
+          label: "Duplicate",
+          onClick: duplicateCurrentXmInstrument,
+          disabled: !hasData || nextFreeXmInstrumentSlot() === null,
+        },
+        {
+          icon: WandSparkles,
+          label: "Apply chain to source",
+          onClick: applyXmChainToSource,
+        },
+        { separator: true, label: "" },
+        {
+          icon: Trash,
+          label: "Clear",
+          onClick: clearCurrentXmInstrument,
+        },
+      ];
+    }
     const s = pt2Song();
     const playing = transport() === "playing";
     const hasSong = !!s;
@@ -1386,7 +1423,10 @@ export const App: Component = () => {
           />
           <Menu label="File" items={fileMenuItems()} />
           <Menu label="Edit" items={editMenuItems()} />
-          <Menu label="Samples" items={samplesMenuItems()} />
+          <Menu
+            label={xm2Song() ? "Instruments" : "Samples"}
+            items={samplesMenuItems()}
+          />
           <Menu label="Order" items={orderMenuItems()} />
           <Menu label="Help" items={helpMenuItems()} />
         </div>
