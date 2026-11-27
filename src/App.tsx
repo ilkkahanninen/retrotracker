@@ -10,6 +10,8 @@ import {
 import { AboutModal } from "./components/AboutModal";
 import { APP_VERSION } from "./version";
 import { ModePicker } from "./components/ModePicker";
+import { EditStepControl } from "./components/EditStepControl";
+import { MetaNumberInput } from "./components/MetaNumberInput";
 import { ModeBadge } from "./components/ModeBadge";
 import { InfoView } from "./components/InfoView";
 import { Menu, type MenuItem } from "./components/Menu";
@@ -85,6 +87,7 @@ import { bounceSelection } from "./core/audio/bounce";
 import type { ChiptuneParams } from "./core/audio/chiptune";
 import { emptySong } from "./core/mod/format";
 import { writeModule } from "./core/mod/writer";
+import { writeXm } from "./core/xm/writer";
 import { registerAppKeybinds } from "./state/appKeybinds";
 import { registerXmAppKeybinds } from "./state/appKeybindsXm";
 import { installEngineSync } from "./state/sync";
@@ -234,9 +237,7 @@ import { speedTempoAt } from "./core/mod/flatten";
 import {
   currentOctave,
   currentSample,
-  decEditStep,
   editStep,
-  incEditStep,
   selectSample,
 } from "./state/edit";
 import {
@@ -261,14 +262,20 @@ import {
   cutXmSelection,
   pasteXmAtCursor,
   setXmChannelCountAction,
+  setXmDefaultBpmAction,
+  setXmDefaultSpeedAction,
   setXmRowCountAtCursor,
 } from "./state/xmPatternEdit";
 import {
   XM_INSTRUMENT_NAME_MAX,
+  XM_MAX_BPM,
   XM_MAX_CHANNELS,
   XM_MAX_INSTRUMENTS,
   XM_MAX_PATTERN_ROWS,
+  XM_MAX_SPEED,
+  XM_MIN_BPM,
   XM_MIN_PATTERN_ROWS,
+  XM_MIN_SPEED,
 } from "./core/xm/types";
 import { SAMPLE_NAME_MAX } from "./core/mod/sampleImport";
 import { infoText, setInfoText } from "./state/info";
@@ -1206,11 +1213,14 @@ export const App: Component = () => {
     return speedTempoAt(s, c.order, c.row, true);
   });
 
-  const modByteSize = createMemo(() => {
+  // Size of the song as its native module file — what Export .mod /
+  // Export .xm would write.
+  const moduleByteSize = createMemo(() => {
     const s = song();
-    if (!s || s.format !== "PT2") return 0;
-    return writeModule(s).length;
+    if (!s) return 0;
+    return (s.format === "PT2" ? writeModule(s) : writeXm(s)).length;
   });
+  const moduleExt = () => (song()?.format === "FT2" ? ".xm" : ".mod");
 
   // Estimated `.retro` size. Tracks only the inputs that affect bytes
   // (song / metadata / chiptune params); cursor moves and view toggles
@@ -1533,7 +1543,7 @@ export const App: Component = () => {
           </div>
         </div>
         <Show when={song()}>
-          {/* Combined size pill: .mod payload + estimated .retro project
+          {/* Combined size pill: .mod / .xm payload + estimated .retro project
               size / limit. Shares one chip to free header space; warn/err
               classes tint it yellow / red as the .retro estimate climbs. */}
           <span
@@ -1544,12 +1554,12 @@ export const App: Component = () => {
             }}
             title={
               sourceStoreAvailable()
-                ? `.mod file size · estimated .retro project size. Autosave keeps sample sources in separate browser storage; the song itself is ${formatProjectSize(sessionStorageBytes())} of its ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)} budget.`
-                : `.mod file size · estimated .retro project size — browser-storage budget ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}. Past it, autosave stops keeping sample sources and effect chains; saving to a file or the cloud is unaffected.`
+                ? `${moduleExt()} file size · estimated .retro project size. Autosave keeps sample sources in separate browser storage; the song itself is ${formatProjectSize(sessionStorageBytes())} of its ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)} budget.`
+                : `${moduleExt()} file size · estimated .retro project size — browser-storage budget ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}. Past it, autosave stops keeping sample sources and effect chains; saving to a file or the cloud is unaffected.`
             }
           >
             <span class="filesize__seg">
-              .mod {formatProjectSize(modByteSize())}
+              {moduleExt()} {formatProjectSize(moduleByteSize())}
             </span>
             <span class="filesize__sep">·</span>
             <span class="filesize__seg">
@@ -1641,59 +1651,59 @@ export const App: Component = () => {
                   <span class="patternpane__sep">·</span>
                   <span>{filename()}</span>
                   <span class="patternpane__sep">·</span>
-                  <label class="patternpane__rows">
-                    Channels
-                    <input
-                      type="number"
-                      min={2}
-                      max={XM_MAX_CHANNELS}
-                      step={1}
-                      aria-label="Channel count"
-                      title={`Song-wide channel count (range 2..${XM_MAX_CHANNELS})`}
-                      disabled={transport() === "playing"}
-                      value={xm().channelCount}
-                      onChange={(e) => {
-                        const n = Math.floor(Number(e.currentTarget.value));
-                        if (!Number.isFinite(n)) return;
-                        const clamped = Math.max(
-                          2,
-                          Math.min(XM_MAX_CHANNELS, n),
-                        );
-                        setXmChannelCountAction(clamped);
-                      }}
-                    />
-                  </label>
+                  <MetaNumberInput
+                    label="Channels"
+                    ariaLabel="Channel count"
+                    title="Song-wide channel count"
+                    min={2}
+                    max={XM_MAX_CHANNELS}
+                    disabled={transport() === "playing"}
+                    value={xm().channelCount}
+                    onCommit={setXmChannelCountAction}
+                  />
                   <span class="patternpane__sep">·</span>
                   <span>{xm().instruments.length} instruments</span>
                   <span class="patternpane__sep">·</span>
-                  <label class="patternpane__rows">
-                    Rows
-                    <input
-                      type="number"
-                      min={XM_MIN_PATTERN_ROWS}
-                      max={XM_MAX_PATTERN_ROWS}
-                      step={1}
-                      aria-label="Pattern row count"
-                      title={`Row count of pattern at order ${xmCursor().order} (range ${XM_MIN_PATTERN_ROWS}..${XM_MAX_PATTERN_ROWS})`}
-                      disabled={transport() === "playing"}
-                      value={(() => {
-                        const s = xm();
-                        const idx = s.orders[xmCursor().order];
-                        return idx !== undefined
-                          ? (s.patterns[idx]?.rowCount ?? 0)
-                          : 0;
-                      })()}
-                      onChange={(e) => {
-                        const n = Math.floor(Number(e.currentTarget.value));
-                        if (!Number.isFinite(n)) return;
-                        const clamped = Math.max(
-                          XM_MIN_PATTERN_ROWS,
-                          Math.min(XM_MAX_PATTERN_ROWS, n),
-                        );
-                        setXmRowCountAtCursor(clamped);
-                      }}
-                    />
-                  </label>
+                  <MetaNumberInput
+                    label="Rows"
+                    ariaLabel="Pattern row count"
+                    title={`Row count of pattern at order ${xmCursor().order}`}
+                    min={XM_MIN_PATTERN_ROWS}
+                    max={XM_MAX_PATTERN_ROWS}
+                    disabled={transport() === "playing"}
+                    value={(() => {
+                      const s = xm();
+                      const idx = s.orders[xmCursor().order];
+                      return idx !== undefined
+                        ? (s.patterns[idx]?.rowCount ?? 0)
+                        : 0;
+                    })()}
+                    onCommit={setXmRowCountAtCursor}
+                  />
+                  <span class="patternpane__sep">·</span>
+                  <MetaNumberInput
+                    label="Speed"
+                    ariaLabel="Initial speed"
+                    title="Initial speed in ticks per row"
+                    min={XM_MIN_SPEED}
+                    max={XM_MAX_SPEED}
+                    disabled={transport() === "playing"}
+                    value={xm().defaultTempo}
+                    onCommit={setXmDefaultSpeedAction}
+                  />
+                  <span class="patternpane__sep">·</span>
+                  <MetaNumberInput
+                    label="Tempo"
+                    ariaLabel="Initial tempo"
+                    title="Initial tempo in BPM"
+                    min={XM_MIN_BPM}
+                    max={XM_MAX_BPM}
+                    disabled={transport() === "playing"}
+                    value={xm().defaultBpm}
+                    onCommit={setXmDefaultBpmAction}
+                  />
+                  <span class="patternpane__sep">·</span>
+                  <EditStepControl />
                 </div>
                 <PatternGridXm
                   song={xm()}
@@ -1821,35 +1831,7 @@ export const App: Component = () => {
                       .padStart(2, "0")}
                   </span>
                   <span class="patternpane__sep">·</span>
-                  <span class="patternpane__editstep">
-                    step
-                    <button
-                      type="button"
-                      class="patternpane__editstep-btn"
-                      onClick={decEditStep}
-                      disabled={transport() === "playing"}
-                      title="Decrease edit step ([)"
-                      aria-label="Decrease edit step"
-                    >
-                      <Icon of={Minus} />
-                    </button>
-                    <span
-                      class="patternpane__editstep-value"
-                      aria-label="Edit step"
-                    >
-                      {editStep()}
-                    </span>
-                    <button
-                      type="button"
-                      class="patternpane__editstep-btn"
-                      onClick={incEditStep}
-                      disabled={transport() === "playing"}
-                      title="Increase edit step (])"
-                      aria-label="Increase edit step"
-                    >
-                      <Icon of={Plus} />
-                    </button>
-                  </span>
+                  <EditStepControl />
                 </div>
                 <PatternGrid
                   song={s()}

@@ -12,6 +12,8 @@ import {
   insertXmRowPushDown,
   setXmCell,
   setXmChannelCount,
+  setXmDefaultBpm,
+  setXmDefaultSpeed,
   setXmPatternRowCount,
   transposeRangeXm,
 } from "../core/xm/mutations";
@@ -285,4 +287,14 @@ export function setXmChannelCountAction(channelCount: number): void {
   // Resize the mute / solo arrays to the new channel count (and drop a
   // selection that reaches into removed channels).
   reconcileUiToSong();
+}
+
+export function setXmDefaultSpeedAction(speed: number): void {
+  if (!editsAllowed()) return;
+  commitEditXm((s) => setXmDefaultSpeed(s, speed));
+}
+
+export function setXmDefaultBpmAction(bpm: number): void {
+  if (!editsAllowed()) return;
+  commitEditXm((s) => setXmDefaultBpm(s, bpm));
 }

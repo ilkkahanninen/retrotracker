@@ -11,6 +11,8 @@ import {
   enterXmKeyOff,
   enterXmNote,
   setXmChannelCountAction,
+  setXmDefaultBpmAction,
+  setXmDefaultSpeedAction,
   setXmRowCountAtCursor,
 } from "~/state/xmPatternEdit";
 import { setEditStep } from "~/state/edit";
@@ -368,5 +370,22 @@ describe("transport gating", () => {
     setTransport("playing");
     applyXmCursor({ order: 0, row: 9, channel: 1, field: "instLo" });
     expect(xmCursor().row).toBe(0);
+  });
+});
+
+describe("setXmDefaultSpeedAction / setXmDefaultBpmAction", () => {
+  it("set the song's initial speed and BPM", () => {
+    setXmDefaultSpeedAction(4);
+    setXmDefaultBpmAction(140);
+    expect(xm2Song()!.defaultTempo).toBe(4);
+    expect(xm2Song()!.defaultBpm).toBe(140);
+  });
+
+  it("no-op while playing", () => {
+    setTransport("playing");
+    setXmDefaultSpeedAction(4);
+    setXmDefaultBpmAction(140);
+    expect(xm2Song()!.defaultTempo).toBe(6);
+    expect(xm2Song()!.defaultBpm).toBe(125);
   });
 });

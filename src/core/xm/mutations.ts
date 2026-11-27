@@ -24,8 +24,12 @@ import {
   XM_MAX_ENVELOPE_POINTS,
   XM_MAX_INSTRUMENTS,
   XM_MAX_ORDERS,
+  XM_MAX_BPM,
   XM_MAX_PATTERN_ROWS,
+  XM_MAX_SPEED,
+  XM_MIN_BPM,
   XM_MIN_PATTERN_ROWS,
+  XM_MIN_SPEED,
   type XmEnvelope,
   type XmEnvelopePoint,
   type XmInstrument,
@@ -329,6 +333,29 @@ export function setXmChannelCount(song: XmSong, channelCount: number): XmSong {
     resizePatternChannels(p, channelCount),
   );
   return { ...song, channelCount, patterns: newPatterns };
+}
+
+/**
+ * Set the song's initial speed (ticks per row) — the header field the
+ * replayer starts from before any Fxx runs. Refuses non-integers and
+ * values outside 1..31.
+ */
+export function setXmDefaultSpeed(song: XmSong, speed: number): XmSong {
+  if (!Number.isInteger(speed)) return song;
+  if (speed < XM_MIN_SPEED || speed > XM_MAX_SPEED) return song;
+  if (speed === song.defaultTempo) return song;
+  return { ...song, defaultTempo: speed };
+}
+
+/**
+ * Set the song's initial BPM. Refuses non-integers and values outside
+ * 32..255.
+ */
+export function setXmDefaultBpm(song: XmSong, bpm: number): XmSong {
+  if (!Number.isInteger(bpm)) return song;
+  if (bpm < XM_MIN_BPM || bpm > XM_MAX_BPM) return song;
+  if (bpm === song.defaultBpm) return song;
+  return { ...song, defaultBpm: bpm };
 }
 
 function resizePatternChannels(
