@@ -9,6 +9,10 @@ import { writeXm } from "../../src/core/xm/writer";
 import { resetXmCursor } from "../../src/state/cursorXm";
 import { clearXmSelection, setXmSelection } from "../../src/state/selection";
 import { editStep, setEditStep } from "../../src/state/edit";
+import {
+  setCurrentXmInstrument,
+  setCurrentXmOctave,
+} from "../../src/state/xmEdit";
 import { patternNames, resetPatternNames } from "../../src/state/patternNames";
 import {
   clearHistory,
@@ -247,5 +251,46 @@ describe("FT2 Cmd+E: bounce selection to a new instrument", () => {
     expect(xm2Song()!.instruments[1]!.samples[0]!.data.length).toBeGreaterThan(
       0,
     );
+  });
+});
+
+describe("FT2 pattern meta strip: live readouts", () => {
+  const stripText = (container: HTMLElement) =>
+    container.querySelector(".patternpane__meta")!.textContent!;
+
+  it("shows the position, octave and current instrument", async () => {
+    const song = emptyXmSong();
+    setSong({ ...song, songLength: 3 });
+    setCurrentXmOctave(4);
+    setCurrentXmInstrument(1);
+    const { container } = render(() => <App />);
+    expect(stripText(container)).toContain("order 00/02");
+    expect(stripText(container)).toContain("pat 00");
+    expect(stripText(container)).toContain("row 00");
+    expect(stripText(container)).toContain("oct 4");
+    expect(stripText(container)).toContain("ins 01");
+
+    // Z / X change the octave — it used to have no readout anywhere.
+    setCurrentXmOctave(6);
+    setCurrentXmInstrument(0x1f);
+    setPlayPos({ order: 2, row: 0x2a });
+    expect(stripText(container)).toContain("oct 6");
+    expect(stripText(container)).toContain("ins 1F");
+    expect(stripText(container)).toContain("order 02/02");
+    expect(stripText(container)).toContain("row 2A");
+  });
+
+  it("counts instruments that have something to play, not declared slots", () => {
+    const song = emptyXmSong();
+    const loaded = emptyXmInstrument();
+    loaded.samples[0] = {
+      ...loaded.samples[0]!,
+      data: new Int8Array(8).fill(1),
+    };
+    // Three slots, one of them with audio.
+    song.instruments = [emptyXmInstrument(), loaded, emptyXmInstrument()];
+    setSong(song);
+    const { container } = render(() => <App />);
+    expect(stripText(container)).toContain("1 instruments");
   });
 });

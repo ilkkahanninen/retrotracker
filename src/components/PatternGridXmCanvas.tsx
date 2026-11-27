@@ -19,6 +19,7 @@ import {
   toggleMute,
   toggleSolo,
 } from "../state/channelMute";
+import { jumpRequest } from "../state/cursor";
 import { setXmCursor, xmCursor, type XmField } from "../state/cursorXm";
 import { applyXmCursor } from "../state/xmPatternEdit";
 import { beatsPerBar, rowsPerBeat } from "../state/gridConfig";
@@ -55,6 +56,7 @@ import {
   flatIndexOf,
   keepChannelInView,
   keepRowInView,
+  snapRowToTop,
 } from "./patternGridVirtualization";
 
 interface Props {
@@ -300,6 +302,27 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
     if (idx < 0 || !scroller) return;
     keepRowInView(scroller, idx, prevCursorFlat);
     prevCursorFlat = idx;
+  });
+
+  // Jump-snap (order-list click, Insert slot): pin the destination row
+  // to the viewport top so the bulk of the pattern shows below it — the
+  // same as the PT grid. Skips the very first tick (would scroll on
+  // mount). Everything except `jumpRequest` is read inside `untrack`, or
+  // every later cursor move would re-fire this and snap back to the top.
+  let firstJump = true;
+  createEffect(() => {
+    jumpRequest();
+    if (firstJump) {
+      firstJump = false;
+      return;
+    }
+    untrack(() => {
+      if ((props.active && settings().followPlayback) || !scroller) return;
+      const idx = cursorFlatIndex();
+      if (idx < 0) return;
+      snapRowToTop(scroller, idx);
+      prevCursorFlat = idx;
+    });
   });
 
   // ── Re-sync after the pane was hidden ────────────────────────────────

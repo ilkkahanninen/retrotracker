@@ -14,6 +14,7 @@ import { EditStepControl } from "./components/EditStepControl";
 import { MetaNumberInput } from "./components/MetaNumberInput";
 import { ModeBadge } from "./components/ModeBadge";
 import { PatternNameField } from "./components/PatternNameField";
+import { PatternPosReadout } from "./components/PatternPosReadout";
 import { SongTitle } from "./components/SongTitle";
 import { InfoView } from "./components/InfoView";
 import { Menu, type MenuItem } from "./components/Menu";
@@ -244,9 +245,11 @@ import {
 } from "./state/edit";
 import {
   currentXmInstrument,
+  currentXmOctave,
   currentXmSampleIndex,
   selectXmInstrument,
 } from "./state/xmEdit";
+import { isXmInstrumentEmpty } from "./core/xm/mutations";
 import { setXmSampleSelection } from "./state/xmSampleSelection";
 import {
   cleanupXmOrderList,
@@ -1167,7 +1170,9 @@ export const App: Component = () => {
     const s = song();
     if (!s) return 0;
     if (s.format === "FT2") {
-      return s.instruments.filter((inst) => inst.samples.length > 0).length;
+      // Instruments with something to play — the ones the list doesn't
+      // grey out — not every slot the file declares.
+      return s.instruments.filter((inst) => !isXmInstrumentEmpty(inst)).length;
     }
     return s.samples.filter((x) => x.lengthWords > 0).length;
   });
@@ -1595,14 +1600,9 @@ export const App: Component = () => {
                 const arr: SlotDisplay[] = new Array(XM_MAX_INSTRUMENTS);
                 for (let i = 0; i < XM_MAX_INSTRUMENTS; i++) {
                   const inst = insts[i];
-                  // An instrument reads as "empty" when there's no
-                  // entry at all, no samples, or every sample has
-                  // zero data bytes — matches firstEmptyXmSlot so a
-                  // freshly-cleared slot is greyed-out in the list.
-                  const isEmpty =
-                    !inst ||
-                    inst.samples.length === 0 ||
-                    inst.samples.every((sm) => sm.data.length === 0);
+                  // Greyed-out when there is nothing to play — the same
+                  // test imports use to find a free slot.
+                  const isEmpty = isXmInstrumentEmpty(inst);
                   arr[i] = {
                     name: inst?.name ?? "",
                     isEmpty,
@@ -1648,7 +1648,7 @@ export const App: Component = () => {
                     onCommit={setXmChannelCountAction}
                   />
                   <span class="patternpane__sep">·</span>
-                  <span>{xm().instruments.length} instruments</span>
+                  <span>{sampleCount()} instruments</span>
                   <span class="patternpane__sep">·</span>
                   <MetaNumberInput
                     label="Rows"
@@ -1688,6 +1688,18 @@ export const App: Component = () => {
                     value={xm().defaultBpm}
                     onCommit={setXmDefaultBpmAction}
                   />
+                  <span class="patternpane__sep">·</span>
+                  <PatternPosReadout song={xm()} />
+                  <span class="patternpane__sep">·</span>
+                  <span>oct {currentXmOctave()}</span>
+                  <span class="patternpane__sep">·</span>
+                  <span>
+                    ins{" "}
+                    {currentXmInstrument()
+                      .toString(16)
+                      .toUpperCase()
+                      .padStart(2, "0")}
+                  </span>
                   <span class="patternpane__sep">·</span>
                   <EditStepControl />
                 </div>
@@ -1744,31 +1756,7 @@ export const App: Component = () => {
                   <span class="patternpane__sep">·</span>
                   <span>{sampleCount()} samples</span>
                   <span class="patternpane__sep">·</span>
-                  <span>
-                    order{" "}
-                    {playPos()
-                      .order.toString(16)
-                      .toUpperCase()
-                      .padStart(2, "0")}
-                    /
-                    {(s().songLength - 1)
-                      .toString(16)
-                      .toUpperCase()
-                      .padStart(2, "0")}
-                  </span>
-                  <span class="patternpane__sep">·</span>
-                  <span>
-                    pat{" "}
-                    {(s().orders[playPos().order] ?? 0)
-                      .toString(16)
-                      .toUpperCase()
-                      .padStart(2, "0")}
-                  </span>
-                  <span class="patternpane__sep">·</span>
-                  <span>
-                    row{" "}
-                    {playPos().row.toString(16).toUpperCase().padStart(2, "0")}
-                  </span>
+                  <PatternPosReadout song={s()} />
                   <span class="patternpane__sep">·</span>
                   <span>oct {currentOctave()}</span>
                   <span class="patternpane__sep">·</span>

@@ -78,3 +78,35 @@ export function walkOrders<TPattern, TCell extends EffectCell>(
     }
   }
 }
+
+/** What row movement needs to know about a flat row. */
+export interface FlatRowRef {
+  /** Index into song.orders. */
+  order: number;
+  /** Pattern-relative row index. */
+  rowIndex: number;
+}
+
+/**
+ * Range of visible (i.e. not Dxx-truncated) rows of `order` in a flat row
+ * list. `first` accounts for an inbound Dxx-target row from the preceding
+ * pattern; `last` for the truncating Dxx within this one. Null when the
+ * order has no visible rows at all.
+ *
+ * Used to clamp selection steps to the visible grid; without it,
+ * selections leak into rows the user can't see and never edits.
+ */
+export function visibleRowRange(
+  flat: readonly FlatRowRef[],
+  order: number,
+): { first: number; last: number } | null {
+  let first = -1;
+  let last = -1;
+  for (const fr of flat) {
+    if (fr.order !== order) continue;
+    if (first < 0) first = fr.rowIndex;
+    last = fr.rowIndex;
+  }
+  if (first < 0) return null;
+  return { first, last };
+}

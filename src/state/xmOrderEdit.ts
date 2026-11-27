@@ -18,6 +18,7 @@ import { jumpPlaybackToOrder } from "./playback";
 import { reconcileUiToSong } from "./reconcile";
 import { xm2Song as song } from "./song";
 import { applyXmCursor } from "./xmPatternEdit";
+import { requestJumpToTop } from "./cursor";
 import { xmCursor } from "./cursorXm";
 import { createOrderEdit } from "./orderEditCore";
 import { remapPatternNames, withPatternName } from "./patternNames";
@@ -30,6 +31,8 @@ const ops = createOrderEdit<XmSong>({
   cursorOrder: () => xmCursor().order,
   applyCursorToOrder: (order) => {
     applyXmCursor({ ...xmCursor(), order, row: 0 });
+    // Pin the destination to the top of the grid, as the PT list does.
+    requestJumpToTop();
   },
   // Ungated, like PT: order edits stay live during playback whatever
   // Follow says, and sync.ts pushes the new song to the worklet.

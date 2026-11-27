@@ -18,12 +18,15 @@ import {
   transposeRangeXm,
 } from "../core/xm/mutations";
 import type { XmNote, XmSong } from "../core/xm/types";
+import { visibleRowRange } from "../core/flatten";
+import { flattenXmSong } from "../core/xm/flatten";
 import { rowsOfPattern } from "../core/song";
 import {
   type XmCursor,
   type XmField,
   XM_FIELDS,
   xmCursor,
+  xmMoveByRows,
   xmMoveDown,
   xmMoveRight,
   setXmCursor,
@@ -49,10 +52,14 @@ import {
 import { createPatternEdit } from "./patternEditCore";
 import { editsAllowed } from "./keybindHelpers";
 
+/** Rows of `order` the grid shows — a Dxx pattern break hides the rest,
+ *  and selection / paging must stay inside what is visible. */
 function visibleRowsOfXmOrder(
   s: XmSong,
   order: number,
 ): { first: number; last: number } {
+  const visible = visibleRowRange(flattenXmSong(s), order);
+  if (visible) return visible;
   const patIdx = s.orders[order];
   if (patIdx === undefined) return { first: 0, last: 0 };
   return { first: 0, last: rowsOfPattern(s, patIdx) - 1 };
@@ -74,6 +81,7 @@ const core = createPatternEdit<XmSong, XmCursor, XmNote>({
   visibleRowsOfOrder: visibleRowsOfXmOrder,
   editStep,
   moveDown: xmMoveDown,
+  moveByRows: xmMoveByRows,
   // Why: XM clamps post-insert step to the pattern bounds; PT crosses
   // pattern boundaries. Preserves the prior xmPatternEdit behavior.
   stepDownAfterInsert: (c, s) => {
