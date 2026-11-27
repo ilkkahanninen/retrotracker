@@ -805,7 +805,7 @@ export function projectBytes(): Uint8Array | null {
     editStep: editStep(),
     chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
     samplerSources: isPt2 ? samplerSourcesSnapshot() : undefined,
-    patternNames: isPt2 ? patternNames() : undefined,
+    patternNames: patternNames(),
     mutedChannels: mutedChannels(),
     soloedChannels: soloedChannels(),
     xmSamplerSources: isXm ? xmSamplerSourcesSnapshot() : undefined,

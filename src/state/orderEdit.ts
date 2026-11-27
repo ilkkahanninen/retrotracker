@@ -13,7 +13,7 @@ import { cursor, requestJumpToTop } from "./cursor";
 import { jumpPlaybackToOrder } from "./playback";
 import { applyCursor } from "./patternEdit";
 import { createOrderEdit } from "./orderEditCore";
-import { withPatternName } from "./patternNames";
+import { remapPatternNames, withPatternName } from "./patternNames";
 
 const ops = createOrderEdit<ModSong>({
   getSong: pt2Song,
@@ -64,14 +64,11 @@ export function cleanupOrderList(): void {
   commitEditWithWorkbenches((state) => {
     const result = cleanupOrders(state.song);
     if (result.song === state.song) return state;
-    const oldNames = state.patternNames;
-    const newNames: Record<number, string> = {};
-    for (const key of Object.keys(oldNames)) {
-      const oldIdx = Number(key);
-      const newIdx = result.remap[oldIdx];
-      if (newIdx !== undefined) newNames[newIdx] = oldNames[oldIdx]!;
-    }
-    return { ...state, song: result.song, patternNames: newNames };
+    return {
+      ...state,
+      song: result.song,
+      patternNames: remapPatternNames(state.patternNames, result.remap),
+    };
   });
 }
 

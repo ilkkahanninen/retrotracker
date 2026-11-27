@@ -636,7 +636,7 @@ function payloadToSession(parsed: unknown): LoadedSession | null {
     editStep: clamp(parsed.editStep, 0, 16, 1),
     chiptuneSources: parseChiptuneSources(parsed.chiptuneSources),
     samplerSources: parseSamplerSources(parsed.samplerSources),
-    patternNames: parsePatternNames(parsed.patternNames),
+    patternNames: parsePatternNames(parsed.patternNames, song.patterns.length),
     mutedChannels: muteSnapshot(parsed.mutedChannels as boolean[] | undefined),
     soloedChannels: muteSnapshot(
       parsed.soloedChannels as boolean[] | undefined,
@@ -1219,17 +1219,20 @@ function parseChiptuneSources(raw: unknown): Record<number, ChiptuneParams> {
 }
 
 /**
- * Validate a `patternNames` map. Indices must be in [0, 127] (M.K.'s
- * pattern-count cap) and values must be strings; bad entries are dropped
+ * Validate a `patternNames` map. Indices must name a pattern the song
+ * actually has and values must be strings; bad entries are dropped
  * silently rather than failing the whole load. Trailing trims keep
  * empty-string entries from cluttering the map.
  */
-function parsePatternNames(raw: unknown): Record<number, string> {
+function parsePatternNames(
+  raw: unknown,
+  patternCount: number,
+): Record<number, string> {
   if (!raw || typeof raw !== "object") return {};
   const out: Record<number, string> = {};
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     const idx = parseInt(k, 10);
-    if (!Number.isFinite(idx) || idx < 0 || idx > 127) continue;
+    if (!Number.isFinite(idx) || idx < 0 || idx >= patternCount) continue;
     if (typeof v !== "string") continue;
     const name = v.slice(0, 64);
     if (name.trim() === "") continue;

@@ -3,14 +3,26 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { emptyXmPattern, emptyXmSong } from "~/core/xm/format";
 import { cleanupXmOrders, setXmOrderPattern } from "~/core/xm/mutations";
 import { resetXmCursor, setXmCursor, xmCursor } from "~/state/cursorXm";
-import { clearHistory, setSong, setTransport, xm2Song } from "~/state/song";
+import { patternNames, resetPatternNames } from "~/state/patternNames";
 import {
+  canUndo,
+  clearHistory,
+  commitEditXm,
+  redo,
+  setSong,
+  setTransport,
+  undo,
+  xm2Song,
+} from "~/state/song";
+import {
+  cleanupXmOrderList,
   deleteXmOrderSlot,
   duplicateXmCurrentPattern,
   insertXmOrderSlot,
   jumpXmNextOrder,
   jumpXmPrevOrder,
   newXmBlankPatternAtOrder,
+  renameXmPattern,
   stepXmNextPattern,
   stepXmPrevPattern,
 } from "~/state/xmOrderEdit";
@@ -23,6 +35,7 @@ function freshSong() {
   song.orders[2] = 0;
   setSong(song);
   resetXmCursor();
+  resetPatternNames();
   setTransport("idle");
   clearHistory();
 }
@@ -156,5 +169,78 @@ describe("cleanupXmOrders", () => {
   it("returns the same song when already tidy", () => {
     const s = emptyXmSong();
     expect(cleanupXmOrders(s).song).toBe(s);
+  });
+});
+
+describe("renameXmPattern", () => {
+  it("names a pattern, and undo / redo follow it", () => {
+    renameXmPattern(0, "intro");
+    expect(patternNames()[0]).toBe("intro");
+    undo();
+    expect(patternNames()[0]).toBeUndefined();
+    redo();
+    expect(patternNames()[0]).toBe("intro");
+  });
+
+  it("survives undoing a later song edit", () => {
+    renameXmPattern(0, "intro");
+    commitEditXm((s) => setXmOrderPattern(s, 1, 0));
+    commitEditXm((s) => ({ ...s, title: "x" }));
+    undo();
+    expect(patternNames()[0]).toBe("intro");
+  });
+
+  it("a blank name clears the entry and a no-op records nothing", () => {
+    renameXmPattern(0, "   ");
+    expect(canUndo()).toBe(false);
+    renameXmPattern(0, "intro");
+    renameXmPattern(0, "intro");
+    renameXmPattern(0, "");
+    expect(patternNames()[0]).toBeUndefined();
+    undo();
+    expect(patternNames()[0]).toBe("intro");
+    undo();
+    expect(canUndo()).toBe(false);
+  });
+
+  it("works while playing", () => {
+    setTransport("playing");
+    renameXmPattern(0, "live");
+    expect(patternNames()[0]).toBe("live");
+  });
+});
+
+describe("cleanupXmOrderList", () => {
+  function loadUntidy() {
+    let s = emptyXmSong();
+    s = {
+      ...s,
+      patterns: [16, 32, 48, 64].map((rows) =>
+        emptyXmPattern(rows, s.channelCount),
+      ),
+      songLength: 4,
+      orders: Object.assign(s.orders.slice(), [3, 1, 3, 0]),
+    };
+    setSong(s);
+    clearHistory();
+  }
+
+  it("re-keys pattern names to the new numbering and drops unused ones", () => {
+    loadUntidy();
+    renameXmPattern(0, "outro");
+    renameXmPattern(2, "unused");
+    renameXmPattern(3, "intro");
+    cleanupXmOrderList();
+    // remap: 3 → 0, 1 → 1, 0 → 2, 2 dropped.
+    expect(patternNames()).toEqual({ 0: "intro", 2: "outro" });
+  });
+
+  it("undo restores the song and its names together", () => {
+    loadUntidy();
+    renameXmPattern(3, "intro");
+    cleanupXmOrderList();
+    undo();
+    expect(xm2Song()!.patterns).toHaveLength(4);
+    expect(patternNames()).toEqual({ 3: "intro" });
   });
 });

@@ -172,7 +172,7 @@ All of these stay live during playback. Audible changes apply on the next play /
 
 ### Pattern names
 
-Double-click any slot to rename the pattern it points at. Names are project-only — they live in `.retro` and never go into the exported `.mod`. Useful for tagging "intro", "verse", "drop", etc. when a song has many patterns.
+Double-click any slot to rename the pattern it points at. Names are project-only — they live in `.retro` and never go into the exported `.mod` or `.xm`. Useful for tagging "intro", "verse", "drop", etc. when a song has many patterns.
 
 ### Clean up
 

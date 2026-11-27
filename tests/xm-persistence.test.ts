@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { emptyXmSong } from "~/core/xm/format";
+import { emptyXmPattern, emptyXmSong } from "~/core/xm/format";
 import { setXmCell } from "~/core/xm/mutations";
 import {
   projectFromBytes,
@@ -164,6 +164,30 @@ describe("FT2 .retro persistence", () => {
     const loaded = projectFromBytes(tampered);
     expect(loaded).not.toBeNull();
     expect(Object.keys(loaded!.xmChiptuneSources)).toEqual(["1:0"]);
+  });
+
+  it("round-trips pattern names, including indices past PT's 127", () => {
+    const base = emptyXmSong();
+    const song = {
+      ...base,
+      patterns: Array.from({ length: 200 }, () =>
+        emptyXmPattern(64, base.channelCount),
+      ),
+    };
+    const bytes = projectToBytes(
+      baseInputs({ song, patternNames: { 0: "intro", 199: "outro" } }),
+    );
+    expect(projectFromBytes(bytes)!.patternNames).toEqual({
+      0: "intro",
+      199: "outro",
+    });
+  });
+
+  it("drops names for patterns the song does not have", () => {
+    const bytes = projectToBytes(
+      baseInputs({ patternNames: { 0: "intro", 5: "ghost" } }),
+    );
+    expect(projectFromBytes(bytes)!.patternNames).toEqual({ 0: "intro" });
   });
 
   it("PT2 payload still round-trips (regression)", async () => {

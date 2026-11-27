@@ -13,6 +13,8 @@ import { ModePicker } from "./components/ModePicker";
 import { EditStepControl } from "./components/EditStepControl";
 import { MetaNumberInput } from "./components/MetaNumberInput";
 import { ModeBadge } from "./components/ModeBadge";
+import { PatternNameField } from "./components/PatternNameField";
+import { SongTitle } from "./components/SongTitle";
 import { InfoView } from "./components/InfoView";
 import { Menu, type MenuItem } from "./components/Menu";
 import {
@@ -279,7 +281,7 @@ import {
 } from "./core/xm/types";
 import { SAMPLE_NAME_MAX } from "./core/mod/sampleImport";
 import { infoText, setInfoText } from "./state/info";
-import { PATTERN_NAME_MAX, patternNames } from "./state/patternNames";
+import { patternNames } from "./state/patternNames";
 import {
   loadSession,
   projectToBytes,
@@ -338,7 +340,6 @@ function formatProjectSize(bytes: number): string {
 
 export const App: Component = () => {
   const [dragOver, setDragOver] = createSignal(false);
-  const [editingTitle, setEditingTitle] = createSignal(false);
   const [aboutOpen, setAboutOpen] = createSignal(false);
   const [modePickerOpen, setModePickerOpen] = createSignal(false);
   const [serverBrowser, setServerBrowser] = createSignal<{
@@ -535,20 +536,9 @@ export const App: Component = () => {
 
   const onDragLeave = () => setDragOver(false);
 
-  // Owns `editingTitle`, so it stays here rather than in state/sampleEdit.
-  // PT title field is 20 chars; matches the Info view's input.
-  const commitTitleEdit = (raw: string) => {
-    setEditingTitle(false);
-    const title = raw.slice(0, 20);
-    commitEditWithWorkbenches((state) =>
-      state.song.title === title
-        ? state
-        : { ...state, song: { ...state.song, title } },
-    );
-  };
-
-  /** Info-view title edit, routed to the loaded format's commit path so
-   *  it is undoable for both PT2 and FT2 songs. Both headers hold 20 chars. */
+  /** Title edit from the Info view or the pattern strip, routed to the
+   *  loaded format's commit path so it is undoable for both PT2 and FT2
+   *  songs. Both headers hold 20 chars. */
   const commitSongTitle = (raw: string) => {
     const title = raw.slice(0, 20);
     if (xm2Song()) {
@@ -687,7 +677,7 @@ export const App: Component = () => {
             editStep: step,
             chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
             samplerSources: isPt2 ? samplerSourcesSnapshot() : undefined,
-            patternNames: isPt2 ? names : undefined,
+            patternNames: names,
             mutedChannels: muted,
             soloedChannels: soloed,
             xmChiptuneSources: isXm ? xmChiptuneSourcesSnapshot() : undefined,
@@ -1242,7 +1232,7 @@ export const App: Component = () => {
       editStep: 1,
       chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
       samplerSources: isPt2 ? samplerSourcesSnapshot() : undefined,
-      patternNames: isPt2 ? patternNames() : undefined,
+      patternNames: patternNames(),
       mutedChannels: mutedChannels(),
       soloedChannels: soloedChannels(),
       xmChiptuneSources: isXm ? xmChiptuneSourcesSnapshot() : undefined,
@@ -1274,7 +1264,7 @@ export const App: Component = () => {
       currentOctave: 1,
       editStep: 1,
       chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
-      patternNames: isPt2 ? patternNames() : undefined,
+      patternNames: patternNames(),
       xmChiptuneSources: isPt2 ? undefined : xmChiptuneSourcesSnapshot(),
     }).length;
   });
@@ -1644,9 +1634,7 @@ export const App: Component = () => {
                 classList={{ "view-hidden": view() !== "pattern" }}
               >
                 <div class="patternpane__meta">
-                  <span class="patternpane__title">
-                    {xm().title || <em>(untitled)</em>}
-                  </span>
+                  <SongTitle title={xm().title} onCommit={commitSongTitle} />
                   <ModeBadge format="FT2" />
                   <span class="patternpane__sep">·</span>
                   <span>{filename()}</span>
@@ -1751,44 +1739,7 @@ export const App: Component = () => {
                 classList={{ "view-hidden": view() !== "pattern" }}
               >
                 <div class="patternpane__meta">
-                  <Show
-                    when={editingTitle()}
-                    fallback={
-                      <span
-                        class="patternpane__title"
-                        title="Double-click to rename song"
-                        onDblClick={() => setEditingTitle(true)}
-                      >
-                        {s().title || <em>(untitled)</em>}
-                      </span>
-                    }
-                  >
-                    <input
-                      class="patternpane__title-input"
-                      type="text"
-                      maxLength={20}
-                      value={s().title}
-                      ref={(el) =>
-                        queueMicrotask(() => {
-                          el.focus();
-                          el.select();
-                        })
-                      }
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          commitTitleEdit(e.currentTarget.value);
-                        } else if (e.key === "Escape") {
-                          e.preventDefault();
-                          setEditingTitle(false);
-                        }
-                      }}
-                      onBlur={(e) => {
-                        if (editingTitle())
-                          commitTitleEdit(e.currentTarget.value);
-                      }}
-                    />
-                  </Show>
+                  <SongTitle title={s().title} onCommit={commitSongTitle} />
                   <ModeBadge format={s().format} />
                   <span class="patternpane__sep">·</span>
                   <span>{filename()}</span>
@@ -2030,41 +1981,12 @@ export const App: Component = () => {
                           <span class="pat">
                             {p.toString(16).toUpperCase().padStart(2, "0")}
                           </span>
-                          <Show
-                            when={editingOrderIdx() === i}
-                            fallback={
-                              <span class="orderlist__name">
-                                {patternNames()[p] ?? ""}
-                              </span>
-                            }
-                          >
-                            <input
-                              class="orderlist__name-input"
-                              type="text"
-                              maxLength={PATTERN_NAME_MAX}
-                              value={patternNames()[p] ?? ""}
-                              ref={(el) =>
-                                queueMicrotask(() => {
-                                  el.focus();
-                                  el.select();
-                                })
-                              }
-                              onClick={(e) => e.stopPropagation()}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  commitPatternRename(p, e.currentTarget.value);
-                                } else if (e.key === "Escape") {
-                                  e.preventDefault();
-                                  setEditingOrderIdx(null);
-                                }
-                              }}
-                              onBlur={(e) => {
-                                if (editingOrderIdx() === i)
-                                  commitPatternRename(p, e.currentTarget.value);
-                              }}
-                            />
-                          </Show>
+                          <PatternNameField
+                            name={patternNames()[p] ?? ""}
+                            editing={editingOrderIdx() === i}
+                            onCommit={(raw) => commitPatternRename(p, raw)}
+                            onCancel={() => setEditingOrderIdx(null)}
+                          />
                         </li>
                       ))}
                   </ol>

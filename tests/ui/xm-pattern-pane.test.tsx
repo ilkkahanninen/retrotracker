@@ -8,6 +8,7 @@ import { emptyXmSong } from "../../src/core/xm/format";
 import { writeXm } from "../../src/core/xm/writer";
 import { resetXmCursor } from "../../src/state/cursorXm";
 import { editStep, setEditStep } from "../../src/state/edit";
+import { patternNames, resetPatternNames } from "../../src/state/patternNames";
 import {
   clearHistory,
   setPlayPos,
@@ -23,6 +24,7 @@ beforeEach(() => {
   setTransport("idle");
   clearHistory();
   setEditStep(1);
+  resetPatternNames();
 });
 afterEach(() => {
   cleanup();
@@ -136,5 +138,78 @@ describe("header size pill", () => {
     setSong(emptySong());
     const { container } = render(() => <App />);
     expect(firstSeg(container)).toMatch(/^\.mod \d+ KB$/);
+  });
+});
+
+describe("FT2 pattern meta strip: song title", () => {
+  /** Double-click the title and return the inline editor that replaces it. */
+  async function openEditor(container: HTMLElement) {
+    fireEvent.dblClick(container.querySelector(".patternpane__title")!);
+    // The editor focuses and selects itself in a microtask.
+    await Promise.resolve();
+    return container.querySelector<HTMLInputElement>(
+      ".patternpane__title-input",
+    )!;
+  }
+
+  it("double-click opens an editor and Enter commits the new title", async () => {
+    const { container } = render(() => <App />);
+    const user = userEvent.setup();
+    const input = await openEditor(container);
+    expect(input).toBeTruthy();
+    // Piano-row letters: must land in the field, not in the pattern.
+    await user.keyboard("qwerty{Enter}");
+    expect(xm2Song()!.title).toBe("qwerty");
+    expect(xm2Song()!.patterns[0]!.rows[0]![0]!.note).toBe(0);
+    expect(container.querySelector(".patternpane__title-input")).toBeNull();
+    expect(container.querySelector(".patternpane__title")!.textContent).toBe(
+      "qwerty",
+    );
+  });
+
+  it("Escape cancels without changing the title", async () => {
+    const { container } = render(() => <App />);
+    const user = userEvent.setup();
+    await openEditor(container);
+    await user.keyboard("nope{Escape}");
+    expect(xm2Song()!.title).toBe(emptyXmSong().title);
+    expect(container.querySelector(".patternpane__title-input")).toBeNull();
+  });
+
+  it("stays editable while playing", async () => {
+    const { container } = render(() => <App />);
+    const user = userEvent.setup();
+    setTransport("playing");
+    await openEditor(container);
+    await user.keyboard("live{Enter}");
+    expect(xm2Song()!.title).toBe("live");
+  });
+});
+
+describe("FT2 order list: pattern names", () => {
+  it("double-click opens an editor and Enter names the pattern", async () => {
+    const { container } = render(() => <App />);
+    const user = userEvent.setup();
+    const row = container.querySelector(".orderlist--xm li")!;
+    fireEvent.dblClick(row);
+    await Promise.resolve(); // the editor focuses itself in a microtask
+    expect(row.querySelector(".orderlist__name-input")).toBeTruthy();
+    // Piano-row letters: must land in the field, not in the pattern.
+    await user.keyboard("qwerty{Enter}");
+    expect(patternNames()[0]).toBe("qwerty");
+    expect(xm2Song()!.patterns[0]!.rows[0]![0]!.note).toBe(0);
+    expect(row.querySelector(".orderlist__name-input")).toBeNull();
+    expect(row.querySelector(".orderlist__name")!.textContent).toBe("qwerty");
+  });
+
+  it("Escape cancels without naming the pattern", async () => {
+    const { container } = render(() => <App />);
+    const user = userEvent.setup();
+    const row = container.querySelector(".orderlist--xm li")!;
+    fireEvent.dblClick(row);
+    await Promise.resolve();
+    await user.keyboard("nope{Escape}");
+    expect(patternNames()[0]).toBeUndefined();
+    expect(row.querySelector(".orderlist__name-input")).toBeNull();
   });
 });

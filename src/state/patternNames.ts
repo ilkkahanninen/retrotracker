@@ -1,11 +1,12 @@
 import { createSignal } from "solid-js";
 
 /**
- * User-given pattern names — project-only state. They round-trip through
- * `.retro` projects (alongside the song bytes) but are NEVER serialised
- * into the exported `.mod` since the M.K. format has no place for them.
+ * User-given pattern names — project-only state, shared by PT and FT2
+ * songs. They round-trip through `.retro` projects (alongside the song
+ * bytes) but are NEVER serialised into the exported `.mod` / `.xm` since
+ * neither format has a place for them.
  *
- * Keyed by 0-based pattern index (matches `ModSong.patterns[i]`), NOT by
+ * Keyed by 0-based pattern index (matches `song.patterns[i]`), NOT by
  * order-list position — so naming pattern $03 makes that name show up
  * everywhere $03 appears in the order list.
  */
@@ -48,6 +49,24 @@ export function withPatternName(
   const next = { ...map };
   if (blank) delete next[patternIndex];
   else next[patternIndex] = trimmed;
+  return next;
+}
+
+/**
+ * Re-key the map after a pattern renumbering (Order → Clean up). `remap`
+ * maps old pattern index → new; names of patterns it dropped are dropped
+ * with them.
+ */
+export function remapPatternNames(
+  map: Record<number, string>,
+  remap: ReadonlyArray<number | undefined>,
+): Record<number, string> {
+  const next: Record<number, string> = {};
+  for (const key of Object.keys(map)) {
+    const oldIdx = Number(key);
+    const newIdx = remap[oldIdx];
+    if (newIdx !== undefined) next[newIdx] = map[oldIdx]!;
+  }
   return next;
 }
 

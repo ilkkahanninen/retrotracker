@@ -8,11 +8,18 @@ import {
   nextXmPatternAtOrder,
   prevXmPatternAtOrder,
 } from "../core/xm/mutations";
-import { commitEditXm, playPos, setPlayPos, transport } from "./song";
+import {
+  commitEditXm,
+  commitEditXmWithPatternNames,
+  playPos,
+  setPlayPos,
+  transport,
+} from "./song";
 import { xm2Song as song } from "./song";
 import { applyXmCursor } from "./xmPatternEdit";
 import { xmCursor } from "./cursorXm";
 import { createOrderEdit } from "./orderEditCore";
+import { remapPatternNames, withPatternName } from "./patternNames";
 
 const ops = createOrderEdit<XmSong>({
   getSong: song,
@@ -53,9 +60,35 @@ export const duplicateXmCurrentPattern = ops.duplicatePattern;
 /**
  * Order → Clean up for FT2 songs. Refused during any playback, like the PT
  * one: the worklet's song snapshot still uses the old pattern numbers.
- * Pattern names are a PT-only side-table, so there is nothing to re-key.
+ * Pattern names are re-keyed in the same commit so undo restores both.
  */
 export function cleanupXmOrderList(): void {
   if (transport() === "playing") return;
-  commitEditXm((s) => cleanupXmOrders(s).song);
+  commitEditXmWithPatternNames((state) => {
+    const result = cleanupXmOrders(state.song);
+    if (result.song === state.song) return state;
+    return {
+      ...state,
+      song: result.song,
+      patternNames: remapPatternNames(state.patternNames, result.remap),
+    };
+  });
+}
+
+/**
+ * Rename a pattern (project-only metadata) as an undoable edit — the FT2
+ * counterpart of `renamePattern`. Ungated: names don't affect audio, so
+ * renaming stays available while playing.
+ */
+export function renameXmPattern(patternIndex: number, name: string): void {
+  commitEditXmWithPatternNames((state) => {
+    const patternNames = withPatternName(
+      state.patternNames,
+      patternIndex,
+      name,
+    );
+    return patternNames === state.patternNames
+      ? state
+      : { ...state, patternNames };
+  });
 }
