@@ -33,7 +33,8 @@ The script produces deterministic `.xm` bytes from `generate.ts`. Commit any cha
 
 Default: RMS ≤ 0.002, peak ≤ 0.01 — bit-perfect against libxmp modulo float quantisation noise. A handful of fixtures get per-fixture overrides in `xm-render-accuracy.test.ts`:
 
-- **LFO phase drift** (vibrato / tremolo / auto-vibrato): our 32-entry quarter sine + `>>5` produces the same audible swing as libxmp's 64-entry full sine + `>>9`, but small quantisation differences accumulate over multi-second holds.
+- **Vibrato / tremolo on tick 0**: every other tick matches libxmp, but on the first tick of a row FT2 (which we follow) holds the previous tick's pitch or volume while libxmp already shows the next LFO step. That one-tick-in-six difference is the remaining RMS. Things libxmp does differently from FT2 are kept out of the fixtures and pinned by unit tests instead: the E44–E47 / E74–E77 "keep phase across notes" bit (libxmp ignores it), the tremolo ramp shape, and the pitch / volume FT2 leaves in place after the last effect row.
+- **Auto-vibrato**: instrument vibrato uses a different LFO table and scaling from libxmp's.
 - **Anti-click ramp shape**: libxmp and XmReplayer use slightly different ramp lengths for mid-tick volume cuts (ECy, EDy) and pan changes. Transient diff lives in a ~50-sample window around the change.
 - **Fadeout / finetune slow drift**: per-tick float / integer rounding differs by a few period units over a multi-row hold.
 
@@ -48,10 +49,10 @@ Default: RMS ≤ 0.002, peak ≤ 0.01 — bit-perfect against libxmp modulo floa
 | `04-period-slide`             | 1xx, 2xx          | 0.00021 | 0.0070 | Linear-mode period slide up / down.                                                                                         |
 | `05-fine-slide`               | E1y/E2y, X1y/X2y  | 0.00004 | 0.0015 | Tick-0 fine + extra-fine period bumps.                                                                                      |
 | `06-tone-porta`               | 3xx               | 0.00003 | 0.0042 | C-4 → G-4 porta with target on row 4.                                                                                       |
-| `07-vibrato`                  | 4xy               | 0.05180 | 0.1290 | LFO phase drift; rms ≤ 0.06.                                                                                                |
-| `08-tremolo`                  | 7xy               | 0.03033 | 0.1770 | LFO phase drift; rms ≤ 0.04.                                                                                                |
+| `07-vibrato`                  | 4xy               | 0.00612 | 0.0172 | Tick-0 hold; rms ≤ 0.01.                                                                                                    |
+| `08-tremolo`                  | 7xy               | 0.00714 | 0.0732 | Tick-0 hold; rms ≤ 0.012, peak ≤ 0.1.                                                                                       |
 | `09-tone-porta-vol-slide`     | 5xy               | 0.00011 | 0.0059 | Porta-with-memory + per-tick vol slide.                                                                                     |
-| `10-vibrato-vol-slide`        | 6xy               | 0.04647 | 0.1290 | LFO phase drift; rms ≤ 0.05.                                                                                                |
+| `10-vibrato-vol-slide`        | 6xy               | 0.00876 | 0.0172 | Tick-0 hold; rms ≤ 0.012.                                                                                                   |
 | `11-set-finetune`             | E5y               | 0.00718 | 0.0156 | Mid-note finetune; small period drift; rms ≤ 0.01.                                                                          |
 | `12-set-volume`               | Cxx               | 0.00023 | 0.0130 | Direct volume changes; anti-click peak ≤ 0.02.                                                                              |
 | `13-fine-vol-slide`           | EAy, EBy          | 0.00003 | 0.0008 | Single-tick volume bumps.                                                                                                   |
@@ -81,7 +82,7 @@ Default: RMS ≤ 0.002, peak ≤ 0.01 — bit-perfect against libxmp modulo floa
 | `37-volcol-set-pan`           | volcol C          | 0.01435 | 0.0458 | Vol-col panning; ramp-shape diff; rms ≤ 0.02, peak ≤ 0.05.                                                                  |
 | `38-volcol-pan-slide`         | volcol D, E       | 0.00006 | 0.0008 | Vol-col pan slide left / right.                                                                                             |
 | `39-volcol-tone-porta`        | volcol F          | 0.00002 | 0.0020 | Vol-col tone portamento.                                                                                                    |
-| `40-volcol-vibrato`           | volcol A, B       | 0.04449 | 0.0593 | LFO phase drift; rms ≤ 0.05.                                                                                                |
+| `40-volcol-vibrato`           | volcol A, B       | 0.00319 | 0.0132 | Speed set on its own row before the note; tick-0 hold; rms ≤ 0.006.                                                         |
 | `41-vol-env-loop`             | env loop          | <0.002  | <0.01  | Vol env with `loopEnabled`, no sustain.                                                                                     |
 | `42-vol-env-disabled`         | env.enabled=false | <0.002  | <0.01  | Configured vol env with `enabled: false` — flat volume.                                                                     |
 | `43-pan-env-sustain`          | pan env sustain   | <0.002  | <0.01  | Pan env holds at sustain point while key is on.                                                                             |
@@ -101,3 +102,6 @@ Default: RMS ≤ 0.002, peak ≤ 0.01 — bit-perfect against libxmp modulo floa
 | `57-tremor`                   | Txy               | 0.00180 | 0.0414 | T21 then T00: 3 ticks on / 2 off, phase carried across rows. Ramp-shape transient; rms ≤ 0.003, peak ≤ 0.1.                 |
 | `58-tremor-hold`              | Txy off-state     | 0.00104 | 0.0393 | Row ending in the off half stays silent until Cxx. Same tolerance.                                                          |
 | `59-glissando`                | E3x               | 0.00002 | 0.0008 | Semitone-stepped tone porta, then smooth after E30. Avoids halfway ties and unfinished slides, where FT2 and libxmp differ. |
+| `60-vibrato-ramp`             | E41 + 4xy         | 0.02208 | 0.0581 | Ramp waveform; tick-0 hold is a bigger step on a ramp; rms ≤ 0.03.                                                          |
+| `61-vibrato-square`           | E42 + 4xy         | 0.01998 | 0.0380 | Square waveform; rms ≤ 0.03.                                                                                                |
+| `62-tremolo-square`           | E72 + 7xy         | 0.00794 | 0.1646 | Square waveform; rms ≤ 0.012, peak ≤ 0.2.                                                                                   |

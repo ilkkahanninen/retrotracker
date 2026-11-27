@@ -66,12 +66,15 @@ const DEFAULT_TOLERANCE: Tolerance = { rms: 0.002, peak: 0.01 };
 // libxmp and XmReplayer don't share bit-for-bit, but the audible
 // shape still tracks. The categories:
 //
-//  - **LFO phase drift**: vibrato / tremolo / auto-vibrato. Our 32-entry
-//    quarter-period sine + `>> 5` produces the same audible pitch swing
-//    as libxmp's 64-entry full-period sine + `>> 9`, but small
-//    quantisation differences accumulate over a multi-second hold and
-//    push the per-sample diff above 0.002 RMS. The waveform shape is
-//    indistinguishable.
+//  - **Vibrato / tremolo on tick 0**: the per-tick values match libxmp
+//    on every tick but the first of each row. There FT2 (which we
+//    follow) holds the previous tick's pitch / volume, while libxmp
+//    already shows the next step. One tick in six differs by one LFO
+//    step, which is what the remaining RMS is. Sharp-edged waveforms
+//    (ramp, square) make that step larger.
+//
+//  - **Auto-vibrato LFO**: instrument vibrato uses a different table
+//    and scaling from libxmp's; see the per-fixture notes below.
 //
 //  - **Volume / pan anti-click ramp shape**: libxmp and XmReplayer use
 //    slightly different ramp lengths for mid-tick volume cuts (ECy /
@@ -81,12 +84,16 @@ const DEFAULT_TOLERANCE: Tolerance = { rms: 0.002, peak: 0.01 };
 //  - **Fadeout / finetune**: per-tick float / integer rounding drifts
 //    by a few units of period over a multi-row hold.
 const FIXTURE_TOLERANCES: Record<string, Tolerance> = {
-  // LFO phase drift (sine autovibrato + per-row vibrato/tremolo).
-  "07-vibrato": { rms: 0.06, peak: 0.15 },
-  "08-tremolo": { rms: 0.04, peak: 0.2 },
-  "10-vibrato-vol-slide": { rms: 0.05, peak: 0.15 },
+  // Vibrato / tremolo tick-0 hold (see above).
+  "07-vibrato": { rms: 0.01, peak: 0.03 },
+  "08-tremolo": { rms: 0.012, peak: 0.1 },
+  "10-vibrato-vol-slide": { rms: 0.012, peak: 0.03 },
+  "40-volcol-vibrato": { rms: 0.006, peak: 0.03 },
+  "60-vibrato-ramp": { rms: 0.03, peak: 0.08 },
+  "61-vibrato-square": { rms: 0.03, peak: 0.06 },
+  "62-tremolo-square": { rms: 0.012, peak: 0.2 },
+  // Sine autovibrato.
   "26-auto-vibrato": { rms: 0.02, peak: 0.05 },
-  "40-volcol-vibrato": { rms: 0.05, peak: 0.15 },
   // Non-sine autovibrato waveform shape differences. Our autovibrato
   // table is ported from ft2-clone (256-entry LFO); libxmp uses 64-entry
   // tables and a different sawtooth formula. The audible swing magnitude

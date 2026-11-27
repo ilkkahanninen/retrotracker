@@ -1133,6 +1133,48 @@ function buildGlissando(): XmSong {
 }
 
 /**
+ * LFO waveform fixtures (E4y / E7y). Each selects the waveform on the note
+ * row, runs the effect for 12 rows, then retriggers the note so the hold
+ * FT2 leaves behind after the last effect row is out of the picture.
+ */
+function buildLfoWaveform(
+  title: string,
+  select: number,
+  effect: number,
+  param: number,
+): XmSong {
+  const samp = newSample(triangleSample(512), "tri");
+  const inst = newInstrument(samp, "tri");
+  const pat = { rowCount: 20, rows: emptyRows(20, 4) };
+  pat.rows[0]![0] = cell({
+    note: 49,
+    instrument: 1,
+    effect: 0x0e,
+    effectParam: select,
+  });
+  pat.rows[1]![0] = cell({ effect, effectParam: param });
+  for (let r = 2; r <= 12; r++) {
+    pat.rows[r]![0] = cell({ effect, effectParam: 0x00 });
+  }
+  pat.rows[13]![0] = cell({ note: 49, instrument: 1 });
+  let s = songWithPatterns([pat], 4);
+  s = setXmInstrument(s, 0, inst);
+  s.title = title;
+  return s;
+}
+
+/** 60-vibrato-ramp (E41 + 4xy). */
+const buildVibratoRamp = () =>
+  buildLfoWaveform("vibrato-ramp", 0x41, 0x04, 0x48);
+/** 61-vibrato-square (E42 + 4xy). */
+const buildVibratoSquare = () =>
+  buildLfoWaveform("vibrato-square", 0x42, 0x04, 0x48);
+/** 62-tremolo-square (E72 + 7xy). Tremolo ramp (E71) has no fixture: FT2
+ *  mirrors it by the vibrato phase (a bug libxmp does not share). */
+const buildTremoloSquare = () =>
+  buildLfoWaveform("tremolo-square", 0x72, 0x07, 0x48);
+
+/**
  * 34-volcol-set-vol (high nibble 1..5).
  */
 function buildVolColSetVol(): XmSong {
@@ -1246,15 +1288,23 @@ function buildVolColTonePorta(): XmSong {
 
 /**
  * 40-volcol-vibrato (high nibble A speed-set, B run-with-depth).
+ *
+ * The speed is set on a row of its own before the note, and the note that
+ * starts the vibrato restarts the LFO phase: libxmp advances the phase on
+ * an Ax row, FT2 does not. The closing note puts the pitch back, because
+ * FT2 leaves a volume-column vibrato's last offset in place and libxmp
+ * does not.
  */
 function buildVolColVibrato(): XmSong {
   const samp = newSample(triangleSample(512), "tri");
   const inst = newInstrument(samp, "tri");
   const pat = { rowCount: 32, rows: emptyRows(32, 4) };
-  pat.rows[0]![0] = cell({ note: 49, instrument: 1, volumeColumn: 0xa4 });
-  for (let r = 1; r <= 12; r++) {
+  pat.rows[0]![0] = cell({ volumeColumn: 0xa4 });
+  pat.rows[1]![0] = cell({ note: 49, instrument: 1, volumeColumn: 0xb4 });
+  for (let r = 2; r <= 12; r++) {
     pat.rows[r]![0] = cell({ volumeColumn: 0xb4 });
   }
+  pat.rows[13]![0] = cell({ note: 49, instrument: 1 });
   let s = songWithPatterns([pat], 4);
   s = setXmInstrument(s, 0, inst);
   s.title = "volcol-vibrato";
@@ -1637,6 +1687,9 @@ const FIXTURES: { name: string; build: () => XmSong }[] = [
   { name: "57-tremor", build: buildTremor },
   { name: "58-tremor-hold", build: buildTremorHold },
   { name: "59-glissando", build: buildGlissando },
+  { name: "60-vibrato-ramp", build: buildVibratoRamp },
+  { name: "61-vibrato-square", build: buildVibratoSquare },
+  { name: "62-tremolo-square", build: buildTremoloSquare },
 ];
 
 const OUT_DIR = fileURLToPath(new URL("./", import.meta.url));

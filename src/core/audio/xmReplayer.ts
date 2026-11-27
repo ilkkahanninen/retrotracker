@@ -45,14 +45,39 @@ import { hzForNote, hzForPeriod, periodForNote } from "./xmFreqTable";
  */
 const MAX_LOOP_JUMPS_PER_ORDER = 4096;
 
-/** XM uses an 8-byte signed-ish sine table scaled to ±64 for vibrato/tremolo. */
-const XM_VIBRATO_TABLE = (() => {
-  const t = new Int8Array(32);
-  for (let i = 0; i < 32; i++) {
-    t[i] = Math.round(64 * Math.sin((i * Math.PI) / 32));
+/** FT2's half-sine table for vibrato and tremolo (ft2-clone `vibratoTab`):
+ *  32 unsigned steps covering one half-cycle, peak 255. */
+// prettier-ignore
+const XM_VIBRATO_TABLE = new Uint8Array([
+    0,  24,  49,  74,  97, 120, 141, 161, 180, 197, 212, 224, 235, 244, 250, 253,
+  255, 253, 250, 244, 235, 224, 212, 197, 180, 161, 141, 120,  97,  74,  49,  24,
+]);
+
+/**
+ * Unsigned LFO magnitude (0..255) for vibrato / tremolo at `phase` (0..63;
+ * the second half-cycle, 32..63, is where the caller flips the sign).
+ * Waveform is the low two bits of E4y / E7y: 0 = sine, 1 = ramp, 2 and 3 =
+ * square — FT2 has no random waveform. The ramp climbs 0..248 over a
+ * half-cycle and is mirrored when `invertRamp` is set; the caller decides
+ * which phase drives that, because FT2's tremolo reads the wrong one.
+ */
+function lfoMagnitude(
+  phase: number,
+  waveform: number,
+  invertRamp: boolean,
+): number {
+  const index = phase & 0x1f;
+  switch (waveform & 3) {
+    case 0:
+      return XM_VIBRATO_TABLE[index]!;
+    case 1: {
+      const ramp = index << 3;
+      return invertRamp ? 255 - ramp : ramp;
+    }
+    default:
+      return 255;
   }
-  return t;
-})();
+}
 
 /**
  * Autovibrato waveform sampler. Phase is a full byte (0..255) and the
@@ -76,30 +101,6 @@ function autoVibratoWaveform(
       return p < 128 ? 64 : -64;
     default:
       return 0;
-  }
-}
-
-/** Read XM_VIBRATO_TABLE in the waveform the user selected via E4y / E7y. */
-function vibValue(pos: number, waveform: number): number {
-  const phase = pos & 0x3f; // 0..63
-  switch (waveform & 3) {
-    case 0: {
-      // Sine — symmetric around 0.
-      const v = XM_VIBRATO_TABLE[phase & 0x1f]!;
-      return phase < 32 ? v : -v;
-    }
-    case 1:
-      // Ramp down (saw): linear -64..63.
-      return ((phase * 2) & 0xff) > 127
-        ? ((phase * 2) & 0xff) - 256
-        : (phase * 2) & 0xff;
-    case 2:
-      // Square — alternates ±64.
-      return phase < 32 ? 64 : -64;
-    default:
-      // ft2-clone treats waveform 3 as "random" → noise. Tests don't need
-      // determinism here; return a sine value to keep playback audible.
-      return XM_VIBRATO_TABLE[phase & 0x1f]!;
   }
 }
 
@@ -161,7 +162,11 @@ interface XmVoice {
   tremorMuted: boolean;
   /** Panning 0..255 (0 = left, 128 = center, 255 = right). */
   panning: number;
-  /** Effective volume after tremolo (or -1 for "no override"). */
+  /**
+   * Volume tremolo last put on the output, or -1 for "no override". Like
+   * FT2's `outVol` it is not recomputed on tick 0 and it outlives the 7xy
+   * row: it holds until the next write to `volume`.
+   */
   effectiveVolume: number;
   /** Note number that triggered the voice (1..96), 0 when silent. */
   note: number;
@@ -187,16 +192,21 @@ interface XmVoice {
   portaTarget: number;
   /** Last seen porta speed (3xx memory; persists across rows). */
   portaSpeed: number;
-  /** Vibrato state. */
+  /** Vibrato speed (phase steps per tick), depth, and phase 0..63. */
   vibSpeed: number;
   vibDepth: number;
-  vibPos: number; // 0..63
-  vibWaveform: number; // 0..3
-  /** Tremolo state. */
+  vibPos: number;
+  /** E4y value: bits 0-1 pick the waveform, bit 2 keeps `vibPos` running
+   *  across note triggers instead of restarting it. */
+  vibWaveform: number;
+  /** Tremolo equivalents; `tremWaveform` is the E7y value. */
   tremSpeed: number;
   tremDepth: number;
   tremPos: number;
   tremWaveform: number;
+  /** Effect number of the row before the current one — a row that follows
+   *  vibrato without continuing it drops the vibrato offset (FT2). */
+  lastEffect: number;
   /** Memory for 1xx / 2xx slides. */
   slideUpLast: number;
   slideDownLast: number;
@@ -221,10 +231,10 @@ interface XmVoice {
   /**
    * Per-tick vibrato period offset (4xy / 6xy / vol-col Bx). Reset to 0
    * every advanceTick and re-applied by `runVibrato` on per-tick effects.
-   * Folded into the mixer period in `syncVoiceSteps`. Mirrors
-   * libxmp's `linear_bend = period + vibrato` pattern — vibrato never
-   * mutates the persistent base period, so a row that doesn't carry
-   * vibrato reverts to clean pitch immediately.
+   * Folded into the mixer period in `syncVoiceSteps`; the base period is
+   * never modified. Like FT2's `outPeriod` it is not recomputed on tick 0
+   * and holds its last value until another effect writes the pitch, or a
+   * row follows 4xy / 6xy without continuing the vibrato.
    */
   vibOffset: number;
   /** Multi-retrigger Rxy memory. */
@@ -332,6 +342,7 @@ function newVoice(): XmVoice {
     set volume(value: number) {
       this.volumeRaw = value;
       this.tremorMuted = false;
+      this.effectiveVolume = -1;
     },
     tremorParam: 0,
     tremorPos: 0,
@@ -347,6 +358,7 @@ function newVoice(): XmVoice {
     glissPeriod: 0,
     portaTarget: 0,
     portaSpeed: 0,
+    lastEffect: 0,
     vibSpeed: 0,
     vibDepth: 0,
     vibPos: 0,
@@ -795,16 +807,11 @@ export class XmReplayer {
   private advanceTick(): void {
     this.state.tickInRow++;
     this.state.framesElapsed++;
-    // Clear per-tick effective volume so the next mix reads `volume`
-    // unless tremolo overrides it on this tick. Same for arp offset:
-    // the per-tick handler sets it from arpParam if the current row
-    // is an arp row, otherwise it stays at 0 so the mixer plays the
-    // unmodified period.
-    for (const v of this.voices) {
-      v.effectiveVolume = -1;
-      v.arpOffset = 0;
-      v.vibOffset = 0;
-    }
+    // The arpeggio offset is per tick: the handler sets it again on an
+    // arp row, otherwise the mixer plays the unmodified period. Vibrato
+    // and tremolo are not cleared here — FT2 holds their last output
+    // through tick 0 (see `vibOffset` / `effectiveVolume`).
+    for (const v of this.voices) v.arpOffset = 0;
     if (this.state.tickInRow >= this.state.speed) {
       this.state.tickInRow = 0;
       if (this.state.patternDelayRepeats > 0) {
@@ -1131,6 +1138,10 @@ export class XmReplayer {
 
   private processCell(channel: number, cell: XmNote): void {
     const v = this.voices[channel]!;
+    const hadVibrato = v.lastEffect === 0x04 || v.lastEffect === 0x06;
+    const hasVibrato = cell.effect === 0x04 || cell.effect === 0x06;
+    if (hadVibrato && !hasVibrato) v.vibOffset = 0;
+    v.lastEffect = cell.effect;
     // Reset one-shot deferred-trigger state from the previous row.
     v.noteCutAt = -1;
     v.noteDelayAt = -1;
@@ -1276,11 +1287,11 @@ export class XmReplayer {
     v.period = periodForNote(effectiveNote, samp.finetune, this.linearFreq);
     v.finetune = samp.finetune;
     v.glissPeriod = 0;
+    v.vibOffset = 0;
     v.tremorPos = 0;
     v.portaTarget = v.period;
-    // Vibrato / tremolo position reset behaviour: ft2-clone resets unless
-    // the waveform's high bit is set (E4y / E7y values 4..7). We model the
-    // simple case for now — high-bit retain in Slice 3 polish.
+    // A note trigger restarts the vibrato / tremolo phase unless bit 2 of
+    // the E4y / E7y value asks to keep it running (values 4..7).
     if ((v.vibWaveform & 4) === 0) v.vibPos = 0;
     if ((v.tremWaveform & 4) === 0) v.tremPos = 0;
     v.step = hzForPeriod(v.period, this.linearFreq) / this.sampleRate;
@@ -1502,10 +1513,12 @@ export class XmReplayer {
         // Fine slide up — period decreases (pitch up).
         v.period = clampPeriod(v.period - y * 4, this.linearFreq);
         v.glissPeriod = 0;
+        v.vibOffset = 0;
         break;
       case 0x2:
         v.period = clampPeriod(v.period + y * 4, this.linearFreq);
         v.glissPeriod = 0;
+        v.vibOffset = 0;
         break;
       case 0x3:
         // Glissando control: any non-zero value turns it on.
@@ -1522,6 +1535,7 @@ export class XmReplayer {
           v.period = periodForNote(v.effectiveNote, ft, this.linearFreq);
           v.finetune = ft;
           v.glissPeriod = 0;
+          v.vibOffset = 0;
         }
         break;
       }
@@ -1574,10 +1588,12 @@ export class XmReplayer {
       case 0x1: // Extra-fine slide up
         v.period = clampPeriod(v.period - y, this.linearFreq);
         v.glissPeriod = 0;
+        v.vibOffset = 0;
         break;
       case 0x2:
         v.period = clampPeriod(v.period + y, this.linearFreq);
         v.glissPeriod = 0;
+        v.vibOffset = 0;
         break;
       default:
         break;
@@ -1633,15 +1649,18 @@ export class XmReplayer {
         const ay = v.arpParam & 0xf;
         v.arpOffset = phase === 1 ? ax : phase === 2 ? ay : 0;
         v.glissPeriod = 0;
+        v.vibOffset = 0;
         break;
       }
       case 0x01:
         v.period = clampPeriod(v.period - v.slideUpLast * 4, this.linearFreq);
         v.glissPeriod = 0;
+        v.vibOffset = 0;
         break;
       case 0x02:
         v.period = clampPeriod(v.period + v.slideDownLast * 4, this.linearFreq);
         v.glissPeriod = 0;
+        v.vibOffset = 0;
         break;
       case 0x03:
         this.runTonePorta(v);
@@ -1789,6 +1808,7 @@ export class XmReplayer {
       v.period = Math.max(v.portaTarget, v.period - step);
     }
     v.glissPeriod = v.glissando ? this.semitonePeriod(v) : 0;
+    v.vibOffset = 0;
   }
 
   /**
@@ -1832,32 +1852,39 @@ export class XmReplayer {
     v.tremorMuted = !on;
   }
 
+  /**
+   * One vibrato step (ft2-clone `doVibrato`): the pitch offset is
+   * `magnitude * depth >> 5` period units, added in the first half-cycle
+   * (pitch down) and subtracted in the second. Depth F on a sine swings
+   * about ±1.9 semitones in linear mode.
+   */
   private runVibrato(v: XmVoice): void {
-    if (v.sample === null || v.vibDepth === 0) return;
-    const raw = vibValue(v.vibPos, v.vibWaveform);
-    // libxmp produces peak depth/2 period units (sine peak 255, depth
-    // 0..15, shift 9 ⇒ peak = 255*depth/512 ≈ depth/2). Their period
-    // unit is 1/16 semitone; ours is 1/64 (formula `period = 7680 -
-    // (note-1)*64`), so the absolute pitch swing matches when we
-    // multiply by 4 — equivalent to `>> 5` on our ±64 table.
-    v.vibOffset = (raw * v.vibDepth) >> 5;
+    const secondHalf = (v.vibPos & 0x20) !== 0;
+    const delta =
+      (lfoMagnitude(v.vibPos, v.vibWaveform, secondHalf) * v.vibDepth) >> 5;
+    v.vibOffset = secondHalf ? -delta : delta;
     v.glissPeriod = 0;
-    // libxmp (player.c:1192): `lfo_update` runs every frame except
-    // is_first_frame (frame === 0 for FT2 events). Mirrors `QUIRK_VIBALL`
-    // unset for XM — phase advances on all but the song's very first
-    // frame. Apply BEFORE advance so the phase used this tick matches
-    // libxmp's pre-update read.
-    if (this.state.framesElapsed > 0) {
-      v.vibPos = (v.vibPos + v.vibSpeed) & 0x3f;
-    }
+    v.vibPos = (v.vibPos + v.vibSpeed) & 0x3f;
   }
 
+  /**
+   * One tremolo step (ft2-clone `tremolo`): `magnitude * depth >> 6` volume
+   * units, added in the first half-cycle and subtracted in the second,
+   * clamped to 0..64. The ramp waveform is mirrored by the *vibrato*
+   * phase, not the tremolo one — an FT2 bug that modules have been written
+   * against.
+   */
   private runTremolo(v: XmVoice): void {
-    if (v.tremDepth === 0) return;
-    const raw = vibValue(v.tremPos, v.tremWaveform);
-    const offset = (raw * v.tremDepth) >> 6;
-    v.effectiveVolume = Math.max(0, Math.min(64, v.volume + offset));
+    const vibSecondHalf = (v.vibPos & 0x20) !== 0;
+    const delta =
+      (lfoMagnitude(v.tremPos, v.tremWaveform, vibSecondHalf) * v.tremDepth) >>
+      6;
+    const base = v.volume;
     v.tremorMuted = false;
+    v.effectiveVolume =
+      (v.tremPos & 0x20) !== 0
+        ? Math.max(0, base - delta)
+        : Math.min(64, base + delta);
     v.tremPos = (v.tremPos + v.tremSpeed) & 0x3f;
   }
 
