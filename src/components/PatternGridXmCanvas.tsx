@@ -275,14 +275,12 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
       mq.addEventListener?.("change", onDprChange);
       onCleanup(() => mq.removeEventListener?.("change", onDprChange));
     }
-    // When the web font finalises after first draw, the initial atlas
-    // was built with the fallback. Rebuild + redraw once fonts settle.
-    if (typeof document !== "undefined" && document.fonts) {
-      document.fonts.ready.then(() => {
-        invalidateAtlas();
-        scheduleDraw();
-      });
-    }
+    // Rebuild the atlas once the webfont is in — the initial build runs
+    // with the fallback otherwise.
+    whenGridFontReady(() => {
+      invalidateAtlas();
+      scheduleDraw();
+    });
   });
 
   // ── Scroll-into-view effects ──────────────────────────────────────────
