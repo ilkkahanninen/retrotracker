@@ -66,17 +66,24 @@ export function flattenXmSong(song: XmSong): XmFlatRow[] {
  * `speedTempoAt` — used to seed the replayer when playback starts
  * mid-song so the user hears the same tempo as if the song had played
  * through normally.
+ *
+ * `inclusive` means the same as in PT's `speedTempoAt`: false (default)
+ * stops before the row, which is right for a playback start; true
+ * includes the row's own Fxx, which is right for "what tempo is the user
+ * looking at?" (the length-fit calculator).
  */
 export function speedTempoAtXm(
   song: XmSong,
   order: number,
   row: number,
+  inclusive = false,
 ): { speed: number; tempo: number } {
   let speed = song.defaultTempo;
   let tempo = song.defaultBpm;
   const flat = flattenXmSong(song);
   for (const fr of flat) {
-    if (fr.order === order && fr.rowIndex === row) break;
+    const here = fr.order === order && fr.rowIndex === row;
+    if (here && !inclusive) break;
     for (const cell of fr.cells) {
       if (cell.effect !== 0x0f) continue;
       const p = cell.effectParam;
@@ -84,6 +91,7 @@ export function speedTempoAtXm(
       if (p < 32) speed = p;
       else tempo = p;
     }
+    if (here) break;
   }
   return { speed, tempo };
 }

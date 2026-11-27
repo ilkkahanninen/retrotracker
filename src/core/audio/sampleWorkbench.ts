@@ -1368,6 +1368,57 @@ export interface XmTransformerParams {
   /** Optional TPDF dither at the LSB before quantisation. Off by default
    *  — same opt-in policy as the PT pipeline. */
   dither?: boolean;
+  /**
+   * Fit the sample to a musical length: resample the post-chain signal so
+   * that, triggered at C-4 with the sample's own tuning, it plays for
+   * exactly this long. The FT2 counterpart of PT's `playingLengthTicks` —
+   * the drum-loop helper. null / undefined = off. Needs an
+   * `XmRenderTarget`; ignored for chiptune sources.
+   */
+  playingLength?: XmPlayingLength | null;
+  /** Resampler used by the length fit. Falls back to
+   *  `XM_DEFAULT_RESAMPLE_MODE`. */
+  resampleMode?: ResampleMode;
+}
+
+/**
+ * A length in song ticks at a tempo — FT2's own units, so the fit is
+ * exact at any BPM: one tick lasts 2.5 / bpm seconds. (At 125 BPM that is
+ * 1/50 s, the same as a PT tick.)
+ */
+export interface XmPlayingLength {
+  ticks: number;
+  bpm: number;
+}
+
+/** XM has no pre-fit output to stay bit-identical with, so the fit
+ *  defaults to the best resampler. */
+export const XM_DEFAULT_RESAMPLE_MODE: ResampleMode = "sinc";
+
+export function xmPlayingLengthSeconds(len: XmPlayingLength): number {
+  return (len.ticks * 2.5) / len.bpm;
+}
+
+/**
+ * What the XM terminal needs to know about where the bytes will play.
+ * `c4Rate` is the rate the replayer reads the sample at on a C-4 trigger
+ * (`xmC4Rate` in xmFreqTable.ts) — the length fit turns seconds into
+ * frames with it.
+ */
+export interface XmRenderTarget {
+  c4Rate: number;
+}
+
+/** Frame count a fit asks for, or null when the fit doesn't apply. */
+export function xmFitFrames(
+  xm: XmTransformerParams,
+  target: XmRenderTarget | null | undefined,
+): number | null {
+  const len = xm.playingLength;
+  if (!len || !target) return null;
+  if (!(len.ticks > 0) || !(len.bpm > 0) || !(target.c4Rate > 0)) return null;
+  const frames = Math.round(xmPlayingLengthSeconds(len) * target.c4Rate);
+  return Number.isFinite(frames) ? Math.max(1, frames) : null;
 }
 
 export interface XmTransformerOutput {
@@ -1375,11 +1426,13 @@ export interface XmTransformerOutput {
   bits: 8 | 16;
 }
 
-/** Convert the chain output to the XM sample shape. Mono-mixes, optionally
+/** Convert the chain output to the XM sample shape. Mono-mixes, applies
+ *  the length fit when one is set and a target is given, optionally
  *  dithers, and quantises to the requested bit depth. */
 export function transformToXm(
   audio: WavData,
   xm: XmTransformerParams,
+  target?: XmRenderTarget | null,
 ): XmTransformerOutput {
   let mono: Float32Array;
   if (audio.channels.length === 0) {
@@ -1395,6 +1448,18 @@ export function transformToXm(
     mono = audio.channels[1] ?? audio.channels[0]!;
   } else {
     mono = averageChannels(audio.channels);
+  }
+  const fitFrames = xmFitFrames(xm, target);
+  if (fitFrames !== null && mono.length > 0 && fitFrames !== mono.length) {
+    // Same trick as PT's length fit: pick the rate that makes the
+    // resampler's `round(length × toRate / fromRate)` land on the frame
+    // count wanted. The bytes still play at `c4Rate`.
+    mono = resampleByMode(
+      mono,
+      audio.sampleRate,
+      (audio.sampleRate * fitFrames) / mono.length,
+      xm.resampleMode ?? XM_DEFAULT_RESAMPLE_MODE,
+    );
   }
   if (xm.bitDepth === 8) {
     return {
@@ -1450,6 +1515,14 @@ export interface XmWorkbenchAlt {
    * those simply inherit whatever loop is on the live sample.
    */
   loop?: { loopStart: number; loopLength: number; loopType: XmLoopType };
+  /**
+   * Snapshot of the sample's tuning when this half was stashed. A
+   * sampler's tuning encodes its WAV's sample rate and a chiptune's is
+   * 0 / 0 (its cycle length sets the pitch), so each half needs its own
+   * — sharing one made a chiptune play at the WAV's tuning after a
+   * toggle. Absent on older alts, which keep the live sample's tuning.
+   */
+  tuning?: { relativeNote: number; finetune: number };
 }
 
 export interface XmSampleWorkbench {
@@ -1459,14 +1532,18 @@ export interface XmSampleWorkbench {
   alt: XmWorkbenchAlt | null;
 }
 
-/** End-to-end: source → chain → XM transformer → int8 / int16 + bit depth. */
+/** End-to-end: source → chain → XM transformer → int8 / int16 + bit depth.
+ *  `target` enables the length fit; a chiptune source ignores it — its
+ *  cycle length is the synth's business and its loop is the whole cycle. */
 export function runXmPipeline(
   wb: XmSampleWorkbench,
   ctx?: RunContext | null,
+  target?: XmRenderTarget | null,
 ): XmTransformerOutput {
   return transformToXm(
     runChain(materializeSource(wb.source), wb.chain, ctx),
     wb.xm,
+    sourceWantsFullLoop(wb.source) ? null : target,
   );
 }
 
@@ -1544,11 +1621,13 @@ export function xmWorkbenchFromChiptune(
 export function xmWorkbenchToAlt(
   wb: XmSampleWorkbench,
   currentLoop?: { loopStart: number; loopLength: number; loopType: XmLoopType },
+  currentTuning?: { relativeNote: number; finetune: number },
 ): XmWorkbenchAlt {
   return {
     source: wb.source,
     chain: wb.chain,
     xm: wb.xm,
     ...(currentLoop ? { loop: currentLoop } : {}),
+    ...(currentTuning ? { tuning: currentTuning } : {}),
   };
 }

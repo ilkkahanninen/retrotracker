@@ -10,7 +10,12 @@ import {
 import { AboutModal } from "./components/AboutModal";
 import { APP_VERSION } from "./version";
 import { ModePicker } from "./components/ModePicker";
+import { EditStepControl } from "./components/EditStepControl";
+import { MetaNumberInput } from "./components/MetaNumberInput";
 import { ModeBadge } from "./components/ModeBadge";
+import { PatternNameField } from "./components/PatternNameField";
+import { PatternPosReadout } from "./components/PatternPosReadout";
+import { SongTitle } from "./components/SongTitle";
 import { InfoView } from "./components/InfoView";
 import { Menu, type MenuItem } from "./components/Menu";
 import {
@@ -85,6 +90,7 @@ import { bounceSelection } from "./core/audio/bounce";
 import type { ChiptuneParams } from "./core/audio/chiptune";
 import { emptySong } from "./core/mod/format";
 import { writeModule } from "./core/mod/writer";
+import { writeXm } from "./core/xm/writer";
 import { registerAppKeybinds } from "./state/appKeybinds";
 import { registerXmAppKeybinds } from "./state/appKeybindsXm";
 import { installEngineSync } from "./state/sync";
@@ -176,6 +182,7 @@ import {
   chiptuneSourcesSnapshot,
   cloudOrigin,
   cursorForPersistence,
+  xmEditSnapshot,
   hydrateRestoredSources,
   hydratingSources,
   unreadSourcesSnapshot,
@@ -234,16 +241,16 @@ import { speedTempoAt } from "./core/mod/flatten";
 import {
   currentOctave,
   currentSample,
-  decEditStep,
   editStep,
-  incEditStep,
   selectSample,
 } from "./state/edit";
 import {
   currentXmInstrument,
+  currentXmOctave,
   currentXmSampleIndex,
   selectXmInstrument,
 } from "./state/xmEdit";
+import { isXmInstrumentEmpty } from "./core/xm/mutations";
 import { setXmSampleSelection } from "./state/xmSampleSelection";
 import {
   cleanupXmOrderList,
@@ -261,18 +268,24 @@ import {
   cutXmSelection,
   pasteXmAtCursor,
   setXmChannelCountAction,
+  setXmDefaultBpmAction,
+  setXmDefaultSpeedAction,
   setXmRowCountAtCursor,
 } from "./state/xmPatternEdit";
 import {
   XM_INSTRUMENT_NAME_MAX,
+  XM_MAX_BPM,
   XM_MAX_CHANNELS,
   XM_MAX_INSTRUMENTS,
   XM_MAX_PATTERN_ROWS,
+  XM_MAX_SPEED,
+  XM_MIN_BPM,
   XM_MIN_PATTERN_ROWS,
+  XM_MIN_SPEED,
 } from "./core/xm/types";
 import { SAMPLE_NAME_MAX } from "./core/mod/sampleImport";
 import { infoText, setInfoText } from "./state/info";
-import { PATTERN_NAME_MAX, patternNames } from "./state/patternNames";
+import { patternNames } from "./state/patternNames";
 import {
   loadSession,
   projectToBytes,
@@ -287,7 +300,7 @@ import {
 } from "./state/playback";
 import * as preview from "./state/preview";
 import { withWorkbench, workbenches } from "./state/sampleWorkbench";
-import { xmWorkbenches } from "./state/xmSampleWorkbench";
+import { getXmWorkbench, xmWorkbenches } from "./state/xmSampleWorkbench";
 import { selection, xmSelection } from "./state/selection";
 import {
   settings,
@@ -331,7 +344,6 @@ function formatProjectSize(bytes: number): string {
 
 export const App: Component = () => {
   const [dragOver, setDragOver] = createSignal(false);
-  const [editingTitle, setEditingTitle] = createSignal(false);
   const [aboutOpen, setAboutOpen] = createSignal(false);
   const [modePickerOpen, setModePickerOpen] = createSignal(false);
   const [serverBrowser, setServerBrowser] = createSignal<{
@@ -528,20 +540,9 @@ export const App: Component = () => {
 
   const onDragLeave = () => setDragOver(false);
 
-  // Owns `editingTitle`, so it stays here rather than in state/sampleEdit.
-  // PT title field is 20 chars; matches the Info view's input.
-  const commitTitleEdit = (raw: string) => {
-    setEditingTitle(false);
-    const title = raw.slice(0, 20);
-    commitEditWithWorkbenches((state) =>
-      state.song.title === title
-        ? state
-        : { ...state, song: { ...state.song, title } },
-    );
-  };
-
-  /** Info-view title edit, routed to the loaded format's commit path so
-   *  it is undoable for both PT2 and FT2 songs. Both headers hold 20 chars. */
+  /** Title edit from the Info view or the pattern strip, routed to the
+   *  loaded format's commit path so it is undoable for both PT2 and FT2
+   *  songs. Both headers hold 20 chars. */
   const commitSongTitle = (raw: string) => {
     const title = raw.slice(0, 20);
     if (xm2Song()) {
@@ -647,6 +648,9 @@ export const App: Component = () => {
       const samp = currentSample();
       const oct = currentOctave();
       const step = editStep();
+      // FT2: current instrument / sample / octave / cursor field. Read
+      // here so a change to any of them schedules a save.
+      const xmEdit = xmEditSnapshot();
       workbenches();
       const names = patternNames();
       if (!s) return;
@@ -678,9 +682,10 @@ export const App: Component = () => {
             currentSample: samp,
             currentOctave: oct,
             editStep: step,
+            xmEdit,
             chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
             samplerSources: isPt2 ? samplerSourcesSnapshot() : undefined,
-            patternNames: isPt2 ? names : undefined,
+            patternNames: names,
             mutedChannels: muted,
             soloedChannels: soloed,
             xmChiptuneSources: isXm ? xmChiptuneSourcesSnapshot() : undefined,
@@ -703,6 +708,13 @@ export const App: Component = () => {
         const inst = s.instruments[currentXmInstrument() - 1];
         const sample = inst?.samples[currentXmSampleIndex()];
         if (!sample || sample.data.length < 2) return;
+        // No selecting a chiptune source — the synth re-renders the
+        // cycle on every edit, and the waveform doesn't draw one.
+        const wb = getXmWorkbench(
+          currentXmInstrument(),
+          currentXmSampleIndex(),
+        );
+        if (wb?.source.kind === "chiptune") return;
         setXmSampleSelection({ start: 0, end: sample.data.length });
         return;
       }
@@ -981,14 +993,12 @@ export const App: Component = () => {
       {
         // FT2 lands the render in a new instrument, PT in a sample slot;
         // each format has its own selection signal and free-slot rule.
-        // The FT2 action refuses while playing at all, so its gate is
-        // stricter than `locked`.
         icon: AudioWaveform,
         label: ft2 ? "Bounce to instrument" : "Bounce to sample",
         hint: "⌘E",
         onClick: ft2 ? bounceXmSelectionToInstrument : bounceSelectionToSample,
         disabled: ft2
-          ? transport() === "playing" ||
+          ? locked ||
             view() !== "pattern" ||
             !xmSelection() ||
             nextFreeXmInstrumentSlot() === null
@@ -1172,7 +1182,9 @@ export const App: Component = () => {
     const s = song();
     if (!s) return 0;
     if (s.format === "FT2") {
-      return s.instruments.filter((inst) => inst.samples.length > 0).length;
+      // Instruments with something to play — the ones the list doesn't
+      // grey out — not every slot the file declares.
+      return s.instruments.filter((inst) => !isXmInstrumentEmpty(inst)).length;
     }
     return s.samples.filter((x) => x.lengthWords > 0).length;
   });
@@ -1206,11 +1218,14 @@ export const App: Component = () => {
     return speedTempoAt(s, c.order, c.row, true);
   });
 
-  const modByteSize = createMemo(() => {
+  // Size of the song as its native module file — what Export .mod /
+  // Export .xm would write.
+  const moduleByteSize = createMemo(() => {
     const s = song();
-    if (!s || s.format !== "PT2") return 0;
-    return writeModule(s).length;
+    if (!s) return 0;
+    return (s.format === "PT2" ? writeModule(s) : writeXm(s)).length;
   });
+  const moduleExt = () => (song()?.format === "FT2" ? ".xm" : ".mod");
 
   // Estimated `.retro` size. Tracks only the inputs that affect bytes
   // (song / metadata / chiptune params); cursor moves and view toggles
@@ -1232,7 +1247,7 @@ export const App: Component = () => {
       editStep: 1,
       chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
       samplerSources: isPt2 ? samplerSourcesSnapshot() : undefined,
-      patternNames: isPt2 ? patternNames() : undefined,
+      patternNames: patternNames(),
       mutedChannels: mutedChannels(),
       soloedChannels: soloedChannels(),
       xmChiptuneSources: isXm ? xmChiptuneSourcesSnapshot() : undefined,
@@ -1264,7 +1279,7 @@ export const App: Component = () => {
       currentOctave: 1,
       editStep: 1,
       chiptuneSources: isPt2 ? chiptuneSourcesSnapshot() : undefined,
-      patternNames: isPt2 ? patternNames() : undefined,
+      patternNames: patternNames(),
       xmChiptuneSources: isPt2 ? undefined : xmChiptuneSourcesSnapshot(),
     }).length;
   });
@@ -1533,7 +1548,7 @@ export const App: Component = () => {
           </div>
         </div>
         <Show when={song()}>
-          {/* Combined size pill: .mod payload + estimated .retro project
+          {/* Combined size pill: .mod / .xm payload + estimated .retro project
               size / limit. Shares one chip to free header space; warn/err
               classes tint it yellow / red as the .retro estimate climbs. */}
           <span
@@ -1544,12 +1559,12 @@ export const App: Component = () => {
             }}
             title={
               sourceStoreAvailable()
-                ? `.mod file size · estimated .retro project size. Autosave keeps sample sources in separate browser storage; the song itself is ${formatProjectSize(sessionStorageBytes())} of its ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)} budget.`
-                : `.mod file size · estimated .retro project size — browser-storage budget ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}. Past it, autosave stops keeping sample sources and effect chains; saving to a file or the cloud is unaffected.`
+                ? `${moduleExt()} file size · estimated .retro project size. Autosave keeps sample sources in separate browser storage; the song itself is ${formatProjectSize(sessionStorageBytes())} of its ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)} budget.`
+                : `${moduleExt()} file size · estimated .retro project size — browser-storage budget ${formatProjectSize(PROJECT_SIZE_LIMIT_BYTES)}. Past it, autosave stops keeping sample sources and effect chains; saving to a file or the cloud is unaffected.`
             }
           >
             <span class="filesize__seg">
-              .mod {formatProjectSize(modByteSize())}
+              {moduleExt()} {formatProjectSize(moduleByteSize())}
             </span>
             <span class="filesize__sep">·</span>
             <span class="filesize__seg">
@@ -1597,14 +1612,9 @@ export const App: Component = () => {
                 const arr: SlotDisplay[] = new Array(XM_MAX_INSTRUMENTS);
                 for (let i = 0; i < XM_MAX_INSTRUMENTS; i++) {
                   const inst = insts[i];
-                  // An instrument reads as "empty" when there's no
-                  // entry at all, no samples, or every sample has
-                  // zero data bytes — matches firstEmptyXmSlot so a
-                  // freshly-cleared slot is greyed-out in the list.
-                  const isEmpty =
-                    !inst ||
-                    inst.samples.length === 0 ||
-                    inst.samples.every((sm) => sm.data.length === 0);
+                  // Greyed-out when there is nothing to play — the same
+                  // test imports use to find a free slot.
+                  const isEmpty = isXmInstrumentEmpty(inst);
                   arr[i] = {
                     name: inst?.name ?? "",
                     isEmpty,
@@ -1634,66 +1644,76 @@ export const App: Component = () => {
                 classList={{ "view-hidden": view() !== "pattern" }}
               >
                 <div class="patternpane__meta">
-                  <span class="patternpane__title">
-                    {xm().title || <em>(untitled)</em>}
-                  </span>
+                  <SongTitle title={xm().title} onCommit={commitSongTitle} />
                   <ModeBadge format="FT2" />
                   <span class="patternpane__sep">·</span>
                   <span>{filename()}</span>
                   <span class="patternpane__sep">·</span>
-                  <label class="patternpane__rows">
-                    Channels
-                    <input
-                      type="number"
-                      min={2}
-                      max={XM_MAX_CHANNELS}
-                      step={1}
-                      aria-label="Channel count"
-                      title={`Song-wide channel count (range 2..${XM_MAX_CHANNELS})`}
-                      disabled={transport() === "playing"}
-                      value={xm().channelCount}
-                      onChange={(e) => {
-                        const n = Math.floor(Number(e.currentTarget.value));
-                        if (!Number.isFinite(n)) return;
-                        const clamped = Math.max(
-                          2,
-                          Math.min(XM_MAX_CHANNELS, n),
-                        );
-                        setXmChannelCountAction(clamped);
-                      }}
-                    />
-                  </label>
+                  <MetaNumberInput
+                    label="Channels"
+                    ariaLabel="Channel count"
+                    title="Song-wide channel count"
+                    min={2}
+                    max={XM_MAX_CHANNELS}
+                    disabled={transport() === "playing"}
+                    value={xm().channelCount}
+                    onCommit={setXmChannelCountAction}
+                  />
                   <span class="patternpane__sep">·</span>
-                  <span>{xm().instruments.length} instruments</span>
+                  <span>{sampleCount()} instruments</span>
                   <span class="patternpane__sep">·</span>
-                  <label class="patternpane__rows">
-                    Rows
-                    <input
-                      type="number"
-                      min={XM_MIN_PATTERN_ROWS}
-                      max={XM_MAX_PATTERN_ROWS}
-                      step={1}
-                      aria-label="Pattern row count"
-                      title={`Row count of pattern at order ${xmCursor().order} (range ${XM_MIN_PATTERN_ROWS}..${XM_MAX_PATTERN_ROWS})`}
-                      disabled={transport() === "playing"}
-                      value={(() => {
-                        const s = xm();
-                        const idx = s.orders[xmCursor().order];
-                        return idx !== undefined
-                          ? (s.patterns[idx]?.rowCount ?? 0)
-                          : 0;
-                      })()}
-                      onChange={(e) => {
-                        const n = Math.floor(Number(e.currentTarget.value));
-                        if (!Number.isFinite(n)) return;
-                        const clamped = Math.max(
-                          XM_MIN_PATTERN_ROWS,
-                          Math.min(XM_MAX_PATTERN_ROWS, n),
-                        );
-                        setXmRowCountAtCursor(clamped);
-                      }}
-                    />
-                  </label>
+                  <MetaNumberInput
+                    label="Rows"
+                    ariaLabel="Pattern row count"
+                    title={`Row count of pattern at order ${xmCursor().order}`}
+                    min={XM_MIN_PATTERN_ROWS}
+                    max={XM_MAX_PATTERN_ROWS}
+                    disabled={transport() === "playing"}
+                    value={(() => {
+                      const s = xm();
+                      const idx = s.orders[xmCursor().order];
+                      return idx !== undefined
+                        ? (s.patterns[idx]?.rowCount ?? 0)
+                        : 0;
+                    })()}
+                    onCommit={setXmRowCountAtCursor}
+                  />
+                  <span class="patternpane__sep">·</span>
+                  <MetaNumberInput
+                    label="Speed"
+                    ariaLabel="Initial speed"
+                    title="Initial speed in ticks per row"
+                    min={XM_MIN_SPEED}
+                    max={XM_MAX_SPEED}
+                    disabled={transport() === "playing"}
+                    value={xm().defaultTempo}
+                    onCommit={setXmDefaultSpeedAction}
+                  />
+                  <span class="patternpane__sep">·</span>
+                  <MetaNumberInput
+                    label="Tempo"
+                    ariaLabel="Initial tempo"
+                    title="Initial tempo in BPM"
+                    min={XM_MIN_BPM}
+                    max={XM_MAX_BPM}
+                    disabled={transport() === "playing"}
+                    value={xm().defaultBpm}
+                    onCommit={setXmDefaultBpmAction}
+                  />
+                  <span class="patternpane__sep">·</span>
+                  <PatternPosReadout song={xm()} />
+                  <span class="patternpane__sep">·</span>
+                  <span>oct {currentXmOctave()}</span>
+                  <span class="patternpane__sep">·</span>
+                  <span>
+                    ins{" "}
+                    {currentXmInstrument()
+                      .toString(16)
+                      .toUpperCase()
+                      .padStart(2, "0")}
+                  </span>
+                  <span class="patternpane__sep">·</span>
+                  <EditStepControl />
                 </div>
                 <PatternGridXm
                   song={xm()}
@@ -1741,75 +1761,14 @@ export const App: Component = () => {
                 classList={{ "view-hidden": view() !== "pattern" }}
               >
                 <div class="patternpane__meta">
-                  <Show
-                    when={editingTitle()}
-                    fallback={
-                      <span
-                        class="patternpane__title"
-                        title="Double-click to rename song"
-                        onDblClick={() => setEditingTitle(true)}
-                      >
-                        {s().title || <em>(untitled)</em>}
-                      </span>
-                    }
-                  >
-                    <input
-                      class="patternpane__title-input"
-                      type="text"
-                      maxLength={20}
-                      value={s().title}
-                      ref={(el) =>
-                        queueMicrotask(() => {
-                          el.focus();
-                          el.select();
-                        })
-                      }
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          commitTitleEdit(e.currentTarget.value);
-                        } else if (e.key === "Escape") {
-                          e.preventDefault();
-                          setEditingTitle(false);
-                        }
-                      }}
-                      onBlur={(e) => {
-                        if (editingTitle())
-                          commitTitleEdit(e.currentTarget.value);
-                      }}
-                    />
-                  </Show>
+                  <SongTitle title={s().title} onCommit={commitSongTitle} />
                   <ModeBadge format={s().format} />
                   <span class="patternpane__sep">·</span>
                   <span>{filename()}</span>
                   <span class="patternpane__sep">·</span>
                   <span>{sampleCount()} samples</span>
                   <span class="patternpane__sep">·</span>
-                  <span>
-                    order{" "}
-                    {playPos()
-                      .order.toString(16)
-                      .toUpperCase()
-                      .padStart(2, "0")}
-                    /
-                    {(s().songLength - 1)
-                      .toString(16)
-                      .toUpperCase()
-                      .padStart(2, "0")}
-                  </span>
-                  <span class="patternpane__sep">·</span>
-                  <span>
-                    pat{" "}
-                    {(s().orders[playPos().order] ?? 0)
-                      .toString(16)
-                      .toUpperCase()
-                      .padStart(2, "0")}
-                  </span>
-                  <span class="patternpane__sep">·</span>
-                  <span>
-                    row{" "}
-                    {playPos().row.toString(16).toUpperCase().padStart(2, "0")}
-                  </span>
+                  <PatternPosReadout song={s()} />
                   <span class="patternpane__sep">·</span>
                   <span>oct {currentOctave()}</span>
                   <span class="patternpane__sep">·</span>
@@ -1821,35 +1780,7 @@ export const App: Component = () => {
                       .padStart(2, "0")}
                   </span>
                   <span class="patternpane__sep">·</span>
-                  <span class="patternpane__editstep">
-                    step
-                    <button
-                      type="button"
-                      class="patternpane__editstep-btn"
-                      onClick={decEditStep}
-                      disabled={transport() === "playing"}
-                      title="Decrease edit step ([)"
-                      aria-label="Decrease edit step"
-                    >
-                      <Icon of={Minus} />
-                    </button>
-                    <span
-                      class="patternpane__editstep-value"
-                      aria-label="Edit step"
-                    >
-                      {editStep()}
-                    </span>
-                    <button
-                      type="button"
-                      class="patternpane__editstep-btn"
-                      onClick={incEditStep}
-                      disabled={transport() === "playing"}
-                      title="Increase edit step (])"
-                      aria-label="Increase edit step"
-                    >
-                      <Icon of={Plus} />
-                    </button>
-                  </span>
+                  <EditStepControl />
                 </div>
                 <PatternGrid
                   song={s()}
@@ -2048,41 +1979,12 @@ export const App: Component = () => {
                           <span class="pat">
                             {p.toString(16).toUpperCase().padStart(2, "0")}
                           </span>
-                          <Show
-                            when={editingOrderIdx() === i}
-                            fallback={
-                              <span class="orderlist__name">
-                                {patternNames()[p] ?? ""}
-                              </span>
-                            }
-                          >
-                            <input
-                              class="orderlist__name-input"
-                              type="text"
-                              maxLength={PATTERN_NAME_MAX}
-                              value={patternNames()[p] ?? ""}
-                              ref={(el) =>
-                                queueMicrotask(() => {
-                                  el.focus();
-                                  el.select();
-                                })
-                              }
-                              onClick={(e) => e.stopPropagation()}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  commitPatternRename(p, e.currentTarget.value);
-                                } else if (e.key === "Escape") {
-                                  e.preventDefault();
-                                  setEditingOrderIdx(null);
-                                }
-                              }}
-                              onBlur={(e) => {
-                                if (editingOrderIdx() === i)
-                                  commitPatternRename(p, e.currentTarget.value);
-                              }}
-                            />
-                          </Show>
+                          <PatternNameField
+                            name={patternNames()[p] ?? ""}
+                            editing={editingOrderIdx() === i}
+                            onCommit={(raw) => commitPatternRename(p, raw)}
+                            onCancel={() => setEditingOrderIdx(null)}
+                          />
                         </li>
                       ))}
                   </ol>

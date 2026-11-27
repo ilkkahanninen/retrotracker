@@ -17,6 +17,8 @@ import {
   renameXmInstrument,
   setXmCell,
   setXmChannelCount,
+  setXmDefaultBpm,
+  setXmDefaultSpeed,
   setXmEnvelopePoint,
   setXmInstrumentFadeout,
   setXmInstrumentSample,
@@ -135,6 +137,37 @@ describe("setXmChannelCount", () => {
     const before = fresh();
     expect(setXmChannelCount(before, 1)).toBe(before);
     expect(setXmChannelCount(before, 33)).toBe(before);
+  });
+});
+
+describe("setXmDefaultSpeed / setXmDefaultBpm", () => {
+  it("writes the initial speed and BPM header fields", () => {
+    const next = setXmDefaultBpm(setXmDefaultSpeed(fresh(), 3), 150);
+    expect(next.defaultTempo).toBe(3);
+    expect(next.defaultBpm).toBe(150);
+  });
+
+  it("accepts both ends of each range", () => {
+    expect(setXmDefaultSpeed(fresh(), 1).defaultTempo).toBe(1);
+    expect(setXmDefaultSpeed(fresh(), 31).defaultTempo).toBe(31);
+    expect(setXmDefaultBpm(fresh(), 32).defaultBpm).toBe(32);
+    expect(setXmDefaultBpm(fresh(), 255).defaultBpm).toBe(255);
+  });
+
+  it("rejects out-of-range and non-integer values", () => {
+    const before = fresh();
+    expect(setXmDefaultSpeed(before, 0)).toBe(before);
+    expect(setXmDefaultSpeed(before, 32)).toBe(before);
+    expect(setXmDefaultSpeed(before, 4.5)).toBe(before);
+    expect(setXmDefaultBpm(before, 31)).toBe(before);
+    expect(setXmDefaultBpm(before, 256)).toBe(before);
+    expect(setXmDefaultBpm(before, NaN)).toBe(before);
+  });
+
+  it("returns the same reference when the value is unchanged", () => {
+    const before = fresh();
+    expect(setXmDefaultSpeed(before, before.defaultTempo)).toBe(before);
+    expect(setXmDefaultBpm(before, before.defaultBpm)).toBe(before);
   });
 });
 

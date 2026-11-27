@@ -2,7 +2,11 @@ import { createSignal } from "solid-js";
 import type { ModSong } from "../core/mod/types";
 import { CHANNELS } from "../core/mod/types";
 import { flattenSong } from "../core/mod/flatten";
-import { cycleChannel, moveAlongFields } from "./cursorPrimitives";
+import {
+  cycleChannel,
+  moveAlongFields,
+  moveByFlatRows,
+} from "./cursorPrimitives";
 
 /**
  * Edit cursor.
@@ -75,25 +79,6 @@ export function requestJumpToTop(): void {
 
 // ─── Pure movement primitives ─────────────────────────────────────────────
 
-/** Find the cursor's index in the flat list, or -1 if its row is hidden. */
-function flatIndexOf(c: Cursor, song: ModSong): number {
-  const flat = flattenSong(song);
-  for (let i = 0; i < flat.length; i++) {
-    const fr = flat[i]!;
-    if (fr.order === c.order && fr.rowIndex === c.row) return i;
-  }
-  return -1;
-}
-
-/** Place the cursor at the given flat-list index (clamped). */
-function atFlatIndex(c: Cursor, song: ModSong, target: number): Cursor {
-  const flat = flattenSong(song);
-  if (flat.length === 0) return c;
-  const clamped = Math.max(0, Math.min(flat.length - 1, target));
-  const fr = flat[clamped]!;
-  return { ...c, order: fr.order, row: fr.rowIndex };
-}
-
 export function moveLeft(c: Cursor): Cursor {
   return { ...c, ...moveAlongFields(FIELDS, c.field, -1, CHANNELS, c.channel) };
 }
@@ -102,19 +87,9 @@ export function moveRight(c: Cursor): Cursor {
   return { ...c, ...moveAlongFields(FIELDS, c.field, 1, CHANNELS, c.channel) };
 }
 
-function moveByRows(c: Cursor, song: ModSong, delta: number): Cursor {
-  const idx = flatIndexOf(c, song);
-  if (idx >= 0) return atFlatIndex(c, song, idx + delta);
-  const flat = flattenSong(song);
-  let snap = 0;
-  for (let i = flat.length - 1; i >= 0; i--) {
-    const fr = flat[i]!;
-    if (fr.order < c.order || (fr.order === c.order && fr.rowIndex <= c.row)) {
-      snap = i;
-      break;
-    }
-  }
-  return atFlatIndex(c, song, snap + delta);
+/** Move through the rows the grid shows — Dxx-aware, crossing orders. */
+export function moveByRows(c: Cursor, song: ModSong, delta: number): Cursor {
+  return moveByFlatRows(c, flattenSong(song), delta);
 }
 
 export function moveUp(c: Cursor, song: ModSong): Cursor {

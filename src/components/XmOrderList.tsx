@@ -1,10 +1,12 @@
-import { For, type Component } from "solid-js";
+import { createSignal, For, type Component } from "solid-js";
 
 import type { XmSong } from "../core/xm/types";
 import { XM_MAX_ORDERS } from "../core/xm/types";
 import { xmCursor } from "../state/cursorXm";
 import { Icon } from "./Icon";
+import { PatternNameField } from "./PatternNameField";
 import { ChevronLeft, ChevronRight, Minus, Plus } from "./icons";
+import { patternNames } from "../state/patternNames";
 import { playPos, transport } from "../state/song";
 import {
   deleteXmOrderSlot,
@@ -12,6 +14,7 @@ import {
   insertXmOrderSlot,
   jumpXmToOrder,
   newXmBlankPatternAtOrder,
+  renameXmPattern,
   stepXmNextPattern,
   stepXmPrevPattern,
 } from "../state/xmOrderEdit";
@@ -24,7 +27,7 @@ interface Props {
  * FT2 order list. Mirrors PT2's order list layout: a six-button toolbar
  * (Prev / Next pattern, Insert / Delete slot, New blank, Duplicate)
  * above an ordered list of entries. Clicking an entry jumps the FT2
- * cursor to that order.
+ * cursor to that order; double-clicking renames the pattern it plays.
  *
  * Pattern-number readouts are wrapped in thunks so a `commitEditXm`
  * that swaps the order at a slot re-paints just that slot — `For`'s
@@ -38,6 +41,12 @@ export const XmOrderList: Component<Props> = (props) => {
   const canPrev = () => slotPat() > 0;
   const canIns = () => props.song.songLength < XM_MAX_ORDERS;
   const canDel = () => props.song.songLength > 1;
+
+  // Order-list slot whose name is being edited — the slot, not the
+  // pattern, so a pattern that appears twice opens just one input.
+  const [editingOrderIdx, setEditingOrderIdx] = createSignal<number | null>(
+    null,
+  );
 
   const orderIndices = () => {
     const out: number[] = [];
@@ -115,8 +124,15 @@ export const XmOrderList: Component<Props> = (props) => {
                   "orderlist__item--cursor":
                     !playing() && i === xmCursor().order,
                 }}
-                onClick={() => jumpXmToOrder(i)}
-                title={`Jump to order ${i.toString(16).toUpperCase().padStart(2, "0")}`}
+                onClick={() => {
+                  if (editingOrderIdx() === i) return;
+                  jumpXmToOrder(i);
+                }}
+                onDblClick={(e) => {
+                  e.stopPropagation();
+                  setEditingOrderIdx(i);
+                }}
+                title={`Jump to order ${i.toString(16).toUpperCase().padStart(2, "0")} — double-click to rename pattern`}
               >
                 <span class="num">
                   {i.toString(16).toUpperCase().padStart(2, "0")}
@@ -124,6 +140,15 @@ export const XmOrderList: Component<Props> = (props) => {
                 <span class="pat">
                   {patternNumber().toString(16).toUpperCase().padStart(2, "0")}
                 </span>
+                <PatternNameField
+                  name={patternNames()[patternNumber()] ?? ""}
+                  editing={editingOrderIdx() === i}
+                  onCommit={(raw) => {
+                    setEditingOrderIdx(null);
+                    renameXmPattern(patternNumber(), raw);
+                  }}
+                  onCancel={() => setEditingOrderIdx(null)}
+                />
               </li>
             );
           }}

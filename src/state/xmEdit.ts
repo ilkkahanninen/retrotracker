@@ -23,18 +23,35 @@ const sampleIndex = createRangedSignal({
   initial: 0,
 });
 
+/**
+ * Run an instrument change and, when it actually moved to another
+ * instrument, go back to its first sample — the sample index belongs to
+ * the instrument it was picked on.
+ *
+ * This lives in the setters rather than in a component effect on
+ * purpose: an effect also ran on mount, where it wiped a sample index a
+ * session restore had just put back.
+ */
+function switchingInstrument(change: () => void): void {
+  const before = instrument.sig();
+  change();
+  if (instrument.sig() !== before) sampleIndex.set(0);
+}
+
 export const currentXmOctave = octave.sig;
 export const setCurrentXmOctave = octave.set;
 export const currentXmInstrument = instrument.sig;
-export const setCurrentXmInstrument = instrument.set;
+export const setCurrentXmInstrument = (n: number): void =>
+  switchingInstrument(() => instrument.set(n));
 export const currentXmSampleIndex = sampleIndex.sig;
 export const setCurrentXmSampleIndex = sampleIndex.set;
 
 export const xmOctaveUp = octave.inc;
 export const xmOctaveDown = octave.dec;
-export const selectXmInstrument = instrument.selectClamped;
-export const nextXmInstrument = instrument.inc;
-export const prevXmInstrument = instrument.dec;
+export const selectXmInstrument = (n: number): void =>
+  switchingInstrument(() => instrument.selectClamped(n));
+export const nextXmInstrument = (): void => switchingInstrument(instrument.inc);
+export const prevXmInstrument = (): void => switchingInstrument(instrument.dec);
 
 // Why: clearing note also wipes instrument; clearing any volume/effect nibble
 // wipes both nibbles (half-typed codes are meaningless). Inst hi/lo preserves

@@ -12,7 +12,17 @@ import type { XmSampleSelection } from "../state/xmSampleSelection";
 import type { EnvelopePoint, ParamAxis } from "../core/audio/sampleWorkbench";
 import { currentXmInstrument, currentXmSampleIndex } from "../state/xmEdit";
 import { xmPreviewFrame } from "../state/xmPreview";
-import { drawSampleWaveform } from "./waveformDraw";
+import {
+  drawLoopBand,
+  drawSampleWaveform,
+  drawZoomIndicator,
+} from "./waveformDraw";
+import { createWaveformViewport } from "./waveformViewport";
+import {
+  waveformCursorInfoAt,
+  type WaveformCursorInfo,
+} from "./sampleEditorShared";
+import { WaveformCursorReadout } from "./WaveformCursorReadout";
 import { EnvelopeOverlay } from "./EnvelopeOverlay";
 import { beginDragEdit, endDragEdit } from "../state/song";
 
@@ -52,6 +62,10 @@ interface Props {
    *  (InstrumentView) gates this on the user having selected a chain
    *  entry with an envelope param. */
   envelope?: XmWaveformEnvelopeOverlay | null;
+  /** When false, hide the loop band. The host turns it off for a
+   *  chiptune source: its loop is always the whole cycle, so the band
+   *  would just tint the entire waveform. Defaults to true. */
+  showLoop?: boolean;
 }
 
 /** Canvas-internal width — drawing target before DPR / CSS scaling. */
@@ -73,6 +87,12 @@ export const XmWaveform: Component<Props> = (props) => {
 
   const [drag, setDrag] = createSignal<DragState | null>(null);
   const [hover, setHover] = createSignal<"start" | "end" | null>(null);
+  /** Pointer readout — the frame under the pointer and its `9xx`
+   *  command, as on the PT waveform. Kept during a drag so it stays
+   *  useful while sweeping a selection past the canvas edge. */
+  const [cursorInfo, setCursorInfo] = createSignal<WaveformCursorInfo | null>(
+    null,
+  );
   // Why: bump on every observed resize. The draw effects bail when
   // canvas.clientWidth is 0 (display:none ancestor — pattern view hides
   // the sample editor), and re-running them on later visibility changes
@@ -83,19 +103,18 @@ export const XmWaveform: Component<Props> = (props) => {
   const loopActive = () =>
     props.sample.loopType !== "none" && props.sample.loopLength > 0;
 
+  // Viewport in FRAMES — `[vp.start, vp.end)` is what gets drawn. Wheel
+  // to zoom, shift+wheel / horizontal swipe to pan, double-click to
+  // reset; the same gestures as PT's Waveform.
+  const vp = createWaveformViewport(() => props.sample.data, W);
+
   /** Map a canvas-internal x (0..W) to a sample frame. */
-  const frameForCanvasX = (x: number): number => {
-    const len = dataLen();
-    if (len === 0) return 0;
-    return Math.round((x / W) * len);
-  };
+  const frameForCanvasX = (x: number): number =>
+    dataLen() === 0 ? 0 : vp.indexForX(x);
 
   /** Map a sample frame to canvas-internal x. */
-  const xForFrame = (frame: number): number => {
-    const len = dataLen();
-    if (len === 0) return 0;
-    return (frame * W) / len;
-  };
+  const xForFrame = (frame: number): number =>
+    dataLen() === 0 ? 0 : vp.xFor(frame);
 
   /** Map a client X (CSS pixels) to a canvas-internal x. */
   const clientToCanvasX = (clientX: number): number => {
@@ -169,10 +188,16 @@ export const XmWaveform: Component<Props> = (props) => {
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
+    const len = dataLen();
+    const start = vp.start();
+    const end = Math.min(len, vp.end());
+
     const cs = getComputedStyle(canvas);
     drawSampleWaveform(ctx, {
       data: props.sample.data,
       peak: props.sample.bits === 16 ? 32768 : 128,
+      start,
+      end,
       width: cssWidth,
       height: cssHeight,
       bgColor: cs.getPropertyValue("--panel-2").trim() || "#1c1e26",
@@ -180,34 +205,47 @@ export const XmWaveform: Component<Props> = (props) => {
       waveColor: "#5ec9ff",
     });
 
-    // The selection + loop overlays draw against CSS-pixel coordinates so
-    // we need a fresh frame→x scaler that uses cssWidth, not W.
-    const cssXForFrame = (f: number): number =>
-      dataLen() === 0 ? 0 : (f * cssWidth) / dataLen();
+    if (len === 0) return;
+
+    // The overlays draw in CSS pixels; the viewport maps frames onto the
+    // canvas-internal width, so rescale.
+    const cssXForFrame = (f: number): number => (vp.xFor(f) * cssWidth) / W;
 
     // Loop overlay — translucent band + 1-px edge bars, matching PT2.
-    if (loopActive() && dataLen() > 0) {
+    if (loopActive() && props.showLoop !== false) {
       const s = props.sample;
-      const x0 = cssXForFrame(s.loopStart);
-      const x1 = cssXForFrame(s.loopStart + s.loopLength);
-      ctx.fillStyle = "rgba(94, 200, 255, 0.18)";
-      ctx.fillRect(x0, 0, Math.max(1, x1 - x0), cssHeight);
-      ctx.fillStyle = "#5ec8ff";
-      ctx.fillRect(Math.floor(x0), 0, 1, cssHeight);
-      ctx.fillRect(Math.max(0, Math.floor(x1) - 1), 0, 1, cssHeight);
+      drawLoopBand(
+        ctx,
+        cssXForFrame(s.loopStart),
+        cssXForFrame(s.loopStart + s.loopLength),
+        cssWidth,
+        cssHeight,
+      );
     }
 
-    // Selection overlay.
+    // Selection overlay, clipped to the viewport.
     const sel = props.selection;
-    const len = dataLen();
-    if (sel && len > 0 && sel.end > sel.start && props.selectable !== false) {
-      const x0 = cssXForFrame(Math.max(0, sel.start));
-      const x1 = cssXForFrame(Math.min(len, sel.end));
-      ctx.fillStyle = "rgba(255, 255, 255, 0.15)";
-      ctx.fillRect(x0, 0, Math.max(1, x1 - x0), cssHeight);
-      ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
-      ctx.fillRect(Math.floor(x0), 0, 1, cssHeight);
-      ctx.fillRect(Math.max(0, Math.floor(x1) - 1), 0, 1, cssHeight);
+    if (sel && sel.end > sel.start && props.selectable !== false) {
+      const sStart = Math.max(start, sel.start);
+      const sEnd = Math.min(end, sel.end);
+      if (sEnd > sStart) {
+        const x0 = cssXForFrame(sStart);
+        const x1 = cssXForFrame(sEnd);
+        ctx.fillStyle = "rgba(255, 255, 255, 0.15)";
+        ctx.fillRect(x0, 0, Math.max(1, x1 - x0), cssHeight);
+        // Edge lines only where the selection's own edge is in view, so
+        // a clipped-off edge doesn't read as the real boundary.
+        ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+        if (sel.start >= start && sel.start < end)
+          ctx.fillRect(Math.floor(x0), 0, 1, cssHeight);
+        if (sel.end >= start && sel.end <= end)
+          ctx.fillRect(Math.max(0, Math.floor(x1) - 1), 0, 1, cssHeight);
+      }
+    }
+
+    // Zoom indicator: where the viewport sits inside the full sample.
+    if (start > 0 || end < len) {
+      drawZoomIndicator(ctx, cssWidth, cssHeight, start, end, len);
     }
   };
 
@@ -218,7 +256,10 @@ export const XmWaveform: Component<Props> = (props) => {
     props.sample.loopStart;
     props.sample.loopLength;
     props.sample.loopType;
+    props.showLoop;
     props.selection;
+    vp.start();
+    vp.end();
     layoutTick();
     requestAnimationFrame(draw);
   });
@@ -250,10 +291,9 @@ export const XmWaveform: Component<Props> = (props) => {
     ) {
       return;
     }
-    const len = dataLen();
-    if (len === 0) return;
-    if (pf.frame < 0 || pf.frame >= len) return;
-    const x = (pf.frame * cssWidth) / len;
+    if (dataLen() === 0) return;
+    if (pf.frame < vp.start() || pf.frame >= vp.end()) return;
+    const x = (vp.xFor(pf.frame) * cssWidth) / W;
     ctx.fillStyle = "#ff7a59";
     ctx.fillRect(Math.floor(x), 0, 1, cssHeight);
   });
@@ -277,8 +317,21 @@ export const XmWaveform: Component<Props> = (props) => {
     e.preventDefault();
   };
 
+  const updateCursorInfo = (e: MouseEvent) => {
+    if (!container || dataLen() === 0) {
+      setCursorInfo(null);
+      return;
+    }
+    const frame = Math.max(
+      0,
+      Math.min(dataLen() - 1, frameForCanvasX(clientToCanvasX(e.clientX))),
+    );
+    setCursorInfo(waveformCursorInfoAt(e, container, frame));
+  };
+
   const onMouseMove = (e: MouseEvent) => {
     const x = clientToCanvasX(e.clientX);
+    updateCursorInfo(e);
     const d = drag();
     if (!d) {
       setHover(handleAt(x));
@@ -309,7 +362,20 @@ export const XmWaveform: Component<Props> = (props) => {
   };
 
   const onMouseLeave = () => {
-    if (!drag()) setHover(null);
+    if (!drag()) {
+      setHover(null);
+      setCursorInfo(null);
+    }
+  };
+
+  const onWheel = (e: WheelEvent) => vp.wheel(e, clientToCanvasX(e.clientX));
+
+  /** Reset to the full-sample view. */
+  const onDoubleClick = (e: MouseEvent) => {
+    // Not on a loop handle — that's the start of a drag, not a zoom-out.
+    if (handleAt(clientToCanvasX(e.clientX))) return;
+    vp.reset();
+    e.preventDefault();
   };
 
   // Window-level move/up so a drag past the canvas edge keeps tracking.
@@ -367,6 +433,9 @@ export const XmWaveform: Component<Props> = (props) => {
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
       onMouseLeave={onMouseLeave}
+      onWheel={onWheel}
+      onDblClick={onDoubleClick}
+      title="Scroll to zoom · Shift+scroll to pan · Double-click to reset"
     >
       <canvas
         ref={(el) => {
@@ -400,6 +469,9 @@ export const XmWaveform: Component<Props> = (props) => {
             onNudgeSegment={env().onNudgeSegment}
           />
         )}
+      </Show>
+      <Show when={cursorInfo()}>
+        {(info) => <WaveformCursorReadout info={info()} />}
       </Show>
     </div>
   );

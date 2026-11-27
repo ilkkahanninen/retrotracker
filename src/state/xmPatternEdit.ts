@@ -12,16 +12,21 @@ import {
   insertXmRowPushDown,
   setXmCell,
   setXmChannelCount,
+  setXmDefaultBpm,
+  setXmDefaultSpeed,
   setXmPatternRowCount,
   transposeRangeXm,
 } from "../core/xm/mutations";
 import type { XmNote, XmSong } from "../core/xm/types";
+import { visibleRowRange } from "../core/flatten";
+import { flattenXmSong } from "../core/xm/flatten";
 import { rowsOfPattern } from "../core/song";
 import {
   type XmCursor,
   type XmField,
   XM_FIELDS,
   xmCursor,
+  xmMoveByRows,
   xmMoveDown,
   xmMoveRight,
   setXmCursor,
@@ -35,6 +40,7 @@ import {
   clearXmFieldPatch,
   currentXmInstrument,
   currentXmOctave,
+  currentXmSampleIndex,
 } from "./xmEdit";
 import {
   clearXmSelection,
@@ -46,10 +52,14 @@ import {
 import { createPatternEdit } from "./patternEditCore";
 import { editsAllowed } from "./keybindHelpers";
 
+/** Rows of `order` the grid shows — a Dxx pattern break hides the rest,
+ *  and selection / paging must stay inside what is visible. */
 function visibleRowsOfXmOrder(
   s: XmSong,
   order: number,
 ): { first: number; last: number } {
+  const visible = visibleRowRange(flattenXmSong(s), order);
+  if (visible) return visible;
   const patIdx = s.orders[order];
   if (patIdx === undefined) return { first: 0, last: 0 };
   return { first: 0, last: rowsOfPattern(s, patIdx) - 1 };
@@ -71,6 +81,7 @@ const core = createPatternEdit<XmSong, XmCursor, XmNote>({
   visibleRowsOfOrder: visibleRowsOfXmOrder,
   editStep,
   moveDown: xmMoveDown,
+  moveByRows: xmMoveByRows,
   // Why: XM clamps post-insert step to the pattern bounds; PT crosses
   // pattern boundaries. Preserves the prior xmPatternEdit behavior.
   stepDownAfterInsert: (c, s) => {
@@ -140,8 +151,10 @@ export function enterXmNote(semitoneOffset: number): void {
 }
 
 export function onXmPianoKey(semitoneOffset: number): void {
-  if (view() === "sample") previewXmNote(semitoneOffset);
-  else enterXmNote(semitoneOffset);
+  // In the instrument editor a key auditions the sample being edited.
+  if (view() === "sample") {
+    previewXmNote(semitoneOffset, { sampleIdx: currentXmSampleIndex() });
+  } else enterXmNote(semitoneOffset);
 }
 
 export function enterXmKeyOff(): void {
@@ -285,4 +298,14 @@ export function setXmChannelCountAction(channelCount: number): void {
   // Resize the mute / solo arrays to the new channel count (and drop a
   // selection that reaches into removed channels).
   reconcileUiToSong();
+}
+
+export function setXmDefaultSpeedAction(speed: number): void {
+  if (!editsAllowed()) return;
+  commitEditXm((s) => setXmDefaultSpeed(s, speed));
+}
+
+export function setXmDefaultBpmAction(bpm: number): void {
+  if (!editsAllowed()) return;
+  commitEditXm((s) => setXmDefaultBpm(s, bpm));
 }

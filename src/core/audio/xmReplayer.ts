@@ -677,6 +677,17 @@ export class XmReplayer {
     return this.state.ended;
   }
 
+  /**
+   * True when no voice is sounding and none has an anti-click tail left
+   * to play. The note preview uses it to tell when a held note has run
+   * out by itself (a non-looped sample reached its end). Only meaningful
+   * after at least one `process` call — before the first tick nothing
+   * has been triggered yet.
+   */
+  isSilent(): boolean {
+    return this.voices.every((v) => !v.playing && !v.pendingDischarge);
+  }
+
   getOrderIndex(): number {
     return this.state.orderIndex;
   }
@@ -720,6 +731,27 @@ export class XmReplayer {
 
   replaceSong(song: Song): void {
     if (song.format !== "FT2") return;
+    // Re-point sounding voices at the new song's copy of their sample.
+    // Over the worklet's message port every `replaceSong` is a fresh
+    // structured clone, so a voice left on the old objects would no
+    // longer be found by `replaceInstrument` — a held note would stop
+    // following sample-pipeline edits after any order or pattern edit.
+    // Only when the instrument still has the same number of samples: if
+    // one was added or removed the index no longer names the same sound,
+    // and the voice just plays out what it has.
+    const old = this.song.instruments;
+    for (const v of this.voices) {
+      if (!v.sample) continue;
+      for (let i = 0; i < old.length; i++) {
+        const sampleIdx = old[i]!.samples.indexOf(v.sample);
+        if (sampleIdx < 0) continue;
+        const inst = song.instruments[i];
+        if (inst && inst.samples.length === old[i]!.samples.length) {
+          this.repointVoice(v, inst.samples[sampleIdx]);
+        }
+        break;
+      }
+    }
     this.song = song;
     this.linearFreq = song.flags.linearFreq;
     if (this.state.orderIndex >= song.songLength) {
@@ -739,10 +771,49 @@ export class XmReplayer {
     }
   }
 
-  // PT-only methods — kept as no-ops so the interface check stays uniform.
-  replaceSampleSlot(_slot: number, _sample: Sample): void {
-    // FT2 uses instruments, not flat sample slots — the Phase 4 sample
-    // editor will plumb XM-flavoured hot-swap.
+  // PT-only — kept as a no-op so the interface check stays uniform. FT2
+  // uses instruments, not flat sample slots: see `replaceInstrument`.
+  replaceSampleSlot(_slot: number, _sample: Sample): void {}
+
+  /**
+   * Hot-swap the instrument at a 0-based `index` mid-playback — the FT2
+   * counterpart of `Pt2Replayer.replaceSampleSlot`. Mutates the cached
+   * song so the next note trigger reads the new instrument, and re-points
+   * any voice currently sounding one of its samples at the replacement
+   * (matched by position in the instrument's sample list). Such a voice
+   * keeps its read position, so a sample-pipeline tweak is heard on the
+   * running note; the mixer bounds every read by the sample it is handed,
+   * so a shorter buffer simply ends or wraps early.
+   *
+   * Envelopes, fadeout and auto-vibrato stay latched from the trigger
+   * (`envInstrument`) and change with the next note — swapping them under
+   * a running envelope could leave its point index past the new list.
+   *
+   * No-op for an index outside the current instrument list; a song whose
+   * list changed length goes through `replaceSong` instead.
+   */
+  replaceInstrument(index: number, instrument: XmInstrument): void {
+    const instruments = this.song.instruments;
+    if (index < 0 || index >= instruments.length) return;
+    const old = instruments[index]!;
+    instruments[index] = instrument;
+    for (const v of this.voices) {
+      if (!v.sample) continue;
+      const sampleIdx = old.samples.indexOf(v.sample);
+      if (sampleIdx < 0) continue;
+      this.repointVoice(v, instrument.samples[sampleIdx]);
+    }
+  }
+
+  /** Hand a sounding voice new data for the sample it is playing. An
+   *  empty replacement is ignored — the voice plays out what it has. */
+  private repointVoice(v: XmVoice, next: XmSample | undefined): void {
+    if (!next || next.data.length === 0) return;
+    v.sample = next;
+    // A voice on the backward leg of a ping-pong loop would be cut by
+    // the mixer the moment the loop stops being ping-pong (running
+    // backwards past the loop start ends a voice). Turn it around.
+    if (next.loopType !== "ping-pong") v.direction = 1;
   }
 
   // ── Tick scheduling ──────────────────────────────────────────────────

@@ -11,6 +11,7 @@
 import { Pt2Replayer } from "./replayer";
 import type { Sample } from "../mod/types";
 import type { Song } from "../song";
+import type { XmInstrument } from "../xm/types";
 import type { ReplayerOptions } from "./types";
 import { XmReplayer } from "./xmReplayer";
 
@@ -58,6 +59,9 @@ export interface Replayer {
 
   /** PT-only: swap a single sample slot's data. */
   replaceSampleSlot?(slot: number, sample: Sample): void;
+
+  /** FT2-only: swap a single instrument (0-based index) mid-playback. */
+  replaceInstrument?(index: number, instrument: XmInstrument): void;
 
   /** PT-only: swap the stereo separation factor. */
   setStereoSeparation?(sep: number): void;

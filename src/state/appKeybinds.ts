@@ -202,13 +202,15 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   // Cmd+E — render the current selection through the clean offline mixer
   // and land it in the next free sample slot. The handler itself bails on
   // missing-selection / no-free-slot, so the gate here just covers playback
-  // and view; finer eligibility is the handler's concern.
+  // and view; finer eligibility is the handler's concern. PT-only: the
+  // dispatcher stops at the first match, so without the format check this
+  // entry swallowed the key before FT2's own Cmd+E binding could run.
   cleanups.push(
     registerShortcut({
       key: "e",
       mod: true,
       description: "Bounce selection to sample",
-      when: () => editsAllowed() && view() === "pattern",
+      when: () => isPt2Mode() && editsAllowed() && view() === "pattern",
       run: h.bounceSelectionToSample,
     }),
   );
@@ -383,8 +385,8 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
   // address a pattern cell there.
   const shiftNav = (mover: (c: Cursor) => Cursor) => () =>
     h.extendSelection(mover(cursor()));
-  // Shift+arrow selection: PT-mode-only (FT2 hasn't grown a selection model
-  // yet — that lands when a Phase 3 follow-up adds clipboard support).
+  // Shift+arrow selection: PT-mode-only — FT2 has its own selection
+  // signal and registers the same keys in appKeybindsXm.ts.
   const shiftSelectionWhen = () =>
     isPt2Mode() && editsAllowed() && view() === "pattern";
   cleanups.push(
@@ -834,8 +836,8 @@ export function registerAppKeybinds(h: AppKeybindHandlers): Array<() => void> {
 
   // Per-channel mute / solo. Option/Alt + digit to keep digits without a
   // modifier free for sample selection. Channels are 1..4 in the UI but
-  // 0..3 in the API. PT-only — XmKeybinds wires its own mute/solo over
-  // the FT2 channel-count range when channel-mute lands for FT2.
+  // 0..3 in the API. PT-only — appKeybindsXm.ts wires mute/solo for the
+  // first ten FT2 channels.
   for (let i = 0; i < 4; i++) {
     const channel = i;
     cleanups.push(

@@ -1,4 +1,4 @@
-import { walkOrders } from "../flatten";
+import { visibleRowRange, walkOrders } from "../flatten";
 import type { Note, ModSong } from "./types";
 import { Effect } from "./format";
 
@@ -107,16 +107,7 @@ export function visibleRowRangeForOrder(
   song: ModSong,
   order: number,
 ): { first: number; last: number } | null {
-  const flat = flattenSong(song);
-  let first = -1;
-  let last = -1;
-  for (const fr of flat) {
-    if (fr.order !== order) continue;
-    if (first < 0) first = fr.rowIndex;
-    last = fr.rowIndex;
-  }
-  if (first < 0) return null;
-  return { first, last };
+  return visibleRowRange(flattenSong(song), order);
 }
 
 /**

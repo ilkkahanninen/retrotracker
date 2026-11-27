@@ -1,5 +1,6 @@
 import { createEffect } from "solid-js";
 import type { Sample, ModSong } from "../core/mod/types";
+import type { XmInstrument } from "../core/xm/types";
 import { channelCount as channelCountOf } from "../core/song";
 import { pt2Song, song, transport, xm2Song } from "./song";
 import { currentEngine } from "./playback";
@@ -109,8 +110,10 @@ export function installEngineSync(): void {
 
   // FT2: forward order-list / pattern-array / channelCount edits to the
   // worklet so live tweaks (insert order, change channel count) take
-  // effect on the next row processed. Sample / instrument hot-swap will
-  // come with the Phase 4 sample editor.
+  // effect on the next row processed. Instrument edits (sample pipeline,
+  // loop points, envelopes) go out one instrument at a time through
+  // engine.setXmInstrument — the FT2 counterpart of setSampleData.
+  let prevXmInstruments: XmInstrument[] | null = null;
   let prevXmOrders: number[] | null = null;
   let prevXmPatterns: unknown[] | null = null;
   let prevXmSongLength: number | null = null;
@@ -119,6 +122,7 @@ export function installEngineSync(): void {
     const s = xm2Song();
     const playing = transport() === "playing";
     if (!s) {
+      prevXmInstruments = null;
       prevXmOrders = null;
       prevXmPatterns = null;
       prevXmSongLength = null;
@@ -131,14 +135,57 @@ export function installEngineSync(): void {
       (s.orders !== prevXmOrders ||
         s.patterns !== prevXmPatterns ||
         s.songLength !== prevXmSongLength ||
-        s.channelCount !== prevXmChannelCount) &&
+        s.channelCount !== prevXmChannelCount ||
+        // A list that grew or shrank can't be patched slot by slot, and
+        // neither can an instrument that gained or lost a sample: the
+        // replayer matches a sounding voice to its replacement by sample
+        // index, which would then name a different sound.
+        xmInstrumentShapeChanged(prevXmInstruments, s.instruments)) &&
       prevXmOrders !== null
     ) {
+      // The whole song, instruments included.
       eng.replaceSong(s);
+    } else if (
+      eng &&
+      prevXmInstruments &&
+      s.instruments !== prevXmInstruments
+    ) {
+      for (let i = 0; i < s.instruments.length; i++) {
+        const cur = s.instruments[i]!;
+        const prev = prevXmInstruments[i]!;
+        // A rename is inaudible; don't ship the sample data for it.
+        if (cur !== prev && !sameXmInstrumentAudio(cur, prev)) {
+          eng.setXmInstrument(i, cur);
+        }
+      }
     }
+    prevXmInstruments = s.instruments;
     prevXmOrders = s.orders;
     prevXmPatterns = s.patterns;
     prevXmSongLength = s.songLength;
     prevXmChannelCount = s.channelCount;
   });
+}
+
+/** True when the instrument list, or any instrument's sample list,
+ *  changed length. */
+function xmInstrumentShapeChanged(
+  prev: XmInstrument[] | null,
+  cur: XmInstrument[],
+): boolean {
+  if (!prev || prev === cur) return false;
+  if (prev.length !== cur.length) return true;
+  for (let i = 0; i < cur.length; i++) {
+    if (prev[i]!.samples.length !== cur[i]!.samples.length) return true;
+  }
+  return false;
+}
+
+/** True when two versions of an instrument differ in nothing the replayer
+ *  reads — i.e. only the name moved. */
+function sameXmInstrumentAudio(a: XmInstrument, b: XmInstrument): boolean {
+  for (const key of Object.keys(a) as (keyof XmInstrument)[]) {
+    if (key !== "name" && a[key] !== b[key]) return false;
+  }
+  return true;
 }

@@ -7,6 +7,13 @@ export interface OrderEditAdapter<S> {
   commitSong: (transform: (s: S) => S) => void;
   isPlaying: () => boolean;
   jumpPlaybackToOrder?: (order: number) => void;
+  /**
+   * Bring cursor / selection back inside the song after a commit that
+   * shrank it. Needed because `applyCursorToOrder` refuses to move the
+   * cursor while playing with Follow on — and order edits are allowed
+   * then, so a delete could otherwise leave the cursor past the end.
+   */
+  reconcile?: () => void;
   mutations: {
     insertOrder: (s: S, o: number) => S;
     deleteOrder: (s: S, o: number) => S;
@@ -85,6 +92,7 @@ export function createOrderEdit<S>(
     if (after && adapter.cursorOrder() >= adapter.songLength(after)) {
       adapter.applyCursorToOrder(adapter.songLength(after) - 1);
     }
+    adapter.reconcile?.();
   }
 
   function newBlankPattern(): void {

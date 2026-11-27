@@ -1,32 +1,25 @@
 /**
- * FT2-mode note preview. Runs `XmReplayer` on the main thread with a
- * synthetic single-channel song that triggers the current instrument
- * at the requested note. The rendered PCM goes to the engine's
- * AudioBufferSourceNode path so the full XM voice model — volume +
- * panning envelopes, autovibrato, fadeout, ping-pong loop, finetune,
- * 16-bit samples, relative-note offset — all sound correct in the
- * audition.
+ * FT2-mode note preview. Builds a one-note preview song for the current
+ * instrument and hands it to the engine's XM preview worklet, which runs
+ * an `XmReplayer` on it for as long as the key is held — so the full XM
+ * voice model (volume + panning envelopes, autovibrato, fadeout,
+ * ping-pong loop, finetune, 16-bit samples, relative-note offset) sounds
+ * as it does in the song, and a looped sample sustains indefinitely.
  *
  * Live editing while a preview is in flight is handled by
  * `xmLivePreviewSwap` below: any workbench mutation (chiptune slider,
- * chain effect param) re-renders a fresh buffer at the same note and
- * stops+replays it. The voice loses phase continuity across the swap
- * (vs. PT2's gapless Paula morph), but the user hears the edit
- * immediately — same affordance as PT2's `updateCurrentWorkbench`.
+ * chain effect param) swaps the instrument under the sounding voice,
+ * which keeps its position — the same gapless morph as PT2's
+ * `updateCurrentWorkbench`.
  */
 
 import { createSignal } from "solid-js";
 
-import { XmReplayer } from "../core/audio/xmReplayer";
 import {
-  XM_DEFAULT_BPM,
-  XM_DEFAULT_SPEED,
-  XM_DEFAULT_TRACKER_NAME,
-  XM_VERSION,
-  emptyXmNote,
-  emptyXmPattern,
-} from "../core/xm/format";
-import { XM_MAX_ORDERS, type XmSample, type XmSong } from "../core/xm/types";
+  buildXmPreviewSong,
+  previewInstrument,
+} from "../core/audio/xmPreviewVoice";
+import type { XmInstrument, XmSample } from "../core/xm/types";
 import { hzForNote } from "../core/audio/xmFreqTable";
 import {
   currentEngine,
@@ -34,21 +27,9 @@ import {
   previewStopCount,
   stopEnginePreview,
 } from "./playback";
-import { transport, xm2Song as song } from "./song";
+import { xm2Song as song } from "./song";
 import { settings } from "./settings";
 import { currentXmInstrument, currentXmOctave } from "./xmEdit";
-
-/** Seconds of audio to pre-render per preview trigger. Long enough for
- *  a full vol-env decay + fadeout to play out before silence; short
- *  enough that the postMessage payload stays under 1 MB at 48 kHz. */
-const PREVIEW_SECONDS = 4;
-/** Sample rate the preview renders at. AudioContext's actual rate may
- *  differ — `createBuffer` resamples on playback. 44100 is the typical
- *  XM authoring rate; matches what offline render uses. */
-const PREVIEW_SAMPLE_RATE = 44100;
-/** Rows in the synthetic preview pattern. The trigger sits on row 0;
- *  the rest are empty so envelopes / fadeout play out across them. */
-const PREVIEW_ROWS = 256;
 
 /**
  * Convert a piano-key semitone offset into the XM note number 1..96
@@ -64,14 +45,16 @@ export function xmNoteForPreviewOffset(offset: number): number {
 /**
  * Identity of the preview currently audible, or null when nothing is
  * playing. `xmLivePreviewSwap` reads this to decide whether a
- * workbench mutation should re-render. Cleared via the engine's
- * `onended` callback when the buffer finishes naturally; held across
- * a swap because the engine suppresses the previous source's onended
- * when it replaces it.
+ * workbench mutation should reach the sounding voice. Cleared via the
+ * engine's `onEnded` callback when the note runs out by itself; a swap
+ * leaves it in place — it is the same note continuing.
  */
 const [activeXmPreview, setActiveXmPreview] = createSignal<{
   instrument1Based: number;
   semitoneOffset: number;
+  /** Set when the preview was pinned to one sample (the instrument
+   *  editor auditions the sample being edited). */
+  sampleIdx?: number;
 } | null>(null);
 export { activeXmPreview };
 
@@ -219,88 +202,46 @@ function updateXmPreviewTracking(sample: XmSample): void {
   tracking.loopType = sample.loopType;
 }
 
-/**
- * Build a one-channel XM song that triggers `xmNote` on
- * `instrumentSlot1Based` at row 0. The instrument list is copied by
- * reference from the source song so any later mutation doesn't ripple
- * into in-flight previews.
- */
-function buildPreviewSong(
-  source: XmSong,
-  instrumentSlot1Based: number,
+export interface XmPreviewOptions {
+  /**
+   * Audition this sample whatever the key map says. The instrument
+   * editor passes the sample being edited: with the default key map
+   * every key plays sample 0, so editing sample 2 would otherwise be
+   * inaudible from the keyboard.
+   */
+  sampleIdx?: number;
+}
+
+/** The sample a preview of `xmNote` on `inst` will sound, and its index. */
+function previewTarget(
+  inst: XmInstrument,
   xmNote: number,
-): XmSong {
-  const channelCount = 1;
-  const pattern = emptyXmPattern(PREVIEW_ROWS, channelCount);
-  pattern.rows[0]![0] = {
-    ...emptyXmNote(),
-    note: xmNote,
-    instrument: instrumentSlot1Based,
-  };
-  return {
-    format: "FT2",
-    title: "preview",
-    trackerName: XM_DEFAULT_TRACKER_NAME,
-    version: XM_VERSION,
-    channelCount,
-    songLength: 1,
-    restartPosition: 0,
-    orders: new Array(XM_MAX_ORDERS).fill(0),
-    patterns: [pattern],
-    instruments: source.instruments,
-    flags: { linearFreq: source.flags.linearFreq },
-    defaultTempo: source.defaultTempo ?? XM_DEFAULT_SPEED,
-    defaultBpm: source.defaultBpm ?? XM_DEFAULT_BPM,
-  };
-}
-
-/**
- * Render the preview song through XmReplayer into stereo Float32
- * buffers at `sampleRate` Hz. Pure synchronous main-thread work —
- * at 48 kHz × 4 s a single render is ~7 ms on a modern laptop,
- * comfortably under one frame even on slower hardware.
- *
- * The render rate must match the AudioContext's sample rate so the
- * worklet plays the buffer back at the same per-frame stride it was
- * generated at — the preview worklet doesn't resample (was free with
- * the previous AudioBufferSourceNode path), so a mismatch shifts the
- * audible pitch by the rate ratio.
- */
-function renderPreviewBuffer(
-  previewSong: XmSong,
-  sampleRate: number,
-): { left: Float32Array; right: Float32Array } {
-  // Audition through the same mixer settings as song playback, so a note
-  // previewed from the keyboard sounds like it will in the song.
-  const replayer = new XmReplayer(previewSong, {
-    sampleRate,
-    loop: false,
-    xmInterpolation: settings().ft2Interpolation,
-    xmRamping: settings().ft2Ramping,
-  });
-  const frames = PREVIEW_SECONDS * sampleRate;
-  const left = new Float32Array(frames);
-  const right = new Float32Array(frames);
-  const CHUNK = 1024;
-  let pos = 0;
-  while (pos < frames) {
-    const want = Math.min(CHUNK, frames - pos);
-    replayer.process(left, right, want, pos);
-    pos += want;
-    if (replayer.isFinished()) break;
+  sampleIdx: number | undefined,
+): { sample: XmSample; index: number } | null {
+  if (sampleIdx !== undefined) {
+    // Pinned: an empty edited sample is silence, not a fallback to
+    // another sample — that would misreport what is being edited.
+    const sample = inst.samples[sampleIdx];
+    return sample && sample.data.length > 0
+      ? { sample, index: sampleIdx }
+      : null;
   }
-  if (pos === frames) return { left, right };
-  return { left: left.subarray(0, pos), right: right.subarray(0, pos) };
+  const mapIdx = inst.keyMap[xmNote - 1] ?? 0;
+  const index = inst.samples[mapIdx] ? mapIdx : 0;
+  const sample = inst.samples[index];
+  return sample && sample.data.length > 0 ? { sample, index } : null;
 }
 
 /**
- * Audition the current instrument's first sample at the piano-key
- * pitch. No commit, no cursor advance. Used by piano keys in both the
- * pattern and instrument views (see appKeybindsXm.ts +
- * xmPatternEdit.ts:onXmPianoKey).
+ * Audition the current instrument at the piano-key pitch. No commit, no
+ * cursor advance. Used by piano keys in both the pattern and instrument
+ * views (see appKeybindsXm.ts + xmPatternEdit.ts:onXmPianoKey). Plays on
+ * its own node, so it works over a playing song like PT's preview does.
  */
-export function previewXmNote(semitoneOffset: number): void {
-  if (transport() === "playing") return;
+export function previewXmNote(
+  semitoneOffset: number,
+  opts: XmPreviewOptions = {},
+): void {
   const s = song();
   if (!s) return;
   // Note 1 = C-0, so `octave * 12 + 1` lands on C of the current
@@ -312,15 +253,18 @@ export function previewXmNote(semitoneOffset: number): void {
   const inst1Based = currentXmInstrument();
   const inst = s.instruments[inst1Based - 1];
   if (!inst) return;
-  if (inst.samples.length === 0) return;
-  const mapIdx = inst.keyMap[xmNote - 1] ?? 0;
-  const sample = inst.samples[mapIdx] ?? inst.samples[0];
-  if (!sample || sample.data.length === 0) return;
-  setActiveXmPreview({ instrument1Based: inst1Based, semitoneOffset });
+  const target = previewTarget(inst, xmNote, opts.sampleIdx);
+  if (!target) return;
+  const { sampleIdx } = opts;
+  setActiveXmPreview(
+    sampleIdx === undefined
+      ? { instrument1Based: inst1Based, semitoneOffset }
+      : { instrument1Based: inst1Based, semitoneOffset, sampleIdx },
+  );
   startXmPreviewTracking(
     inst1Based,
-    mapIdx,
-    sample,
+    target.index,
+    target.sample,
     xmNote,
     s.flags.linearFreq,
   );
@@ -335,11 +279,13 @@ export function previewXmNote(semitoneOffset: number): void {
       stopXmPreviewTracking();
     }
   };
-  // Render at the engine's sample rate so the worklet's per-frame
-  // playback is in tune — the preview worklet doesn't resample. When
-  // the engine isn't up yet, render at the default rate and let the
-  // ensureEngine().then(...) microtask deliver the buffer.
-  const previewSong = buildPreviewSong(s, inst1Based, xmNote);
+  const previewSong = buildXmPreviewSong(s, inst, xmNote, sampleIdx);
+  // Audition through the same mixer settings as song playback, so a note
+  // previewed from the keyboard sounds like it will in the song.
+  const mixer = {
+    interpolation: settings().ft2Interpolation,
+    ramping: settings().ft2Ramping,
+  };
   // ensureEngine lazily creates the AudioContext on first call (gated
   // behind a user gesture by the browser, which is satisfied by the
   // keydown that brought us here). Without this, the first piano
@@ -350,9 +296,7 @@ export function previewXmNote(semitoneOffset: number): void {
       if (!eng) return;
       // Key released before the engine existed — see `triggerPreview`.
       if (stops !== previewStopCount()) return;
-      const rate = eng.sampleRate || PREVIEW_SAMPLE_RATE;
-      const { left, right } = renderPreviewBuffer(previewSong, rate);
-      void eng.playXmPreviewBuffer(left, right, rate, onEnded);
+      void eng.startXmPreview(previewSong, mixer, onEnded);
     })
     .catch(() => {
       /* preview is a best-effort side-effect */
@@ -360,12 +304,11 @@ export function previewXmNote(semitoneOffset: number): void {
 }
 
 /**
- * Re-render the in-flight preview against the current song state so a
- * workbench edit (chiptune slider, chain effect param) is audible
- * without the user re-striking the piano key. No-op when no preview
- * is playing. Stop+restart loses phase continuity; the trade-off vs.
- * a worklet-streamed XM voice (which would morph gaplessly like PT2)
- * is the cost of preserving the AudioBufferSourceNode preview path.
+ * Push the current instrument to the in-flight preview so a workbench
+ * edit (chiptune slider, chain effect param) is audible without the
+ * user re-striking the piano key. The worklet swaps the instrument under
+ * the sounding voice, which keeps its position — a gapless morph, like
+ * PT2's. No-op when no preview is playing.
  *
  * Called from `updateCurrentXmWorkbench` so every path that commits a
  * workbench mutation — chain ops, source-kind toggle, chiptune param
@@ -374,7 +317,6 @@ export function previewXmNote(semitoneOffset: number): void {
 export function xmLivePreviewSwap(): void {
   const active = activeXmPreview();
   if (!active) return;
-  if (transport() === "playing") return;
   // The engine is created lazily, but if a preview is in flight it
   // must already exist. Bail to the no-op path otherwise.
   const eng = currentEngine();
@@ -391,34 +333,14 @@ export function xmLivePreviewSwap(): void {
   }
   const s = song();
   if (!s) return;
-  const inst1Based = active.instrument1Based;
   const xmNote = xmNoteForPreviewOffset(active.semitoneOffset);
   if (xmNote < 1 || xmNote > 96) return;
-  const inst = s.instruments[inst1Based - 1];
-  if (!inst || inst.samples.length === 0) return;
-  const mapIdx = inst.keyMap[xmNote - 1] ?? 0;
-  const sample = inst.samples[mapIdx] ?? inst.samples[0];
-  if (!sample || sample.data.length === 0) return;
-  const rate = eng.sampleRate || PREVIEW_SAMPLE_RATE;
-  const previewSong = buildPreviewSong(s, inst1Based, xmNote);
-  const { left, right } = renderPreviewBuffer(previewSong, rate);
+  const inst = s.instruments[active.instrument1Based - 1];
+  if (!inst) return;
+  const target = previewTarget(inst, xmNote, active.sampleIdx);
+  if (!target) return;
   // Refresh tracking against the (possibly mutated) sample so the playhead
   // honours new loop bounds and length without restarting from zero.
-  updateXmPreviewTracking(sample);
-  const semitoneOffset = active.semitoneOffset;
-  const onEnded = () => {
-    const cur = activeXmPreview();
-    if (
-      cur &&
-      cur.instrument1Based === inst1Based &&
-      cur.semitoneOffset === semitoneOffset
-    ) {
-      setActiveXmPreview(null);
-      stopXmPreviewTracking();
-    }
-  };
-  // `restart: false` keeps the worklet's read pointer where it is so
-  // the audible voice morphs gaplessly to the new render — no click,
-  // no restart-from-zero on every slider tick.
-  void eng.playXmPreviewBuffer(left, right, rate, onEnded, /* restart */ false);
+  updateXmPreviewTracking(target.sample);
+  eng.swapXmPreviewInstrument(previewInstrument(inst, active.sampleIdx));
 }

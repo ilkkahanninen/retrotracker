@@ -3,6 +3,7 @@ import previewWorkletUrl from "./preview-worklet?worker&url";
 import xmPreviewWorkletUrl from "./xm-preview-worklet?worker&url";
 import type { Sample } from "../mod/types";
 import type { Song } from "../song";
+import type { XmInstrument, XmSong } from "../xm/types";
 import { songForPlayback, truncateSampleAtLoopEnd } from "./loopTruncate";
 import type { WorkletEvent, WorkletMessage } from "./worklet";
 import type { PreviewMsg } from "./preview-worklet-types";
@@ -161,6 +162,17 @@ export class AudioEngine {
       slot,
       sample: truncateSampleAtLoopEnd(sample),
     };
+    this.node.port.postMessage(msg);
+  }
+
+  /**
+   * FT2 counterpart of `setSampleData`: hot-swap the instrument at a
+   * 0-based `index` during playback. Sends just that instrument rather
+   * than the whole song, so a dragged effect slider doesn't make the
+   * audio thread deserialise every pattern on each step.
+   */
+  setXmInstrument(index: number, instrument: XmInstrument): void {
+    const msg: WorkletMessage = { type: "setXmInstrument", index, instrument };
     this.node.port.postMessage(msg);
   }
 
@@ -335,7 +347,7 @@ export class AudioEngine {
   private xmPreviewOnEnded: (() => void) | null = null;
 
   /**
-   * True while an XM preview buffer is loaded into the worklet AND
+   * True while an XM preview note is loaded into the worklet AND
    * its natural-end callback hasn't fired yet. `xmLivePreviewSwap`
    * gates its re-render on this so a slider drag after a key-up
    * (which clears the callback) can't morph a no-longer-audible
@@ -369,38 +381,42 @@ export class AudioEngine {
   }
 
   /**
-   * XM-flavoured preview: play a pre-rendered stereo buffer through
-   * the XM preview worklet. The buffer is produced on the main thread
-   * by running `XmReplayer` with a synthetic one-channel song — so
-   * envelopes / autovibrato / fadeout / ping-pong all sound correct —
-   * and the worklet holds it in regular memory and reads per render
-   * quantum.
-   *
-   * `restart === true` resets the worklet's read pointer to frame 0
-   * (fresh note trigger). `restart === false` keeps the read pointer
-   * where it is, so a slider-drag-driven re-render morphs the audible
-   * voice gaplessly (mirrors PT2's `paula.setSample` swap policy).
+   * XM-flavoured preview: start a note in the XM preview worklet. `song`
+   * is a one-note preview song (`buildXmPreviewSong`); the worklet runs
+   * an `XmReplayer` on it — so envelopes / autovibrato / fadeout /
+   * ping-pong all sound as they do in the song — until `stopPreview`, or
+   * until the note runs out by itself, when `onEnded` fires.
    */
-  async playXmPreviewBuffer(
-    left: Float32Array,
-    right: Float32Array,
-    _bufferSampleRate: number,
+  async startXmPreview(
+    song: XmSong,
+    opts: { interpolation: XmInterpolation; ramping: boolean },
     onEnded?: () => void,
-    restart: boolean = true,
   ): Promise<void> {
-    void _bufferSampleRate;
-    if (left.length === 0) return;
     const stops = this.previewStops;
     if (this.ctx.state === "suspended") await this.ctx.resume();
     const node = await this.ensureXmPreviewNode();
     // Same late-start guard as `previewNote`.
     if (stops !== this.previewStops) return;
-    // Latest onEnded supersedes any prior one — the worklet only
-    // signals once per natural end, and a swap is conceptually the
-    // same trigger continuing under new audio.
     this.xmPreviewOnEnded = onEnded ?? null;
-    const msg: XmPreviewMsg = { type: "set", left, right, restart };
+    const msg: XmPreviewMsg = {
+      type: "start",
+      song,
+      interpolation: opts.interpolation,
+      ramping: opts.ramping,
+    };
     node.port.postMessage(msg);
+  }
+
+  /**
+   * Swap the instrument under the sounding preview note, keeping its
+   * position — a slider drag morphs the audible voice gaplessly (mirrors
+   * PT2's `paula.setSample` swap policy). No-op when no preview is
+   * audible, so an edit after key-up can't wake a stopped voice.
+   */
+  swapXmPreviewInstrument(instrument: XmInstrument): void {
+    if (!this.xmPreviewNode || !this.isXmPreviewActive()) return;
+    const msg: XmPreviewMsg = { type: "swap", instrument };
+    this.xmPreviewNode.port.postMessage(msg);
   }
 
   /** Stop any active preview note. */

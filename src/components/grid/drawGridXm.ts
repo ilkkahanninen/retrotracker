@@ -169,11 +169,26 @@ export function drawGridXm(
       filled: isActive ? "onAccent" : "fg",
       empty: isActive ? "onAccent" : "muted",
     };
+    const cursorHereRow =
+      cursor !== null && cursorFlatIndex === r ? cursor : null;
     for (let c = firstCh; c <= lastCh; c++) {
       const cell = item.cells[c];
       if (!cell) continue;
       const xLeft = toX(cellLeftX(c, cellW)) + centerOffset;
-      drawCellXm(ctx, atlas, cell, xLeft, rowY, offsets, colors);
+      const cursorOnEffect =
+        cursorHereRow !== null &&
+        cursorHereRow.channel === c &&
+        isEffectField(cursorHereRow.field);
+      drawCellXm(
+        ctx,
+        atlas,
+        cell,
+        xLeft,
+        rowY,
+        offsets,
+        colors,
+        cursorOnEffect,
+      );
     }
   }
 
@@ -222,12 +237,23 @@ export function drawGridXm(
         ctx.fillRect(fieldX - 1, y, field.w + 2, ROW_HEIGHT);
         const cell = flat[cursorFlatIndex]!.cells[cursor.channel];
         if (cell) {
-          drawCellXmField(ctx, atlas, cell, cursor.field, xLeft, y, offsets, {
-            filled: "onAccent",
-            empty: "onAccent",
-          });
+          drawCellXmField(
+            ctx,
+            atlas,
+            cell,
+            cursor.field,
+            xLeft,
+            y,
+            offsets,
+            { filled: "onAccent", empty: "onAccent" },
+            isEffectField(cursor.field),
+          );
         }
       }
     }
   }
+}
+
+function isEffectField(field: string): boolean {
+  return field === "effectCmd" || field === "effectHi" || field === "effectLo";
 }

@@ -46,6 +46,9 @@ export interface PatternEditAdapter<
   visibleRowsOfOrder: (s: S, order: number) => { first: number; last: number };
   editStep: () => number;
   moveDown: (c: C, s: S) => C;
+  /** Move `delta` visible rows in one go. Optional: without it the
+   *  edit-step advance repeats `moveDown`, flattening the song per step. */
+  moveByRows?: (c: C, s: S, delta: number) => C;
   stepDownAfterInsert: (c: C, s: S) => C;
   getCellAt: (
     s: S,
@@ -146,7 +149,8 @@ export function createPatternEdit<
     const step = adapter.editStep();
     if (step <= 0) return;
     let next = adapter.cursor();
-    for (let i = 0; i < step; i++) next = adapter.moveDown(next, s);
+    if (adapter.moveByRows) next = adapter.moveByRows(next, s, step);
+    else for (let i = 0; i < step; i++) next = adapter.moveDown(next, s);
     applyCursor(next);
   }
 

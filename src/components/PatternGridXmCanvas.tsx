@@ -19,7 +19,9 @@ import {
   toggleMute,
   toggleSolo,
 } from "../state/channelMute";
+import { jumpRequest } from "../state/cursor";
 import { setXmCursor, xmCursor, type XmField } from "../state/cursorXm";
+import { applyXmCursor } from "../state/xmPatternEdit";
 import { beatsPerBar, rowsPerBeat } from "../state/gridConfig";
 import { settings } from "../state/settings";
 import { setPlayPos, transport } from "../state/song";
@@ -54,6 +56,7 @@ import {
   flatIndexOf,
   keepChannelInView,
   keepRowInView,
+  snapRowToTop,
 } from "./patternGridVirtualization";
 
 interface Props {
@@ -301,6 +304,27 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
     prevCursorFlat = idx;
   });
 
+  // Jump-snap (order-list click, Insert slot): pin the destination row
+  // to the viewport top so the bulk of the pattern shows below it — the
+  // same as the PT grid. Skips the very first tick (would scroll on
+  // mount). Everything except `jumpRequest` is read inside `untrack`, or
+  // every later cursor move would re-fire this and snap back to the top.
+  let firstJump = true;
+  createEffect(() => {
+    jumpRequest();
+    if (firstJump) {
+      firstJump = false;
+      return;
+    }
+    untrack(() => {
+      if ((props.active && settings().followPlayback) || !scroller) return;
+      const idx = cursorFlatIndex();
+      if (idx < 0) return;
+      snapRowToTop(scroller, idx);
+      prevCursorFlat = idx;
+    });
+  });
+
   // ── Re-sync after the pane was hidden ────────────────────────────────
   // Every view stays mounted; a hidden pattern pane is `display: none`,
   // so its scroller has no height and ignores `scrollTop` writes. Cursor
@@ -376,20 +400,22 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
 
   const onCanvasMouseDown = (e: MouseEvent) => {
     if (e.button !== 0) return;
-    if (transport() === "playing") return;
     const hit = hitTestAt(e.clientX, e.clientY);
     if (!hit) return;
     const fr = flat()[hit.flatRowIndex];
     if (!fr) return;
-    setXmCursor({
+    // Through applyXmCursor, which refuses the move while Follow locks
+    // editing — so a click works during playback with Follow off, as it
+    // does in the PT grid.
+    applyXmCursor({
       order: fr.order,
       row: fr.rowIndex,
       channel: hit.channel,
       field: hit.field as XmField,
     });
-    setPlayPos({ order: fr.order, row: fr.rowIndex });
-    // Anchor a potential drag selection (selection rectangle only
-    // appears once the pointer moves to a different cell).
+    // Anchor a potential drag selection regardless (selection rectangle
+    // only appears once the pointer moves to a different cell): a drag
+    // still selects during playback, the cursor just stays put.
     dragAnchor = {
       flatRowIndex: hit.flatRowIndex,
       channel: hit.channel,
@@ -492,7 +518,7 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
                     "patgrid__chbtn--active": mutedChannels()[c] === true,
                   }}
                   onClick={() => toggleMute(c)}
-                  title={`Mute channel ${c + 1}`}
+                  title={`Mute channel ${c + 1}${muteKeyHint(c, false)}`}
                 >
                   M
                 </button>
@@ -504,7 +530,7 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
                     "patgrid__chbtn--active": soloedChannels()[c] === true,
                   }}
                   onClick={() => toggleSolo(c)}
-                  title={`Solo channel ${c + 1}`}
+                  title={`Solo channel ${c + 1}${muteKeyHint(c, true)}`}
                 >
                   S
                 </button>
@@ -552,3 +578,11 @@ export const PatternGridXmCanvas: Component<Props> = (props) => {
     </div>
   );
 };
+
+/** Shortcut hint for a channel's mute / solo button. Alt + digit covers
+ *  the first ten channels (0 is the tenth); the rest have no key. */
+function muteKeyHint(channel: number, solo: boolean): string {
+  if (channel >= 10) return "";
+  const digit = (channel + 1) % 10;
+  return ` (Alt+${solo ? "Shift+" : ""}${digit})`;
+}

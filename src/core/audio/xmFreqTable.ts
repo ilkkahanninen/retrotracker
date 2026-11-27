@@ -90,6 +90,31 @@ export function hzForNote(
   return hzForPeriod(periodForNote(note, finetune, linear), linear);
 }
 
+/** C-4: the note at which a sample with no relative note plays at
+ *  `XM_BASE_HZ`. The reference note for "this sample's own rate". */
+export const XM_C4_NOTE = 49;
+
+/**
+ * Rate in Hz at which the replayer reads a sample's data when C-4 is
+ * triggered, given the sample's tuning — exactly what `triggerNote`
+ * computes, FT2's 1/16-semitone finetune resolution and the Amiga
+ * table's integer periods included. This is the one definition of "the
+ * sample's own playback rate"; importers and the length fit both use it.
+ *
+ * Null when C-4 plus the relative note falls outside the range FT2
+ * triggers (1..119): such a sample doesn't sound at C-4 at all.
+ */
+export function xmC4Rate(
+  relativeNote: number,
+  finetune: number,
+  linear: boolean,
+): number | null {
+  const note = XM_C4_NOTE + relativeNote;
+  if (note < 1 || note >= 120) return null;
+  const hz = hzForNote(note, finetune, linear);
+  return Number.isFinite(hz) && hz > 0 ? hz : null;
+}
+
 /**
  * FT2's Amiga period table, verbatim (including the last 17 entries, which
  * are wrong in FT2 itself because of a bug in how it generated the table —

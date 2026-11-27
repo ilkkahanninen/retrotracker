@@ -359,7 +359,7 @@ export const PipelineEditor: Component<PipelineEditorProps> = (props) => {
         <PlayLengthCalculator
           initialSpeed={props.cursorSpeed}
           initialTempo={props.cursorTempo}
-          onApply={(t) => props.onSetPlayingLengthTicks(t)}
+          onApply={(r) => props.onSetPlayingLengthTicks(r.ticks)}
           onClose={() => setCalcOpen(false)}
         />
       </Show>

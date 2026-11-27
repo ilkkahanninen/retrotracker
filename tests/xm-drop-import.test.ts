@@ -150,44 +150,44 @@ describe("dropWavsToXmPatternView", () => {
   });
 });
 
-describe("drops while playing with Follow on (structural edits are gated)", () => {
-  // Regression: the commit was skipped but the handlers still selected
-  // the slot and moved the sample index — at a sample that didn't exist —
-  // without telling the user their files went nowhere.
+describe("drops while playing (imports stay live, as in PT mode)", () => {
+  // Imports used to be refused while playing with Follow on; PT never
+  // gated them, and sync.ts forwards the new instrument to the worklet.
   beforeEach(() => setFollowPlayback(true));
 
-  it("appending to a populated slot changes nothing and says why", async () => {
+  it("appends to a populated slot with Follow on", async () => {
     seedPopulatedSlot1();
     setTransport("playing");
     await dropWavsToXmInstrumentView([
       makeWavFile("a.wav"),
       makeWavFile("b.wav"),
     ]);
-    expect(xm2Song()!.instruments[0]!.samples.length).toBe(1);
-    expect(currentXmSampleIndex()).toBe(0);
-    expect(canUndo()).toBe(false);
-    expect(error()).toMatch(/Follow/);
+    expect(xm2Song()!.instruments[0]!.samples.length).toBe(3);
+    expect(currentXmSampleIndex()).toBe(1);
+    expect(error()).toBeNull();
   });
 
-  it("an empty slot stays empty and the selection stays put", async () => {
+  it("fills an empty slot with Follow on", async () => {
     seedEmptySong();
     setCurrentXmInstrument(3);
-    setCurrentXmSampleIndex(2);
     setTransport("playing");
     await dropWavsToXmInstrumentView([makeWavFile("kick.wav")]);
-    expect(currentXmSampleIndex()).toBe(2);
-    expect(canUndo()).toBe(false);
-    expect(error()).toMatch(/Follow/);
+    expect(xm2Song()!.instruments[2]!.samples[0]!.data.length).toBeGreaterThan(
+      0,
+    );
+    expect(currentXmSampleIndex()).toBe(0);
+    expect(canUndo()).toBe(true);
+    expect(error()).toBeNull();
   });
 
-  it("the pattern-view drop doesn't jump to the slot it couldn't fill", async () => {
+  it("the pattern-view drop lands in the first free slot and selects it", async () => {
     seedEmptySong();
     setCurrentXmInstrument(5);
     setTransport("playing");
     await dropWavsToXmPatternView([makeWavFile("kick.wav")]);
-    expect(currentXmInstrument()).toBe(5);
-    expect(canUndo()).toBe(false);
-    expect(error()).toMatch(/Follow/);
+    expect(currentXmInstrument()).toBe(1);
+    expect(canUndo()).toBe(true);
+    expect(error()).toBeNull();
   });
 
   it("with Follow off the drop goes through mid-playback", async () => {

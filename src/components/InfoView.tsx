@@ -69,7 +69,7 @@ export const InfoView: Component<Props> = (props) => {
         />
         <span class="infoview__hint">
           {props.song.format === "FT2"
-            ? "Saved with the .retro project only — not written into the exported .xm."
+            ? "Saved with the .retro project; when not empty, replaces the instrument names when exporting .xm (one line each, 22 chars)."
             : "Saved with the .retro project; stamped onto the sample names when exporting .mod."}
         </span>
       </label>

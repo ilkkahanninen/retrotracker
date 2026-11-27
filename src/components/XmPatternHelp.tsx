@@ -306,7 +306,10 @@ const NOTE_TIPS: TipSection[] = [
       { keys: "`", action: "key-off (note 97)", position: true },
       { keys: "Z / X", action: "octave − / +", position: true },
       { keys: ".", action: "clear field" },
-      { keys: "Backspace", action: "clear cell, step up" },
+      { keys: "Backspace", action: "pull cell up" },
+      { keys: "Shift + Backspace", action: "pull row up" },
+      { keys: "Return", action: "push cell down" },
+      { keys: "Shift + Return", action: "push row down" },
     ],
   },
   {
@@ -354,8 +357,8 @@ const NOTE_TIPS: TipSection[] = [
         keys: `${ALT_LABEL} + Space`,
         action: "play from cursor / pause at playhead",
       },
-      { keys: "C", action: "toggle Song / Pattern mode (note column)" },
-      { keys: "V", action: "toggle Follow playhead" },
+      { keys: `${ALT_LABEL} + N`, action: "toggle Song / Pattern mode" },
+      { keys: `${ALT_LABEL} + M`, action: "toggle Follow playhead" },
     ],
   },
   {
@@ -435,9 +438,21 @@ const EFFECT_TIPS: TipSection[] = [
       { keys: "0 – 9, A – F", action: "enter nibble" },
       { keys: "G – X", action: "extended XM effect (on cmd field)" },
       { keys: ".", action: "clear field" },
+      { keys: ",", action: "repeat last effect" },
     ],
   },
 ];
+
+/** Transpose works on a single cell or a whole selection — it's relevant
+ *  in both the note-column and selection contexts, so it shows in either
+ *  rather than being buried inside one of them. Same as the PT pane. */
+const TRANSPOSE_TIPS: TipSection = {
+  title: "Transpose",
+  items: [
+    { keys: "Shift + − / =", action: "transpose −/+ semitone" },
+    { keys: `${MOD_LABEL} + Shift + − / =`, action: "transpose −/+ octave" },
+  ],
+};
 
 const SELECTION_TIPS: TipSection = {
   title: "Selection",
@@ -446,6 +461,7 @@ const SELECTION_TIPS: TipSection = {
     { keys: `${MOD_LABEL} + X`, action: "cut" },
     { keys: `${MOD_LABEL} + V`, action: "paste at cursor" },
     { keys: `${MOD_LABEL} + A`, action: "select all (channel, then pattern)" },
+    { keys: `${MOD_LABEL} + E`, action: "bounce to next free instrument" },
     { keys: "Shift + arrows", action: "extend selection" },
     { keys: "Delete", action: "clear cells" },
   ],
@@ -490,11 +506,11 @@ export const XmPatternHelp: Component<Props> = (props) => {
   });
 
   const tipSections = (): TipSection[] => {
-    if (xmSelection() !== null) return [SELECTION_TIPS];
+    if (xmSelection() !== null) return [SELECTION_TIPS, TRANSPOSE_TIPS];
     if (isEffectField(props.cursor.field)) return [...EFFECT_TIPS];
     if (isVolumeField(props.cursor.field))
       return [...VOLUME_TIPS, SELECTION_TIPS];
-    return [...NOTE_TIPS, SELECTION_TIPS];
+    return [...NOTE_TIPS, TRANSPOSE_TIPS, SELECTION_TIPS];
   };
 
   const showEffectList = () =>

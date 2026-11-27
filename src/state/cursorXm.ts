@@ -1,8 +1,13 @@
 import { createSignal } from "solid-js";
 
 import { rowsOfPattern } from "../core/song";
+import { flattenXmSong } from "../core/xm/flatten";
 import type { XmSong } from "../core/xm/types";
-import { cycleChannel, moveAlongFields } from "./cursorPrimitives";
+import {
+  cycleChannel,
+  moveAlongFields,
+  moveByFlatRows,
+} from "./cursorPrimitives";
 
 export const XM_FIELDS = [
   "note",
@@ -56,35 +61,18 @@ export function xmMoveRight(c: XmCursor, song: XmSong): XmCursor {
   };
 }
 
+/**
+ * Move through the rows the grid shows — Dxx-aware, crossing orders —
+ * with the same primitive the PT cursor uses. It used to step raw
+ * pattern rows, so the cursor could walk onto rows a pattern break
+ * hides and vanish from the grid.
+ */
 export function xmMoveByRows(
   c: XmCursor,
   song: XmSong,
   delta: number,
 ): XmCursor {
-  let order = c.order;
-  let row = c.row + delta;
-  while (true) {
-    const patternIdx = song.orders[order] ?? 0;
-    const rows = rowsOfPattern(song, patternIdx);
-    if (row >= 0 && row < rows) break;
-    if (row < 0) {
-      if (order === 0) {
-        row = 0;
-        break;
-      }
-      order--;
-      const prevPattern = song.orders[order] ?? 0;
-      row += rowsOfPattern(song, prevPattern);
-    } else {
-      if (order >= song.songLength - 1) {
-        row = rows - 1;
-        break;
-      }
-      row -= rows;
-      order++;
-    }
-  }
-  return { ...c, order, row };
+  return moveByFlatRows(c, flattenXmSong(song), delta);
 }
 
 export function xmMoveUp(c: XmCursor, song: XmSong): XmCursor {

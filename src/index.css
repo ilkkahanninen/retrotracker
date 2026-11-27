@@ -1227,25 +1227,27 @@ h2 {
 .patternpane__sep {
   opacity: 0.5;
 }
-/* Pattern row-count input in the FT2 meta strip — fixed-width so the
- * meta strip doesn't reflow when the user types and the digits stay
- * tabular for quick scan. */
-.patternpane__rows {
+/* Integer inputs in the pattern meta strip (channels, rows, initial
+ * speed / tempo) — fixed-width so the strip doesn't reflow as the user
+ * types. Sized for three digits *plus* the native spinner: Firefox
+ * always reserves ~16px for it inside the box, so anything narrower
+ * paints the arrows over the value. */
+.patternpane__num {
   display: inline-flex;
   align-items: center;
   gap: 4px;
 }
-.patternpane__rows input {
+.patternpane__num input {
   font: inherit;
-  width: 5ch;
-  padding: 0 2px;
+  width: 8ch;
+  padding: 0 2px 0 4px;
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--grid-line);
   border-radius: 2px;
-  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
-.patternpane__rows input:focus {
+.patternpane__num input:focus {
   outline: none;
   border-color: var(--accent);
 }
@@ -2593,6 +2595,10 @@ h2 {
 }
 .pipeline__length-row input {
   width: 11ch;
+}
+.pipeline__length-unit {
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 /* Info view — song-level metadata form (title / filename / info text).

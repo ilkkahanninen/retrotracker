@@ -1,6 +1,6 @@
 /**
  * Shared min/max-bucket waveform rendering used by both PT's `Waveform`
- * editor and FT2's read-only `XmWaveform`. The two were drifting:
+ * editor and FT2's `XmWaveform`. The two were drifting:
  * XmWaveform's earlier inline version lacked the polyline-mode path for
  * short samples and the previous-sample bridge in bucket mode, so short
  * or sparse-bucket samples rendered empty or gappy. Keeping this in one
@@ -126,4 +126,53 @@ export function drawSampleWaveform(
       Math.max(1, Math.abs(yMax - yMin)),
     );
   }
+}
+
+/**
+ * Loop region: a translucent band between canvas X `x0` and `x1` with a
+ * 1px line on each boundary. Clipped to the canvas, and a boundary line
+ * is only drawn when the boundary itself is on screen — otherwise the
+ * canvas edge would read as the loop point in a zoomed-in view.
+ */
+export function drawLoopBand(
+  ctx: CanvasRenderingContext2D,
+  x0: number,
+  x1: number,
+  w: number,
+  h: number,
+): void {
+  const cx0 = Math.max(0, Math.min(w, x0));
+  const cx1 = Math.max(0, Math.min(w, x1));
+  // Both edges off-screen on the same side: nothing to show.
+  if (cx1 <= cx0) return;
+  ctx.fillStyle = "rgba(94, 200, 255, 0.18)";
+  ctx.fillRect(cx0, 0, Math.max(1, cx1 - cx0), h);
+  ctx.fillStyle = "#5ec8ff";
+  if (x0 >= 0 && x0 <= w) ctx.fillRect(x0, 0, 1, h);
+  if (x1 >= 0 && x1 <= w) ctx.fillRect(Math.max(0, x1 - 1), 0, 1, h);
+}
+
+/**
+ * Tiny zoom-extent bar at the bottom of the canvas. Shows what fraction
+ * of the sample is in view and where, so the user always knows how far
+ * they've zoomed in even though there's no surrounding chrome.
+ */
+export function drawZoomIndicator(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  viewStart: number,
+  viewEnd: number,
+  total: number,
+): void {
+  const barH = 3;
+  const y = h - barH - 2;
+  // Track.
+  ctx.fillStyle = "rgba(94, 200, 255, 0.12)";
+  ctx.fillRect(0, y, w, barH);
+  // Thumb.
+  const x0 = Math.max(0, (viewStart / total) * w);
+  const x1 = Math.min(w, (viewEnd / total) * w);
+  ctx.fillStyle = "rgba(94, 200, 255, 0.7)";
+  ctx.fillRect(x0, y, Math.max(2, x1 - x0), barH);
 }

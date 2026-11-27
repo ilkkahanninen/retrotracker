@@ -24,8 +24,12 @@ import {
   XM_MAX_ENVELOPE_POINTS,
   XM_MAX_INSTRUMENTS,
   XM_MAX_ORDERS,
+  XM_MAX_BPM,
   XM_MAX_PATTERN_ROWS,
+  XM_MAX_SPEED,
+  XM_MIN_BPM,
   XM_MIN_PATTERN_ROWS,
+  XM_MIN_SPEED,
   type XmEnvelope,
   type XmEnvelopePoint,
   type XmInstrument,
@@ -331,6 +335,29 @@ export function setXmChannelCount(song: XmSong, channelCount: number): XmSong {
   return { ...song, channelCount, patterns: newPatterns };
 }
 
+/**
+ * Set the song's initial speed (ticks per row) — the header field the
+ * replayer starts from before any Fxx runs. Refuses non-integers and
+ * values outside 1..31.
+ */
+export function setXmDefaultSpeed(song: XmSong, speed: number): XmSong {
+  if (!Number.isInteger(speed)) return song;
+  if (speed < XM_MIN_SPEED || speed > XM_MAX_SPEED) return song;
+  if (speed === song.defaultTempo) return song;
+  return { ...song, defaultTempo: speed };
+}
+
+/**
+ * Set the song's initial BPM. Refuses non-integers and values outside
+ * 32..255.
+ */
+export function setXmDefaultBpm(song: XmSong, bpm: number): XmSong {
+  if (!Number.isInteger(bpm)) return song;
+  if (bpm < XM_MIN_BPM || bpm > XM_MAX_BPM) return song;
+  if (bpm === song.defaultBpm) return song;
+  return { ...song, defaultBpm: bpm };
+}
+
 function resizePatternChannels(
   p: XmPattern,
   newChannelCount: number,
@@ -457,6 +484,29 @@ export function renameXmInstrument(
         fadeout: 0,
       };
   return setXmInstrument(song, slot, next);
+}
+
+/** An instrument slot with nothing to play: missing, no samples, or
+ *  only zero-length ones. What the editor shows greyed-out and what an
+ *  import may fill. */
+export function isXmInstrumentEmpty(inst: XmInstrument | undefined): boolean {
+  return (
+    !inst ||
+    inst.samples.length === 0 ||
+    inst.samples.every((sm) => sm.data.length === 0)
+  );
+}
+
+/** Lowest empty instrument slot at or after `from` (both 0-based), or
+ *  null when the rest of the 128 are taken. */
+export function nextFreeXmInstrumentIndex(
+  song: XmSong,
+  from = 0,
+): number | null {
+  for (let i = Math.max(0, from); i < XM_MAX_INSTRUMENTS; i++) {
+    if (isXmInstrumentEmpty(song.instruments[i])) return i;
+  }
+  return null;
 }
 
 /** Replace the instrument at a 0-based slot. Grows the array as needed. */

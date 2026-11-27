@@ -9,6 +9,13 @@ import {
 } from "solid-js";
 import { palTicksFromRowsSpeedTempo } from "../core/mod/flatten";
 
+/** A length the calculator hands back: `ticks` in the unit asked for,
+ *  plus the tempo it was worked out at. */
+export interface PlayLengthResult {
+  ticks: number;
+  bpm: number;
+}
+
 interface Props {
   /** Auto-fill: speed in effect at the cursor's (order, row). */
   initialSpeed: number;
@@ -16,15 +23,21 @@ interface Props {
   initialTempo: number;
   /** Default row count to fit. 16 = one bar at default speed/tempo. */
   initialRows?: number;
-  onApply: (palTicks: number) => void;
+  /**
+   * Which ticks to answer in. `"pal"` (default, PT) — 1/50 s ticks, so
+   * the tempo is folded into the number. `"xm"` (FT2) — song ticks
+   * (rows × speed); the tempo travels alongside in the result.
+   */
+  unit?: "pal" | "xm";
+  onApply: (result: PlayLengthResult) => void;
   onClose: () => void;
 }
 
 /**
- * Convert a musical interval (rows × speed at tempo B) into the PAL-tick
- * count the sample pipeline's "Length (ticks)" field expects. Rows / Speed
- * / Tempo are seeded from the song state at the cursor; user can override
- * any of them. Apply writes the computed value back via `onApply`.
+ * Convert a musical interval (rows × speed at tempo B) into the length
+ * the sample pipeline's fit expects. Rows / Speed / Tempo are seeded from
+ * the song state at the cursor; user can override any of them. Apply
+ * writes the computed value back via `onApply`.
  */
 export const PlayLengthCalculator: Component<Props> = (props) => {
   let firstInput: HTMLInputElement | undefined;
@@ -40,12 +53,18 @@ export const PlayLengthCalculator: Component<Props> = (props) => {
     if (!Number.isFinite(r) || !Number.isFinite(s) || !Number.isFinite(t))
       return 0;
     if (r <= 0 || s <= 0 || t <= 0) return 0;
-    return palTicksFromRowsSpeedTempo(r, s, t);
+    return props.unit === "xm" ? r * s : palTicksFromRowsSpeedTempo(r, s, t);
+  });
+
+  /** Wall-clock length of the interval, for the FT2 readout. */
+  const seconds = createMemo(() => {
+    const t = tempo();
+    return t > 0 ? (rows() * speed() * 2.5) / t : 0;
   });
 
   const apply = () => {
     const t = result();
-    if (t > 0) props.onApply(t);
+    if (t > 0) props.onApply({ ticks: t, bpm: tempo() });
     props.onClose();
   };
 
@@ -95,9 +114,10 @@ export const PlayLengthCalculator: Component<Props> = (props) => {
         </div>
         <div class="modal__body">
           <p>
-            Compute the playing length, in PAL ticks (1/50 s), of a musical
-            interval. Speed and tempo are pre-filled from the song state at the
-            cursor.
+            {props.unit === "xm"
+              ? "Compute the playing length, in song ticks at a tempo, of a musical interval."
+              : "Compute the playing length, in PAL ticks (1/50 s), of a musical interval."}{" "}
+            Speed and tempo are pre-filled from the song state at the cursor.
           </p>
           <div class="play-length-calc__fields">
             <label>
@@ -140,7 +160,11 @@ export const PlayLengthCalculator: Component<Props> = (props) => {
           </div>
           <p class="play-length-calc__result">
             <span class="samplemeta__label">Result</span>
-            <strong>{result()} ticks</strong>
+            <strong>
+              {props.unit === "xm"
+                ? `${result()} ticks at ${tempo()} BPM (${seconds().toFixed(3)} s)`
+                : `${result()} ticks`}
+            </strong>
           </p>
         </div>
         <div class="play-length-calc__footer">

@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, waitFor } from "@solidjs/testing-library";
 import { App } from "../../src/App";
 import { emptySong } from "../../src/core/mod/format";
+import { emptyXmInstrument, emptyXmSong } from "../../src/core/xm/format";
+import { setXmInstrument } from "../../src/core/xm/mutations";
+import type { XmInstrument } from "../../src/core/xm/types";
 import { CHANNELS } from "../../src/core/mod/types";
 import type { Sample, ModSong } from "../../src/core/mod/types";
 import {
@@ -12,6 +15,7 @@ import {
   clearHistory,
   pt2Song as song,
   transport,
+  xm2Song,
 } from "../../src/state/song";
 import {
   ensureEngine,
@@ -20,6 +24,7 @@ import {
   stopPlayback,
 } from "../../src/state/playback";
 import { setCursor, INITIAL_CURSOR } from "../../src/state/cursor";
+import { jumpXmToOrder } from "../../src/state/xmOrderEdit";
 import { setView } from "../../src/state/view";
 import { resetChannelMute, toggleMute } from "../../src/state/channelMute";
 import { setSettings } from "../../src/state/settings";
@@ -144,7 +149,11 @@ describe("engine creation: cached preferences forwarded reactively", () => {
 
 describe("live-edit forwarder", () => {
   /** Build a song shaped enough for the forwarder to diff against. */
-  function withSampleEdit(s: ModSong, slot: number, patch: Partial<Sample>): ModSong {
+  function withSampleEdit(
+    s: ModSong,
+    slot: number,
+    patch: Partial<Sample>,
+  ): ModSong {
     const samples = s.samples.slice();
     samples[slot] = { ...samples[slot]!, ...patch };
     return { ...s, samples };
@@ -254,5 +263,113 @@ describe("play path: engine receives load before playFrom", () => {
     expect(indexOf("load")).toBeGreaterThan(-1);
     expect(indexOf("playFrom")).toBeGreaterThan(-1);
     expect(indexOf("load")).toBeLessThan(indexOf("playFrom"));
+  });
+});
+
+describe("FT2 live-edit forwarder", () => {
+  function instrumentNamed(name: string): XmInstrument {
+    return { ...emptyXmInstrument(), name };
+  }
+
+  async function playTwoInstrumentSong(): Promise<void> {
+    let s = emptyXmSong();
+    s = setXmInstrument(s, 0, instrumentNamed("a"));
+    s = setXmInstrument(s, 1, instrumentNamed("b"));
+    setSong(s);
+    render(() => <App />);
+    await playFromStart();
+    await waitFor(() => expect(transport()).toBe("playing"));
+    fake.reset();
+  }
+
+  it("pushes setXmInstrument for just the instrument that changed", async () => {
+    await playTwoInstrumentSong();
+
+    setSong(setXmInstrument(xm2Song()!, 1, instrumentNamed("b2")));
+
+    await waitFor(() =>
+      expect(fake.callsTo("setXmInstrument")).toHaveLength(1),
+    );
+    const call = fake.callsTo("setXmInstrument")[0]!;
+    expect(call.args[0]).toBe(1);
+    expect((call.args[1] as XmInstrument).name).toBe("b2");
+    // One instrument, not the whole song.
+    expect(fake.callsTo("replaceSong")).toHaveLength(0);
+  });
+
+  it("pushes replaceSong instead when the instrument list changes length", async () => {
+    await playTwoInstrumentSong();
+
+    setSong(setXmInstrument(xm2Song()!, 2, instrumentNamed("c")));
+
+    await waitFor(() => expect(fake.callsTo("replaceSong")).toHaveLength(1));
+    expect(fake.callsTo("setXmInstrument")).toHaveLength(0);
+  });
+
+  it("an added sample goes out as replaceSong (voices can't be matched by index)", async () => {
+    await playTwoInstrumentSong();
+
+    const withExtra: XmInstrument = {
+      ...xm2Song()!.instruments[0]!,
+      samples: [
+        ...xm2Song()!.instruments[0]!.samples,
+        emptyXmInstrument().samples[0]!,
+      ],
+    };
+    setSong(setXmInstrument(xm2Song()!, 0, withExtra));
+
+    await waitFor(() => expect(fake.callsTo("replaceSong")).toHaveLength(1));
+    expect(fake.callsTo("setXmInstrument")).toHaveLength(0);
+  });
+
+  it("a rename alone sends nothing — it is inaudible", async () => {
+    await playTwoInstrumentSong();
+
+    setSong(
+      setXmInstrument(xm2Song()!, 0, {
+        ...xm2Song()!.instruments[0]!,
+        name: "renamed",
+      }),
+    );
+    // Then a real change, so there is something to wait for.
+    setSong(setXmInstrument(xm2Song()!, 1, instrumentNamed("b2")));
+
+    await waitFor(() =>
+      expect(fake.callsTo("setXmInstrument")).toHaveLength(1),
+    );
+    expect(fake.callsTo("setXmInstrument")[0]!.args[0]).toBe(1);
+    expect(fake.callsTo("replaceSong")).toHaveLength(0);
+  });
+
+  it("jumping to an order slot re-routes the engine, not just the playhead", async () => {
+    let s = emptyXmSong();
+    s = { ...s, songLength: 3 };
+    setSong(s);
+    render(() => <App />);
+    await playFromStart();
+    await waitFor(() => expect(transport()).toBe("playing"));
+    fake.reset();
+
+    jumpXmToOrder(2);
+
+    await waitFor(() => expect(fake.callsTo("playFrom")).toHaveLength(1));
+    expect(fake.callsTo("playFrom")[0]!.args.slice(0, 2)).toEqual([2, 0]);
+  });
+
+  it("does NOT push setXmInstrument when the transport is not playing", async () => {
+    let s = emptyXmSong();
+    s = setXmInstrument(s, 0, instrumentNamed("a"));
+    setSong(s);
+    render(() => <App />);
+    await ensureEngine();
+    await waitFor(() =>
+      expect(fake.callsTo("setXmMixer").length).toBeGreaterThan(0),
+    );
+    fake.reset();
+
+    setSong(setXmInstrument(xm2Song()!, 0, instrumentNamed("a2")));
+    await Promise.resolve();
+    expect(fake.callsTo("setXmInstrument")).toHaveLength(0);
+    expect(fake.callsTo("replaceSong")).toHaveLength(0);
   });
 });

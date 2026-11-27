@@ -13,6 +13,7 @@ import {
 } from "../core/mod/mutations";
 import {
   cursor,
+  moveByRows,
   moveDown,
   moveRight,
   setCursor,
@@ -62,6 +63,7 @@ const core = createPatternEdit<ModSong, Cursor, Note>({
     },
   editStep,
   moveDown,
+  moveByRows,
   stepDownAfterInsert: (c, s) => moveDown(c, s),
   getCellAt: (s, o, r, ch) => s.patterns[s.orders[o] ?? -1]?.rows[r]?.[ch],
   setCell: (s, o, r, ch, patch) => setCell(s, o, r, ch, patch),

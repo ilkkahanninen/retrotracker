@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { emptyXmSong } from "~/core/xm/format";
+import { emptyXmPattern, emptyXmSong } from "~/core/xm/format";
 import { setXmCell } from "~/core/xm/mutations";
 import {
   projectFromBytes,
@@ -146,6 +146,51 @@ describe("FT2 .retro persistence", () => {
     expect(restored!.xm.dither).toBe(true);
   });
 
+  it("round-trips the length fit and resampler; drops malformed ones", async () => {
+    const wav = { sampleRate: 22050, channels: [new Float32Array(8)] };
+    const source = (xm: object) => ({
+      sourceName: "loop",
+      wav,
+      chain: [],
+      xm: xm as never,
+    });
+    const bytes = projectToBytes(
+      baseInputs({
+        xmSamplerSources: {
+          "1:0": source({
+            monoMix: "average",
+            bitDepth: 16,
+            playingLength: { ticks: 384, bpm: 140 },
+            resampleMode: "filteredLinear",
+          }),
+          // No fit: parses to exactly the object it always did.
+          "2:0": source({ monoMix: "average", bitDepth: 8 }),
+          "3:0": source({
+            monoMix: "average",
+            bitDepth: 8,
+            playingLength: { ticks: -4, bpm: 140 },
+            resampleMode: "bogus",
+          }),
+          "4:0": source({
+            monoMix: "average",
+            bitDepth: 8,
+            playingLength: { ticks: 96, bpm: 9000 },
+          }),
+        },
+      }),
+    );
+    const loaded = projectFromBytes(bytes)!.xmSamplerSources;
+    expect(loaded["1:0"]!.xm).toEqual({
+      monoMix: "average",
+      bitDepth: 16,
+      playingLength: { ticks: 384, bpm: 140 },
+      resampleMode: "filteredLinear",
+    });
+    expect(loaded["2:0"]!.xm).toEqual({ monoMix: "average", bitDepth: 8 });
+    expect(loaded["3:0"]!.xm).toEqual({ monoMix: "average", bitDepth: 8 });
+    expect(loaded["4:0"]!.xm).toEqual({ monoMix: "average", bitDepth: 8 });
+  });
+
   it("malformed XM workbench keys are dropped silently", async () => {
     const { defaultChiptuneParams } = await import("~/core/audio/chiptune");
     const bytes = projectToBytes(baseInputs());
@@ -164,6 +209,78 @@ describe("FT2 .retro persistence", () => {
     const loaded = projectFromBytes(tampered);
     expect(loaded).not.toBeNull();
     expect(Object.keys(loaded!.xmChiptuneSources)).toEqual(["1:0"]);
+  });
+
+  it("round-trips pattern names, including indices past PT's 127", () => {
+    const base = emptyXmSong();
+    const song = {
+      ...base,
+      patterns: Array.from({ length: 200 }, () =>
+        emptyXmPattern(64, base.channelCount),
+      ),
+    };
+    const bytes = projectToBytes(
+      baseInputs({ song, patternNames: { 0: "intro", 199: "outro" } }),
+    );
+    expect(projectFromBytes(bytes)!.patternNames).toEqual({
+      0: "intro",
+      199: "outro",
+    });
+  });
+
+  it("drops names for patterns the song does not have", () => {
+    const bytes = projectToBytes(
+      baseInputs({ patternNames: { 0: "intro", 5: "ghost" } }),
+    );
+    expect(projectFromBytes(bytes)!.patternNames).toEqual({ 0: "intro" });
+  });
+
+  it("round-trips the FT2 editing state", () => {
+    const xmEdit = {
+      instrument: 17,
+      sampleIndex: 3,
+      octave: 6,
+      field: "volLo",
+    } as const;
+    const loaded = projectFromBytes(projectToBytes(baseInputs({ xmEdit })));
+    expect(loaded!.xmEdit).toEqual(xmEdit);
+  });
+
+  it("an FT2 project saved without editing state loads without one", () => {
+    const loaded = projectFromBytes(projectToBytes(baseInputs()));
+    expect(loaded!.xmEdit).toBeUndefined();
+  });
+
+  it("clamps each field of a tampered editing state on its own", () => {
+    const json = JSON.parse(
+      new TextDecoder().decode(projectToBytes(baseInputs())),
+    );
+    json.xmEdit = {
+      instrument: 9999,
+      sampleIndex: -4,
+      octave: 42,
+      field: "nope",
+    };
+    const loaded = projectFromBytes(
+      new TextEncoder().encode(JSON.stringify(json)),
+    );
+    expect(loaded!.xmEdit).toEqual({
+      instrument: 128,
+      sampleIndex: 0,
+      octave: 7,
+      field: "note",
+    });
+  });
+
+  it("a PT project never carries FT2 editing state", async () => {
+    const { emptySong } = await import("~/core/mod/format");
+    const bytes = projectToBytes({
+      ...baseInputs(),
+      song: emptySong(),
+      xmEdit: { instrument: 5, sampleIndex: 1, octave: 3, field: "note" },
+    });
+    expect(new TextDecoder().decode(bytes)).not.toContain("xmEdit");
+    expect(projectFromBytes(bytes)!.xmEdit).toBeUndefined();
   });
 
   it("PT2 payload still round-trips (regression)", async () => {

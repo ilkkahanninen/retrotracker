@@ -17,6 +17,14 @@ export const XM_INSTRUMENT_NAME_MAX = 22;
 export const XM_MAX_PATTERN_ROWS = 256;
 export const XM_MIN_PATTERN_ROWS = 1;
 export const XM_MAX_ORDERS = 256;
+/** Initial speed (ticks/row) range. The header field is a u16, but Fxx
+ *  splits at 0x20 — below is speed, at-or-above is BPM — so these are
+ *  the only values a song can also reach via the effect column. */
+export const XM_MIN_SPEED = 1;
+export const XM_MAX_SPEED = 31;
+/** Initial BPM range — see XM_MIN_SPEED. */
+export const XM_MIN_BPM = 32;
+export const XM_MAX_BPM = 255;
 /** XM uses 97 to mean key-off (envelope release). 1..96 = C-0..B-7. */
 export const XM_KEYOFF_NOTE = 97;
 /** Envelope point capacity (XM stores up to 12 in vol/pan envelopes). */

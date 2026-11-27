@@ -7,6 +7,7 @@ import {
   Copy,
   CopyPlus,
   Crop,
+  Eraser,
   Minus,
   Plus,
   RotateCcw,
@@ -59,11 +60,13 @@ import {
   addXmEffect,
   applyXmChainToSource,
   clearCurrentXmInstrument,
+  clearCurrentXmSample,
   convertXmChiptuneToSampler,
   copyXmSampleRange,
   cropXmCurrentSampleToSelection,
   cutXmSampleRange,
   duplicateCurrentXmInstrument,
+  duplicateCurrentXmSample,
   loadXmWavIntoCurrentSample,
   moveXmEffect,
   newXmChiptune,
@@ -75,6 +78,8 @@ import {
   removeXmEffect,
   setXmBitDepth,
   setXmDither,
+  setXmPlayingLength,
+  setXmResampleMode,
   setXmEffectBypass,
   setXmMonoMix,
   setXmSelectedEffectIndex,
@@ -84,6 +89,8 @@ import {
   xmSelectedEffectIndex,
   xmSelectedEffectParam,
 } from "../state/xmSampleEdit";
+import { xmCursor } from "../state/cursorXm";
+import { speedTempoAtXm } from "../core/xm/flatten";
 import { xmSampleClipboard } from "../state/xmSampleClipboard";
 import { getXmWorkbench } from "../state/xmSampleWorkbench";
 import { defaultParamForKind } from "../state/selectedEffect";
@@ -103,13 +110,17 @@ import { ChiptuneEditor } from "./ChiptuneEditor";
 import { EnvelopeEditor } from "./EnvelopeEditor";
 import { PitchReadout } from "./PitchReadout";
 import { Slider } from "./Slider";
-import { createDetectedXmPitch } from "../state/detectedPitch";
+import {
+  createDetectedXmPitch,
+  effectiveXmSampleRate,
+} from "../state/detectedPitch";
 import { XmAutoVibratoPreview } from "./XmAutoVibratoPreview";
 import { XmKeyMapEditor } from "./XmKeyMapEditor";
 import { XmPipelineEditor } from "./XmPipelineEditor";
 import { XmWaveform, type XmWaveformEnvelopeOverlay } from "./XmWaveform";
 import {
   EFFECT_BUTTON_KINDS,
+  blurOnCommit,
   titleForEffectButton,
 } from "./sampleEditorShared";
 
@@ -140,12 +151,6 @@ export const InstrumentView: Component<Props> = (props) => {
   const slot1Based = () => currentXmInstrument();
   const instrument = (): XmInstrument | undefined =>
     props.song.instruments[slot1Based() - 1];
-
-  // Reset to the first sample whenever the instrument switches.
-  createEffect(() => {
-    currentXmInstrument();
-    setCurrentXmSampleIndex(0);
-  });
 
   // Selections are bound to a specific buffer — drop them when the
   // active (instrument, sample) pair changes.
@@ -199,10 +204,12 @@ export const InstrumentView: Component<Props> = (props) => {
   /**
    * Loop-type change is more involved than a plain field write: when the
    * user activates a loop, we adopt the current waveform selection as
-   * the loop range (and clear it — the on-canvas handles take over),
-   * falling back to the whole sample. Switching back to "none" leaves
-   * the existing loopStart/Length values untouched so the user can flip
-   * the loop on and off without losing their range.
+   * the loop range (and clear it — the on-canvas handles take over).
+   * Without a selection the range the sample already has is kept — so
+   * flipping forward ↔ ping-pong, or off and back on, doesn't lose a
+   * placed loop — and only a sample that has never had one gets the
+   * whole sample. Switching to "none" leaves loopStart / loopLength
+   * untouched for that reason.
    */
   const setXmSampleLoopType = (nextType: XmLoopType): void => {
     const inst = instrument();
@@ -214,7 +221,8 @@ export const InstrumentView: Component<Props> = (props) => {
       patchXmSample(slot1Based(), { loopType: "none" }, activeSampleIndex());
       return;
     }
-    // Activating a loop. Prefer the current selection; clamp to bounds.
+    // Activating a loop, or changing its direction. Prefer the current
+    // selection, then the range already stored; clamp to bounds.
     const sel = xmSampleSelection();
     const len = sample.data.length;
     let nextStart = 0;
@@ -223,6 +231,9 @@ export const InstrumentView: Component<Props> = (props) => {
       nextStart = Math.max(0, Math.min(len - 1, sel.start));
       nextLength = Math.max(1, Math.min(len - nextStart, sel.end - sel.start));
       setXmSampleSelection(null);
+    } else if (sample.loopLength > 0 && sample.loopStart < len) {
+      nextStart = sample.loopStart;
+      nextLength = Math.min(sample.loopLength, len - nextStart);
     }
     patchXmSample(
       slot1Based(),
@@ -248,6 +259,14 @@ export const InstrumentView: Component<Props> = (props) => {
   const activeSample = () => inst().samples[activeSampleIndex()];
   const detectedPitch = createDetectedXmPitch(workbench, activeSample);
   const hasData = () => (activeSample()?.data.length ?? 0) > 0;
+  // Selection is disabled for a chiptune source (the synth re-renders
+  // the cycle on every edit). A selection left over from the sampler
+  // half would sit invisible but still drive the selection-aware
+  // buttons once the user switches back — drop it, as PT's SampleView
+  // does.
+  createEffect(() => {
+    if (sourceKind() === "chiptune") clearXmSampleSelection();
+  });
   const hasFreeInstrumentSlot = () => {
     const insts = props.song.instruments;
     if (insts.length < XM_MAX_INSTRUMENTS) return true;
@@ -337,6 +356,10 @@ export const InstrumentView: Component<Props> = (props) => {
       return (
         <div
           class="instrument-view"
+          // Release focus from a dropdown / checkbox once it commits, so
+          // piano keys and the other shortcuts work again — see
+          // `blurOnCommit`.
+          onChange={blurOnCommit}
           classList={{
             "instrument-view--drop-target": dropActive(),
           }}
@@ -661,6 +684,31 @@ export const InstrumentView: Component<Props> = (props) => {
                         >
                           <Icon of={Minus} />
                         </button>
+                        {/* Per-sample duplicate / clear — the header's
+                              buttons act on the whole instrument, which
+                              would take the envelopes with it. */}
+                        <button
+                          type="button"
+                          onClick={duplicateCurrentXmSample}
+                          disabled={
+                            !hasData() ||
+                            inst().samples.length >=
+                              XM_MAX_SAMPLES_PER_INSTRUMENT
+                          }
+                          title="Duplicate current sample within this instrument"
+                          aria-label="Duplicate sample"
+                        >
+                          <Icon of={CopyPlus} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={clearCurrentXmSample}
+                          disabled={!hasData()}
+                          title="Clear current sample (keeps the instrument's other samples and settings)"
+                          aria-label="Clear sample"
+                        >
+                          <Icon of={Eraser} />
+                        </button>
                       </div>
                     </div>
 
@@ -688,6 +736,9 @@ export const InstrumentView: Component<Props> = (props) => {
                               )
                       }
                       envelope={envelopeOverlay()}
+                      // A chiptune's loop is always its whole cycle;
+                      // the band would only tint the entire waveform.
+                      showLoop={sourceKind() !== "chiptune"}
                     />
 
                     {/* Selection toolbar — same shape as PT2's
@@ -786,7 +837,9 @@ export const InstrumentView: Component<Props> = (props) => {
                                   return (
                                     <button
                                       type="button"
-                                      onClick={() => addXmEffect(kind)}
+                                      onClick={() =>
+                                        addXmEffect(kind, xmSampleSelection())
+                                      }
                                       disabled={
                                         !hasData() ||
                                         (requiresLoop && !loopActive())
@@ -833,10 +886,17 @@ export const InstrumentView: Component<Props> = (props) => {
                         const wb = () => {
                           const existing = workbench();
                           if (existing) return existing;
+                          // At the rate the sample plays at, so the
+                          // header reads the same before and after the
+                          // first edit wraps the sample for real.
                           return xmWorkbenchFromSample(
                             sample().data,
                             sample().bits,
                             sample().name,
+                            effectiveXmSampleRate(
+                              sample(),
+                              props.song.flags.linearFreq,
+                            ),
                           );
                         };
                         return (
@@ -850,6 +910,17 @@ export const InstrumentView: Component<Props> = (props) => {
                             onSetMonoMix={setXmMonoMix}
                             onSetBitDepth={setXmBitDepth}
                             onSetDither={setXmDither}
+                            onSetPlayingLength={setXmPlayingLength}
+                            onSetResampleMode={setXmResampleMode}
+                            speedTempoAtCursor={() => {
+                              const c = xmCursor();
+                              return speedTempoAtXm(
+                                props.song,
+                                c.order,
+                                c.row,
+                                true,
+                              );
+                            }}
                             selectedEffectIndex={xmSelectedEffectIndex()}
                             onSelectEffect={(i) => {
                               setXmSelectedEffectIndex(i);

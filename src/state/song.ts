@@ -369,6 +369,53 @@ export function commitEditXmWithWorkbenches(
 }
 
 /**
+ * Song-only XM commit with no playback gate — for edits that stay live
+ * while the song plays, as their PT counterparts do through
+ * `commitEditWithWorkbenches`: instrument and sample settings, the order
+ * list. sync.ts forwards the result to the worklet. Pattern-cell edits
+ * keep using `commitEditXm`, which Follow locks.
+ */
+export function commitEditXmLive(transform: (song: XmSong) => XmSong): void {
+  commitEditXmWithWorkbenches((state) => {
+    const next = transform(state.song);
+    return next === state.song ? state : { ...state, song: next };
+  });
+}
+
+/** XM song plus the pattern-name side-table — see
+ *  `commitEditXmWithPatternNames`. */
+export interface XmNamedEditState {
+  song: XmSong;
+  patternNames: Record<number, string>;
+}
+
+/**
+ * XM commit that can also touch pattern names: a rename, or an order
+ * clean-up that renumbers patterns and has to re-key their names in the
+ * same history entry. Ungated like `commitEditXmWithWorkbenches` —
+ * callers that change the song's shape gate on transport themselves.
+ */
+export function commitEditXmWithPatternNames(
+  transform: (state: XmNamedEditState) => XmNamedEditState,
+): void {
+  const current = song();
+  if (!current || current.format !== "FT2") return;
+  const before: XmNamedEditState = {
+    song: current,
+    patternNames: patternNamesSig(),
+  };
+  const next = transform(before);
+  if (next.song === before.song && next.patternNames === before.patternNames)
+    return;
+  applyCommit({
+    song: next.song,
+    workbenches: workbenchesSig(),
+    xmWorkbenches: xmWorkbenchesSig(),
+    patternNames: next.patternNames,
+  });
+}
+
+/**
  * Narrowed view of `EditState` for PT2-only callers (sample-pipeline ops).
  * Same shape, but `song` is `ModSong` so the transform doesn't need to
  * narrow on every read.

@@ -61,6 +61,11 @@ export interface CellTextColors {
  * Draw a single named sub-field at (xLeft, y). `xLeft` is the cell's
  * left edge in CSS px (NOT the field's x — the field x is read from
  * `offsets`).
+ *
+ * `forceShowEffect` overrides the empty-collapse on the effect
+ * sub-fields while the cursor is on the effect column, as the PT grid
+ * does — otherwise typing arpeggio's first `0` looks identical to an
+ * empty cell.
  */
 export function drawCellXmField(
   ctx: CanvasRenderingContext2D,
@@ -71,6 +76,7 @@ export function drawCellXmField(
   y: number,
   offsets: XmFieldOffsets,
   colors: CellTextColors,
+  forceShowEffect: boolean = false,
 ): void {
   switch (field) {
     case "note": {
@@ -134,7 +140,8 @@ export function drawCellXmField(
       return;
     }
     case "effectCmd": {
-      const empty = cell.effect === 0 && cell.effectParam === 0;
+      const empty =
+        cell.effect === 0 && cell.effectParam === 0 && !forceShowEffect;
       drawString(
         ctx,
         atlas,
@@ -146,7 +153,8 @@ export function drawCellXmField(
       return;
     }
     case "effectHi": {
-      const empty = cell.effect === 0 && cell.effectParam === 0;
+      const empty =
+        cell.effect === 0 && cell.effectParam === 0 && !forceShowEffect;
       drawString(
         ctx,
         atlas,
@@ -158,7 +166,8 @@ export function drawCellXmField(
       return;
     }
     case "effectLo": {
-      const empty = cell.effect === 0 && cell.effectParam === 0;
+      const empty =
+        cell.effect === 0 && cell.effectParam === 0 && !forceShowEffect;
       drawString(
         ctx,
         atlas,
@@ -181,13 +190,44 @@ export function drawCellXm(
   y: number,
   offsets: XmFieldOffsets,
   colors: CellTextColors,
+  forceShowEffect: boolean = false,
 ): void {
   drawCellXmField(ctx, atlas, cell, "note", xLeft, y, offsets, colors);
   drawCellXmField(ctx, atlas, cell, "instHi", xLeft, y, offsets, colors);
   drawCellXmField(ctx, atlas, cell, "instLo", xLeft, y, offsets, colors);
   drawCellXmField(ctx, atlas, cell, "volHi", xLeft, y, offsets, colors);
   drawCellXmField(ctx, atlas, cell, "volLo", xLeft, y, offsets, colors);
-  drawCellXmField(ctx, atlas, cell, "effectCmd", xLeft, y, offsets, colors);
-  drawCellXmField(ctx, atlas, cell, "effectHi", xLeft, y, offsets, colors);
-  drawCellXmField(ctx, atlas, cell, "effectLo", xLeft, y, offsets, colors);
+  drawCellXmField(
+    ctx,
+    atlas,
+    cell,
+    "effectCmd",
+    xLeft,
+    y,
+    offsets,
+    colors,
+    forceShowEffect,
+  );
+  drawCellXmField(
+    ctx,
+    atlas,
+    cell,
+    "effectHi",
+    xLeft,
+    y,
+    offsets,
+    colors,
+    forceShowEffect,
+  );
+  drawCellXmField(
+    ctx,
+    atlas,
+    cell,
+    "effectLo",
+    xLeft,
+    y,
+    offsets,
+    colors,
+    forceShowEffect,
+  );
 }
