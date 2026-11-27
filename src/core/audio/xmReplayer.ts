@@ -677,6 +677,17 @@ export class XmReplayer {
     return this.state.ended;
   }
 
+  /**
+   * True when no voice is sounding and none has an anti-click tail left
+   * to play. The note preview uses it to tell when a held note has run
+   * out by itself (a non-looped sample reached its end). Only meaningful
+   * after at least one `process` call — before the first tick nothing
+   * has been triggered yet.
+   */
+  isSilent(): boolean {
+    return this.voices.every((v) => !v.playing && !v.pendingDischarge);
+  }
+
   getOrderIndex(): number {
     return this.state.orderIndex;
   }

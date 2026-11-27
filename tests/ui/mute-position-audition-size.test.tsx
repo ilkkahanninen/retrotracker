@@ -51,6 +51,11 @@ import { setCurrentXmInstrument } from "../../src/state/xmEdit";
 import { setXmChannelCountAction } from "../../src/state/xmPatternEdit";
 import { previewXmNote, stopXmPreview } from "../../src/state/xmPreview";
 import {
+  XmPreviewVoice,
+  type XmPreviewVoiceOptions,
+} from "../../src/core/audio/xmPreviewVoice";
+import type { XmSong } from "../../src/core/xm/types";
+import {
   installRecordingEngine,
   type RecordingEngine,
 } from "../lib/recording-engine";
@@ -197,13 +202,22 @@ describe("XM keyboard audition follows the mixer settings", () => {
     setTransport("ready");
   });
 
+  /** Audition a note and render what the preview worklet would play:
+   *  the song and mixer settings the engine was handed, through the same
+   *  `XmPreviewVoice` the worklet runs. */
   async function audition(): Promise<Float32Array> {
     previewXmNote(0);
     await settle();
-    const left = fake.callsTo("playXmPreviewBuffer").at(-1)!
-      .args[0] as Float32Array;
+    const [song, opts] = fake.callsTo("startXmPreview").at(-1)!.args as [
+      XmSong,
+      XmPreviewVoiceOptions,
+    ];
     stopXmPreview();
-    return left.slice(0, 4096);
+    const voice = new XmPreviewVoice(44100);
+    voice.start(song, opts);
+    const left = new Float32Array(4096);
+    voice.process(left, new Float32Array(4096), 4096);
+    return left;
   }
   const differ = (a: Float32Array, b: Float32Array, from = 0) => {
     for (let i = from; i < a.length; i++) if (a[i] !== b[i]) return true;

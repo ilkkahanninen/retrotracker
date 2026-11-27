@@ -20,7 +20,7 @@ import { vi } from "vitest";
 import { AudioEngine } from "../../src/core/audio/engine";
 import type { Sample, ModSong } from "../../src/core/mod/types";
 import type { Song } from "../../src/core/song";
-import type { XmInstrument } from "../../src/core/xm/types";
+import type { XmInstrument, XmSong } from "../../src/core/xm/types";
 import type { AmigaModel } from "../../src/core/audio/paula";
 
 export interface EngineCall {
@@ -91,25 +91,22 @@ export class RecordingEngine {
   async previewNote(sample: Sample, period: number): Promise<void> {
     this.rec("previewNote", [sample, period]);
   }
-  async playXmPreviewBuffer(
-    left: Float32Array,
-    right: Float32Array,
-    sampleRate: number,
+  async startXmPreview(
+    song: XmSong,
+    opts: { interpolation: string; ramping: boolean },
     onEnded?: () => void,
-    restart: boolean = true,
   ): Promise<void> {
-    this.rec("playXmPreviewBuffer", [
-      left,
-      right,
-      sampleRate,
-      onEnded,
-      restart,
-    ]);
+    this.rec("startXmPreview", [song, opts, onEnded]);
     this.xmPreviewActive = true;
     this.xmPreviewEnded = () => {
       this.xmPreviewActive = false;
       onEnded?.();
     };
+  }
+  swapXmPreviewInstrument(instrument: XmInstrument): void {
+    // Mirror the real engine: a swap with no audible preview is dropped.
+    if (!this.xmPreviewActive) return;
+    this.rec("swapXmPreviewInstrument", [instrument]);
   }
   /** Test-only: simulate the worklet's natural-end signal. */
   fireXmPreviewEnded(): void {

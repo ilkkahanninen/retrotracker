@@ -1,11 +1,10 @@
 /**
  * Verifies the XM live-preview swap: when a preview is in flight and
  * the user mutates the workbench (chiptune param, chain effect), the
- * engine receives a fresh `playXmPreviewBuffer` call so the audible
- * voice reflects the edit.
+ * engine is handed the new instrument (`swapXmPreviewInstrument`) so the
+ * sounding voice morphs — it is not restarted.
  *
- * Mirrors PT2's `livePreviewSwap` test bed but for the XM
- * AudioBufferSourceNode path (vs. PT2's gapless Paula morph).
+ * Mirrors PT2's `livePreviewSwap` test bed.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -41,6 +40,7 @@ import {
   type RecordingEngine,
 } from "./lib/recording-engine";
 import { xmWorkbenchFromChiptune } from "../src/core/audio/sampleWorkbench";
+import type { XmInstrument, XmSong } from "../src/core/xm/types";
 
 function seed(): void {
   const s = emptyXmSong();
@@ -59,6 +59,11 @@ function seed(): void {
 }
 
 let fake: RecordingEngine;
+/** Everything that makes the preview worklet sound or change. */
+const audible = () => [
+  ...fake.callsTo("startXmPreview"),
+  ...fake.callsTo("swapXmPreviewInstrument"),
+];
 
 beforeEach(() => {
   seed();
@@ -116,27 +121,41 @@ describe("XM live preview swap", () => {
     }
   });
 
-  it("editing a chiptune param while a preview is active replays the buffer", async () => {
+  it("a key press starts one note, carrying only the auditioned instrument", async () => {
+    await ensureEngine();
+    previewXmNote(0);
+    await Promise.resolve();
+    await Promise.resolve();
+    const calls = fake.callsTo("startXmPreview");
+    expect(calls).toHaveLength(1);
+    const song = calls[0]!.args[0] as XmSong;
+    // The whole instrument list would be cloned to the audio thread on
+    // every key press.
+    expect(song.instruments).toHaveLength(1);
+    expect(song.instruments[0]!.name).toBe("ins-a");
+    expect(song.patterns[0]!.rows[0]![0]!.instrument).toBe(1);
+  });
+
+  it("editing a chiptune param while a preview is active swaps the instrument", async () => {
     await ensureEngine();
     setXmWorkbench(1, 0, xmWorkbenchFromChiptune());
-    // Trigger the preview so the AudioBufferSource is live.
     previewXmNote(0);
     // Yield to let the ensureEngine().then(...) microtask deliver the
-    // first playXmPreviewBuffer call.
+    // startXmPreview call.
     await Promise.resolve();
     await Promise.resolve();
-    const before = fake.callsTo("playXmPreviewBuffer").length;
-    expect(before).toBeGreaterThan(0);
-    // Trigger pushes restart=true (fresh note).
-    expect(fake.callsTo("playXmPreviewBuffer")[0]!.args[4]).toBe(true);
+    expect(fake.callsTo("startXmPreview")).toHaveLength(1);
 
     // User drags a chiptune slider mid-preview.
     updateXmChiptune({ cycleFrames: 128 });
-    const calls = fake.callsTo("playXmPreviewBuffer");
-    expect(calls.length).toBe(before + 1);
-    // Swap pushes restart=false so the worklet keeps the read pointer
-    // — no click, no restart-from-zero on slider drags.
-    expect(calls[calls.length - 1]!.args[4]).toBe(false);
+    // The voice is handed the new instrument and keeps playing — no
+    // second start, so no click and no restart-from-zero on slider drags.
+    expect(fake.callsTo("startXmPreview")).toHaveLength(1);
+    const swaps = fake.callsTo("swapXmPreviewInstrument");
+    expect(swaps).toHaveLength(1);
+    expect((swaps[0]!.args[0] as XmInstrument).samples[0]!.data).toBe(
+      xm2Song()!.instruments[0]!.samples[0]!.data,
+    );
   });
 
   it("flipping source kind stops the preview instead of re-rendering it", async () => {
@@ -149,13 +168,13 @@ describe("XM live preview swap", () => {
     previewXmNote(0);
     await Promise.resolve();
     await Promise.resolve();
-    const playsBefore = fake.callsTo("playXmPreviewBuffer").length;
+    const playsBefore = audible().length;
     const stopsBefore = fake.callsTo("stopPreview").length;
     expect(activeXmPreview()).not.toBeNull();
 
     setXmSourceKind("chiptune");
-    // No new play call.
-    expect(fake.callsTo("playXmPreviewBuffer").length).toBe(playsBefore);
+    // No new start, no swap.
+    expect(audible().length).toBe(playsBefore);
     // The engine got a stop.
     expect(fake.callsTo("stopPreview").length).toBe(stopsBefore + 1);
     // And the active-preview signal is cleared.
@@ -184,10 +203,10 @@ describe("XM live preview swap", () => {
     // need the engine-gate to catch.
     expect(activeXmPreview()).not.toBeNull();
 
-    const playsBefore = fake.callsTo("playXmPreviewBuffer").length;
+    const playsBefore = audible().length;
     updateXmChiptune({ cycleFrames: 128 });
-    // The engine-gate kicked in: no new play.
-    expect(fake.callsTo("playXmPreviewBuffer").length).toBe(playsBefore);
+    // The engine-gate kicked in: nothing new reaches the worklet.
+    expect(audible().length).toBe(playsBefore);
     // And the stale signal got cleaned up as a side effect.
     expect(activeXmPreview()).toBeNull();
   });
@@ -206,11 +225,11 @@ describe("XM live preview swap", () => {
     // Simulate key-up.
     stopXmPreview();
     expect(activeXmPreview()).toBeNull();
-    const playsBefore = fake.callsTo("playXmPreviewBuffer").length;
+    const playsBefore = audible().length;
 
     // Drag a slider — must not re-trigger the preview.
     updateXmChiptune({ cycleFrames: 128 });
-    expect(fake.callsTo("playXmPreviewBuffer").length).toBe(playsBefore);
+    expect(audible().length).toBe(playsBefore);
   });
 
   it("clicking a source-kind tab with no active preview does NOT trigger audio", async () => {
@@ -218,21 +237,21 @@ describe("XM live preview swap", () => {
     // click Chiptune (no prior piano key), audio should stay silent.
     await ensureEngine();
     expect(activeXmPreview()).toBeNull();
-    const before = fake.callsTo("playXmPreviewBuffer").length;
+    const before = audible().length;
     setXmSourceKind("chiptune");
-    expect(fake.callsTo("playXmPreviewBuffer").length).toBe(before);
+    expect(audible().length).toBe(before);
   });
 
-  it("adding a chain effect to a sampler while previewing replays the buffer", async () => {
+  it("adding a chain effect to a sampler while previewing swaps the instrument", async () => {
     await ensureEngine();
     // Sampler is the default for a loaded sample, no need to toggle.
     previewXmNote(0);
     await Promise.resolve();
     await Promise.resolve();
-    const before = fake.callsTo("playXmPreviewBuffer").length;
 
     addXmEffect("normalize");
-    expect(fake.callsTo("playXmPreviewBuffer").length).toBe(before + 1);
+    expect(fake.callsTo("swapXmPreviewInstrument")).toHaveLength(1);
+    expect(fake.callsTo("startXmPreview")).toHaveLength(1);
   });
 
   it("workbench mutation with NO active preview does not call the engine", async () => {
@@ -241,7 +260,7 @@ describe("XM live preview swap", () => {
     expect(activeXmPreview()).toBeNull();
     setXmWorkbench(1, 0, xmWorkbenchFromChiptune());
     updateXmChiptune({ cycleFrames: 128 });
-    expect(fake.callsTo("playXmPreviewBuffer")).toEqual([]);
+    expect(audible()).toEqual([]);
   });
 
   it("calling the engine's onEnded clears the activeXmPreview signal", async () => {
@@ -251,27 +270,84 @@ describe("XM live preview swap", () => {
     await Promise.resolve();
     expect(activeXmPreview()).not.toBeNull();
 
-    // The mock records the onEnded callback as the 4th arg of
-    // playXmPreviewBuffer. Invoke it to simulate the buffer ending.
-    const lastCall = fake.callsTo("playXmPreviewBuffer").slice(-1)[0]!;
-    const onEnded = lastCall.args[3] as (() => void) | undefined;
+    // The mock records the onEnded callback as the 3rd arg of
+    // startXmPreview. Invoke it to simulate the note running out.
+    const lastCall = fake.callsTo("startXmPreview").slice(-1)[0]!;
+    const onEnded = lastCall.args[2] as (() => void) | undefined;
     onEnded?.();
     expect(activeXmPreview()).toBeNull();
   });
 
-  it("song-playback transport blocks the swap (no spurious re-render)", async () => {
+  it("works over a playing song: the preview has its own node, as PT's does", async () => {
+    // Both the audition and the swap used to be refused whenever the
+    // song played.
     await ensureEngine();
     setXmWorkbench(1, 0, xmWorkbenchFromChiptune());
+    setTransport("playing");
     previewXmNote(0);
     await Promise.resolve();
     await Promise.resolve();
-    const before = fake.callsTo("playXmPreviewBuffer").length;
+    expect(fake.callsTo("startXmPreview")).toHaveLength(1);
 
-    setTransport("playing");
     updateXmChiptune({ cycleFrames: 128 });
-    // updateCurrentXmWorkbench bails on transport===playing, so the
-    // workbench doesn't commit AND no preview swap fires.
-    expect(fake.callsTo("playXmPreviewBuffer").length).toBe(before);
-    expect(xm2Song()).toBeDefined();
+    expect(fake.callsTo("swapXmPreviewInstrument")).toHaveLength(1);
+  });
+
+  it("pinned to a sample, the preview and its swaps play that sample", async () => {
+    // The instrument editor auditions the sample being edited; with the
+    // default key map every key would play sample 0.
+    const s = xm2Song()!;
+    const second = {
+      ...s.instruments[0]!.samples[0]!,
+      data: new Int8Array(64).fill(50),
+    };
+    setSong({
+      ...s,
+      instruments: [
+        {
+          ...s.instruments[0]!,
+          samples: [s.instruments[0]!.samples[0]!, second],
+        },
+      ],
+    });
+    setCurrentXmSampleIndex(1);
+    await ensureEngine();
+    previewXmNote(0, { sampleIdx: 1 });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(activeXmPreview()).toEqual({
+      instrument1Based: 1,
+      semitoneOffset: 0,
+      sampleIdx: 1,
+    });
+    const song = fake.callsTo("startXmPreview")[0]!.args[0] as XmSong;
+    expect(Array.from(new Set(song.instruments[0]!.keyMap))).toEqual([1]);
+
+    addXmEffect("normalize");
+    const swapped = fake.callsTo("swapXmPreviewInstrument")[0]!
+      .args[0] as XmInstrument;
+    expect(Array.from(new Set(swapped.keyMap))).toEqual([1]);
+  });
+
+  it("pinned to an empty sample, nothing plays (no fallback to another)", async () => {
+    const s = xm2Song()!;
+    setSong({
+      ...s,
+      instruments: [
+        {
+          ...s.instruments[0]!,
+          samples: [
+            s.instruments[0]!.samples[0]!,
+            { ...s.instruments[0]!.samples[0]!, data: new Int8Array(0) },
+          ],
+        },
+      ],
+    });
+    await ensureEngine();
+    previewXmNote(0, { sampleIdx: 1 });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fake.callsTo("startXmPreview")).toHaveLength(0);
+    expect(activeXmPreview()).toBeNull();
   });
 });

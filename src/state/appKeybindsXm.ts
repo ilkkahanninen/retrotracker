@@ -53,6 +53,7 @@ import {
   transposeXmAtCursor,
 } from "./xmPatternEdit";
 import {
+  currentXmSampleIndex,
   nextXmInstrument,
   prevXmInstrument,
   selectXmInstrument,
@@ -257,7 +258,12 @@ export function registerXmAppKeybinds(): Array<() => void> {
         when: () => isFt2Mode() && editsAllowed(),
         run: () => {
           pianoKeyDown(k);
-          previewXmNote(offset);
+          previewXmNote(
+            offset,
+            view() === "sample"
+              ? { sampleIdx: currentXmSampleIndex() }
+              : undefined,
+          );
         },
         runUp: () => {
           if (!pianoKeyUp(k)) return;

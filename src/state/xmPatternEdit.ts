@@ -37,6 +37,7 @@ import {
   clearXmFieldPatch,
   currentXmInstrument,
   currentXmOctave,
+  currentXmSampleIndex,
 } from "./xmEdit";
 import {
   clearXmSelection,
@@ -142,8 +143,10 @@ export function enterXmNote(semitoneOffset: number): void {
 }
 
 export function onXmPianoKey(semitoneOffset: number): void {
-  if (view() === "sample") previewXmNote(semitoneOffset);
-  else enterXmNote(semitoneOffset);
+  // In the instrument editor a key auditions the sample being edited.
+  if (view() === "sample") {
+    previewXmNote(semitoneOffset, { sampleIdx: currentXmSampleIndex() });
+  } else enterXmNote(semitoneOffset);
 }
 
 export function enterXmKeyOff(): void {

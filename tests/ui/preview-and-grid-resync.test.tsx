@@ -91,7 +91,7 @@ describe("preview start vs. an earlier stop", () => {
     expect(calls[0]!.args[1]).toBe(404);
   });
 
-  it("XM: a tap before the engine exists never plays the buffer", async () => {
+  it("XM: a tap before the engine exists never starts the note", async () => {
     const song = emptyXmSong();
     const inst = emptyXmInstrument();
     inst.samples[0]!.data = new Int8Array(64).fill(40);
@@ -101,11 +101,11 @@ describe("preview start vs. an earlier stop", () => {
     previewXmNote(0);
     stopXmPreview();
     await settle();
-    expect(fake.callsTo("playXmPreviewBuffer")).toHaveLength(0);
+    expect(fake.callsTo("startXmPreview")).toHaveLength(0);
 
     previewXmNote(0); // engine now warm; held
     await settle();
-    expect(fake.callsTo("playXmPreviewBuffer")).toHaveLength(1);
+    expect(fake.callsTo("startXmPreview")).toHaveLength(1);
   });
 });
 
