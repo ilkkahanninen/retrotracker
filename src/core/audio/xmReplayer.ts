@@ -36,7 +36,7 @@ import type { Song } from "../song";
 import type { Sample } from "../mod/types";
 import type { XmInstrument, XmNote, XmSample, XmSong } from "../xm/types";
 import type { ReplayerOptions, XmInterpolation } from "./types";
-import { hzForNote, periodForNote } from "./xmFreqTable";
+import { hzForNote, hzForPeriod, periodForNote } from "./xmFreqTable";
 
 /**
  * Upper bound on E6x loop-backs within one order position before a
@@ -504,8 +504,9 @@ function clampPeriod(p: number, linear: boolean): number {
     // Linear-mode period range: ~5..7424 (octave 0..7 mostly). Cap loosely.
     return Math.max(1, Math.min(7680, p));
   }
-  // Amiga period range: 113..856 in PT; allow wider in XM for ramp extremes.
-  return Math.max(1, Math.min(32767, p));
+  // Amiga periods are in FT2's units (C-4 = 1712); FT2 itself clamps
+  // slides to 1..31999.
+  return Math.max(1, Math.min(31999, p));
 }
 
 /** Phases per sample step in the sinc kernel table. */
@@ -976,24 +977,22 @@ export class XmReplayer {
       // (`v.period`) is unchanged — slides keep working — and the offset
       // is recomputed at every tick so it tracks the LFO phase.
       const autoVibOffset = this.autoVibratoOffset(v);
-      // Arpeggio offset (semitones) → period offset. In linear mode
-      // one semitone = 16 period units, and raising pitch *lowers*
-      // period. ft2-clone / libxmp work the same way: arp offsets are
-      // pitch-up, so we subtract 16 * semitones from the period.
-      // Amiga mode uses the same direction; the per-semitone period
-      // change isn't a constant 16 but the linear-mode formula is
-      // good enough for the audible-pitch range.
-      const arpPeriodOffset = this.linearFreq
-        ? -v.arpOffset * 16 * 4
-        : -v.arpOffset * 16;
+      // Arpeggio offset (semitones). Linear periods are 64 units per
+      // semitone, so it is a plain subtraction; Amiga periods are
+      // inversely proportional to frequency, so the base period is
+      // scaled by the semitone ratio instead.
+      const base = v.glissPeriod || v.period;
+      const arpBase = this.linearFreq
+        ? base - v.arpOffset * 64
+        : v.arpOffset === 0
+          ? base
+          : base * Math.pow(2, -v.arpOffset / 12);
       const effectivePeriod = clampPeriod(
-        (v.glissPeriod || v.period) +
-          autoVibOffset +
-          arpPeriodOffset +
-          v.vibOffset,
+        arpBase + autoVibOffset + v.vibOffset,
         this.linearFreq,
       );
-      const hz = this.hzForPeriod(effectivePeriod);
+      const hz = hzForPeriod(effectivePeriod, this.linearFreq);
+
       // Store both the double step (used to advance the voice's
       // double `pos` per sample) and its 16.16 fixed-point form
       // (used as the local `posFrac` increment for libxmp's interp).
@@ -1026,18 +1025,6 @@ export class XmReplayer {
     // ft2-clone scales the LFO output by depth / 64. The result is in
     // period units — at full depth (15) the swing is ~±a semitone.
     return (raw * scaledDepth) >> 6;
-  }
-
-  private hzForPeriod(period: number): number {
-    if (this.linearFreq) {
-      // Inverse of `period = 10*12*16*4 - (note-1)*16*4 - finetune/2`
-      // through the linear hz formula: Hz = 8363 * 2^((4608 - period) / 768).
-      return 8363 * Math.pow(2, (4608 - period) / 768);
-    }
-    // Amiga: Hz = 8363 * C4_PERIOD / period, with C4_PERIOD = 428 matching
-    // periodForNoteAmiga's basePeriodC4. libxmp uses the same constant
-    // (mixer.c: `step = C4_PERIOD * c5spd / freq / period`).
-    return (8363 * 428) / period;
   }
 
   // ── Row / pattern advance ────────────────────────────────────────────
@@ -1296,7 +1283,7 @@ export class XmReplayer {
     // simple case for now — high-bit retain in Slice 3 polish.
     if ((v.vibWaveform & 4) === 0) v.vibPos = 0;
     if ((v.tremWaveform & 4) === 0) v.tremPos = 0;
-    v.step = this.hzForPeriod(v.period) / this.sampleRate;
+    v.step = hzForPeriod(v.period, this.linearFreq) / this.sampleRate;
     v.stepFixed = (v.step * 65536) | 0;
     // Envelope reset on retrigger: volume + panning envelopes go back to
     // tick 0, key-off flag clears, fadeout counter goes back to full.

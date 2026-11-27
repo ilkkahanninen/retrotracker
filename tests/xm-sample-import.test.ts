@@ -75,17 +75,20 @@ describe("importWavXmSample", () => {
   it("auto-tunes relativeNote/finetune from the WAV's sample rate", () => {
     // 44.1 kHz WAV should land roughly +28.78 semitones above C-4, i.e.
     // relativeNote ~ 29 with a negative finetune correction. Verify the
-    // resulting Amiga-mode playback Hz at C-4 trigger matches the input
-    // rate within ~1 cent.
+    // resulting linear-mode playback Hz at C-4 trigger matches the input
+    // rate to within half a finetune step (FT2 resolves 1/16 semitone, so
+    // the worst case is 1/32 semitone ≈ 0.18 %).
     const ch = new Float32Array(16);
     const wav = writeWav({ sampleRate: 44100, channels: [ch] });
     const r = importWavXmSample(new Uint8Array(wav), "x.wav");
     const hzAtC4 = hzForNote(
       49 + r.sample.relativeNote,
       r.sample.finetune,
-      false,
+      true,
     );
-    expect(Math.abs(hzAtC4 - 44100) / 44100).toBeLessThan(0.0006);
+    expect(Math.abs(hzAtC4 - 44100) / 44100).toBeLessThan(0.0019);
+    // The stored finetune is exactly what FT2 plays: a whole step.
+    expect(Math.abs(r.sample.finetune % 8)).toBe(0);
   });
 
   it("leaves relativeNote/finetune at zero for an 8363 Hz WAV", () => {
@@ -108,8 +111,9 @@ describe("tuneForSampleRate", () => {
   it("matches the WAV rate at C-4 trigger across common rates", () => {
     for (const sr of [11025, 22050, 32000, 44100, 48000]) {
       const { relativeNote, finetune } = tuneForSampleRate(sr);
-      const hz = hzForNote(49 + relativeNote, finetune, false);
-      expect(Math.abs(hz - sr) / sr).toBeLessThan(0.0006); // ≤ 1 cent
+      const hz = hzForNote(49 + relativeNote, finetune, true);
+      expect(Math.abs(hz - sr) / sr).toBeLessThan(0.0019); // ≤ 1/32 semitone
+      expect(Math.abs(finetune % 8)).toBe(0);
     }
   });
 

@@ -35,10 +35,14 @@ import type { XmSample } from "./types";
  * 8363 Hz, i.e. ~28 semitones too low — a sample labelled "E4" would
  * sound like B1.
  *
- * Math: at C-4 trigger, playback Hz = `8363 * 2^(relativeNote/12 +
- * finetune/(128*12))`. Solving for tuning that produces `targetRate`
- * gives `total = 1536 * log2(targetRate / 8363)` 1/128-semitone units,
- * then split into relativeNote × 128 + finetune.
+ * Math: at C-4 trigger in linear mode, playback Hz = `8363 *
+ * 2^(relativeNote/12 + step/(16*12))`, where `step` is the finetune in
+ * the 1/16-semitone steps FT2 actually resolves (it ignores the low three
+ * bits of the stored -128..127 value). Solving for the tuning that
+ * produces `targetRate` gives `192 * log2(targetRate / 8363)` steps, split
+ * into relativeNote × 16 + step. The stored finetune is `step * 8`, so
+ * what the field says is exactly what plays; the worst-case error is half
+ * a step, about 3 cents.
  */
 export function tuneForSampleRate(targetRate: number): {
   relativeNote: number;
@@ -47,18 +51,11 @@ export function tuneForSampleRate(targetRate: number): {
   if (!Number.isFinite(targetRate) || targetRate <= 0) {
     return { relativeNote: 0, finetune: 0 };
   }
-  const total = Math.round(1536 * Math.log2(targetRate / XM_BASE_HZ));
-  let relativeNote = Math.round(total / 128);
-  let finetune = total - relativeNote * 128;
-  // finetune lands in [-64, 64] from the round() split; clamp the pair
-  // to the format's storage range so downstream writers don't truncate.
-  if (finetune > 127) {
-    relativeNote += 1;
-    finetune -= 128;
-  } else if (finetune < -128) {
-    relativeNote -= 1;
-    finetune += 128;
-  }
+  const steps = Math.round(192 * Math.log2(targetRate / XM_BASE_HZ));
+  let relativeNote = Math.round(steps / 16);
+  // step lands in [-8, 8] from the round() split, so finetune is within
+  // [-64, 64] and needs no carry into relativeNote.
+  let finetune = (steps - relativeNote * 16) * 8;
   relativeNote = Math.max(-96, Math.min(95, relativeNote));
   finetune = Math.max(-128, Math.min(127, finetune));
   return { relativeNote, finetune };

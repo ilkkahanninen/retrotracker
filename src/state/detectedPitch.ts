@@ -31,7 +31,9 @@ import type { XmSample } from "../core/xm/types";
  */
 export function effectiveXmSampleRate(s: XmSample): number {
   return (
-    XM_BASE_HZ * Math.pow(2, s.relativeNote / 12 + s.finetune / (128 * 12))
+    // FT2 resolves finetune in 1/16-semitone steps (`finetune >> 3`).
+    XM_BASE_HZ *
+    Math.pow(2, s.relativeNote / 12 + (s.finetune >> 3) / (16 * 12))
   );
 }
 
