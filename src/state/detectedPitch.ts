@@ -9,7 +9,7 @@ import {
   detectPitchFromWav,
   type PitchResult,
 } from "../core/audio/pitchDetect";
-import { XM_BASE_HZ } from "../core/audio/xmFreqTable";
+import { XM_BASE_HZ, xmC4Rate } from "../core/audio/xmFreqTable";
 import type { XmSample } from "../core/xm/types";
 
 /**
@@ -29,11 +29,13 @@ import type { XmSample } from "../core/xm/types";
  * detector report the *audible* pitch of the sample as it will sound
  * when triggered — which is what the user is actually tuning against.
  */
-export function effectiveXmSampleRate(s: XmSample): number {
+export function effectiveXmSampleRate(s: XmSample, linear = true): number {
   return (
-    // FT2 resolves finetune in 1/16-semitone steps (`finetune >> 3`).
+    xmC4Rate(s.relativeNote, s.finetune, linear) ??
+    // Tuned out of FT2's trigger range: no note sounds at C-4, so fall
+    // back to the idealised rate rather than report nothing.
     XM_BASE_HZ *
-    Math.pow(2, s.relativeNote / 12 + (s.finetune >> 3) / (16 * 12))
+      Math.pow(2, s.relativeNote / 12 + (s.finetune >> 3) / (16 * 12))
   );
 }
 

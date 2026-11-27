@@ -1,4 +1,11 @@
-import { Index, Show, createMemo, type Component } from "solid-js";
+import {
+  For,
+  Index,
+  Show,
+  createMemo,
+  createSignal,
+  type Component,
+} from "solid-js";
 
 import {
   EFFECT_LABELS,
@@ -8,9 +15,17 @@ import {
   type EffectNode,
   type EnvelopeParamKey,
   type MonoMix,
+  type ResampleMode,
+  type XmPlayingLength,
   type XmSampleWorkbench,
+  RESAMPLE_LABELS,
+  RESAMPLE_MODES,
+  XM_DEFAULT_RESAMPLE_MODE,
 } from "../core/audio/sampleWorkbench";
+import { XM_DEFAULT_BPM } from "../core/xm/format";
+import { XM_MAX_BPM, XM_MIN_BPM } from "../core/xm/types";
 import { EffectParams } from "./PipelineEditor";
+import { PlayLengthCalculator } from "./PlayLengthCalculator";
 import { Icon } from "./Icon";
 import { ArrowDown, ArrowUp, Power, X } from "./icons";
 
@@ -24,6 +39,13 @@ export interface XmPipelineEditorProps {
   onSetMonoMix: (monoMix: MonoMix) => void;
   onSetBitDepth: (bits: 8 | 16) => void;
   onSetDither: (dither: boolean) => void;
+  /** Set or clear (null) the length fit. */
+  onSetPlayingLength: (length: XmPlayingLength | null) => void;
+  onSetResampleMode: (mode: ResampleMode) => void;
+  /** Speed / tempo in effect at the pattern cursor — pre-fills the
+   *  calculator. A function, read when the dialog opens: working it out
+   *  walks the song, which is too much to redo on every cursor move. */
+  speedTempoAtCursor: () => { speed: number; tempo: number };
   selectedEffectIndex: number | null;
   onSelectEffect: (index: number | null) => void;
   selectedEffectParam: EnvelopeParamKey | null;
@@ -34,14 +56,40 @@ export interface XmPipelineEditorProps {
  * FT2 sibling of `PipelineEditor`. Reuses the chain UI idiom (source
  * header, ordered list of effect entries with move / bypass / remove,
  * per-effect parameter editing via `EffectParams`) and adds the
- * XM-specific terminal panel: mono mix, output bit depth (8 / 16), and
- * dither. No target-note / resample mode — XM stores playback rate via
- * finetune + relativeNote, so the terminal doesn't resample.
+ * XM-specific terminal panel: mono mix, output bit depth (8 / 16),
+ * dither and the length fit. No target note — XM stores playback rate
+ * via finetune + relativeNote, so the terminal only resamples when a fit
+ * asks for an exact length (the drum-loop helper, PT's "Length (ticks)").
  */
 export const XmPipelineEditor: Component<XmPipelineEditorProps> = (props) => {
   const materialised = createMemo(() => materializeSource(props.wb.source));
   const channels = () => materialised().channels.length;
   const sourceFrames = () => materialised().channels[0]?.length ?? 0;
+  const [calc, setCalc] = createSignal<{
+    speed: number;
+    tempo: number;
+  } | null>(null);
+  const fit = () => props.wb.xm.playingLength ?? null;
+
+  /** Commit the Ticks / BPM pair. An empty or zero Ticks field clears
+   *  the fit; BPM falls back to the fit's own, then the format default. */
+  const commitFit = (ticksRaw: string, bpmRaw: string) => {
+    const ticks = Math.floor(Number(ticksRaw));
+    if (ticksRaw.trim() === "" || !Number.isFinite(ticks) || ticks <= 0) {
+      props.onSetPlayingLength(null);
+      return;
+    }
+    const bpmNum = Math.floor(Number(bpmRaw));
+    const bpm =
+      bpmRaw.trim() !== "" && Number.isFinite(bpmNum)
+        ? Math.max(XM_MIN_BPM, Math.min(XM_MAX_BPM, bpmNum))
+        : (fit()?.bpm ?? XM_DEFAULT_BPM);
+    props.onSetPlayingLength({ ticks, bpm });
+  };
+  let ticksInput: HTMLInputElement | undefined;
+  let bpmInput: HTMLInputElement | undefined;
+  const commitFitFromInputs = () =>
+    commitFit(ticksInput?.value ?? "", bpmInput?.value ?? "");
 
   return (
     <section class="pipeline">
@@ -204,7 +252,75 @@ export const XmPipelineEditor: Component<XmPipelineEditorProps> = (props) => {
             <span>Enabled</span>
           </span>
         </label>
+        {/* Fit length — drum-loop helper. Resamples the sample so it
+            plays for exactly this many song ticks at this tempo when
+            triggered at C-4. Empty = off. */}
+        <label>
+          <span class="samplemeta__label">Fit length</span>
+          <span class="pipeline__length-row">
+            <input
+              ref={ticksInput}
+              type="number"
+              min="0"
+              step="1"
+              aria-label="Fit length in ticks"
+              title="Length in song ticks (rows × speed) the sample should play for at C-4. Empty / 0 = off."
+              placeholder="(off)"
+              value={fit()?.ticks ?? ""}
+              onChange={commitFitFromInputs}
+            />
+            <span class="pipeline__length-unit">ticks at</span>
+            <input
+              ref={bpmInput}
+              type="number"
+              min={XM_MIN_BPM}
+              max={XM_MAX_BPM}
+              step="1"
+              aria-label="Fit length tempo in BPM"
+              title="Tempo the tick count is measured at"
+              value={fit()?.bpm ?? XM_DEFAULT_BPM}
+              onChange={commitFitFromInputs}
+            />
+            <span class="pipeline__length-unit">BPM</span>
+            <button
+              type="button"
+              onClick={() => setCalc(props.speedTempoAtCursor())}
+              title="Work out the ticks from rows / speed / tempo"
+            >
+              Calc
+            </button>
+          </span>
+        </label>
+        {/* Resampler picker — only the fit resamples, so it is hidden
+            until one is set. */}
+        <Show when={fit()}>
+          <label>
+            <span class="samplemeta__label">Resample</span>
+            <select
+              aria-label="Resample mode"
+              value={props.wb.xm.resampleMode ?? XM_DEFAULT_RESAMPLE_MODE}
+              onChange={(e) =>
+                props.onSetResampleMode(e.currentTarget.value as ResampleMode)
+              }
+            >
+              <For each={RESAMPLE_MODES}>
+                {(m) => <option value={m}>{RESAMPLE_LABELS[m]}</option>}
+              </For>
+            </select>
+          </label>
+        </Show>
       </div>
+      <Show when={calc()}>
+        {(seed) => (
+          <PlayLengthCalculator
+            unit="xm"
+            initialSpeed={seed().speed}
+            initialTempo={seed().tempo}
+            onApply={(r) => props.onSetPlayingLength(r)}
+            onClose={() => setCalc(null)}
+          />
+        )}
+      </Show>
     </section>
   );
 };

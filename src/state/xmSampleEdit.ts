@@ -11,9 +11,12 @@ import {
   type EffectNode,
   type EnvelopeParamKey,
   type MonoMix,
+  type ResampleMode,
   type RunContext,
   type SampleSource,
+  type XmPlayingLength,
   type XmSampleWorkbench,
+  XM_DEFAULT_RESAMPLE_MODE,
   workbenchToAlt,
   xmWorkbenchFromChiptune,
   xmWorkbenchFromSample,
@@ -65,6 +68,7 @@ import {
   duplicateXmSample as duplicateXmSampleMutation,
 } from "./xmInstrumentEdit";
 import { importWavXmSample } from "../core/xm/sampleImport";
+import { refitXmLoop, xmRenderTargetFor } from "../core/xm/sampleFit";
 import {
   duplicateXmInstrument as duplicateXmInstrumentMutation,
   patchXmInstrumentSample,
@@ -107,6 +111,8 @@ function getOrInitCurrentXmWorkbench(): {
   inst1Based: number;
   sampleIdx: number;
   sample: XmSample;
+  /** The song's frequency mode — the length fit needs it for the rate. */
+  linearFreq: boolean;
 } | null {
   const song = xm2Song();
   if (!song) return null;
@@ -125,11 +131,17 @@ function getOrInitCurrentXmWorkbench(): {
       sample.data,
       sample.bits,
       sample.name,
-      effectiveXmSampleRate(sample),
+      effectiveXmSampleRate(sample, song.flags.linearFreq),
     );
     setXmWorkbench(inst1Based, sampleIdx, wb);
   }
-  return { wb, inst1Based, sampleIdx, sample };
+  return {
+    wb,
+    inst1Based,
+    sampleIdx,
+    sample,
+    linearFreq: song.flags.linearFreq,
+  };
 }
 
 // Why: RunContext threads the slot's loop bounds into loop-aware chain
@@ -176,7 +188,16 @@ function updateCurrentXmWorkbench(
   const { data, bits } = runXmPipeline(
     next,
     runContextForXmSample(sample, loopOverride),
+    xmRenderTargetFor(sample, ctx.linearFreq),
   );
+  // Same source and chain, different length: the terminal resampled the
+  // same audio (a length fit was set, changed or cleared). The loop and
+  // the waveform selection follow the sound instead of staying at frame
+  // positions that now mean something else.
+  const resampledOnly =
+    next.source === ctx.wb.source &&
+    next.chain === ctx.wb.chain &&
+    data.length !== sample.data.length;
   // Why: loop policy priority — loopOverride (source-kind flip restore) >
   // chiptune full-cycle > sampler inherit-and-clamp.
   const isChiptune = sourceWantsFullLoop(next.source);
@@ -196,11 +217,12 @@ function updateCurrentXmWorkbench(
     loopLength = data.length;
     loopType = "forward";
   } else {
-    const origLoopEnd = sample.loopStart + sample.loopLength;
-    loopStart = Math.max(0, Math.min(sample.loopStart, data.length));
-    const loopEnd = Math.max(loopStart, Math.min(origLoopEnd, data.length));
-    loopLength = loopEnd - loopStart;
-    loopType = loopLength > 0 ? sample.loopType : "none";
+    ({ loopStart, loopLength, loopType } = refitXmLoop(
+      sample,
+      sample.data.length,
+      data.length,
+      resampledOnly ? "scale" : "clamp",
+    ));
   }
   const updatedSample: XmSample = {
     ...sample,
@@ -224,6 +246,16 @@ function updateCurrentXmWorkbench(
       next,
     ),
   }));
+  if (resampledOnly && sample.data.length > 0) {
+    const sel = xmSampleSelection();
+    if (sel) {
+      const ratio = data.length / sample.data.length;
+      setXmSampleSelection({
+        start: Math.round(sel.start * ratio),
+        end: Math.round(sel.end * ratio),
+      });
+    }
+  }
   xmLivePreviewSwap();
 }
 
@@ -294,6 +326,41 @@ export function setXmBitDepth(bitDepth: 8 | 16): void {
   const { wb } = ctx;
   if (wb.xm.bitDepth === bitDepth) return;
   updateCurrentXmWorkbench({ ...wb, xm: { ...wb.xm, bitDepth } });
+}
+
+/**
+ * Fit the current sample to a musical length (see
+ * `XmTransformerParams.playingLength`), or clear the fit with null. The
+ * key is dropped rather than stored as null so an unfitted workbench
+ * keeps the shape it always had.
+ */
+export function setXmPlayingLength(length: XmPlayingLength | null): void {
+  const ctx = getOrInitCurrentXmWorkbench();
+  if (!ctx) return;
+  const { wb } = ctx;
+  const cur = wb.xm.playingLength ?? null;
+  const valid =
+    length !== null &&
+    Number.isFinite(length.ticks) &&
+    Number.isFinite(length.bpm) &&
+    length.ticks > 0 &&
+    length.bpm > 0;
+  const next = valid ? { ticks: length.ticks, bpm: length.bpm } : null;
+  if (cur?.ticks === next?.ticks && cur?.bpm === next?.bpm) return;
+  const { playingLength: _drop, ...rest } = wb.xm;
+  void _drop;
+  updateCurrentXmWorkbench({
+    ...wb,
+    xm: next ? { ...rest, playingLength: next } : rest,
+  });
+}
+
+export function setXmResampleMode(resampleMode: ResampleMode): void {
+  const ctx = getOrInitCurrentXmWorkbench();
+  if (!ctx) return;
+  const { wb } = ctx;
+  if ((wb.xm.resampleMode ?? XM_DEFAULT_RESAMPLE_MODE) === resampleMode) return;
+  updateCurrentXmWorkbench({ ...wb, xm: { ...wb.xm, resampleMode } });
 }
 
 export function setXmDither(dither: boolean): void {

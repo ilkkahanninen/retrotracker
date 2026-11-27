@@ -2596,6 +2596,10 @@ h2 {
 .pipeline__length-row input {
   width: 11ch;
 }
+.pipeline__length-unit {
+  color: var(--muted);
+  white-space: nowrap;
+}
 
 /* Info view — song-level metadata form (title / filename / info text).
  * Single-column, max-width clamp so long lines stay readable on a

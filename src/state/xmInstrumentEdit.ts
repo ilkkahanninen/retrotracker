@@ -30,7 +30,11 @@ import {
   type XmEditState,
 } from "./song";
 import { settings } from "./settings";
-import { runXmPipeline } from "../core/audio/sampleWorkbench";
+import {
+  runXmPipeline,
+  sourceWantsFullLoop,
+} from "../core/audio/sampleWorkbench";
+import { refitXmLoop, xmRenderTargetFor } from "../core/xm/sampleFit";
 import {
   getXmWorkbench,
   withXmSampleRemoved,
@@ -149,10 +153,21 @@ export function patchXmSample(
   // a bare loop-field patch leaves the slot's audio glued to the old fade.
   // Re-run the chain through the new loop in the same commit so undo
   // reverts both halves atomically. Mirrors PT2's patchCurrentSample.
+  //
+  // Same for a length fit and the tuning: the fit resamples to a frame
+  // count derived from the rate the sample plays at, so a retune has to
+  // re-fit or the loop no longer lands on the row.
   const touchesLoop =
     "loopStart" in patch || "loopLength" in patch || "loopType" in patch;
-  const wb = touchesLoop ? getXmWorkbench(slot1Based, sampleIndex) : undefined;
-  const needsRerun = !!wb && wb.chain.some((e) => e.kind === "crossfade");
+  const touchesTuning = "relativeNote" in patch || "finetune" in patch;
+  const wb =
+    touchesLoop || touchesTuning
+      ? getXmWorkbench(slot1Based, sampleIndex)
+      : undefined;
+  const hasCrossfade = !!wb && wb.chain.some((e) => e.kind === "crossfade");
+  const hasFit =
+    !!wb && !!wb.xm.playingLength && !sourceWantsFullLoop(wb.source);
+  const needsRerun = (touchesLoop && hasCrossfade) || (touchesTuning && hasFit);
   if (!needsRerun || !wb) {
     commitEditXm((s) =>
       patchXmInstrumentSampleMutation(s, slot1Based, patch, sampleIndex),
@@ -171,10 +186,36 @@ export function patchXmSample(
       patched.instruments[slot1Based - 1]?.samples[sampleIndex];
     if (!patchedSample) return { ...state, song: patched };
     const ctx = runContextForXmSample(patchedSample);
-    // No loop after the patch → crossfade is a pass-through, nothing to re-run.
-    if (!ctx) return { ...state, song: patched };
-    const { data, bits } = runXmPipeline(wb, ctx);
-    const updated: XmSample = { ...patchedSample, data, bits };
+    const linear = patched.flags.linearFreq;
+    const target = xmRenderTargetFor(patchedSample, linear);
+    const before = state.song.instruments[slot1Based - 1]?.samples[sampleIndex];
+    const refit =
+      touchesTuning &&
+      hasFit &&
+      target?.c4Rate !==
+        (before ? xmRenderTargetFor(before, linear)?.c4Rate : undefined);
+    // No loop after the patch → crossfade is a pass-through; and a retune
+    // that doesn't move the playback rate (FT2 ignores finetune's low
+    // three bits) leaves the fit where it was. Nothing to re-run.
+    if (!refit && !(touchesLoop && hasCrossfade && ctx)) {
+      return { ...state, song: patched };
+    }
+    // The target goes in on every re-run, not just a re-fit — without it
+    // a crossfade re-run would silently drop the fit.
+    const { data, bits } = runXmPipeline(wb, ctx, target);
+    const updated: XmSample = {
+      ...patchedSample,
+      data,
+      bits,
+      // A re-fit resamples the same audio to a new length; the loop
+      // scales with it. A crossfade re-run keeps the length.
+      ...refitXmLoop(
+        patchedSample,
+        patchedSample.data.length,
+        data.length,
+        "scale",
+      ),
+    };
     return {
       ...state,
       song: setXmInstrumentSampleMutation(

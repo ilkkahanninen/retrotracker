@@ -146,6 +146,51 @@ describe("FT2 .retro persistence", () => {
     expect(restored!.xm.dither).toBe(true);
   });
 
+  it("round-trips the length fit and resampler; drops malformed ones", async () => {
+    const wav = { sampleRate: 22050, channels: [new Float32Array(8)] };
+    const source = (xm: object) => ({
+      sourceName: "loop",
+      wav,
+      chain: [],
+      xm: xm as never,
+    });
+    const bytes = projectToBytes(
+      baseInputs({
+        xmSamplerSources: {
+          "1:0": source({
+            monoMix: "average",
+            bitDepth: 16,
+            playingLength: { ticks: 384, bpm: 140 },
+            resampleMode: "filteredLinear",
+          }),
+          // No fit: parses to exactly the object it always did.
+          "2:0": source({ monoMix: "average", bitDepth: 8 }),
+          "3:0": source({
+            monoMix: "average",
+            bitDepth: 8,
+            playingLength: { ticks: -4, bpm: 140 },
+            resampleMode: "bogus",
+          }),
+          "4:0": source({
+            monoMix: "average",
+            bitDepth: 8,
+            playingLength: { ticks: 96, bpm: 9000 },
+          }),
+        },
+      }),
+    );
+    const loaded = projectFromBytes(bytes)!.xmSamplerSources;
+    expect(loaded["1:0"]!.xm).toEqual({
+      monoMix: "average",
+      bitDepth: 16,
+      playingLength: { ticks: 384, bpm: 140 },
+      resampleMode: "filteredLinear",
+    });
+    expect(loaded["2:0"]!.xm).toEqual({ monoMix: "average", bitDepth: 8 });
+    expect(loaded["3:0"]!.xm).toEqual({ monoMix: "average", bitDepth: 8 });
+    expect(loaded["4:0"]!.xm).toEqual({ monoMix: "average", bitDepth: 8 });
+  });
+
   it("malformed XM workbench keys are dropped silently", async () => {
     const { defaultChiptuneParams } = await import("~/core/audio/chiptune");
     const bytes = projectToBytes(baseInputs());

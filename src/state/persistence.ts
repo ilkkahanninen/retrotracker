@@ -10,9 +10,11 @@ import type { Song } from "../core/song";
 import { parseXm } from "../core/xm/parser";
 import { writeXm } from "../core/xm/writer";
 import {
+  XM_MAX_BPM,
   XM_MAX_CHANNELS,
   XM_MAX_ORDERS,
   XM_MAX_PATTERN_ROWS,
+  XM_MIN_BPM,
   type XmSong,
 } from "../core/xm/types";
 import { FIELDS, type Cursor, type Field } from "./cursor";
@@ -915,8 +917,32 @@ function parseXmTransformer(raw: unknown): XmTransformerParams {
     mix === "left" ? "left" : mix === "right" ? "right" : "average";
   const bd = x["bitDepth"];
   const bitDepth: 8 | 16 = bd === 16 ? 16 : 8;
-  const dither = x["dither"] === true;
-  return dither ? { monoMix, bitDepth, dither: true } : { monoMix, bitDepth };
+  const out: XmTransformerParams = { monoMix, bitDepth };
+  // Optional keys are added only when present and valid, so a payload
+  // without them parses to exactly the object it always did.
+  if (x["dither"] === true) out.dither = true;
+  const len = x["playingLength"];
+  if (len && typeof len === "object") {
+    const ticks = Math.floor(Number((len as Record<string, unknown>)["ticks"]));
+    const bpm = Number((len as Record<string, unknown>)["bpm"]);
+    if (
+      Number.isFinite(ticks) &&
+      ticks > 0 &&
+      Number.isFinite(bpm) &&
+      bpm >= XM_MIN_BPM &&
+      bpm <= XM_MAX_BPM
+    ) {
+      out.playingLength = { ticks, bpm };
+    }
+  }
+  const mode = x["resampleMode"];
+  if (
+    typeof mode === "string" &&
+    (RESAMPLE_MODES as readonly string[]).includes(mode)
+  ) {
+    out.resampleMode = mode as ResampleMode;
+  }
+  return out;
 }
 
 /** Parse an `EffectNode[]` from an unknown JSON value. Drops bad entries

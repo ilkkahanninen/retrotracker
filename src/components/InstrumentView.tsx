@@ -75,6 +75,8 @@ import {
   removeXmEffect,
   setXmBitDepth,
   setXmDither,
+  setXmPlayingLength,
+  setXmResampleMode,
   setXmEffectBypass,
   setXmMonoMix,
   setXmSelectedEffectIndex,
@@ -84,6 +86,8 @@ import {
   xmSelectedEffectIndex,
   xmSelectedEffectParam,
 } from "../state/xmSampleEdit";
+import { xmCursor } from "../state/cursorXm";
+import { speedTempoAtXm } from "../core/xm/flatten";
 import { xmSampleClipboard } from "../state/xmSampleClipboard";
 import { getXmWorkbench } from "../state/xmSampleWorkbench";
 import { defaultParamForKind } from "../state/selectedEffect";
@@ -850,6 +854,17 @@ export const InstrumentView: Component<Props> = (props) => {
                             onSetMonoMix={setXmMonoMix}
                             onSetBitDepth={setXmBitDepth}
                             onSetDither={setXmDither}
+                            onSetPlayingLength={setXmPlayingLength}
+                            onSetResampleMode={setXmResampleMode}
+                            speedTempoAtCursor={() => {
+                              const c = xmCursor();
+                              return speedTempoAtXm(
+                                props.song,
+                                c.order,
+                                c.row,
+                                true,
+                              );
+                            }}
                             selectedEffectIndex={xmSelectedEffectIndex()}
                             onSelectEffect={(i) => {
                               setXmSelectedEffectIndex(i);
