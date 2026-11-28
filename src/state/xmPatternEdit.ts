@@ -4,7 +4,10 @@ import {
   pasteXmSlice,
   readXmSlice,
 } from "../core/xm/clipboardOps";
-import { effectCodeForChar } from "../core/xm/effectLabels";
+import {
+  effectCodeForChar,
+  volumeColumnWithDigit,
+} from "../core/xm/effectLabels";
 import {
   deleteXmCellPullUp,
   deleteXmRowPullUp,
@@ -201,21 +204,22 @@ export function enterXmHexDigit(digit: number): void {
       );
       break;
     }
-    case "volHi": {
-      // Why: low nibble of volume column is magnitude — patching only the
-      // high nibble preserves it. Empty (high=0) resets the column entirely.
-      const newByte = nib === 0 ? 0 : (nib << 4) | (cell.volumeColumn & 0x0f);
-      commitEditXm((s) =>
-        setXmCell(s, c.order, c.row, c.channel, { volumeColumn: newByte }),
-      );
-      stepsRight = true;
-      break;
-    }
+    case "volHi":
     case "volLo": {
-      const newByte = (cell.volumeColumn & 0xf0) | nib;
+      // The column is typed as it reads: a volume 00..40, or an effect
+      // symbol and its magnitude — see `volumeColumnWithDigit`. A digit
+      // that means nothing here (a leading 5) is ignored, cursor and all.
+      const first = c.field === "volHi";
+      const newByte = volumeColumnWithDigit(
+        cell.volumeColumn,
+        first ? "hi" : "lo",
+        nib,
+      );
+      if (newByte === null) return;
       commitEditXm((s) =>
         setXmCell(s, c.order, c.row, c.channel, { volumeColumn: newByte }),
       );
+      stepsRight = first;
       break;
     }
     case "effectHi": {

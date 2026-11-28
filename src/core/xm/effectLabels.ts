@@ -59,46 +59,106 @@ export function effectCodeForChar(char: string): number | null {
 }
 
 /**
- * Volume-column high-nibble label table. The XM volume column packs
- * (kind, magnitude) into one byte. The grid renders both halves as one
- * char each for a uniform 2-char cell width. The kind char is:
- *   - the hex digit for the set-volume range (high nibble 1..5 means
- *     "set volume hi*16 + lo", so the digit IS the high nibble);
- *   - a letter for the slide / vibrato / panning / portamento ops
- *     (mirroring OpenMPT-style display, since FT2's own display goes
- *     out of sync with our font metrics).
+ * The XM volume column packs (kind, magnitude) into one byte:
+ *
+ *   0x00        empty
+ *   0x10..0x50  set volume 0..64 — stored as the volume PLUS 0x10
+ *   0x60..0xFF  an effect: high nibble = kind, low nibble = magnitude
+ *
+ * The grid shows it as two characters, the way FT2 does: a set-volume
+ * as the volume itself in hex (`00`..`40`), an effect as its symbol and
+ * magnitude (`-3`, `P8`). The +0x10 is a storage detail the user never
+ * sees — showing the raw byte made `40` read as full volume when it
+ * plays 0x30, and left no way to type a volume below 0x10.
  */
-const VOL_KIND_CHAR: ReadonlyArray<string> = [
-  "·", // 0x0 — empty (filtered out by the null return below)
-  "1", // 0x10..0x1F — set vol (low nibble = magnitude)
-  "2", // 0x20..0x2F — set vol
-  "3", // 0x30..0x3F — set vol
-  "4", // 0x40..0x4F — set vol
-  "5", // 0x50         — set vol (XM caps at 0x50; 0x51..0x5F unused)
-  "-", // 0x6 — vol slide down
-  "+", // 0x7 — vol slide up
-  "D", // 0x8 — fine vol slide down
-  "U", // 0x9 — fine vol slide up
-  "S", // 0xA — vibrato speed
-  "V", // 0xB — vibrato w/ depth
-  "P", // 0xC — set panning
-  "L", // 0xD — pan slide left
-  "R", // 0xE — pan slide right
-  "M", // 0xF — tone portamento
-];
+export const XM_VOL_SET_BASE = 0x10;
+export const XM_VOL_MAX = 0x40;
+
+/** First byte of the effect range; below it (and above 0) is set-volume. */
+const VOL_EFFECT_BASE = 0x60;
+
+/** Symbols for the effect kinds, indexed by the byte's high nibble. */
+const VOL_EFFECT_CHAR: Readonly<Record<number, string>> = {
+  0x6: "-", // vol slide down
+  0x7: "+", // vol slide up
+  0x8: "D", // fine vol slide down
+  0x9: "U", // fine vol slide up
+  0xa: "S", // vibrato speed
+  0xb: "V", // vibrato w/ depth
+  0xc: "P", // set panning
+  0xd: "L", // pan slide left
+  0xe: "R", // pan slide right
+  0xf: "M", // tone portamento
+};
+
+/** The volume a set-volume byte stands for, or null for any other byte
+ *  (empty, an effect, or the meaningless 0x01..0x0F). */
+export function volumeColumnSetValue(byte: number): number | null {
+  if (byte < XM_VOL_SET_BASE || byte >= VOL_EFFECT_BASE) return null;
+  return byte - XM_VOL_SET_BASE;
+}
 
 /**
- * Decode the volume column byte into (kind char, magnitude nibble) where
- * both halves render as one character so the grid cell stays exactly
- * two characters wide. Returns `null` for an empty cell (byte === 0).
+ * Decode the volume column byte into the two characters the grid draws:
+ * `kind` (first) and `magnitude` (second, a nibble). Returns `null` for
+ * an empty cell (byte === 0).
+ *
+ * For a set-volume the two are the hex digits of the volume itself, so
+ * 0x19 reads `09` and 0x50 reads `40`.
  */
 export function decodeVolumeColumn(
   byte: number,
 ): { kind: string; magnitude: number } | null {
   if (byte === 0) return null;
-  const hi = (byte >>> 4) & 0xf;
-  const lo = byte & 0xf;
-  return { kind: VOL_KIND_CHAR[hi] ?? "·", magnitude: lo };
+  const volume = volumeColumnSetValue(byte);
+  if (volume !== null) {
+    return {
+      kind: (volume >>> 4).toString(16).toUpperCase(),
+      magnitude: volume & 0xf,
+    };
+  }
+  return {
+    kind: VOL_EFFECT_CHAR[(byte >>> 4) & 0xf] ?? "·",
+    magnitude: byte & 0xf,
+  };
+}
+
+/**
+ * The volume column byte after typing hex digit `nib` into its first
+ * (`"hi"`) or second (`"lo"`) character. Returns `null` when the digit
+ * means nothing there, so the caller leaves the cell and cursor alone.
+ *
+ * First character:
+ *   0..4  set volume — the digit is the volume's high hex digit
+ *   5     nothing (volume stops at 40)
+ *   6..F  the effect kinds, as `VOL_EFFECT_CHAR` lists them
+ * Second character: the low digit of the volume, or the effect's
+ * magnitude. On an empty cell it starts a set-volume, so typing just
+ * `9` there gives volume 09.
+ *
+ * The other character is kept — the low digit when the first is typed,
+ * the kind when the second is — and a volume is clamped to 40.
+ */
+export function volumeColumnWithDigit(
+  byte: number,
+  which: "hi" | "lo",
+  digit: number,
+): number | null {
+  const nib = digit & 0xf;
+  const volume = volumeColumnSetValue(byte);
+  // The cell's current second character, whatever kind it is.
+  const low = volume !== null ? volume & 0xf : byte & 0xf;
+  const setVolume = (value: number) =>
+    XM_VOL_SET_BASE + Math.min(XM_VOL_MAX, value);
+
+  if (which === "hi") {
+    if (nib <= 0x4) return setVolume((nib << 4) | low);
+    if (nib === 0x5) return null;
+    return (nib << 4) | low;
+  }
+  // Second character.
+  if (byte >= VOL_EFFECT_BASE) return (byte & 0xf0) | nib;
+  return setVolume(((volume ?? 0) & 0xf0) | nib);
 }
 
 /** Standard XM note names — note number 1..96 = C-0..B-7. */
