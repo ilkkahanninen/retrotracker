@@ -63,6 +63,7 @@ import {
   setCurrentXmOctave,
   setCurrentXmSampleIndex,
 } from "./xmEdit";
+import { clearOrderSelection } from "./orderSelection";
 import { reconcileUiToSong } from "./reconcile";
 import { getSourceStore } from "./sourceStore";
 import { dismissSharedBanner } from "./shareLoad";
@@ -424,6 +425,7 @@ export function applyLoadedSession(loaded: LoadedSession): void {
   // never picked in this project.
   clearSelection();
   clearXmSelection();
+  clearOrderSelection();
   setSampleSelection(null);
   setXmSampleSelection(null);
   clearSelectedEffect();

@@ -17,6 +17,7 @@ import {
   loadPatternNames,
 } from "./patternNames";
 import { settings } from "./settings";
+import { clearOrderSelection } from "./orderSelection";
 import { reconcileUiToSong } from "./reconcile";
 
 /**
@@ -467,6 +468,9 @@ export function undo(): void {
   if (previous.patternNames !== currentNames)
     loadPatternNames(previous.patternNames);
   setDirty(true);
+  // The positions an order-list multi-selection names belong to the song
+  // as it was before the step.
+  clearOrderSelection();
   // The restored song can be shorter / narrower than the one the cursor,
   // selection and mute arrays were positioned against.
   reconcileUiToSong();
@@ -501,6 +505,7 @@ export function redo(): void {
     setXmWorkbenchesRaw(next.xmWorkbenches);
   if (next.patternNames !== currentNames) loadPatternNames(next.patternNames);
   setDirty(true);
+  clearOrderSelection();
   reconcileUiToSong();
 }
 

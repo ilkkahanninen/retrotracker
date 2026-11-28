@@ -14,6 +14,15 @@ import { EditStepControl } from "./components/EditStepControl";
 import { MetaNumberInput } from "./components/MetaNumberInput";
 import { ModeBadge } from "./components/ModeBadge";
 import { PatternNameField } from "./components/PatternNameField";
+import {
+  canInsertOrders,
+  deleteOrderTitle,
+  duplicatePatternTitle,
+  insertOrderTitle,
+  orderSlotTitle,
+  selectedOrderCount,
+} from "./components/orderListShared";
+import { isOrderSelected } from "./state/orderSelection";
 import { PatternPosReadout } from "./components/PatternPosReadout";
 import { SongTitle } from "./components/SongTitle";
 import { InfoView } from "./components/InfoView";
@@ -131,6 +140,7 @@ import {
   jumpNextOrder,
   jumpPrevOrder,
   jumpToOrder,
+  selectOrdersTo,
   newBlankPatternAtOrder,
   renamePattern,
   stepNextPattern,
@@ -1103,6 +1113,7 @@ export const App: Component = () => {
     const cursorOrder = xm ? xmCursor().order : cursor().order;
     const activeIdx = playing ? playPos().order : cursorOrder;
     const slotPat = s ? (s.orders[activeIdx] ?? 0) : 0;
+    const selected = selectedOrderCount();
     return [
       {
         icon: ChevronLeft,
@@ -1121,14 +1132,20 @@ export const App: Component = () => {
       { separator: true, label: "" },
       {
         icon: Plus,
-        label: "Insert slot",
+        // With several slots selected in the order list these three act
+        // on the whole run, and say so.
+        label:
+          selected > 0 ? `Repeat ${selected} selected slots` : "Insert slot",
         hint: "⌘]",
         onClick: xm ? insertXmOrderSlot : insertOrderSlot,
-        disabled: !hasSong || (s ? s.songLength >= s.orders.length : true),
+        disabled:
+          !hasSong ||
+          (s ? !canInsertOrders(s.songLength, s.orders.length) : true),
       },
       {
         icon: Minus,
-        label: "Delete slot",
+        label:
+          selected > 0 ? `Delete ${selected} selected slots` : "Delete slot",
         hint: "⌘[",
         onClick: xm ? deleteXmOrderSlot : deleteOrderSlot,
         disabled: !hasSong || (s ? s.songLength <= 1 : true),
@@ -1143,7 +1160,10 @@ export const App: Component = () => {
       },
       {
         icon: CopyPlus,
-        label: "Duplicate pattern",
+        label:
+          selected > 0
+            ? `Duplicate patterns of ${selected} selected slots`
+            : "Duplicate pattern",
         hint: "⌥]",
         onClick: xm ? duplicateXmCurrentPattern : duplicateCurrentPattern,
         disabled: !hasSong,
@@ -1892,7 +1912,10 @@ export const App: Component = () => {
               const slotPat = () => s().orders[activeIdx()] ?? 0;
               const canPrev = () => slotPat() > 0;
               const canNext = () => true;
-              const canIns = () => s().songLength < s().orders.length;
+              // With several slots selected, Insert needs room for a
+              // copy of the whole run.
+              const canIns = () =>
+                canInsertOrders(s().songLength, s().orders.length);
               const canDel = () => s().songLength > 1;
               const canBlank = () => true;
               return (
@@ -1920,7 +1943,10 @@ export const App: Component = () => {
                       type="button"
                       onClick={insertOrderSlot}
                       disabled={!canIns()}
-                      title="Insert slot at cursor (⌘])"
+                      title={insertOrderTitle(
+                        s().songLength,
+                        s().orders.length,
+                      )}
                       aria-label="Insert slot"
                     >
                       <Icon of={Plus} />
@@ -1929,7 +1955,7 @@ export const App: Component = () => {
                       type="button"
                       onClick={deleteOrderSlot}
                       disabled={!canDel()}
-                      title="Delete slot at cursor (⌘[)"
+                      title={deleteOrderTitle()}
                       aria-label="Delete slot"
                     >
                       <Icon of={Minus} />
@@ -1947,7 +1973,7 @@ export const App: Component = () => {
                       type="button"
                       onClick={duplicateCurrentPattern}
                       disabled={!canBlank()}
-                      title="Duplicate pattern at slot (⌥])"
+                      title={duplicatePatternTitle()}
                       aria-label="Duplicate pattern"
                     >
                       Dup
@@ -1962,16 +1988,20 @@ export const App: Component = () => {
                             "orderlist__item--active": i === playPos().order,
                             "orderlist__item--cursor":
                               transport() !== "playing" && i === cursor().order,
+                            "orderlist__item--selected": isOrderSelected(i),
                           }}
-                          onClick={() => {
+                          onClick={(e) => {
                             if (editingOrderIdx() === i) return;
-                            jumpToOrder(i);
+                            // Shift-click selects a run of slots for
+                            // Insert / Dup / Delete to act on.
+                            if (e.shiftKey) selectOrdersTo(i);
+                            else jumpToOrder(i);
                           }}
                           onDblClick={(e) => {
                             e.stopPropagation();
                             setEditingOrderIdx(i);
                           }}
-                          title={`Jump to order ${i.toString(16).toUpperCase().padStart(2, "0")} — double-click to rename pattern`}
+                          title={orderSlotTitle(i)}
                         >
                           <span class="num">
                             {i.toString(16).toUpperCase().padStart(2, "0")}

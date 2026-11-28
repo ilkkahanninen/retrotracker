@@ -45,6 +45,30 @@ export interface OrderOps<TSong, TPattern> {
    *  trailing slot is zeroed. Refuses to drop song length below 1. */
   deleteOrder: (song: TSong, at: number) => TSong;
   /**
+   * Repeat a run of slots: insert a copy of `orders[start..end]`
+   * (inclusive) right after it, with the same pattern numbers, pushing
+   * the rest of the song right.
+   *
+   *   orders [0,1,2,3], range 1..2 → [0,1,2,1,2,3]
+   *
+   * All or nothing: when the copy would not fit under `maxOrders` the
+   * song is returned unchanged rather than repeating part of the run.
+   */
+  repeatOrderRange: (song: TSong, start: number, end: number) => TSong;
+  /**
+   * Give the slots `start..end` (inclusive) their own copies of the
+   * patterns they play, so the run can be edited without touching the
+   * rest of the song. Each distinct pattern is cloned once and slots
+   * that shared a pattern share the clone — the run keeps its shape.
+   *
+   *   orders [0,1,2,1,2,3] over 4 patterns, range 3..4 → [0,1,2,4,5,3]
+   */
+  duplicatePatternsInRange: (song: TSong, start: number, end: number) => TSong;
+  /** Delete the slots `start..end` (inclusive), pulling the rest left and
+   *  zeroing the freed tail. Always leaves at least one slot: a range
+   *  covering the whole song keeps its first slot. */
+  deleteOrderRange: (song: TSong, start: number, end: number) => TSong;
+  /**
    * Tidy the order list and pattern bank: renumber patterns in order of
    * first appearance in the order list and drop the ones no slot
    * references.
@@ -141,6 +165,78 @@ export function makeOrderOps<TPattern, TSong extends SongShape<TPattern>>(
     return { ...song, orders: newOrders, songLength: song.songLength - 1 };
   }
 
+  /** Clamp an inclusive slot range into the song; null when empty. */
+  function clampRange(
+    song: TSong,
+    start: number,
+    end: number,
+  ): { start: number; end: number } | null {
+    const lo = Math.max(0, Math.min(start, end));
+    const hi = Math.min(song.songLength - 1, Math.max(start, end));
+    return hi < lo ? null : { start: lo, end: hi };
+  }
+
+  function repeatOrderRange(song: TSong, start: number, end: number): TSong {
+    const range = clampRange(song, start, end);
+    if (!range) return song;
+    const count = range.end - range.start + 1;
+    if (song.songLength + count > maxOrders) return song;
+    const live = song.orders.slice(0, song.songLength);
+    const block = live.slice(range.start, range.end + 1);
+    const next = [
+      ...live.slice(0, range.end + 1),
+      ...block,
+      ...live.slice(range.end + 1),
+    ];
+    const newOrders = [...song.orders];
+    for (let i = 0; i < next.length; i++) newOrders[i] = next[i]!;
+    return { ...song, orders: newOrders, songLength: next.length };
+  }
+
+  function duplicatePatternsInRange(
+    song: TSong,
+    start: number,
+    end: number,
+  ): TSong {
+    const range = clampRange(song, start, end);
+    if (!range) return song;
+    const newPatterns: TPattern[] = [...song.patterns];
+    const newOrders = [...song.orders];
+    const cloneOf = new Map<number, number>();
+    for (let i = range.start; i <= range.end; i++) {
+      const patNum = song.orders[i];
+      if (patNum === undefined) continue;
+      let clone = cloneOf.get(patNum);
+      if (clone === undefined) {
+        const source = song.patterns[patNum];
+        // A slot pointing past the pattern bank has nothing to copy.
+        if (!source) continue;
+        clone = newPatterns.length;
+        newPatterns.push(clonePattern(source));
+        cloneOf.set(patNum, clone);
+      }
+      newOrders[i] = clone;
+    }
+    if (cloneOf.size === 0) return song;
+    return { ...song, patterns: newPatterns, orders: newOrders };
+  }
+
+  function deleteOrderRange(song: TSong, start: number, end: number): TSong {
+    const range = clampRange(song, start, end);
+    if (!range) return song;
+    const live = song.orders.slice(0, song.songLength);
+    // Keep at least one playable slot: a range over the whole song
+    // spares its first slot.
+    const from =
+      range.start === 0 && range.end === song.songLength - 1 ? 1 : range.start;
+    if (from > range.end) return song;
+    const next = [...live.slice(0, from), ...live.slice(range.end + 1)];
+    // Everything past the new end is zeroed, like the single-slot delete.
+    const newOrders = new Array<number>(song.orders.length).fill(0);
+    for (let i = 0; i < next.length; i++) newOrders[i] = next[i]!;
+    return { ...song, orders: newOrders, songLength: next.length };
+  }
+
   function cleanupOrders(song: TSong): {
     song: TSong;
     remap: (number | undefined)[];
@@ -189,5 +285,8 @@ export function makeOrderOps<TPattern, TSong extends SongShape<TPattern>>(
     duplicatePatternAtOrder,
     insertOrderAt,
     deleteOrder,
+    repeatOrderRange,
+    duplicatePatternsInRange,
+    deleteOrderRange,
   };
 }

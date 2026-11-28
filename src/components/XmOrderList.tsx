@@ -5,6 +5,14 @@ import { XM_MAX_ORDERS } from "../core/xm/types";
 import { xmCursor } from "../state/cursorXm";
 import { Icon } from "./Icon";
 import { PatternNameField } from "./PatternNameField";
+import {
+  canInsertOrders,
+  deleteOrderTitle,
+  duplicatePatternTitle,
+  insertOrderTitle,
+  orderSlotTitle,
+} from "./orderListShared";
+import { isOrderSelected } from "../state/orderSelection";
 import { ChevronLeft, ChevronRight, Minus, Plus } from "./icons";
 import { patternNames } from "../state/patternNames";
 import { playPos, transport } from "../state/song";
@@ -15,6 +23,7 @@ import {
   jumpXmToOrder,
   newXmBlankPatternAtOrder,
   renameXmPattern,
+  selectXmOrdersTo,
   stepXmNextPattern,
   stepXmPrevPattern,
 } from "../state/xmOrderEdit";
@@ -27,7 +36,9 @@ interface Props {
  * FT2 order list. Mirrors PT2's order list layout: a six-button toolbar
  * (Prev / Next pattern, Insert / Delete slot, New blank, Duplicate)
  * above an ordered list of entries. Clicking an entry jumps the FT2
- * cursor to that order; double-clicking renames the pattern it plays.
+ * cursor to that order; shift-clicking selects a run of entries for
+ * Insert / Dup / Delete to act on; double-clicking renames the pattern
+ * an entry plays.
  *
  * Pattern-number readouts are wrapped in thunks so a `commitEditXm`
  * that swaps the order at a slot re-paints just that slot — `For`'s
@@ -39,7 +50,8 @@ export const XmOrderList: Component<Props> = (props) => {
   const activeIdx = () => (playing() ? playPos().order : xmCursor().order);
   const slotPat = () => props.song.orders[activeIdx()] ?? 0;
   const canPrev = () => slotPat() > 0;
-  const canIns = () => props.song.songLength < XM_MAX_ORDERS;
+  // With several slots selected, Insert needs room for a copy of the run.
+  const canIns = () => canInsertOrders(props.song.songLength, XM_MAX_ORDERS);
   const canDel = () => props.song.songLength > 1;
 
   // Order-list slot whose name is being edited — the slot, not the
@@ -78,7 +90,7 @@ export const XmOrderList: Component<Props> = (props) => {
           type="button"
           onClick={insertXmOrderSlot}
           disabled={!canIns()}
-          title="Insert slot at cursor (⌘])"
+          title={insertOrderTitle(props.song.songLength, XM_MAX_ORDERS)}
           aria-label="Insert slot"
         >
           <Icon of={Plus} />
@@ -87,7 +99,7 @@ export const XmOrderList: Component<Props> = (props) => {
           type="button"
           onClick={deleteXmOrderSlot}
           disabled={!canDel()}
-          title="Delete slot at cursor (⌘[)"
+          title={deleteOrderTitle()}
           aria-label="Delete slot"
         >
           <Icon of={Minus} />
@@ -103,7 +115,7 @@ export const XmOrderList: Component<Props> = (props) => {
         <button
           type="button"
           onClick={duplicateXmCurrentPattern}
-          title="Duplicate pattern at slot (⌥])"
+          title={duplicatePatternTitle()}
           aria-label="Duplicate pattern"
         >
           Dup
@@ -123,16 +135,20 @@ export const XmOrderList: Component<Props> = (props) => {
                   "orderlist__item--active": i === playPos().order,
                   "orderlist__item--cursor":
                     !playing() && i === xmCursor().order,
+                  "orderlist__item--selected": isOrderSelected(i),
                 }}
-                onClick={() => {
+                onClick={(e) => {
                   if (editingOrderIdx() === i) return;
-                  jumpXmToOrder(i);
+                  // Shift-click selects a run of slots for Insert / Dup /
+                  // Delete to act on.
+                  if (e.shiftKey) selectXmOrdersTo(i);
+                  else jumpXmToOrder(i);
                 }}
                 onDblClick={(e) => {
                   e.stopPropagation();
                   setEditingOrderIdx(i);
                 }}
-                title={`Jump to order ${i.toString(16).toUpperCase().padStart(2, "0")} — double-click to rename pattern`}
+                title={orderSlotTitle(i)}
               >
                 <span class="num">
                   {i.toString(16).toUpperCase().padStart(2, "0")}

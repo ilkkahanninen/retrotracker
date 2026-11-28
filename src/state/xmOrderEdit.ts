@@ -2,11 +2,14 @@ import type { XmSong } from "../core/xm/types";
 import {
   cleanupXmOrders,
   deleteXmOrder,
+  deleteXmOrderRange,
   duplicateXmPatternAtOrder,
+  duplicateXmPatternsInRange,
   insertXmOrderAtCursor,
   newXmPatternAtOrder,
   nextXmPatternAtOrder,
   prevXmPatternAtOrder,
+  repeatXmOrderRange,
 } from "../core/xm/mutations";
 import {
   commitEditXmLive,
@@ -49,10 +52,14 @@ const ops = createOrderEdit<XmSong>({
     prevPattern: prevXmPatternAtOrder,
     newPattern: newXmPatternAtOrder,
     duplicatePattern: duplicateXmPatternAtOrder,
+    repeatRange: repeatXmOrderRange,
+    duplicatePatternsInRange: duplicateXmPatternsInRange,
+    deleteRange: deleteXmOrderRange,
   },
 });
 
 export const jumpXmToOrder = ops.jumpToOrder;
+export const selectXmOrdersTo = ops.selectTo;
 export const jumpXmPrevOrder = ops.jumpPrev;
 export const jumpXmNextOrder = ops.jumpNext;
 export const stepXmNextPattern = ops.stepNext;

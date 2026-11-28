@@ -336,6 +336,12 @@ const NOTE_TIPS: TipSection[] = [
       { keys: `${MOD_LABEL} + ]`, action: "insert order slot" },
       { keys: `${ALT_LABEL} + [`, action: "new blank pattern at slot" },
       { keys: `${ALT_LABEL} + ]`, action: "duplicate pattern at slot" },
+      {
+        keys: "Shift + click",
+        action:
+          "select a run of slots — insert repeats it, duplicate / delete act on all",
+      },
+      { keys: "Esc", action: "clear the slot selection" },
     ],
   },
   {

@@ -168,6 +168,16 @@ Right rail of the Pattern view. The order list is the **playback sequence** — 
 - `Alt + [` (toolbar `New`) appends a fresh blank pattern and points the active slot at it.
 - `Alt + ]` (toolbar `Dup`) appends a copy of the active slot's pattern.
 
+### Repeating a part of the song
+
+**Shift-click** a slot to select the run from the active slot to the one you clicked (shift-click again to move the far end; a plain click or `Esc` clears it). While a run is selected, three of the toolbar actions work on all of it:
+
+- `Cmd + ]` (`+`) **repeats** the run right after itself, playing the same patterns again — `00 01 02 03` with `01 02` selected becomes `00 01 02 01 02 03`. The new copy is left selected.
+- `Alt + ]` (`Dup`) gives the selected slots **their own copies** of the patterns, so you can change them without touching the original. Slots that shared a pattern share the copy. Repeat, then Dup, is the quick way to make a variation of a section.
+- `Cmd + [` (`−`) **deletes** the selected slots. One slot always remains.
+
+Repeating is refused when the copy would not fit in the order list (128 slots in a `.mod`, 256 in an `.xm`). Stepping the pattern (`‹` `›`) and `New` still act on the single active slot.
+
 All of these stay live during playback. Audible changes apply on the next play / restart, except for slot-pattern stepping (`Shift + [` / `Shift + ]`), which the worklet picks up on the next row tick (typically tens of ms).
 
 ### Pattern names

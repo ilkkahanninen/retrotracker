@@ -15,6 +15,7 @@ import {
   xmSelection,
   type PatternSelection,
 } from "./selection";
+import { clearOrderSelection, orderSelection } from "./orderSelection";
 import { playPos, setPlayPos, song, transport } from "./song";
 
 const clamp = (v: number, lo: number, hi: number): number =>
@@ -72,6 +73,12 @@ export function reconcileUiToSong(): void {
     if (sel && !selectionFits(sel, lastOrder, rowsAt, channels)) {
       clearSelection();
     }
+  }
+
+  // An order-list multi-selection that reaches past the song's end.
+  const orderSel = orderSelection();
+  if (orderSel && (orderSel.anchor > lastOrder || orderSel.head > lastOrder)) {
+    clearOrderSelection();
   }
 
   // While playing, the worklet owns playPos (it reports against its own
