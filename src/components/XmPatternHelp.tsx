@@ -8,7 +8,9 @@ import {
 } from "solid-js";
 import type { XmNote, XmSong } from "../core/xm/types";
 import {
+  XM_VOL_MAX,
   decodeVolumeColumn,
+  volumeColumnSetValue,
   effectChar,
   noteString,
 } from "../core/xm/effectLabels";
@@ -24,7 +26,7 @@ import { ALT_LABEL, MOD_LABEL } from "../state/platform";
  * Returns null for an empty volume cell (byte === 0).
  *
  * XM packs (kind, magnitude) into the byte:
- *   0x10..0x50  → set volume (0..64), top nibble = magnitude/16
+ *   0x10..0x50  → set volume 0..64, stored as the volume + 0x10
  *   0x60..0x6F  → volume slide down by lo
  *   0x70..0x7F  → volume slide up by lo
  *   0x80..0x8F  → fine vol down by lo
@@ -48,15 +50,13 @@ function explainVolumeColumn(byte: number): {
     : "··";
   const hi = (byte >>> 4) & 0xf;
   const lo = byte & 0xf;
-  if (hi >= 0x1 && hi <= 0x4) {
-    return { cell, name: "Set volume", detail: `${hi * 16 + lo} / 64` };
-  }
-  if (hi === 0x5) {
-    return {
-      cell,
-      name: "Set volume",
-      detail: `${Math.min(64, 0x50 + lo)} / 64`,
-    };
+  const volume = volumeColumnSetValue(byte);
+  if (volume !== null) {
+    // What the replayer plays: only 0x10..0x50 set the volume; the
+    // unused 0x51..0x5F do nothing.
+    return volume <= XM_VOL_MAX
+      ? { cell, name: "Set volume", detail: `${volume} / 64` }
+      : { cell, name: "(unused)" };
   }
   switch (hi) {
     case 0x6:
@@ -383,7 +383,11 @@ const VOLUME_TIPS: TipSection[] = [
   {
     title: "Volume column",
     items: [
-      { keys: "0 – 9, A – F", action: "enter nibble (set volume 0..64)" },
+      { keys: "0 – 4, then 0 – F", action: "set volume 00 – 40 (hex)" },
+      {
+        keys: "6 – F on the first digit",
+        action: "effect: − + D U S V P L R M, then its amount",
+      },
       { keys: ".", action: "clear field" },
     ],
   },

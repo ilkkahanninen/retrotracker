@@ -348,3 +348,40 @@ describe("FT2 help pane and channel-header tooltips", () => {
     expect(titles[20]).toBe("Mute channel 11");
   });
 });
+
+describe("FT2 volume column from the keyboard", () => {
+  const volumeColumn = () => xm2Song()!.patterns[0]!.rows[0]![0]!.volumeColumn;
+  const helpText = (container: HTMLElement) =>
+    container.querySelector(".patternhelp__row")!.textContent!;
+
+  it("typing 0 then 9 sets volume 9, and the help pane agrees", async () => {
+    const { container } = render(() => <App />);
+    setXmCursor({ order: 0, row: 0, channel: 0, field: "volHi" });
+    const user = userEvent.setup();
+    await user.keyboard("09");
+    // Stored as volume + 0x10; the cursor moved on by the edit step.
+    expect(volumeColumn()).toBe(0x19);
+    setXmCursor({ order: 0, row: 0, channel: 0, field: "volHi" });
+    expect(helpText(container)).toContain("09");
+    expect(helpText(container)).toContain("Set volume");
+    expect(helpText(container)).toContain("9 / 64");
+  });
+
+  it("00 is a real volume, not an empty cell", async () => {
+    render(() => <App />);
+    setXmCursor({ order: 0, row: 0, channel: 0, field: "volHi" });
+    const user = userEvent.setup();
+    await user.keyboard("00");
+    expect(volumeColumn()).toBe(0x10);
+  });
+
+  it("40 is full volume", async () => {
+    const { container } = render(() => <App />);
+    setXmCursor({ order: 0, row: 0, channel: 0, field: "volHi" });
+    const user = userEvent.setup();
+    await user.keyboard("40");
+    expect(volumeColumn()).toBe(0x50);
+    setXmCursor({ order: 0, row: 0, channel: 0, field: "volHi" });
+    expect(helpText(container)).toContain("64 / 64");
+  });
+});

@@ -133,29 +133,66 @@ describe("enterXmHexDigit — instrument nibbles", () => {
 });
 
 describe("enterXmHexDigit — volume column", () => {
-  it("volHi=0 clears the column entirely", () => {
-    // Pre-fill so we can see it cleared.
+  /** Type `digits` starting on the volume column's first character. */
+  function typeVolume(...digits: number[]): void {
     setXmCursor({ order: 0, row: 0, channel: 0, field: "volHi" });
-    enterXmHexDigit(0x4); // → kind 4 (set vol 0x40), advances to volLo
-    setXmCursor({ order: 0, row: 0, channel: 0, field: "volLo" });
-    enterXmHexDigit(0x5); // → magnitude 5, byte = 0x45
+    for (const d of digits) enterXmHexDigit(d);
+  }
+  const volumeColumn = () => {
     setXmCursor({ order: 0, row: 0, channel: 0, field: "note" });
-    expect(cellAtCursor().volumeColumn).toBe(0x45);
+    return cellAtCursor().volumeColumn;
+  };
 
-    setXmCursor({ order: 0, row: 0, channel: 0, field: "volHi" });
-    enterXmHexDigit(0x0);
-    setXmCursor({ order: 0, row: 0, channel: 0, field: "note" });
-    expect(cellAtCursor().volumeColumn).toBe(0);
+  it("types a volume as it reads: 09 is volume 9, 00 is volume 0", () => {
+    // A leading 0 used to clear the column, so no volume under 0x10
+    // could be entered. The file stores volume + 0x10.
+    typeVolume(0, 9);
+    expect(volumeColumn()).toBe(0x19);
+    typeVolume(0, 0);
+    expect(volumeColumn()).toBe(0x10);
   });
 
-  it("volHi advances to volLo, volLo advances by editStep", () => {
+  it("40 is full volume and nothing goes past it", () => {
+    typeVolume(4, 0);
+    expect(volumeColumn()).toBe(0x50);
+    typeVolume(4, 0xf);
+    expect(volumeColumn()).toBe(0x50);
+  });
+
+  it("the first digit moves to the second; the second advances the row", () => {
     setXmCursor({ order: 0, row: 0, channel: 0, field: "volHi" });
-    enterXmHexDigit(0x6); // vol slide down
-    expect(xmCursor().field).toBe("volLo");
-    enterXmHexDigit(0x4);
+    enterXmHexDigit(0x2);
+    expect(xmCursor()).toMatchObject({ row: 0, field: "volLo" });
+    enterXmHexDigit(0x8);
     expect(xmCursor().row).toBe(1);
-    setXmCursor({ order: 0, row: 0, channel: 0, field: "note" });
-    expect(cellAtCursor().volumeColumn).toBe(0x64);
+    expect(volumeColumn()).toBe(0x38); // volume 28
+  });
+
+  it("a leading 5 is ignored: nothing written, cursor stays", () => {
+    setXmCursor({ order: 0, row: 0, channel: 0, field: "volHi" });
+    enterXmHexDigit(0x5);
+    expect(xmCursor()).toMatchObject({ row: 0, field: "volHi" });
+    expect(volumeColumn()).toBe(0);
+  });
+
+  it("6..F on the first digit enter a volume-column effect", () => {
+    typeVolume(0x6, 0x3); // volume slide down 3
+    expect(volumeColumn()).toBe(0x63);
+    typeVolume(0xc, 0x8); // set panning 8
+    expect(volumeColumn()).toBe(0xc8);
+  });
+
+  it("the second digit alone on an empty cell enters a volume", () => {
+    setXmCursor({ order: 0, row: 0, channel: 0, field: "volLo" });
+    enterXmHexDigit(0x9);
+    expect(volumeColumn()).toBe(0x19);
+  });
+
+  it(". still clears the column", () => {
+    typeVolume(0, 9);
+    setXmCursor({ order: 0, row: 0, channel: 0, field: "volHi" });
+    clearXmAtCursor();
+    expect(volumeColumn()).toBe(0);
   });
 });
 
